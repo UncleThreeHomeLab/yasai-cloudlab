@@ -1,0 +1,11 @@
+{
+  "base": {
+    "base": {
+      "enableCRDTemplates": true
+    },
+    "defaultRevision": "default",
+    "global": {
+      "istioNamespace": "istio-system"
+    }
+  }
+}

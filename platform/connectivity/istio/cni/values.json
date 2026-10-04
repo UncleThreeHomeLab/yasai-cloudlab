@@ -1,0 +1,27 @@
+{
+  "cni": {
+    "profile": "ambient",
+    "image": "docker.io/istio/install-cni:1.31.1@sha256:49140cc9a9d742cea829f452d93956896e85c4f47bbc7b69cf76484b63cce8b1",
+    "global": {
+      "platform": "k3s"
+    },
+    "excludeNamespaces": [
+      "kube-system",
+      "istio-system",
+      "cert-manager",
+      "argocd",
+      "external-secrets",
+      "longhorn-system"
+    ],
+    "resources": {
+      "requests": {
+        "cpu": "25m",
+        "memory": "64Mi"
+      },
+      "limits": {
+        "cpu": "200m",
+        "memory": "256Mi"
+      }
+    }
+  }
+}

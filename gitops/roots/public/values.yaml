@@ -16,3 +16,5 @@ longhornBackup:
   reconcile: true
 certificates:
   enabled: true
+mesh:
+  enabled: true

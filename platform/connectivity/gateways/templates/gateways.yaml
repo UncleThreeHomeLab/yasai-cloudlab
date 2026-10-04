@@ -1,0 +1,80 @@
+{{- range $exposure := list "public" "private" }}
+{{- $namespace := printf "cloudlab-gateway-%s" $exposure }}
+{{- $host := printf "*.%s" $.Values.zone }}
+{{- if eq $exposure "private" }}
+{{- $host = printf "*.internal.%s" $.Values.zone }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-gateway-options
+  namespace: {{ $namespace }}
+  annotations:
+    cloudlab.io/ownership-proof: argocd
+data:
+  service: |
+    spec:
+      type: ClusterIP
+  deployment: |
+    spec:
+      replicas: 2
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  gateway.networking.k8s.io/gateway-name: cloudlab
+          containers:
+            - name: istio-proxy
+              image: {{ $.Values.proxyImage }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {cpu: 200m, memory: 256Mi}
+  podDisruptionBudget: |
+    spec:
+      minAvailable: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: cloudlab
+  namespace: {{ $namespace }}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef:
+      group: ''
+      kind: ConfigMap
+      name: cloudlab-gateway-options
+  listeners:
+    - name: https
+      hostname: {{ $host | quote }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ''
+            kind: Secret
+            name: cloudlab-gateway-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              cloudlab.io/gateway: {{ $exposure }}
+        kinds:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+{{- end }}

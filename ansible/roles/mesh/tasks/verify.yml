@@ -1,0 +1,30 @@
+---
+- name: Render pinned mesh verification inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/mesh/chart.py, payload]
+  delegate_to: localhost
+  become: false
+  register: mesh_verification_payload
+  changed_when: false
+  no_log: true
+
+- name: Prove ambient identity policy and internal gateway isolation
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/mesh/verify.py]
+    stdin: >-
+      {{ (gitops_verification_payload.stdout | from_json)
+         | combine(mesh_verification_payload.stdout | from_json)
+         | combine({'smoke_image': smoke_image}) | to_json }}
+  register: mesh_verified
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Require ambient and gateway verification to pass
+  ansible.builtin.assert:
+    that: mesh_verified.rc == 0
+    fail_msg: Mesh verification failed; private diagnostics withheld and existing identities retained.
+
+- name: Report sanitized ambient and gateway acceptance
+  ansible.builtin.debug:
+    msg: '{{ mesh_verified.stdout | from_json }}'

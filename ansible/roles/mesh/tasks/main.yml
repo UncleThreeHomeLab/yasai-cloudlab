@@ -1,0 +1,40 @@
+---
+- name: Render and validate the locked mesh ownership inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/mesh/chart.py, payload]
+  delegate_to: localhost
+  become: false
+  register: mesh_payload
+  changed_when: false
+  no_log: true
+
+- name: Create the private mesh ownership directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/mesh
+    state: directory
+    mode: '0700'
+
+- name: Install mesh configuration and verification modules
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/mesh/{{ item }}'
+    dest: '/var/lib/cloudlab/mesh/{{ item }}'
+    mode: '0600'
+  loop: [configuration.py, kube.py, verify.py, fixtures.py]
+
+- name: Configure internal gateways after certificate and mesh convergence
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/mesh/configuration.py]
+    stdin: '{{ (gitops_payload.stdout | from_json) | combine(mesh_payload.stdout | from_json) | to_json }}'
+  register: mesh_configured
+  changed_when: mesh_configured.rc == 0 and (mesh_configured.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require mesh configuration to pass
+  ansible.builtin.assert:
+    that: mesh_configured.rc == 0
+    fail_msg: Mesh configuration failed; private diagnostics withheld and existing identities retained.
+
+- name: Report sanitized mesh ownership
+  ansible.builtin.debug:
+    msg: '{{ mesh_configured.stdout | from_json }}'
