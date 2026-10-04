@@ -10,74 +10,74 @@ kind: Setting
 metadata:
   name: default-replica-count
   namespace: longhorn-system
-value: '{"v1":"2","v2":"2"}'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "default-replica-count" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: default-data-path
   namespace: longhorn-system
-value: /var/lib/longhorn
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "default-data-path" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: default-data-locality
   namespace: longhorn-system
-value: best-effort
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "default-data-locality" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: replica-soft-anti-affinity
   namespace: longhorn-system
-value: 'false'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "replica-soft-anti-affinity" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: storage-over-provisioning-percentage
   namespace: longhorn-system
-value: '100'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "storage-over-provisioning-percentage" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: storage-minimal-available-percentage
   namespace: longhorn-system
-value: '25'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "storage-minimal-available-percentage" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: storage-reserved-percentage-for-default-disk
   namespace: longhorn-system
-value: '30'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "storage-reserved-percentage-for-default-disk" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: v1-data-engine
   namespace: longhorn-system
-value: 'true'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "v1-data-engine" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: v2-data-engine
   namespace: longhorn-system
-value: 'false'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "v2-data-engine" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: upgrade-checker
   namespace: longhorn-system
-value: 'false'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "upgrade-checker" | quote }}
 ---
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: allow-collecting-longhorn-usage-metrics
   namespace: longhorn-system
-value: 'false'
+value: {{ index ((.Files.Get "policy.json" | fromJson).settings) "allow-collecting-longhorn-usage-metrics" | quote }}

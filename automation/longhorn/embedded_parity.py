@@ -26,7 +26,7 @@ def main():
     lock = json.loads((ROOT / 'artifact.lock.json').read_text())
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode='w:gz') as tar:
-        for name in ('Chart.yaml', 'Chart.lock', 'values.json', lock['archive'],
+        for name in ('Chart.yaml', 'Chart.lock', 'values.json', 'policy.json', lock['archive'],
                      'templates/config.yaml', 'templates/storageclass-config.yaml', 'storageclass.yaml'):
             tar.add(ROOT / name, arcname='chart/' + name, recursive=False)
     script = '''set -eu

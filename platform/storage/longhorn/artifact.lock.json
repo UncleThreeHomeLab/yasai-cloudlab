@@ -6,10 +6,6 @@
   "namespace": "longhorn-system",
   "kube_version": "1.36.5",
   "helm_version": "v4.3.0+gbec5b06",
-  "baseline_inputs": {
-    "automation/longhorn/release.json": "4b0bfd4f78103acd8eae51aad351f678e282a6265825d35bc5c589262f6e4535",
-    "automation/longhorn/policy.json": "b4d7b14d8b2ee77c15930405dcd6ceac6370431ee033d7db241157392472ad50"
-  },
   "images": {
     "docker.io/longhornio/backing-image-manager:v1.13.0": "sha256:49779b9a8ab535f1e86d224f8e2eb5c2c3713b8f1783403fe00612a75de2b3b8",
     "docker.io/longhornio/csi-attacher:v4.13.0": "sha256:fef34c2d823b78da7d6c29fdf0f80d236293b0ac06944d14e8c366add880a4c8",
@@ -25,8 +21,9 @@
     "docker.io/longhornio/longhorn-ui:v1.13.0": "sha256:f22fb0254ae50195c1635ce428dfae26375956b3d7bd39640fae8fe33a236023",
     "docker.io/longhornio/support-bundle-kit:v0.0.98": "sha256:e64a01db35396f967175adcfd0177d2a50e75765c51efe86e55f13f49095d1ae"
   },
-  "baseline_hash_encoding": "UTF-8 text with LF line endings",
   "upstream_sha256": "e57f010d2a8bcf0da5b8b03ffecf49c5bc35ddc2663588ce8f22b7567b6133ed",
   "archive": "charts/longhorn-1.13.0.tgz",
-  "vendor_patch": "automation/longhorn/vendor_chart.py"
+  "vendor_patch": "automation/longhorn/vendor_chart.py",
+  "semantic_sha256": "cc17d1c0fe54a7c1c00ed0057db20bbe18d26c47e5767313ee1a6cf80fd41494",
+  "migration_baseline_revision": "fd37b98e604a4df5ae44852609e27dd6a8f817f4"
 }

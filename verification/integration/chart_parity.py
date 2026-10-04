@@ -1,20 +1,17 @@
-"""Offline, fail-closed semantic review of inactive chart migration candidates.
+"""Check active chart semantics against the reviewed migration baseline.
 
-This does not install charts, filter an apply stream, or transfer ownership.
-Only documented representation/packaging differences are normalized.
+Legacy renderers are retired. Artifact/image validation remains with each module;
+this contract detects any semantic change that needs review and a new live proof.
 """
 
 import copy
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
-import re
 import subprocess
-import tarfile
+import sys
 
 import yaml
-from jinja2 import Environment, StrictUndefined
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULES = [('secrets/external-secrets', 'external_secrets'), ('storage/longhorn', 'longhorn')]
@@ -82,104 +79,37 @@ def container_images(value):
             yield from container_images(child)
 
 
-def verify(module, old):
+def semantic_digest(objects, module):
+    actual = index([normalize(obj, module) for obj in objects])
+    canonical = json.dumps([actual[key] for key in sorted(actual)], sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def verify(module, owner):
     folder = ROOT / 'platform' / module
     lock = json.loads((folder / 'artifact.lock.json').read_text())
-    archive = folder / lock.get('archive', 'upstream.tgz')
-    if hashlib.sha256(archive.read_bytes()).hexdigest() != lock['sha256']:
-        raise ValueError(f'{module}: chart checksum mismatch')
-    for relative, expected in lock['baseline_inputs'].items():
-        # Git normalizes text line endings; a Windows checkout must match Linux.
-        if hashlib.sha256((ROOT / relative).read_text(encoding='utf-8').encode()).hexdigest() != expected:
-            raise ValueError(f'{module}: baseline changed; review {relative}')
-    if subprocess.check_output(['helm', 'version', '--short'], text=True).strip() != lock['helm_version']:
-        raise ValueError('Use the locked Compose Helm renderer')
-    with tarfile.open(archive) as package:
-        chart = yaml.safe_load(package.extractfile(lock['release_name'] + '/Chart.yaml'))
-        schema = any(x.name == lock['release_name'] + '/values.schema.json' for x in package)
-    if chart['version'] != lock['version']:
-        raise ValueError('Chart version differs from lock')
-    chart_path = folder if (folder / 'Chart.yaml').exists() else archive
-    subprocess.run(['helm', 'lint', str(chart_path), '--strict', '--kube-version', lock['kube_version'],
-                    '-f', str(folder / 'values.json')], check=True, capture_output=True)
-    command = ['helm', 'template', lock['release_name'], str(chart_path), '--namespace', lock['namespace'],
-               '--kube-version', lock['kube_version'], '--include-crds', '-f', str(folder / 'values.json')]
-    rendered = subprocess.check_output(command)
-    if rendered != subprocess.check_output(command):
-        raise ValueError('Chart render is nondeterministic')
-    candidate = list(filter(None, yaml.safe_load_all(rendered)))
-    if old == 'longhorn' and (folder / 'storageclass.yaml').exists():
-        generated = yaml.safe_load((folder / 'storageclass.yaml').read_text())
-        config = next(x for x in candidate if x['kind'] == 'ConfigMap'
-                      and x['metadata']['name'] == 'longhorn-storageclass')
-        if config['data']['storageclass.yaml'] != (folder / 'storageclass.yaml').read_text():
+    subprocess.run(['helm', 'lint', str(folder), '--strict', '--kube-version', lock['kube_version'],
+                    '-f', str(folder / 'values.json')], check=True, capture_output=True, timeout=90)
+    # Each module verifies its archive, vendor patch, all images, hooks and identity
+    # boundaries before returning the same declarations used for bootstrap.
+    payload = json.loads(subprocess.check_output(
+        [sys.executable, str(ROOT / 'automation' / owner / 'chart.py')], timeout=180))
+    objects = payload['items'] + payload.get('generated', [])
+    digest = semantic_digest(objects, owner)
+    if digest != lock['semantic_sha256']:
+        raise ValueError(module + ': reviewed chart semantics changed; review the diff and rerun full proof')
+    if owner == 'longhorn':
+        source = (folder / 'storageclass.yaml').read_text()
+        config = next(obj for obj in objects if obj['kind'] == 'ConfigMap'
+                      and obj['metadata']['name'] == 'longhorn-storageclass')
+        if config['data']['storageclass.yaml'] != source:
             raise ValueError('StorageClass generator bytes changed; its controller could replace the object')
-        candidate.append(generated)
-    if old == 'external_secrets':
-        stores = [x for x in candidate if x['kind'] == 'ClusterSecretStore']
-        if stores:
-            settings = json.loads((folder / 'values.json').read_text())['cloudlab']
-            environment = Environment(undefined=StrictUndefined)
-            environment.filters['to_json'] = json.dumps
-            environment.filters['hash'] = lambda value, algorithm: hashlib.new(algorithm, value.encode()).hexdigest()
-            template = (ROOT / 'ansible/roles/external_secrets/templates/store.yml.j2').read_text()
-            expected = yaml.safe_load(environment.from_string(template).render(
-                external_secrets_store=settings['store'], external_secrets_vault=settings['vault'],
-                external_secrets_token='non-secret-parity-fixture'))
-            # Bootstrap retains only the token-change notification annotation.
-            expected['metadata'].pop('annotations')
-            if stores != [expected]:
-                raise ValueError('ESO store spec differs from its existing bootstrap declaration')
-            candidate = [x for x in candidate if x['kind'] != 'ClusterSecretStore']
-    if (folder / 'config.yaml').exists():
-        candidate += list(filter(None, yaml.safe_load_all((folder / 'config.yaml').read_text())))
-    # The chart has no off switches for these hooks. Report them, never apply them.
-    hooks = [x for x in candidate if 'helm.sh/hook' in x['metadata'].get('annotations', {})]
-    expected_hooks = ({'longhorn-post-upgrade': 'post-upgrade', 'longhorn-uninstall': 'pre-delete'}
-                      if old == 'longhorn' and not lock.get('vendor_patch') else {})
-    if {x['metadata']['name']: x['metadata']['annotations']['helm.sh/hook'] for x in hooks} != expected_hooks:
-        raise ValueError('Unexpected chart hook inventory')
-    allowed_images = {tag + '@' + digest for tag, digest in lock['images'].items()}
-    if not set(container_images(candidate)) <= allowed_images:
-        raise ValueError(f'{module}: unexpected or unpinned container image')
-    image_refs = set(re.findall(r'(?:docker.io/longhornio/|ghcr.io/external-secrets/)[a-zA-Z0-9_./:@-]+', json.dumps(candidate)))
-    if image_refs != allowed_images:
-        raise ValueError(f'{module}: runtime image set differs from lock')
-    spec = importlib.util.spec_from_file_location(old, ROOT / 'automation' / old / 'render.py')
-    baseline_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(baseline_module)
-    groups = baseline_module.render()
-    if old == 'longhorn' and (folder / 'storageclass.yaml').exists():
-        prior = next(x for x in groups['system'] if x['kind'] == 'ConfigMap'
-                     and x['metadata']['name'] == 'longhorn-storageclass')
-        if prior['data']['storageclass.yaml'] != (folder / 'storageclass.yaml').read_text():
-            raise ValueError('StorageClass generator differs from its existing source bytes')
-        # Reviewed ownership change: Argo owns explicit Settings; remove only
-        # those identical values from controller defaults to prevent two writers.
-        defaults = next(x for x in groups['system'] if x['kind'] == 'ConfigMap'
-                        and x['metadata']['name'] == 'longhorn-default-setting')
-        data = yaml.safe_load(defaults['data']['default-setting.yaml'])
-        for setting in (x for x in groups['policy'] if x['kind'] == 'Setting'):
-            name = setting['metadata']['name']
-            if data.pop(name) != setting['value']:
-                raise ValueError('Settings ownership split changed a declared value')
-        defaults['data']['default-setting.yaml'] = yaml.safe_dump(data)
-    baseline = index([normalize(x, old) for items in groups.values() for x in items])
-    actual = index([normalize(x, old) for x in candidate if x not in hooks])
-    if baseline.keys() != actual.keys():
-        raise ValueError(f'{module}: object identity changed')
-    changed = {str(key): differences(baseline[key], actual[key])
-               for key in baseline if baseline[key] != actual[key]}
-    if changed:
-        raise ValueError(f'{module}: unreviewed semantic changes: {changed}')
-    canonical = json.dumps(
-        [actual[k] for k in sorted(actual)], sort_keys=True, separators=(',', ':'))
-    return dict(module=module, objects=len(actual), crds=sum(k[1] == 'CustomResourceDefinition' for k in actual),
-                images=len(image_refs), chart_sha256=lock['sha256'],
-                semantic_sha256=hashlib.sha256(canonical.encode()).hexdigest(),
-                chart_schema_present=schema, lint='passed', deterministic=True,
-                unexplained_differences=0, excluded_hooks=expected_hooks,
-                adoption_ready=False)
+        policy = json.loads((folder / 'policy.json').read_text())
+        settings = {obj['metadata']['name']: obj['value'] for obj in objects if obj['kind'] == 'Setting'}
+        if settings != policy['settings'] or yaml.safe_load(source)['metadata']['name'] != policy['storage_class']:
+            raise ValueError('Chart and verification storage policies differ')
+    return dict(module=module, objects=len(objects), semantic_sha256=digest,
+                reviewed_semantics_preserved=True, resources_applied=False)
 
 
 if __name__ == '__main__':
