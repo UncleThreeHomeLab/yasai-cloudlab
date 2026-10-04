@@ -67,6 +67,15 @@ def preserved(before, after):
         raise RuntimeError('ESO transition changed an existing object identity')
 
 
+def consumer_identities():
+    secrets = json.loads(kube('get', 'secrets', '--all-namespaces', '-o', 'json'))['items']
+    return {obj['metadata']['namespace'] + '/' + obj['metadata']['name']:
+            {'uid': obj['metadata']['uid'],
+             'content': hashlib.sha256(json.dumps(obj.get('data', {}), sort_keys=True).encode()).hexdigest()}
+            for obj in secrets if any(owner.get('kind') == 'ExternalSecret'
+                for owner in obj['metadata'].get('ownerReferences', []))}
+
+
 def apply(objects):
     if objects:
         # The previous writer used this manager. Continue it only while seeding;
@@ -158,6 +167,8 @@ def run(objects, action, revision=None):
             if state['phase'] not in ('released', 'accepted', 'recovering') or not suspended(current_app):
                 raise RuntimeError('Suspend ESO automatic sync in Git and finish any operation before recovery')
             preserved(state['identities'], identities(objects + [token]))
+            if state['phase'] != 'recovering':
+                state['consumers'] = consumer_identities()
             state.update(phase='recovering', owner='cloudlab-bootstrap')
             record(state)
             seed_operator(operator)
@@ -194,6 +205,12 @@ def run(objects, action, revision=None):
             state.update(phase='released', identities=current, owner='awaiting-argocd')
             record(state)
             changed = True
+        if action == 'release' and state['phase'] == 'released' and 'consumers' not in state:
+            if get(app):
+                raise RuntimeError('Capture ESO consumer identities before enabling Argo adoption')
+            state['consumers'] = consumer_identities()
+            record(state)
+            changed = True
         if action == 'accept':
             if state['phase'] not in ('released', 'accepted'):
                 raise RuntimeError('Release the bootstrap writer before accepting Argo ownership')
@@ -210,11 +227,14 @@ def run(objects, action, revision=None):
                     'argocd.argoproj.io/tracking-id', '').startswith('cloudlab-external-secrets:') for obj in objects):
                 raise RuntimeError('ESO declared resources lack their Argo ownership marker')
             if state['phase'] != 'accepted':
+                if 'consumers' not in state:
+                    raise RuntimeError('ESO consumer identity receipt is missing')
+                preserved(state['consumers'], consumer_identities())
                 state.update(phase='accepted', owner='argocd', revision=status['sync']['revision'])
                 record(state)
                 changed = True
         return {'changed': changed, 'phase': state['phase'], 'owner': state['owner'],
-                'bootstrap_token_owner': 'ansible'}
+                'bootstrap_token_owner': 'ansible', 'consumer_receipt_count': len(state.get('consumers', {}))}
 
 
 if __name__ == '__main__':

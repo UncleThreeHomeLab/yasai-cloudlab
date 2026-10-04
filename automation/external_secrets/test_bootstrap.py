@@ -33,7 +33,8 @@ class BootstrapTests(unittest.TestCase):
                 live[identity]['metadata'].setdefault('uid', 'uid-' + str(len(live)))
         with tempfile.TemporaryDirectory() as folder, patch.object(bootstrap, 'BASE', Path(folder)), \
                 patch.object(bootstrap, 'get', side_effect=lambda obj: live.get(bootstrap.key(obj))), \
-                patch.object(bootstrap, 'apply', side_effect=apply) as writer, patch.object(bootstrap, 'kube'):
+                patch.object(bootstrap, 'apply', side_effect=apply) as writer, patch.object(bootstrap, 'kube'), \
+                patch.object(bootstrap, 'consumer_identities', return_value={'consumer': {'uid': 'original', 'content': 'same'}}):
             self.assertEqual(bootstrap.run(OBJECTS, 'seed-stop')['phase'], 'seeded')
             self.assertNotIn(bootstrap.key(OBJECTS[1]), live)
             live[bootstrap.key(token)] = copy.deepcopy(token)
@@ -64,7 +65,7 @@ class BootstrapTests(unittest.TestCase):
             with self.subTest(phase=phase), tempfile.TemporaryDirectory() as folder:
                 base = Path(folder)
                 (base / bootstrap.CHECKPOINT).write_text(json.dumps(
-                    dict(phase=phase, digest=DIGEST, owner='argocd', identities={})))
+                    dict(phase=phase, digest=DIGEST, owner='argocd', identities={}, consumers={})))
                 with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'apply') as apply:
                     for action in ('seed', 'release'):
                         self.assertFalse(bootstrap.run(OBJECTS, action)['changed'])
@@ -76,8 +77,9 @@ class BootstrapTests(unittest.TestCase):
             (base / bootstrap.CHECKPOINT).write_text(json.dumps(
                 dict(phase='seeded', digest=DIGEST, owner='cloudlab-bootstrap', identities={'object': 'original'})))
             with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'apply') as apply, \
-                    patch.object(bootstrap, 'get', side_effect=[None, {'metadata': {'uid': 'token'}}]), \
-                    patch.object(bootstrap, 'kube'), patch.object(bootstrap, 'identities', return_value={'object': 'original'}):
+                    patch.object(bootstrap, 'get', side_effect=[None, {'metadata': {'uid': 'token'}}, None]), \
+                    patch.object(bootstrap, 'kube'), patch.object(bootstrap, 'identities', return_value={'object': 'original'}), \
+                    patch.object(bootstrap, 'consumer_identities', return_value={}):
                 result = bootstrap.run(OBJECTS, 'release')
             self.assertEqual(result['phase'], 'released')
             apply.assert_called_once_with([OBJECTS[1]])
@@ -111,6 +113,9 @@ class BootstrapTests(unittest.TestCase):
     def test_replaced_object_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, 'identity'):
             bootstrap.preserved({'secret': 'original'}, {'secret': 'replacement'})
+        with self.assertRaisesRegex(RuntimeError, 'identity'):
+            bootstrap.preserved({'secret': {'uid': 'same', 'content': 'original'}},
+                                {'secret': {'uid': 'same', 'content': 'changed'}})
 
     def test_recovery_refuses_an_active_writer(self):
         for app in ({}, {'spec': {'syncPolicy': {'automated': {'enabled': True}}}},
