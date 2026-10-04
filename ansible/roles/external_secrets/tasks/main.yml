@@ -30,6 +30,14 @@
   changed_when: false
   when: not external_secrets_checkpoint.stat.exists
 
+- name: Require Argo embedded Helm parity before adopting an existing ESO baseline
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/external_secrets/embedded_parity.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: not external_secrets_checkpoint.stat.exists and external_secrets_existing.stdout | length > 0
+
 - name: Render the locked ESO module used by Argo
   ansible.builtin.command:
     argv: [python, /workspace/automation/external_secrets/chart.py]
