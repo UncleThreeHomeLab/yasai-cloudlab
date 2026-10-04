@@ -1,5 +1,9 @@
 import copy
 import unittest
+import json
+from types import SimpleNamespace
+from unittest.mock import patch
+import controller_stability
 from controller_stability import fingerprint
 
 
@@ -30,3 +34,13 @@ class StabilityTests(unittest.TestCase):
 
     def test_empty_inventory_is_not_stability(self):
         with self.assertRaises(RuntimeError): fingerprint([])
+
+    def test_new_controller_namespaces_are_required_when_selected(self):
+        with patch.object(controller_stability.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout=json.dumps({'items': self.items}))) as run:
+            controller_stability.sample(('cert-manager', 'istio-system'))
+            self.assertEqual([call.args[0][-3] for call in run.call_args_list], ['cert-manager', 'istio-system'])
+        with patch.object(controller_stability.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout='{"items": []}')):
+            with self.assertRaisesRegex(RuntimeError, 'no controllers'):
+                controller_stability.sample(('cert-manager',))

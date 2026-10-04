@@ -1,6 +1,7 @@
 """Observe healthy foundation controllers without exporting object metadata."""
 import json
 import subprocess
+import sys
 import time
 
 NAMESPACES = ('kube-system', 'external-secrets', 'longhorn-system')
@@ -41,9 +42,9 @@ def fingerprint(items):
     return controllers, pods
 
 
-def sample():
+def sample(namespaces=NAMESPACES):
     items = []
-    for namespace in NAMESPACES:
+    for namespace in namespaces:
         result = subprocess.run(['/usr/local/bin/k3s', 'kubectl', 'get',
             'deployments,daemonsets,statefulsets,pods', '-n', namespace, '-o', 'json'],
             capture_output=True, text=True, timeout=30)
@@ -56,12 +57,12 @@ def sample():
     return fingerprint(items)
 
 
-def main():
-    baseline = sample()
+def main(namespaces=NAMESPACES):
+    baseline = sample(namespaces)
     started = time.monotonic()
     while time.monotonic() - started < 60:
         time.sleep(10)
-        if sample() != baseline:
+        if sample(namespaces) != baseline:
             raise RuntimeError('Controller rollout, pod replacement or restart during stability observation')
     print(json.dumps({'stable': True, 'seconds': round(time.monotonic() - started, 1),
                       'controllers': len(baseline[0]), 'pods': len(baseline[1])}))
@@ -69,6 +70,6 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        main(tuple(sys.argv[1:]) or NAMESPACES)
     except (RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
         raise SystemExit(str(error) if isinstance(error, RuntimeError) else 'Controller stability check failed') from None
