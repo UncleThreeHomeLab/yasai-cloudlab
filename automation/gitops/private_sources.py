@@ -56,13 +56,12 @@ def resources(entry, store_name):
     credential = {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'metadata': metadata(name),
         'spec': {'refreshInterval': '5m', 'secretStoreRef': {'name': store_name, 'kind': 'ClusterSecretStore'},
             'target': {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain',
-                'template': {'engineVersion': 'v2', 'metadata': {
+                'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace', 'metadata': {
                     'labels': {'argocd.argoproj.io/secret-type': 'repository', LABEL: OWNER}},
                     'data': {'type': 'git', 'url': entry['repository'], 'project': name,
                              'githubAppID': '{{ .APP_ID }}', 'githubAppInstallationID': '{{ .INSTALLATION_ID }}',
                              'githubAppPrivateKey': PEM_TEMPLATE}}},
-            'data': [{'secretKey': key, 'remoteRef': {'key': 'github-argocd/' + key}}
-                     for key in ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')]}}
+            'dataFrom': [{'extract': {'key': 'github-argocd'}}]}}
     app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': metadata(name),
         'spec': {'project': name, 'source': {'repoURL': entry['repository'],
             'targetRevision': entry['revision'], 'path': entry['path']},

@@ -40,6 +40,11 @@ class PrivateSourceTests(unittest.TestCase):
         self.assertEqual(secret['spec']['target']['template']['data']['project'], project['metadata']['name'])
         self.assertEqual(secret['spec']['secretStoreRef']['name'], 'fixture-store')
         self.assertEqual(secret['spec']['target']['template']['data']['githubAppPrivateKey'], PEM_TEMPLATE)
+        self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'github-argocd'}}])
+        self.assertNotIn('data', secret['spec'])
+        self.assertEqual(secret['spec']['refreshInterval'], '5m')
+        self.assertEqual(secret['spec']['target']['template']['mergePolicy'], 'Replace')
+        self.assertNotIn('PRIVATE_KEY', secret['spec']['target']['template']['data'])
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertNotIn('finalizers', app['metadata'])
 

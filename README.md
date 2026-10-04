@@ -64,6 +64,14 @@ VM creation, provider firewalls, the B2 bucket/key, and the 1Password vault/serv
 Private GitOps inputs are optional and stay in `.env`; their App key stays in
 1Password. Full-cluster recovery remains outside the verified scope.
 
+Private repository credentials refresh every five minutes using one item
+extraction. Only the rendered Argo fields enter the generated Secret. Provider
+rate limits can delay rotation; wait for the service-account quota to reset
+instead of forcing repeated synchronization. The credential failure check uses
+an isolated project, namespace and temporary credential, verifies successful
+access before and after the failure, and cleans up interrupted fixtures on rerun.
+It never changes the working ESO credential to simulate authentication failure.
+
 Host packages come from each VM's configured Debian repositories. Apply installs
 missing prerequisites; it does not perform distribution upgrades. Runner package
 sources and application artifacts are pinned separately.
