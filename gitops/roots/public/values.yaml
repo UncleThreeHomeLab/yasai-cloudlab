@@ -17,4 +17,4 @@ longhornBackup:
 certificates:
   enabled: true
 mesh:
-  enabled: false
+  enabled: true
