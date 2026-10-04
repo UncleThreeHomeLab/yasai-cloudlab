@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import private_bootstrap
-from private_sources import resources, sources
+from private_sources import PEM_TEMPLATE, resources, sources
 
 
 ENTRY = {'name': 'fixture', 'repository': 'https://github.com/example/private.git',
@@ -39,7 +39,7 @@ class PrivateSourceTests(unittest.TestCase):
         self.assertFalse(forbidden & {x['kind'] for x in project['spec']['namespaceResourceWhitelist']})
         self.assertEqual(secret['spec']['target']['template']['data']['project'], project['metadata']['name'])
         self.assertEqual(secret['spec']['secretStoreRef']['name'], 'fixture-store')
-        self.assertEqual(secret['spec']['target']['template']['data']['githubAppPrivateKey'], '{{ .PRIVATE_KEY }}')
+        self.assertEqual(secret['spec']['target']['template']['data']['githubAppPrivateKey'], PEM_TEMPLATE)
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertNotIn('finalizers', app['metadata'])
 
