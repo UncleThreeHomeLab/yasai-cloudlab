@@ -11,6 +11,15 @@ import verify
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_crd_ownership_requires_argo_ssa_not_a_copied_tracking_annotation(self):
+        obj = {'kind': 'CustomResourceDefinition'}
+        actual = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-istio-base:copied'}}}
+        self.assertFalse(configuration.argo_owned(obj, actual, 'cloudlab-istio-base'))
+        actual['metadata']['managedFields'] = [{'manager': 'argocd-controller', 'operation': 'Apply', 'fieldsV1': {'f:spec': {}}}]
+        self.assertTrue(configuration.argo_owned(obj, actual, 'cloudlab-istio-base'))
+        actual['metadata']['managedFields'][0]['manager'] = 'foreign'
+        self.assertFalse(configuration.argo_owned(obj, actual, 'cloudlab-istio-base'))
+
     def test_api_spec_and_owner_changes_fail_before_writes(self):
         desired = {'metadata': {'name': 'gateways.gateway.networking.k8s.io'}, 'spec': {'group': 'gateway.networking.k8s.io'}}
         actual = {'metadata': {'uid': 'retained', 'annotations': {

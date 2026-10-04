@@ -70,6 +70,16 @@ def application(payload, zone):
                 'retry': {'limit': 5, 'backoff': {'duration': '5s', 'factor': 2, 'maxDuration': '1m'}}}}}
 
 
+def argo_owned(obj, actual, app):
+    metadata = (actual or {}).get('metadata', {})
+    if obj['kind'] == 'CustomResourceDefinition':
+        # Argo 3.5 intentionally does not annotate CRDs for resource tracking.
+        # Require its actual SSA spec ownership, plus revision and UID checks.
+        return any(field.get('manager') == 'argocd-controller' and field.get('operation') == 'Apply'
+                   and 'f:spec' in field.get('fieldsV1', {}) for field in metadata.get('managedFields', []))
+    return metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(app + ':')
+
+
 def component_identities(payload):
     result = {}
     for component, objects in payload['mesh_objects'].items():
@@ -80,7 +90,7 @@ def component_identities(payload):
             kind = obj['kind'] + ('.' + group if group else '')
             meta = obj['metadata']
             actual = get(kind, meta['name'], meta.get('namespace'))
-            if not actual or not actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(app + ':'):
+            if not argo_owned(obj, actual, app):
                 raise RuntimeError('Istio declaration lacks its sole Argo owner')
             result['/'.join((kind, meta.get('namespace', ''), meta['name']))] = actual['metadata']['uid']
     return result
