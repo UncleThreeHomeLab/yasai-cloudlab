@@ -113,7 +113,7 @@ class RunnerTests(unittest.TestCase):
     def test_syntax_does_not_require_credentials_or_dns(self):
         self.values = {}
         playbook = self.invoke('syntax')
-        self.assertEqual(playbook.call_count, 15)
+        self.assertEqual(playbook.call_count, 16)
         self.assertTrue(all(call.kwargs == {'syntax': True} for call in playbook.call_args_list))
 
     def test_independent_retrieval_does_not_require_vm_credentials_or_playbooks(self):
@@ -197,8 +197,13 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(all(call.args == ('longhorn-backup.yml',) for call in interrupted.call_args_list))
         self.assertEqual(os.environ['LAB_BACKUP_STOP_AFTER_SEED'], '0')
 
+    def test_mesh_check_uses_existing_credentials_without_new_vault_requests(self):
+        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
+        self.invoke('mesh-check').assert_called_once_with('mesh.yml')
+        self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
+
     def test_unreadable_public_source_fails_before_any_host_operation(self):
-        for action in ('apply', 'prove', 'gitops-bootstrap', 'gitops-interruption-test'):
+        for action in ('apply', 'prove', 'gitops-bootstrap', 'gitops-interruption-test', 'mesh-check'):
             with self.subTest(action=action), \
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', return_value=self.values), \
