@@ -75,3 +75,36 @@ class PrivateSourceTests(unittest.TestCase):
     def test_removal_refuses_a_still_configured_source(self):
         with self.assertRaises(RuntimeError):
             private_bootstrap.remove({'sources': [ENTRY], 'remove': 'fixture'})
+
+    def test_removal_only_deletes_owned_root_and_credentials(self):
+        objects = resources(ENTRY, 'fixture-store')
+        for obj in objects:
+            obj['metadata']['uid'] = 'uid-' + obj['kind']
+        state = {'phase': 'accepted', 'identities': {obj['kind']: obj['metadata']['uid'] for obj in objects}}
+        def current(query):
+            return next((obj for obj in objects if obj['kind'] == query['kind']), None)
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            checkpoint = base / 'private-fixture.json'
+            checkpoint.write_text(json.dumps(state))
+            with patch.object(private_bootstrap, 'BASE', base), \
+                    patch.object(private_bootstrap, 'current', side_effect=current), \
+                    patch.object(private_bootstrap, 'kube') as kube:
+                self.assertTrue(private_bootstrap.remove({'sources': [], 'remove': 'fixture'})['workloads_retained'])
+                kinds = [call.args[1] for call in kube.call_args_list]
+                self.assertEqual(kinds, ['application.argoproj.io', 'externalsecret.external-secrets.io',
+                                         'appproject.argoproj.io'])
+                self.assertFalse(private_bootstrap.remove({'sources': [], 'remove': 'fixture'})['changed'])
+
+    def test_removal_rejects_cascading_finalizers(self):
+        app = resources(ENTRY, 'fixture-store')[-1]
+        app['metadata'].update(uid='app', finalizers=['resources-finalizer.argocd.argoproj.io'])
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / 'private-fixture.json').write_text('{"phase":"accepted","identities":{"Application":"app"}}')
+            with patch.object(private_bootstrap, 'BASE', base), \
+                    patch.object(private_bootstrap, 'current', return_value=app), \
+                    patch.object(private_bootstrap, 'kube') as kube:
+                with self.assertRaisesRegex(RuntimeError, 'ownership mismatch'):
+                    private_bootstrap.remove({'sources': [], 'remove': 'fixture'})
+                kube.assert_not_called()
