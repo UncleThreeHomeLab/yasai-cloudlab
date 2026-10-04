@@ -188,7 +188,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_repository_setup_is_independent_of_vm_and_vault_credentials(self):
         self.values = {}
-        for action, module in (('repository-setup', 'github_setup.py'), ('publish-platform', 'publish_snapshot.py')):
+        for action, module in (('repository-setup', 'github_setup.py'), ('publish-platform', 'publish_snapshot.py'), ('github-app-check', 'github_app.py')):
             with self.subTest(action=action), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
                 playbook = self.invoke(action)
                 playbook.assert_not_called()
