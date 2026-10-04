@@ -17,7 +17,7 @@ def kube(*args, document=None, timeout=180, allow_failure=False):
 
 def get(kind, name=None, namespace=None):
     raw = kube('get', kind, *([name] if name else []), *(['-n', namespace] if namespace else []),
-               '--ignore-not-found', '-o', 'json')
+               '--ignore-not-found', '--show-managed-fields=true', '-o', 'json')
     return json.loads(raw) if raw.strip() else None
 
 
