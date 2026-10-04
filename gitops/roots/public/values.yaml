@@ -9,5 +9,5 @@ externalSecrets:
   reconcile: true
 longhorn:
   # Enable only after the attached-volume handoff records writer release.
-  enabled: false
+  enabled: true
   reconcile: true
