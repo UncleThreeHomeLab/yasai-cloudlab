@@ -12,5 +12,5 @@ longhorn:
   enabled: true
   reconcile: true
 longhornBackup:
-  enabled: false
+  enabled: true
   reconcile: true
