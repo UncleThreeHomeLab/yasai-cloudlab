@@ -1,0 +1,12 @@
+---
+- name: Render backup declarations with private destination inputs on stdin
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/backup_chart.py]
+    stdin: >-
+      {{ {'bucket': longhorn_backup_bucket, 'region': longhorn_backup_region,
+          'store': external_secrets_store} | to_json }}
+  delegate_to: localhost
+  become: false
+  register: longhorn_backup_payload
+  changed_when: false
+  no_log: true

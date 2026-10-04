@@ -35,11 +35,9 @@
       changed_when: false
       no_log: true
     - name: Install the version-controlled bounded recovery implementation
-      ansible.builtin.copy:
-        src: '{{ playbook_dir }}/../automation/longhorn/{{ item }}'
-        dest: '/var/lib/cloudlab/longhorn/{{ item }}'
-        mode: '0640'
-      loop: [bootstrap.py, handoff_fixture.py, kube.py, verify_health.py, verify_gitops.py]
+      ansible.builtin.include_role:
+        name: longhorn
+        tasks_from: tooling
     - name: Restore the supported chart without uninstalling or replacing objects
       ansible.builtin.command:
         argv: [python3, /var/lib/cloudlab/longhorn/bootstrap.py, recover]

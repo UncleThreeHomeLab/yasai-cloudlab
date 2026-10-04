@@ -94,3 +94,11 @@ refuses competing Argo operations and preserves existing objects and credentials
 Argo owns explicit Settings; their duplicate controller defaults are removed.
 Longhorn alone generates the immutable StorageClass from its Argo-owned ConfigMap.
 That ConfigMap preserves its original YAML bytes to prevent controller replacement.
+
+Backup declarations use `platform/storage/longhorn-backup`. The bootstrap-owned
+Application receives the destination from the existing ESO Secret; Git contains no
+bucket or credentials. Before enabling `longhornBackup.enabled`, run
+`lab longhorn-backup-interruption-test` through Compose to seed, stop and resume
+without changing object or credential identities. Recovery requires publishing
+`longhornBackup.reconcile: false`, running `lab longhorn-backup-recover`, restoring
+reconciliation, then running `prove`. These actions do not create off-site backups.

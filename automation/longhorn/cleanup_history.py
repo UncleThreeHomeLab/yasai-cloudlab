@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from b2_native.api import NativeAPI
 from credentials.vault import fields
 from monthly_window import require_window
+from backup_policy import load_policy
 
-POLICY = json.loads(Path(__file__).with_name('backup-policy.json').read_text())
+POLICY = load_policy()
 
 
 def one_time_window(reserve=0, now=None):

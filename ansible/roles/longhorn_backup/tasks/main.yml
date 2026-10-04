@@ -1,11 +1,64 @@
 ---
-# Inputs: the CloudLab/longhorn-b2 item, synchronized by External Secrets.
-# Result: backup target and monthly retention, without persisting secret manifests.
-- name: Synchronize and validate B2 credentials before switching the backup target
-  ansible.builtin.import_tasks: secrets.yml
+- name: Inspect backup declaration ownership
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/longhorn/backup-ownership.json
+  register: longhorn_backup_checkpoint
 
-- name: Reconcile the backup target and monthly retention
-  ansible.builtin.import_tasks: configure.yml
+- name: Recheck host access and independent recovery before changing backup ownership
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: prerequisites
+  when: not longhorn_backup_checkpoint.stat.exists
 
-- name: Remove the superseded daily schedule
+- name: Verify backup declaration parity before initial handoff
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/backup_parity.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: not longhorn_backup_checkpoint.stat.exists
+
+- name: Install bounded backup ownership code
+  ansible.builtin.include_role:
+    name: longhorn
+    tasks_from: tooling
+
+- name: Render the credential-only seed from the same chart
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/backup_chart.py, secret]
+    stdin: '{{ {"store": external_secrets_store} | to_json }}'
+  delegate_to: localhost
+  become: false
+  register: longhorn_backup_payload
+  changed_when: false
+  no_log: true
+
+- name: Seed the ExternalSecret only before ownership release
+  ansible.builtin.include_tasks: action.yml
+  vars:
+    longhorn_backup_action: credential-seed
+
+- name: Read synchronized private destination inputs
+  ansible.builtin.import_tasks: read.yml
+
+- name: Retain the monthly-only credential access check
+  ansible.builtin.import_tasks: access.yml
+
+- name: Render the complete backup chart
+  ansible.builtin.import_tasks: render.yml
+
+- name: Seed and release backup declarations without a competing writer
+  ansible.builtin.include_tasks: action.yml
+  vars:
+    longhorn_backup_action: "{{ 'seed-stop' if lookup('env', 'LAB_BACKUP_STOP_AFTER_SEED') == '1' else 'seed' }}"
+
+- name: Stop the explicit backup interruption fixture after its durable seed
+  ansible.builtin.meta: end_play
+  when: lookup('env', 'LAB_BACKUP_STOP_AFTER_SEED') == '1'
+
+- name: Retain the earlier daily-schedule retirement guard
   ansible.builtin.import_tasks: migrate.yml
+
+- name: Report backup ownership without private destination details
+  ansible.builtin.debug:
+    msg: '{{ longhorn_backup_transition.stdout | from_json }}'

@@ -1,0 +1,5 @@
+bootstrapSecretOnly: false
+store: cloudlab
+destination:
+  bucket: ""
+  region: ""

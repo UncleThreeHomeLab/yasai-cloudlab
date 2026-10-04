@@ -1,0 +1,17 @@
+{{- if .Values.longhornBackup.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-longhorn-backup
+  namespace: {{ .Values.namespace }}
+spec:
+  description: Backup declarations; private destination inputs belong to bootstrap and Secret data to ESO.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: longhorn-system}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: longhorn.io, kind: BackupTarget}
+    - {group: longhorn.io, kind: RecurringJob}
+{{- end }}

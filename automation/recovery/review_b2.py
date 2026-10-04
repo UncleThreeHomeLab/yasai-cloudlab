@@ -45,7 +45,7 @@ def review():
     values = shared_b2()
     api = NativeAPI(values)
     bucket = api.bucket
-    longhorn = json.loads((Path(__file__).resolve().parents[1] / 'longhorn/backup-policy.json').read_text())
+    longhorn = json.loads((Path(__file__).resolve().parents[2] / 'platform/storage/longhorn-backup/policy.json').read_text())
     prefixes = {'k3s': POLICY['prefix'], 'longhorn': longhorn['prefix']}
     result = {'checked_at': datetime.now(timezone.utc).isoformat(),
               'private_bucket': bucket['bucketType'] == 'allPrivate',

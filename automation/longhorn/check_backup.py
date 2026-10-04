@@ -17,6 +17,7 @@ import uuid
 
 import sys
 from monthly_window import require_window
+from backup_policy import load_policy
 
 
 def check(values):
@@ -61,7 +62,7 @@ def check(values):
         except urllib.error.URLError:
             raise RuntimeError('Backup endpoint connection failed') from None
 
-    policy = json.loads(Path(__file__).with_name('backup-policy.json').read_text())
+    policy = load_policy()
     key = policy['prefix'] + '.access-check-' + uuid.uuid4().hex
     content = os.urandom(64)
     request('GET', query={'list-type': '2', 'prefix': key, 'max-keys': '1'})

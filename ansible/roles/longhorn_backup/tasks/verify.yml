@@ -26,3 +26,17 @@
   when: longhorn_backup_legacy.stdout | length > 0
     and lookup('env', 'LAB_MONTHLY_PROOF') == '1'
   changed_when: true
+
+- name: Read current private inputs for backup ownership acceptance
+  ansible.builtin.include_tasks: read.yml
+  when: longhorn_backup_gitops_enabled | bool
+
+- name: Render current backup ownership acceptance inputs
+  ansible.builtin.include_tasks: render.yml
+  when: longhorn_backup_gitops_enabled | bool
+
+- name: Accept Argo backup declarations only after preserved credential checks
+  ansible.builtin.include_tasks: action.yml
+  vars:
+    longhorn_backup_action: accept
+  when: longhorn_backup_gitops_enabled | bool

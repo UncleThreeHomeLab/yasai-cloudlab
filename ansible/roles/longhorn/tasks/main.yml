@@ -41,18 +41,8 @@
   changed_when: false
   no_log: true
 
-- name: Create the bounded Longhorn tooling directory
-  ansible.builtin.file:
-    path: /var/lib/cloudlab/longhorn
-    state: directory
-    mode: '0750'
-
-- name: Install the bounded Longhorn transition and existing verification
-  ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/longhorn/{{ item }}'
-    dest: '/var/lib/cloudlab/longhorn/{{ item }}'
-    mode: '0640'
-  loop: [bootstrap.py, handoff_fixture.py, kube.py, verify_health.py, verify_gitops.py]
+- name: Install the storage module's bounded tooling
+  ansible.builtin.import_tasks: tooling.yml
 
 - name: Seed the operator only before release of bootstrap ownership
   ansible.builtin.command:

@@ -1,0 +1,30 @@
+---
+- name: Recover backup declarations only after their Argo writer is suspended
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the published backup reconciliation switch to be disabled
+      ansible.builtin.assert:
+        that:
+          - longhorn_backup_gitops_enabled | bool
+          - not ((lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).longhornBackup.reconcile | bool)
+    - name: Require independent host access and recovery
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: prerequisites
+    - name: Install the current bounded storage tooling
+      ansible.builtin.include_role:
+        name: longhorn
+        tasks_from: tooling
+    - name: Reconcile the published suspension into the bootstrap-owned Application
+      ansible.builtin.include_role:
+        name: longhorn_backup
+        tasks_from: gitops
+    - name: Restore the supported backup declarations without changing credentials
+      ansible.builtin.include_role:
+        name: longhorn_backup
+        tasks_from: action
+      vars:
+        longhorn_backup_action: recover

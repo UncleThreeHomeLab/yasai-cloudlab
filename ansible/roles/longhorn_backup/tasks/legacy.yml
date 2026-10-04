@@ -1,0 +1,11 @@
+---
+# Inputs: the CloudLab/longhorn-b2 item, synchronized by External Secrets.
+# Result: backup target and monthly retention, without persisting secret manifests.
+- name: Synchronize and validate B2 credentials before switching the backup target
+  ansible.builtin.import_tasks: secrets.yml
+
+- name: Reconcile the backup target and monthly retention
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Remove the superseded daily schedule
+  ansible.builtin.import_tasks: migrate.yml

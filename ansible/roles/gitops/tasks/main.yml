@@ -89,3 +89,9 @@
 
 - name: Reconcile optional private roots without waiting on their sources
   ansible.builtin.include_tasks: private.yml
+
+- name: Configure the backup Application after its public project exists
+  ansible.builtin.include_role:
+    name: longhorn_backup
+    tasks_from: gitops
+  when: longhorn_backup_gitops_enabled | bool
