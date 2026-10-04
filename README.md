@@ -19,6 +19,7 @@ uses SQLite and depends on the main VM.
 | Category | Component | Purpose |
 | --- | --- | --- |
 | Platform | K3s | Kubernetes with bundled DNS, ingress, metrics, and local storage |
+| Deployment | Argo CD | Private API, public platform root and optional scoped private sources |
 | Connectivity | WireGuard | Encrypted traffic between the VMs |
 | Host access | Tailscale | Independent SSH access; requires scoped enrollment credentials |
 | Security | Host firewalls | Restrict public access; keep cluster and ingress ports private |
@@ -60,4 +61,16 @@ no B2 backups. Cloud backup fixtures and initial recovery exports run only on da
 1 UTC through separate monthly proof actions.
 
 VM creation, provider firewalls, the B2 bucket/key, and the 1Password vault/service account are external prerequisites.
-Application deployment and full-cluster recovery are outside the current scope.
+Private GitOps inputs are optional and stay in `.env`; their App key stays in
+1Password. Full-cluster recovery remains outside the verified scope.
+
+Host packages come from each VM's configured Debian repositories. Apply installs
+missing prerequisites; it does not perform distribution upgrades. Runner package
+sources and application artifacts are pinned separately.
+
+ESO's bounded chart bootstrap records its writer release before Argo adoption.
+`docker compose run --build --rm lab eso-interruption-test` proves initial seed
+resume before that release. For bounded same-version recovery, publish
+`externalSecrets.reconcile: false` in the public root, run `lab eso-recover`
+through Compose, then publish `true` and run `prove`. Recovery refuses an active
+Argo writer. Ansible always owns the 1Password bootstrap token.

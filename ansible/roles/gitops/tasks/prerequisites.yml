@@ -1,0 +1,22 @@
+---
+- name: Require independently configured host access and early recovery
+  ansible.builtin.assert:
+    that: [tailscale_enabled | bool, k3s_backup_enabled | bool]
+    fail_msg: GitOps bootstrap requires the verified host-access and early-recovery inputs.
+- name: Require a fresh recovery receipt without cloud polling
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/recovery/backup.py, freshness]
+  changed_when: false
+- name: Prove allowed and denied host access from the runner
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/tailscale/verify_access.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+- name: Independently retrieve and verify the recovery point
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/recovery/runner.py, retrieve]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+

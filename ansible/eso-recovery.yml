@@ -1,0 +1,42 @@
+---
+- name: Recover ESO only after its Argo writer is suspended in Git
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the published root to suspend ESO automatic sync
+      ansible.builtin.assert:
+        that:
+          - external_secrets_gitops_enabled | bool
+          - not (external_secrets_gitops_reconcile | bool)
+        fail_msg: Publish externalSecrets.reconcile=false before bounded ESO recovery.
+    - name: Require independent access and recovery before this ownership transition
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: prerequisites
+    - name: Render the same locked ESO module used by GitOps
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/external_secrets/chart.py]
+      delegate_to: localhost
+      become: false
+      register: eso_recovery_payload
+      changed_when: false
+      no_log: true
+    - name: Install the version-controlled bounded recovery implementation
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../automation/external_secrets/bootstrap.py'
+        dest: /var/lib/cloudlab/external-secrets/bootstrap.py
+        mode: '0640'
+    - name: Restore the supported chart without uninstalling or replacing objects
+      ansible.builtin.command:
+        argv: [python3, /var/lib/cloudlab/external-secrets/bootstrap.py, recover]
+        stdin: '{{ eso_recovery_payload.stdout }}'
+      register: eso_recovery
+      changed_when: eso_recovery.rc == 0 and (eso_recovery.stdout | from_json).changed
+      failed_when: false
+      no_log: true
+    - name: Require safe completion of the recovery transition
+      ansible.builtin.assert:
+        that: eso_recovery.rc == 0
+        fail_msg: '{{ eso_recovery.stderr }}'

@@ -14,6 +14,7 @@ import subprocess
 import tarfile
 
 import yaml
+from jinja2 import Environment, StrictUndefined
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULES = [('secrets/external-secrets', 'external_secrets'), ('storage/longhorn', 'longhorn')]
@@ -36,6 +37,11 @@ def index(items):
 
 def normalize(item, module):
     item = copy.deepcopy(item)
+    if module == 'external_secrets' and item['kind'] == 'CustomResourceDefinition':
+        annotations = item['metadata'].get('annotations', {})
+        option = annotations.pop('argocd.argoproj.io/sync-options', None)
+        if option not in (None, 'ServerSideApply=true,Prune=false,Delete=false'):
+            raise ValueError('Unreviewed ESO CRD ownership options')
     if module == 'longhorn':
         # These two labels do not participate in existing selectors.
         for metadata in (item['metadata'], item.get('spec', {}).get('template', {}).get('metadata', {})):
@@ -79,7 +85,7 @@ def container_images(value):
 def verify(module, old):
     folder = ROOT / 'platform' / module
     lock = json.loads((folder / 'artifact.lock.json').read_text())
-    archive = folder / 'upstream.tgz'
+    archive = folder / lock.get('archive', 'upstream.tgz')
     if hashlib.sha256(archive.read_bytes()).hexdigest() != lock['sha256']:
         raise ValueError(f'{module}: chart checksum mismatch')
     for relative, expected in lock['baseline_inputs'].items():
@@ -93,15 +99,33 @@ def verify(module, old):
         schema = any(x.name == lock['release_name'] + '/values.schema.json' for x in package)
     if chart['version'] != lock['version']:
         raise ValueError('Chart version differs from lock')
-    subprocess.run(['helm', 'lint', str(archive), '--strict', '--kube-version', lock['kube_version'],
+    chart_path = folder if (folder / 'Chart.yaml').exists() else archive
+    subprocess.run(['helm', 'lint', str(chart_path), '--strict', '--kube-version', lock['kube_version'],
                     '-f', str(folder / 'values.json')], check=True, capture_output=True)
-    command = ['helm', 'template', lock['release_name'], str(archive), '--namespace', lock['namespace'],
+    command = ['helm', 'template', lock['release_name'], str(chart_path), '--namespace', lock['namespace'],
                '--kube-version', lock['kube_version'], '--include-crds', '-f', str(folder / 'values.json')]
     rendered = subprocess.check_output(command)
     if rendered != subprocess.check_output(command):
         raise ValueError('Chart render is nondeterministic')
     candidate = list(filter(None, yaml.safe_load_all(rendered)))
-    candidate += list(filter(None, yaml.safe_load_all((folder / 'config.yaml').read_text())))
+    if old == 'external_secrets':
+        stores = [x for x in candidate if x['kind'] == 'ClusterSecretStore']
+        if stores:
+            settings = json.loads((folder / 'values.json').read_text())['cloudlab']
+            environment = Environment(undefined=StrictUndefined)
+            environment.filters['to_json'] = json.dumps
+            environment.filters['hash'] = lambda value, algorithm: hashlib.new(algorithm, value.encode()).hexdigest()
+            template = (ROOT / 'ansible/roles/external_secrets/templates/store.yml.j2').read_text()
+            expected = yaml.safe_load(environment.from_string(template).render(
+                external_secrets_store=settings['store'], external_secrets_vault=settings['vault'],
+                external_secrets_token='non-secret-parity-fixture'))
+            # Bootstrap retains only the token-change notification annotation.
+            expected['metadata'].pop('annotations')
+            if stores != [expected]:
+                raise ValueError('ESO store spec differs from its existing bootstrap declaration')
+            candidate = [x for x in candidate if x['kind'] != 'ClusterSecretStore']
+    if (folder / 'config.yaml').exists():
+        candidate += list(filter(None, yaml.safe_load_all((folder / 'config.yaml').read_text())))
     # The chart has no off switches for these hooks. Report them, never apply them.
     hooks = [x for x in candidate if 'helm.sh/hook' in x['metadata'].get('annotations', {})]
     expected_hooks = {'longhorn-post-upgrade': 'post-upgrade', 'longhorn-uninstall': 'pre-delete'} if old == 'longhorn' else {}

@@ -39,7 +39,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'repository-setup', 'publish-platform', 'github-app-check', 'private-fixture-prepare'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'repository-setup', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as apply, verify, or prove.')
     if action in {'repository-setup', 'publish-platform', 'github-app-check', 'private-fixture-prepare'}:
         module = {'repository-setup': 'github_setup.py', 'publish-platform': 'publish_snapshot.py',
@@ -50,9 +50,11 @@ def main():
         return
     if action == 'charts':
         subprocess.run([sys.executable, '/workspace/verification/integration/chart_parity.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/external_secrets/chart.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'check'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
+    os.environ['LAB_ESO_STOP_AFTER_SEED'] = '0'
     os.environ['LAB_GITOPS_STOP_AFTER_SEED'] = '0'
     os.environ['LAB_GITOPS_ACTION'] = {'gitops-verify': 'verify', 'gitops-source-migrate': 'source-migrate', 'gitops-private-remove': 'private-remove'}.get(action, 'bootstrap')
     os.environ['LAB_RECOVERY_ACTION'] = 'initial' if action == 'recovery-initial' else 'monthly'
@@ -72,7 +74,7 @@ def main():
         if action == 'monthly-proof':
             os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
-        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml'):
+        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml'):
             playbook(name, syntax=True)
         return
 
@@ -92,7 +94,7 @@ def main():
             os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
         subprocess.run([sys.executable, '/workspace/automation/tailscale/control.py', 'policy'], check=True)
         return
-    if action in {'apply', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
+    if action in {'apply', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
                      for suffix in ('_HOST', '_USER', '_PASSWORD'))
@@ -158,6 +160,15 @@ def main():
         if action == 'gitops-bootstrap':
             os.environ['LAB_GITOPS_ACTION'] = 'verify'
             playbook('gitops.yml')
+    elif action == 'eso-interruption-test':
+        gitops_preflight()
+        os.environ['LAB_ESO_STOP_AFTER_SEED'] = '1'
+        playbook('eso.yml')
+        os.environ['LAB_ESO_STOP_AFTER_SEED'] = '0'
+        playbook('eso.yml')
+    elif action == 'eso-recover':
+        gitops_preflight()
+        playbook('eso-recovery.yml')
     elif action == 'host-access':
         subprocess.run([sys.executable, '/workspace/automation/tailscale/verify_access.py'], check=True)
     elif action in {'recovery-monthly', 'recovery-initial', 'recovery-replacement-test'}:

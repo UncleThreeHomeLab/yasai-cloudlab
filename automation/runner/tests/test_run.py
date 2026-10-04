@@ -113,7 +113,7 @@ class RunnerTests(unittest.TestCase):
     def test_syntax_does_not_require_credentials_or_dns(self):
         self.values = {}
         playbook = self.invoke('syntax')
-        self.assertEqual(playbook.call_count, 9)
+        self.assertEqual(playbook.call_count, 11)
         self.assertTrue(all(call.kwargs == {'syntax': True} for call in playbook.call_args_list))
 
     def test_independent_retrieval_does_not_require_vm_credentials_or_playbooks(self):
@@ -167,6 +167,12 @@ class RunnerTests(unittest.TestCase):
         playbook = self.invoke('gitops-bootstrap')
         self.assertEqual([call.args[0] for call in playbook.call_args_list], ['gitops.yml', 'gitops.yml'])
         self.assertEqual(os.environ['LAB_GITOPS_ACTION'], 'verify')
+
+    def test_eso_recovery_uses_its_explicit_suspended_writer_gate(self):
+        self.invoke('eso-recover').assert_called_once_with('eso-recovery.yml')
+        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
+        with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
+            self.invoke('eso-recover')
 
     def test_gitops_interruption_proof_resumes_the_same_playbook(self):
         playbook = self.invoke('gitops-interruption-test')

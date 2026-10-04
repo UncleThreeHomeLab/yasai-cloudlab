@@ -5,106 +5,107 @@
     fail_msg: Set OP_SERVICE_ACCOUNT_TOKEN in .env.
   no_log: true
 
-- name: Create the managed External Secrets directory
+- name: Inspect the ESO ownership checkpoint
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/external-secrets/ownership.json
+  register: external_secrets_checkpoint
+
+- name: Detect an existing ESO namespace before adopting its baseline
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, get, namespace, external-secrets, --ignore-not-found, -o, name]
+  register: external_secrets_existing
+  changed_when: false
+
+- name: Require host access and early recovery before changing existing ownership
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: prerequisites
+  when: not external_secrets_checkpoint.stat.exists and external_secrets_existing.stdout | length > 0
+
+- name: Require same-version chart parity before initial adoption
+  ansible.builtin.command:
+    argv: [python, /workspace/verification/integration/chart_parity.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: not external_secrets_checkpoint.stat.exists
+
+- name: Render the locked ESO module used by Argo
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/external_secrets/chart.py]
+  delegate_to: localhost
+  become: false
+  register: external_secrets_chart
+  changed_when: false
+  no_log: true
+
+- name: Create the bounded ESO tooling directory
   ansible.builtin.file:
     path: /var/lib/cloudlab/external-secrets
     state: directory
     mode: '0750'
 
-- name: Render locked External Secrets resources
+- name: Install the bounded ESO transition and existing verification
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/external_secrets/{{ item }}'
+    dest: '/var/lib/cloudlab/external-secrets/{{ item }}'
+    mode: '0640'
+  loop: [bootstrap.py, verify.py]
+
+- name: Seed the operator only before release of bootstrap ownership
   ansible.builtin.command:
-    argv: [python, /workspace/automation/external_secrets/render.py, "{{ item }}"]
-  delegate_to: localhost
-  become: false
-  loop: [namespace, crds, system]
-  register: external_secrets_rendered
-  changed_when: false
+    argv: [python3, /var/lib/cloudlab/external-secrets/bootstrap.py, "{{ 'seed-stop' if lookup('env', 'LAB_ESO_STOP_AFTER_SEED') == '1' else 'seed' }}"]
+    stdin: '{{ external_secrets_chart.stdout }}'
+  register: external_secrets_seed
+  changed_when: external_secrets_seed.rc == 0 and (external_secrets_seed.stdout | from_json).changed
+  failed_when: false
   no_log: true
 
-- name: Store declared External Secrets resources
-  ansible.builtin.copy:
-    content: "{{ item.stdout }}\n"
-    dest: "/var/lib/cloudlab/external-secrets/{{ item.item }}.json"
-    mode: '0640'
-  loop: "{{ external_secrets_rendered.results }}"
-  loop_control:
-    label: "{{ item.item }}"
+- name: Require safe ESO seed or resume
+  ansible.builtin.assert:
+    that: external_secrets_seed.rc == 0
+    fail_msg: '{{ external_secrets_seed.stderr }}'
 
-- name: Reconcile the External Secrets namespace and CRDs
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: "/var/lib/cloudlab/external-secrets/{{ item }}.json"
-  loop: [namespace, crds]
+- name: Stop this explicit interruption fixture after its durable seed checkpoint
+  ansible.builtin.meta: end_play
+  when: lookup('env', 'LAB_ESO_STOP_AFTER_SEED') == '1'
 
-- name: Wait for External Secrets CRDs
-  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Established --timeout=120s -f /var/lib/cloudlab/external-secrets/crds.json
-  changed_when: false
+- name: Reconcile only the bootstrap-owned 1Password token
+  ansible.builtin.include_tasks: token.yml
 
-- name: Reconcile External Secrets controllers
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: /var/lib/cloudlab/external-secrets/system.json
+- name: Release operator and store reconciliation to Argo
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/external-secrets/bootstrap.py, release]
+    stdin: '{{ external_secrets_chart.stdout }}'
+  register: external_secrets_release
+  changed_when: external_secrets_release.rc == 0 and (external_secrets_release.stdout | from_json).changed
+  failed_when: false
+  no_log: true
 
-- name: Wait for External Secrets controllers and webhook
-  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment -n external-secrets --timeout=300s
-  changed_when: false
+- name: Require the durable writer-release checkpoint
+  ansible.builtin.assert:
+    that: external_secrets_release.rc == 0
+    fail_msg: '{{ external_secrets_release.stderr }}'
 
-- name: Bootstrap 1Password authentication
-  block:
-    - name: Create a private temporary credential manifest
-      ansible.builtin.tempfile:
-        state: file
-        path: /run
-        prefix: cloudlab-onepassword-
-      register: external_secrets_temp
-      changed_when: false
+- name: Notify ESO only when its bootstrap token changes
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/external-secrets/bootstrap.py, notify]
+    stdin: '{{ external_secrets_chart.stdout }}'
+  register: external_secrets_notification
+  changed_when: external_secrets_notification.rc == 0 and (external_secrets_notification.stdout | from_json).changed
+  failed_when: false
+  no_log: true
 
-    - name: Render the bootstrap credential
-      ansible.builtin.copy:
-        content: >-
-          {{ {'apiVersion': 'v1', 'kind': 'Secret',
-              'metadata': {'name': 'onepassword-token', 'namespace': 'external-secrets'},
-              'type': 'Opaque', 'data': {'token': external_secrets_token | b64encode}} | to_json }}
-        dest: "{{ external_secrets_temp.path }}"
-        mode: '0600'
-      no_log: true
-      changed_when: false
-
-    - name: Reconcile the bootstrap credential without logging secret content
-      ansible.builtin.include_role:
-        name: kubernetes_manifest
-        apply:
-          no_log: true
-      vars:
-        manifest_path: "{{ external_secrets_temp.path }}"
-  always:
-    - name: Remove the private temporary credential manifest
-      ansible.builtin.file:
-        path: "{{ external_secrets_temp.path }}"
-        state: absent
-      when: external_secrets_temp.path is defined
-      changed_when: false
-
-- name: Render the CloudLab store
-  ansible.builtin.template:
-    src: store.yml.j2
-    dest: /var/lib/cloudlab/external-secrets/store.yml
-    mode: '0640'
-
-- name: Reconcile the CloudLab store
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: /var/lib/cloudlab/external-secrets/store.yml
+- name: Require bootstrap credential notification to succeed
+  ansible.builtin.assert:
+    that: external_secrets_notification.rc == 0
+    fail_msg: '{{ external_secrets_notification.stderr }}'
 
 - name: Wait for CloudLab vault access
-  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Ready --timeout=180s clustersecretstore/{{ external_secrets_store }}
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, wait, --for=condition=Ready, --timeout=180s, 'clustersecretstore/{{ external_secrets_store }}']
   changed_when: false
 
-- name: Install the External Secrets verification module
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../automation/external_secrets/verify.py"
-    dest: /var/lib/cloudlab/external-secrets/verify.py
-    mode: '0640'
+- name: Report ESO ownership without resource or credential diagnostics
+  ansible.builtin.debug:
+    msg: '{{ external_secrets_release.stdout | from_json }}'

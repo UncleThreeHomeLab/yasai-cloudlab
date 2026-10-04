@@ -1,0 +1,8 @@
+---
+- name: Seed or resume ESO from the reviewed chart without another operator writer
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - external_secrets

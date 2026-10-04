@@ -42,6 +42,19 @@ class ParityTests(unittest.TestCase):
         changed['data']['default-setting.yaml'] = 'v1-data-engine: false\n'
         self.assertNotEqual(normalize(base, 'longhorn'), normalize(changed, 'longhorn'))
 
+    def test_only_reviewed_eso_crd_sync_options_are_normalized(self):
+        baseline = {'apiVersion': 'apiextensions.k8s.io/v1', 'kind': 'CustomResourceDefinition',
+                    'metadata': {'name': 'fixture.example.com', 'annotations': {'controller-gen': 'fixture'}},
+                    'spec': {'scope': 'Namespaced'}}
+        candidate = copy.deepcopy(baseline)
+        candidate['metadata']['annotations']['argocd.argoproj.io/sync-options'] = 'ServerSideApply=true,Prune=false,Delete=false'
+        self.assertEqual(normalize(baseline, 'external_secrets'), normalize(candidate, 'external_secrets'))
+        candidate['spec']['scope'] = 'Cluster'
+        self.assertNotEqual(normalize(baseline, 'external_secrets'), normalize(candidate, 'external_secrets'))
+        candidate['metadata']['annotations']['argocd.argoproj.io/sync-options'] = 'Replace=true'
+        with self.assertRaises(ValueError):
+            normalize(candidate, 'external_secrets')
+
     def test_image_scan_includes_init_containers_and_other_registries(self):
         self.resource['spec']['template']['spec']['initContainers'] = [{'image': 'other.example/tool:latest'}]
         self.assertEqual(set(container_images([self.resource])), {'locked', 'other.example/tool:latest'})
