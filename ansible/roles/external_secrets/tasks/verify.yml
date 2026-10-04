@@ -33,8 +33,16 @@
     stdin: '{{ external_secrets_acceptance_payload.stdout }}'
   register: external_secrets_acceptance
   changed_when: external_secrets_acceptance.rc == 0 and (external_secrets_acceptance.stdout | from_json).changed
-  until: external_secrets_acceptance.rc == 0
+  until: external_secrets_acceptance.rc != 2
   retries: 40
   delay: 5
+  failed_when: false
   no_log: true
+  when: external_secrets_gitops_enabled | bool
+
+- name: Require ESO identity and ownership acceptance without retrying permanent failures
+  ansible.builtin.assert:
+    that: external_secrets_acceptance.rc == 0
+    fail_msg: '{{ external_secrets_acceptance.stderr }}'
+    success_msg: ESO operator/store identities and existing generated credentials survived Argo adoption.
   when: external_secrets_gitops_enabled | bool

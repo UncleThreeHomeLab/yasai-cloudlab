@@ -17,6 +17,16 @@ DIGEST = hashlib.sha256(json.dumps(OBJECTS, sort_keys=True).encode()).hexdigest(
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_crds_require_actual_argo_ssa_spec_ownership(self):
+        crd = {'kind': 'CustomResourceDefinition'}
+        marker_only = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-external-secrets:fixture'}}}
+        self.assertFalse(bootstrap.argo_owned(crd, marker_only))
+        current = {'metadata': {'managedFields': [{'manager': 'argocd-controller', 'operation': 'Apply',
+                                                 'fieldsV1': {'f:spec': {}}}]}}
+        self.assertTrue(bootstrap.argo_owned(crd, current))
+        self.assertFalse(bootstrap.argo_owned({'kind': 'Deployment'}, current))
+        self.assertTrue(bootstrap.argo_owned({'kind': 'Deployment'}, marker_only))
+
     def test_new_seed_interruption_release_and_adoption_preserve_token(self):
         live = {}
         token = {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {
