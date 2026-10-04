@@ -39,10 +39,11 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-interruption-test', 'gitops-verify', 'repository-setup', 'publish-platform'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-interruption-test', 'gitops-verify', 'repository-setup', 'publish-platform', 'github-app-check'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as apply, verify, or prove.')
-    if action in {'repository-setup', 'publish-platform'}:
-        module = 'github_setup.py' if action == 'repository-setup' else 'publish_snapshot.py'
+    if action in {'repository-setup', 'publish-platform', 'github-app-check'}:
+        module = {'repository-setup': 'github_setup.py', 'publish-platform': 'publish_snapshot.py',
+                  'github-app-check': 'github_app.py'}[action]
         result = subprocess.run([sys.executable, '/workspace/automation/gitops/' + module], check=False)
         if result.returncode:
             raise SystemExit(result.returncode)
