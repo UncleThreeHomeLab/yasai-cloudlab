@@ -1,0 +1,18 @@
+---
+- name: Require embedded Helm parity before configuring the backup writer
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/backup_embedded_parity.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Read vault-derived backup inputs without changing their owner
+  ansible.builtin.import_tasks: read.yml
+
+- name: Render the private Application inputs from the public chart
+  ansible.builtin.import_tasks: render.yml
+
+- name: Reconcile only the bootstrap-owned backup Application
+  ansible.builtin.include_tasks: action.yml
+  vars:
+    longhorn_backup_action: configure

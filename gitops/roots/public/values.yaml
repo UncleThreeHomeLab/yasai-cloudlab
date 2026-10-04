@@ -11,3 +11,6 @@ longhorn:
   # Enable only after the attached-volume handoff records writer release.
   enabled: true
   reconcile: true
+longhornBackup:
+  enabled: false
+  reconcile: true

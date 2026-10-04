@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bootstrapSecretOnly", "store", "destination"],
+  "properties": {
+    "bootstrapSecretOnly": {"type": "boolean"},
+    "store": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "region"],
+      "properties": {
+        "bucket": {"type": "string", "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9.-]{1,62}$"},
+        "region": {"type": "string", "pattern": "^$|^[a-z0-9][a-z0-9-]{0,62}$"}
+      }
+    }
+  },
+  "if": {"properties": {"bootstrapSecretOnly": {"const": false}}},
+  "then": {"properties": {"destination": {"properties": {
+    "bucket": {"minLength": 2}, "region": {"minLength": 1}
+  }}}}
+}

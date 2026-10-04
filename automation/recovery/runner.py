@@ -19,7 +19,7 @@ POLICY = json.loads(Path(__file__).with_name('policy.json').read_text())
 def shared_b2():
     # The operator selected reuse of Longhorn's existing key and bucket. Consume
     # its public policy owner; do not duplicate or overwrite the vault item.
-    longhorn = json.loads((Path(__file__).resolve().parents[1] / 'longhorn/backup-policy.json').read_text())
+    longhorn = json.loads((Path(__file__).resolve().parents[2] / 'platform/storage/longhorn-backup/policy.json').read_text())
     values = fields(longhorn['item'], ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_ENDPOINTS', 'BUCKET', 'REGION'))
     values['AWS_ENDPOINT'] = values.pop('AWS_ENDPOINTS')
     values['PREFIX'] = POLICY['prefix']

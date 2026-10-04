@@ -1,0 +1,17 @@
+---
+- name: Run the bounded backup ownership action
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/longhorn/backup_gitops.py, '{{ longhorn_backup_action }}']
+    stdin: '{{ longhorn_backup_payload.stdout }}'
+  register: longhorn_backup_transition
+  changed_when: longhorn_backup_transition.rc == 0 and (longhorn_backup_transition.stdout | from_json).changed
+  until: longhorn_backup_transition.rc != 2
+  retries: 40
+  delay: 5
+  failed_when: false
+  no_log: true
+
+- name: Require the backup ownership action to pass without private diagnostics
+  ansible.builtin.assert:
+    that: longhorn_backup_transition.rc == 0
+    fail_msg: '{{ longhorn_backup_transition.stderr }}'

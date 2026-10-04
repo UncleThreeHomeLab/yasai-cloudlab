@@ -113,7 +113,7 @@ class RunnerTests(unittest.TestCase):
     def test_syntax_does_not_require_credentials_or_dns(self):
         self.values = {}
         playbook = self.invoke('syntax')
-        self.assertEqual(playbook.call_count, 13)
+        self.assertEqual(playbook.call_count, 15)
         self.assertTrue(all(call.kwargs == {'syntax': True} for call in playbook.call_args_list))
 
     def test_independent_retrieval_does_not_require_vm_credentials_or_playbooks(self):
@@ -188,6 +188,14 @@ class RunnerTests(unittest.TestCase):
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
         with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
             self.invoke('longhorn-bootstrap')
+
+    def test_backup_handoff_has_separate_bounded_entrypoints(self):
+        self.invoke('longhorn-backup-bootstrap').assert_called_once_with('longhorn-backup.yml')
+        self.invoke('longhorn-backup-recover').assert_called_once_with('longhorn-backup-recovery.yml')
+        interrupted = self.invoke('longhorn-backup-interruption-test')
+        self.assertEqual(interrupted.call_count, 2)
+        self.assertTrue(all(call.args == ('longhorn-backup.yml',) for call in interrupted.call_args_list))
+        self.assertEqual(os.environ['LAB_BACKUP_STOP_AFTER_SEED'], '0')
 
     def test_unreadable_public_source_fails_before_any_host_operation(self):
         for action in ('apply', 'prove', 'gitops-bootstrap', 'gitops-interruption-test'):

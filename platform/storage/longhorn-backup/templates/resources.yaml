@@ -1,0 +1,55 @@
+{{- $policy := .Files.Get "policy.json" | fromJson }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $policy.external_secret_name }}
+  namespace: longhorn-system
+spec:
+  refreshInterval: {{ $policy.refresh_interval }}
+  secretStoreRef:
+    name: {{ .Values.store }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ $policy.secret_name }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Merge
+      data:
+        VIRTUAL_HOSTED_STYLE: "false"
+  data:
+    {{- range $field := list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_ENDPOINTS" "BUCKET" "REGION" }}
+    - secretKey: {{ $field }}
+      remoteRef:
+        key: {{ printf "%s/%s" $policy.item $field | quote }}
+    {{- end }}
+{{- if not .Values.bootstrapSecretOnly }}
+---
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: {{ printf "s3://%s@%s/%s" (required "Private backup bucket required" .Values.destination.bucket) (required "Private backup region required" .Values.destination.region) $policy.prefix | quote }}
+  credentialSecret: {{ $policy.secret_name }}
+  pollInterval: {{ $policy.poll_interval | quote }}
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: {{ $policy.job_name }}
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/managed-by: cloudlab
+spec:
+  name: {{ $policy.job_name }}
+  task: backup
+  cron: {{ $policy.cron | quote }}
+  retain: {{ $policy.retain }}
+  concurrency: {{ $policy.concurrency }}
+  groups: [default]
+  labels: {}
+  parameters: {}
+{{- end }}

@@ -1,0 +1,29 @@
+---
+- name: Install the B2 access check and its policy
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/longhorn/{{ item }}'
+    dest: '/var/lib/cloudlab/longhorn/{{ item }}'
+    mode: '0640'
+  loop: [check_backup.py, backup_policy.py, monthly_window.py]
+
+- name: Install the authoritative storage backup policy
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../platform/storage/longhorn-backup/policy.json'
+    dest: /var/lib/cloudlab/longhorn/backup-policy.json
+    mode: '0640'
+
+- name: Prove synchronized credentials before changing the backup target
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/longhorn/check_backup.py]
+    stdin: '{{ longhorn_backup_values | to_json }}'
+  register: longhorn_backup_access
+  no_log: true
+  changed_when: false
+  failed_when: false
+  when: lookup('env', 'LAB_MONTHLY_PROOF') == '1'
+
+- name: Require B2 list, write, read and delete access
+  ansible.builtin.assert:
+    that: longhorn_backup_access.rc == 0
+    fail_msg: B2 access check failed using the 1Password item; existing backup target was not switched.
+  when: lookup('env', 'LAB_MONTHLY_PROOF') == '1'

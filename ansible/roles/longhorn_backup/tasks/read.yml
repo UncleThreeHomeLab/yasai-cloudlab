@@ -1,0 +1,23 @@
+---
+- name: Wait for B2 synchronization from 1Password
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, wait, '--for=condition=Ready', '--timeout=180s', '-n', longhorn-system, 'externalsecret/{{ longhorn_backup_policy.external_secret_name }}']
+  changed_when: false
+
+- name: Read synchronized B2 configuration privately
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, get, secret, '{{ longhorn_backup_secret_name }}', '-n', longhorn-system, '-o', json]
+  register: longhorn_backup_synced
+  no_log: true
+  changed_when: false
+
+- name: Decode synchronized B2 configuration in memory
+  ansible.builtin.set_fact:
+    longhorn_backup_values: "{{ dict((longhorn_backup_synced.stdout | from_json).data.keys() | zip((longhorn_backup_synced.stdout | from_json).data.values() | map('b64decode'))) }}"
+  no_log: true
+
+- name: Select backup destination from synchronized configuration
+  ansible.builtin.set_fact:
+    longhorn_backup_bucket: '{{ longhorn_backup_values.BUCKET }}'
+    longhorn_backup_region: '{{ longhorn_backup_values.REGION }}'
+  no_log: true
