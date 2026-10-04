@@ -78,8 +78,9 @@ class MeshChartTests(unittest.TestCase):
         denied = fixtures.pod('mesh', 'denied', 'pinned-image', 'allowed', network=False)
         self.assertEqual(allowed['spec']['serviceAccountName'], denied['spec']['serviceAccountName'])
         self.assertNotEqual(allowed['metadata']['labels'], denied['metadata']['labels'])
-        ports = fixtures.network_policy('mesh', 'public')['spec']['ingress'][0]['ports']
-        self.assertEqual({p['port'] for p in ports}, {8080, 15008})
+        ports = fixtures.network_policy('mesh', allow_hbone=True)['spec']['ingress'][0]['ports']
+        self.assertEqual({p['port'] for p in ports}, {15008})
+        self.assertEqual(fixtures.network_policy('mesh', allow_hbone=False)['spec']['ingress'], [])
 
     def test_nonroot_backend_can_write_only_its_ephemeral_content_volume(self):
         backend = fixtures.pod('fixture', 'backend', 'pinned-image', 'backend', server=True)['spec']
