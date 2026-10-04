@@ -1,71 +1,78 @@
 ---
-# Inputs: checked upstream manifest, image lock, and policy in automation/longhorn.
-# Result: private Longhorn V1 installation and an opt-in two-replica StorageClass.
-- name: Create the managed manifest directory
+- name: Inspect the Longhorn ownership checkpoint
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/longhorn/ownership.json
+  register: longhorn_checkpoint
+
+- name: Detect an existing Longhorn namespace before adopting its baseline
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, get, namespace, longhorn-system, --ignore-not-found, -o, name]
+  register: longhorn_existing
+  changed_when: false
+
+- name: Require host access and early recovery before changing existing ownership
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: prerequisites
+  when: not longhorn_checkpoint.stat.exists and longhorn_existing.stdout | length > 0
+
+- name: Require same-version chart parity before initial adoption
+  ansible.builtin.command:
+    argv: [python, /workspace/verification/integration/chart_parity.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: not longhorn_checkpoint.stat.exists
+
+- name: Require Argo embedded Helm parity before adopting an existing Longhorn baseline
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/embedded_parity.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: not longhorn_checkpoint.stat.exists and longhorn_existing.stdout | length > 0
+
+- name: Render the locked Longhorn module used by Argo
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/chart.py]
+  delegate_to: localhost
+  become: false
+  register: longhorn_chart
+  changed_when: false
+  no_log: true
+
+- name: Create the bounded Longhorn tooling directory
   ansible.builtin.file:
     path: /var/lib/cloudlab/longhorn
     state: directory
     mode: '0750'
 
-- name: Render locked Longhorn resources in the runner
+- name: Install the bounded Longhorn transition and existing verification
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/longhorn/{{ item }}'
+    dest: '/var/lib/cloudlab/longhorn/{{ item }}'
+    mode: '0640'
+  loop: [bootstrap.py, handoff_fixture.py, kube.py, verify_health.py, verify_gitops.py]
+
+- name: Seed the operator only before release of bootstrap ownership
   ansible.builtin.command:
-    argv: [python, /workspace/automation/longhorn/render.py, "{{ item }}"]
-  delegate_to: localhost
-  become: false
-  loop: [namespace, crds, system, policy]
-  register: longhorn_rendered
-  changed_when: false
+    argv: [python3, /var/lib/cloudlab/longhorn/bootstrap.py, "{{ 'seed-stop' if lookup('env', 'LAB_LONGHORN_STOP_AFTER_SEED') == '1' else 'seed' }}"]
+    stdin: '{{ (longhorn_chart.stdout | from_json) | combine({"fixture": longhorn_handoff_fixture}) | to_json }}'
+  register: longhorn_seed
+  changed_when: longhorn_seed.rc == 0 and (longhorn_seed.stdout | from_json).changed
+  failed_when: false
   no_log: true
 
-- name: Store the declared Longhorn resources
-  ansible.builtin.copy:
-    content: "{{ item.stdout }}\n"
-    dest: "/var/lib/cloudlab/longhorn/{{ item.item }}.json"
-    mode: '0640'
-  loop: "{{ longhorn_rendered.results }}"
-  loop_control:
-    label: "{{ item.item }}"
+- name: Require safe Longhorn seed or resume
+  ansible.builtin.assert:
+    that: longhorn_seed.rc == 0
+    fail_msg: '{{ longhorn_seed.stderr }}'
 
-- name: Reconcile Longhorn namespace
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: /var/lib/cloudlab/longhorn/namespace.json
+- name: Stop this explicit interruption fixture after its durable seed checkpoint
+  ansible.builtin.meta: end_play
+  when: lookup('env', 'LAB_LONGHORN_STOP_AFTER_SEED') == '1'
 
-- name: Reconcile Longhorn CRDs
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: /var/lib/cloudlab/longhorn/crds.json
 
-- name: Wait for CRDs
-  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Established --timeout=120s -f /var/lib/cloudlab/longhorn/crds.json
-  changed_when: false
-
-- name: Reconcile Longhorn controllers
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: /var/lib/cloudlab/longhorn/system.json
-
-- name: Wait for Longhorn manager readiness
-  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status daemonset/longhorn-manager -n longhorn-system --timeout=600s
-  changed_when: false
-
-- name: Wait for Longhorn controllers and CSI deployment
-  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment -n longhorn-system --timeout=600s
-  changed_when: false
-
-- name: Reconcile Longhorn settings and storage class
-  ansible.builtin.include_role:
-    name: kubernetes_manifest
-  vars:
-    manifest_path: /var/lib/cloudlab/longhorn/policy.json
-
-- name: Wait for the CSI driver on both nodes
-  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status daemonset/longhorn-csi-plugin -n longhorn-system --timeout=300s
-  register: longhorn_csi
-  until: longhorn_csi.rc == 0
-  retries: 6
-  delay: 10
-  changed_when: false
+- name: Report storage ownership without private diagnostics
+  ansible.builtin.debug:
+    msg: '{{ longhorn_seed.stdout | from_json }}'

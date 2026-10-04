@@ -1,0 +1,19 @@
+---
+- name: Read both node identities for the attached storage fixture
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Derive the node identity
+      ansible.builtin.include_role:
+        name: host
+        tasks_from: identity
+
+- name: Seed or resume Longhorn from the reviewed chart without another operator writer
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - longhorn

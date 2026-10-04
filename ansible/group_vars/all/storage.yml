@@ -4,3 +4,9 @@ longhorn_policy: "{{ lookup('file', playbook_dir ~ '/../automation/longhorn/poli
 longhorn_data_path: "{{ longhorn_policy.settings['default-data-path'] }}"
 longhorn_backup_policy: "{{ lookup('file', playbook_dir ~ '/../automation/longhorn/backup-policy.json') | from_json }}"
 longhorn_backup_enabled: "{{ longhorn_backup_policy.enabled }}"
+longhorn_gitops_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).longhorn.enabled }}"
+longhorn_gitops_reconcile: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).longhorn.reconcile }}"
+longhorn_handoff_fixture:
+  nodes: "{{ groups['k3s_cluster'] | map('extract', hostvars, 'lab_node_name') | list }}"
+  image: '{{ smoke_image }}'
+  policy: '{{ longhorn_policy }}'

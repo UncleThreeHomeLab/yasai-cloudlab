@@ -67,7 +67,9 @@ def committed_payload():
     data = payload()
     paths = ['platform/delivery/argocd', 'gitops', 'automation/gitops', 'ansible/roles/gitops',
              'platform/secrets/external-secrets', 'automation/external_secrets',
-             'ansible/roles/external_secrets', 'ansible/group_vars/all/secrets.yml']
+             'ansible/roles/external_secrets', 'ansible/group_vars/all/secrets.yml',
+             'platform/storage/longhorn', 'automation/longhorn', 'ansible/roles/longhorn',
+             'ansible/group_vars/all/storage.yml']
     result = subprocess.run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', *paths],
                             capture_output=True, text=True, timeout=30, check=True)
     if result.stdout.strip():

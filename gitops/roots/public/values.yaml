@@ -7,3 +7,7 @@ externalSecrets:
   enabled: true
   # Publish false before `lab eso-recover`; restore true to resume Argo ownership.
   reconcile: true
+longhorn:
+  # Enable only after the attached-volume handoff records writer release.
+  enabled: false
+  reconcile: true
