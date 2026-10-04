@@ -1,0 +1,39 @@
+---
+- name: Read sanitized host capacity without changing the lab
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Read storage filesystem capacity
+      ansible.builtin.command: df -B1 --output=size,used,avail /var/lib/longhorn
+      register: baseline_disk
+      changed_when: false
+    - name: Read installed K3s version
+      ansible.builtin.command: /usr/local/bin/k3s --version
+      register: baseline_k3s
+      changed_when: false
+    - name: Report capacity without deployment addresses or hostnames
+      ansible.builtin.debug:
+        msg:
+          os: "{{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}"
+          architecture: "{{ ansible_facts.architecture }}"
+          cpus: "{{ ansible_facts.processor_vcpus }}"
+          memory_mib: "{{ ansible_facts.memtotal_mb }}"
+          disk_bytes: "{{ baseline_disk.stdout_lines[1] | split }}"
+          k3s: "{{ baseline_k3s.stdout_lines[0] }}"
+
+- name: Read existing controller ownership without exporting private resources
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run the repository baseline reader from stdin
+      ansible.builtin.command:
+        argv: [python3, '-']
+        stdin: "{{ lookup('file', '../verification/integration/live_baseline.py') }}"
+      register: baseline_cluster
+      changed_when: false
+      no_log: true
+    - name: Report only the baseline reader's allowlisted fields
+      ansible.builtin.debug:
+        msg: "{{ baseline_cluster.stdout | from_json }}"

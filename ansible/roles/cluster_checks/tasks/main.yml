@@ -1,0 +1,6 @@
+---
+- name: Prove cross-node DNS and HTTP
+  ansible.builtin.import_tasks: http.yml
+
+- name: Prove persistent storage and external restoration
+  ansible.builtin.import_tasks: storage.yml

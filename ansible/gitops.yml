@@ -1,0 +1,16 @@
+---
+- name: Bootstrap public GitOps after the verified foundation
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Run bounded GitOps bootstrap
+      ansible.builtin.include_role:
+        name: gitops
+      when: lookup('env', 'LAB_GITOPS_ACTION') != 'verify'
+    - name: Verify public GitOps behavior
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: verify
+      when: lookup('env', 'LAB_GITOPS_ACTION') == 'verify'

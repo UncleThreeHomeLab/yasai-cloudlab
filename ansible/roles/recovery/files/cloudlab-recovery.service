@@ -1,0 +1,20 @@
+[Unit]
+Description=Consistent monthly K3s recovery export
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/cloudlab/recovery/backup.py monthly
+TimeoutStartSec=20h
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=2G
+CPUQuota=100%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cloudlab/recovery

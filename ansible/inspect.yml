@@ -1,0 +1,25 @@
+---
+- name: Inspect both existing VMs without changing them
+  hosts: k3s_cluster
+  gather_facts: false
+  tasks:
+    - name: Read OS, resources, identity, and existing K3s
+      ansible.builtin.raw: |
+        cat /etc/os-release
+        uname -m
+        id
+        nproc
+        free -m
+        hostname
+        lsblk -b -d -o NAME,SIZE,TYPE
+        systemctl is-active ufw firewalld nftables || true
+        timedatectl show -p NTPSynchronized
+        command -v python3 || true
+        command -v sudo || true
+        if command -v k3s >/dev/null 2>&1; then k3s --version; fi
+        if command -v wg >/dev/null 2>&1; then wg show; fi
+      register: vm_inspection
+      changed_when: false
+    - name: Show VM inspection
+      ansible.builtin.debug:
+        var: vm_inspection.stdout_lines

@@ -1,0 +1,7 @@
+---
+- name: Reload lab firewall
+  ansible.builtin.systemd_service:
+    name: cloudlab-firewall
+    daemon_reload: true
+    state: restarted
+    enabled: true

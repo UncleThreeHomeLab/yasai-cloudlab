@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-public-fixture
+  labels:
+    cloudlab.io/verification: gitops-public-fixture
+data:
+  purpose: Disposable GitOps authorization and reconciliation checks.

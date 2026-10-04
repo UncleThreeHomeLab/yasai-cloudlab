@@ -1,0 +1,4 @@
+repository: https://github.com/UncleThreeHomeLab/cloudlab-platform.git
+revision: main
+namespace: argocd
+publicNamespace: cloudlab-public

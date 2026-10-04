@@ -1,0 +1,38 @@
+---
+# Inputs: the existing /var/lib filesystem and private peer link.
+# Result: V1 engine prerequisites and a persistent data directory; no disk formatting.
+- name: Check storage prerequisites
+  ansible.builtin.import_tasks: check.yml
+
+- name: Install Longhorn host dependencies
+  ansible.builtin.apt:
+    name: [open-iscsi, nfs-common, cryptsetup, dmsetup, util-linux]
+    state: present
+
+- name: Persist the iSCSI kernel module
+  ansible.builtin.copy:
+    content: "# Managed by the lab Longhorn module.\niscsi_tcp\ndm_crypt\n"
+    dest: /etc/modules-load.d/longhorn.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Load the Longhorn kernel modules
+  ansible.builtin.command:
+    argv: [modprobe, "{{ item }}"]
+  loop: [iscsi_tcp, dm_crypt]
+  changed_when: false
+
+- name: Enable the iSCSI daemon
+  ansible.builtin.systemd_service:
+    name: iscsid
+    enabled: true
+    state: started
+
+- name: Create the persistent Longhorn data directory
+  ansible.builtin.file:
+    path: "{{ longhorn_data_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'

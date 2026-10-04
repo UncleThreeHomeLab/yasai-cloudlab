@@ -1,0 +1,3 @@
+---
+k3s_backup_enabled: "{{ lookup('env', 'K3S_BACKUP_ENABLED') == '1' }}"
+k3s_backup_policy: "{{ lookup('file', playbook_dir ~ '/../automation/recovery/policy.json') | from_json }}"

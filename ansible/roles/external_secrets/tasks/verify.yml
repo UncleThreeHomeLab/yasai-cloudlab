@@ -1,0 +1,18 @@
+---
+- name: Verify External Secrets controllers
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment -n external-secrets --timeout=300s
+  changed_when: false
+
+- name: Verify live store readiness and secret reconciliation
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/external-secrets/verify.py, "{{ external_secrets_store }}"]
+  register: external_secrets_proof
+  changed_when: true
+  no_log: true
+  failed_when: false
+
+- name: Require External Secrets proof to pass
+  ansible.builtin.assert:
+    that: external_secrets_proof.rc == 0
+    fail_msg: External Secrets verification failed; inspect controller health and CloudLab service account access locally.
+    success_msg: CloudLab store ready; disposable Secret creation, refresh, and drift repair passed.

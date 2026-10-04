@@ -1,0 +1,3 @@
+---
+tailscale_enabled: "{{ lookup('env', 'TAILSCALE_HOSTS_ENABLED') == '1' }}"
+tailscale_release: "{{ lookup('file', playbook_dir ~ '/../automation/tailscale/release.json') | from_json }}"

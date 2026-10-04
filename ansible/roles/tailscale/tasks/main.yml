@@ -1,0 +1,149 @@
+---
+- name: Inspect deliberate logout state
+  ansible.builtin.stat:
+    path: /var/lib/tailscale/cloudlab-logged-out
+  register: tailscale_logout
+
+- name: Refuse automatic reenrollment after deliberate logout
+  ansible.builtin.assert:
+    that: not tailscale_logout.stat.exists or (tailscale_explicit_reauth | default(false))
+    fail_msg: This host was deliberately logged out; use its explicit reauthentication action.
+
+- name: Validate and reconcile the scoped host policy before enrollment
+  ansible.builtin.command: python /workspace/automation/tailscale/control.py policy
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: tailscale_policy_result
+  changed_when: (tailscale_policy_result.stdout | from_json).changed
+  no_log: true
+
+- name: Create durable host identity and pinned binary directories
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: directory
+    mode: '{{ item.mode }}'
+  loop:
+    - {path: /var/lib/tailscale, mode: '0700'}
+    - {path: /opt/cloudlab/tailscale, mode: '0755'}
+
+- name: Download the checked host Tailscale artifact
+  ansible.builtin.get_url:
+    url: '{{ tailscale_release.url }}'
+    checksum: 'sha256:{{ tailscale_release.sha256 }}'
+    dest: '/opt/cloudlab/tailscale/{{ tailscale_release.version }}.tgz'
+    mode: '0644'
+
+- name: Extract the pinned Tailscale binaries
+  ansible.builtin.unarchive:
+    src: '/opt/cloudlab/tailscale/{{ tailscale_release.version }}.tgz'
+    dest: /opt/cloudlab/tailscale
+    remote_src: true
+    creates: '/opt/cloudlab/tailscale/tailscale_{{ tailscale_release.version }}_amd64/tailscaled'
+
+- name: Link the declared host binaries
+  ansible.builtin.file:
+    src: '/opt/cloudlab/tailscale/tailscale_{{ tailscale_release.version }}_amd64/{{ item }}'
+    dest: '/usr/local/bin/{{ item }}'
+    state: link
+  loop: [tailscale, tailscaled]
+  notify: Restart host Tailscale
+
+- name: Install independent host service
+  ansible.builtin.copy:
+    src: tailscaled.service
+    dest: /etc/systemd/system/tailscaled.service
+    mode: '0644'
+  notify: Restart host Tailscale
+
+- name: Start host Tailscale before inspecting enrollment
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending Tailscale service changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Inspect existing enrollment without disclosing identity
+  ansible.builtin.command: /usr/local/bin/tailscale status --json
+  register: tailscale_before
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Reject unexpected identity failure instead of silently replacing it
+  ansible.builtin.assert:
+    that:
+      - tailscale_before.rc == 0
+      - (tailscale_before.stdout | from_json).BackendState in ['Running', 'NeedsLogin']
+      - (tailscale_explicit_reauth | default(false)) or not ((tailscale_before.stdout | from_json).Self.Expired | default(false))
+      - (tailscale_explicit_reauth | default(false)) or (tailscale_before.stdout | from_json).BackendState != 'NeedsLogin' or not ((tailscale_before.stdout | from_json).Self.ID | default(''))
+    fail_msg: Host Tailscale identity needs explicit recovery; existing SSH remains available.
+  no_log: true
+
+- name: Enroll only an unregistered host with a one-use durable identity
+  when: (tailscale_explicit_reauth | default(false)) or (tailscale_before.stdout | from_json).BackendState == 'NeedsLogin'
+  block:
+    - name: Generate a five-minute non-ephemeral enrollment key in the runner
+      ansible.builtin.command: python /workspace/automation/tailscale/control.py key
+      delegate_to: localhost
+      become: false
+      register: tailscale_key
+      changed_when: false
+      no_log: true
+    - name: Stage the one-use key in root-only volatile memory
+      ansible.builtin.copy:
+        content: '{{ tailscale_key.stdout }}'
+        dest: /run/cloudlab-tailscale-key
+        mode: '0600'
+      no_log: true
+    - name: Enroll without DNS, subnet routing, exit nodes or Tailscale SSH
+      ansible.builtin.command:
+        argv: "{{ ['tailscale', 'up', '--auth-key=file:/run/cloudlab-tailscale-key', '--advertise-tags=tag:cloudlab-host', '--accept-dns=false', '--accept-routes=false', '--ssh=false', '--hostname=' ~ inventory_hostname, '--timeout=60s'] + (['--force-reauth'] if tailscale_explicit_reauth | default(false) else []) }}"
+      no_log: true
+      changed_when: true
+  always:
+    - name: Remove the consumed enrollment credential
+      ansible.builtin.file:
+        path: /run/cloudlab-tailscale-key
+        state: absent
+      no_log: true
+
+- name: Read Tailscale preferences privately
+  ansible.builtin.command: tailscale debug prefs
+  register: tailscale_preferences
+  no_log: true
+  changed_when: false
+
+- name: Restore declared host preferences without replacing identity
+  ansible.builtin.command:
+    argv: [tailscale, set, '--accept-dns=false', '--accept-routes=false', '--ssh=false', '--advertise-routes=', '--advertise-exit-node=false', '--advertise-tags=tag:cloudlab-host', '--hostname={{ inventory_hostname }}', '--auto-update=false']
+  when: >-
+    (tailscale_preferences.stdout | from_json).CorpDNS or
+    (tailscale_preferences.stdout | from_json).RouteAll or
+    (tailscale_preferences.stdout | from_json).RunSSH or
+    ((tailscale_preferences.stdout | from_json).AdvertiseRoutes | default([], true) | length > 0) or
+    (tailscale_preferences.stdout | from_json).AdvertiseTags != ['tag:cloudlab-host'] or
+    (tailscale_preferences.stdout | from_json).Hostname != inventory_hostname or
+    ((tailscale_preferences.stdout | from_json).AutoUpdate.Apply | default(false))
+  changed_when: true
+  no_log: true
+
+- name: Verify the durable host identity
+  ansible.builtin.import_tasks: verify.yml
+
+- name: Clear deliberate logout only after explicit verified reauthentication
+  ansible.builtin.file:
+    path: /var/lib/tailscale/cloudlab-logged-out
+    state: absent
+  when: tailscale_explicit_reauth | default(false)
+
+- name: Require repeat enrollment to preserve the node ID
+  ansible.builtin.assert:
+    that: (tailscale_before.stdout | from_json).Self.ID == (tailscale_status.stdout | from_json).Self.ID
+  when:
+    - (tailscale_before.stdout | from_json).BackendState == 'Running'
+    - not (tailscale_explicit_reauth | default(false))
+  no_log: true

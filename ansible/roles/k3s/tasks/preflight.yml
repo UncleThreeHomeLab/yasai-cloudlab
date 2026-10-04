@@ -1,0 +1,29 @@
+---
+- name: Refuse to turn an existing server into an agent or vice versa
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ 'k3s-agent' if k3s_mode == 'server' else 'k3s' }}.service"
+  register: k3s_opposite_service
+
+- name: Require the intended node role
+  ansible.builtin.assert:
+    that: not k3s_opposite_service.stat.exists
+    fail_msg: This VM already has the opposite K3s role; automatic destructive conversion is not supported.
+
+- name: Check installed K3s version
+  ansible.builtin.command: /usr/local/bin/k3s --version
+  register: k3s_installed
+  changed_when: false
+  failed_when: false
+
+- name: Check installed K3s binary integrity
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+    checksum_algorithm: sha256
+  register: k3s_binary
+
+- name: Refuse an ordinary apply that downgrades the Kubernetes minor version
+  ansible.builtin.assert:
+    that:
+      - (k3s_installed.stdout | regex_findall('[0-9]+[.][0-9]+') | first) is version((k3s_version | regex_findall('[0-9]+[.][0-9]+') | first), '<=')
+    fail_msg: Minor-version downgrade requires the explicit Compose k3s-migrate workflow; never reuse a newer datastore.
+  when: k3s_installed.rc == 0

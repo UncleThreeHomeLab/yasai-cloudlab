@@ -1,0 +1,35 @@
+---
+- name: Check firewall is active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "cloudlab-firewall"]
+  changed_when: false
+
+- name: Check firewall is enabled at boot
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "cloudlab-firewall"]
+  changed_when: false
+
+- name: Check the active host firewall
+  ansible.builtin.command: nft -j list table inet cloudlab
+  register: verified_firewall
+  changed_when: false
+
+- name: Check that the host input policy denies unmatched traffic
+  ansible.builtin.assert:
+    that:
+      - >-
+        (verified_firewall.stdout | from_json).nftables
+        | selectattr('chain', 'defined') | map(attribute='chain')
+        | selectattr('name', 'equalto', 'input') | map(attribute='policy') | list == ['drop']
+
+- name: Check Kubernetes ports cannot be reached on public VM addresses
+  ansible.builtin.wait_for:
+    host: "{{ wireguard_public_endpoint }}"
+    port: "{{ item }}"
+    state: stopped
+    connect_timeout: 2
+    timeout: 5
+  loop: [6443, 10250]
+  delegate_to: localhost
+  become: false
+  no_log: true

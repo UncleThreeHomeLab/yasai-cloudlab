@@ -1,0 +1,13 @@
+{
+  "installCRDs": true,
+  "processClusterExternalSecret": false,
+  "processClusterPushSecret": false,
+  "processPushSecret": false,
+  "processClusterGenerator": false,
+  "crds": {
+    "createClusterExternalSecret": false,
+    "createClusterPushSecret": false,
+    "createPushSecret": false,
+    "createClusterGenerator": false
+  }
+}

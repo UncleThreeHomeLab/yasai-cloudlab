@@ -1,0 +1,30 @@
+# Managed by Ansible. This transaction replaces only the lab's table.
+# Never flush the ruleset: K3s owns its own iptables/nftables chains.
+table inet cloudlab
+flush table inet cloudlab
+table inet cloudlab {
+    chain input {
+        type filter hook input priority -10; policy drop;
+        iifname "lo" accept
+{% if tailscale_enabled | bool %}
+        # Let tailscaled enforce grants before delivery. Limit host services too.
+        iifname "tailscale0" tcp dport {{ ansible_port }} accept
+        iifname "tailscale0" drop
+        udp dport 41641 accept
+{% endif %}
+        ct state established,related accept
+        iifname "{{ wireguard_interface }}" ip saddr {{ wireguard_peer_address }} accept
+        iifname { "cni0", "flannel.1" } ip saddr {{ k3s_pod_cidr }} accept
+        tcp dport {{ ansible_port }} accept
+        ip saddr {{ wireguard_peer_endpoint }} udp dport {{ wireguard_port }} accept
+        meta l4proto { icmp, ipv6-icmp } accept
+        udp sport 67 udp dport 68 accept
+        udp sport 547 udp dport 546 accept
+    }
+    chain forward {
+        type filter hook forward priority -10; policy accept;
+        ct state established,related accept
+        iifname { "{{ wireguard_interface }}", "cni0", "flannel.1" } accept
+        ip daddr { {{ k3s_pod_cidr }}, {{ k3s_service_cidr }} } drop
+    }
+}

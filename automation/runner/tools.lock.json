@@ -1,0 +1,12 @@
+{
+  "op": {
+    "version": "2.34.0",
+    "url": "https://cache.agilebits.com/dist/1P/op2/pkg/v2.34.0/op_linux_amd64_v2.34.0.zip",
+    "sha256": "198b05dcf9a0972778ce5a4e262c459979b0c837257b5da65e2fba6187734226"
+  },
+  "restic": {
+    "version": "0.19.1",
+    "url": "https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2",
+    "sha256": "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
+  }
+}

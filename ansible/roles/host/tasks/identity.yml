@@ -1,0 +1,4 @@
+---
+- name: Export the host identity
+  ansible.builtin.set_fact:
+    lab_node_name: "{{ ansible_facts['nodename'] | lower }}"

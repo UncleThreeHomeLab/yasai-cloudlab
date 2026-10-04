@@ -1,0 +1,21 @@
+services:
+  lab:
+    platform: linux/amd64
+    build:
+      context: ./automation/runner
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: volume
+        source: ssh_known_hosts
+        target: /state
+      - type: volume
+        source: recovery_outputs
+        target: /recovery
+    command: [apply]
+
+volumes:
+  ssh_known_hosts:
+  recovery_outputs:

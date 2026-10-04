@@ -1,0 +1,84 @@
+---
+- name: Bootstrap Python on Debian or Ubuntu if necessary
+  ansible.builtin.raw: |
+    set -eu
+    if ! command -v python3 >/dev/null 2>&1; then
+      . /etc/os-release
+      case "$ID" in
+        debian|ubuntu) apt-get update; apt-get install -y python3 ;;
+        *) echo 'Python bootstrap supports Debian and Ubuntu only.' >&2; exit 1 ;;
+      esac
+      echo LAB_PYTHON_INSTALLED
+    fi
+  register: host_python
+  changed_when: "'LAB_PYTHON_INSTALLED' in host_python.stdout"
+
+- name: Gather host facts
+  ansible.builtin.setup:
+
+- name: Derive the node identity
+  ansible.builtin.import_tasks: identity.yml
+
+- name: Check supported host and minimum server resources
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] in ['Debian', 'Ubuntu']
+      - ansible_facts['service_mgr'] == 'systemd'
+      - ansible_facts['architecture'] in ['x86_64', 'aarch64']
+      - ansible_facts['processor_vcpus'] | int >= 2
+      - ansible_facts['memtotal_mb'] | int >= 1800
+    fail_msg: This module requires Debian/Ubuntu with systemd, x86_64/arm64, 2 CPUs, and approximately 2 GiB RAM.
+
+- name: Install K3s download prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - iproute2
+      - iputils-ping
+      - kmod
+      - procps
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check node identities are unique
+  ansible.builtin.assert:
+    that:
+      - groups['k3s_cluster'] | map('extract', hostvars, 'lab_node_name') | unique | length == groups['k3s_cluster'] | length
+    fail_msg: Each VM must have a unique hostname before it can join K3s.
+
+- name: Check the planned tunnel addresses do not belong to another interface
+  ansible.builtin.command: ip -j -4 address show
+  register: host_addresses
+  changed_when: false
+
+- name: Refuse conflicting tunnel addresses
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - wireguard_address not in (item.addr_info | map(attribute='local') | list)
+      - hostvars[wireguard_peer_host]['wireguard_address'] not in (item.addr_info | map(attribute='local') | list)
+    fail_msg: A planned WireGuard IP is already in use on another host interface.
+  loop: "{{ host_addresses.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.ifname }}"
+  when: item.ifname != wireguard_interface
+
+- name: Persist IPv4 forwarding for Kubernetes
+  ansible.builtin.copy:
+    content: "# Managed by Ansible for the cloud lab.\nnet.ipv4.ip_forward = 1\n"
+    dest: /etc/sysctl.d/90-cloudlab.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read the current IPv4 forwarding setting
+  ansible.builtin.command: sysctl -n net.ipv4.ip_forward
+  register: host_forwarding
+  changed_when: false
+
+- name: Enable IPv4 forwarding when needed
+  ansible.builtin.command: sysctl -w net.ipv4.ip_forward=1
+  when: host_forwarding.stdout | trim != '1'
+  changed_when: true

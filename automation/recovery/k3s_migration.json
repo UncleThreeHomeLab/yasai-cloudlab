@@ -1,0 +1,10 @@
+{
+  "id": "k3s-1.37-to-1.36",
+  "source": "v1.37.1+k3s1",
+  "target": "v1.36.5+k3s1",
+  "source_binary_sha256": {
+    "x86_64": "92b94582eb7b34a8cf532e6006842b9ed215a6783cf56a3dd6271fd35243b2c0",
+    "aarch64": "a1561ca4aef8b99f5588a840d4468ac39c8c1cd92470bbcb9634823fa221741a"
+  },
+  "killall_sha256": "6990bdded9a676934bf85bd55c30c4fa5d81805d9b44727427793a6a5f9068bb"
+}

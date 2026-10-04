@@ -1,0 +1,58 @@
+---
+- name: Resolve the filesystem containing the declared data path
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "import pathlib,sys; p=pathlib.Path(sys.argv[1]); assert p.is_absolute(); print(next(x for x in (p, *p.parents) if x.exists()))"
+      - "{{ longhorn_data_path }}"
+  register: longhorn_existing_data_path
+  changed_when: false
+
+- name: Inspect storage filesystem without exposing host identifiers
+  ansible.builtin.command:
+    argv: [findmnt, '-J', '-T', "{{ longhorn_existing_data_path.stdout }}", '-o', 'FSTYPE,OPTIONS']
+  register: longhorn_mount
+  changed_when: false
+
+- name: Require a writable ext4 or XFS filesystem for Longhorn
+  ansible.builtin.assert:
+    that:
+      - (longhorn_mount.stdout | from_json).filesystems[0].fstype in ['ext4', 'xfs']
+      - "'rw' in (longhorn_mount.stdout | from_json).filesystems[0].options.split(',')"
+
+- name: Measure available storage
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "import json,os,sys; s=os.statvfs(sys.argv[1]); print(json.dumps({'total_gib':round(s.f_blocks*s.f_frsize/2**30,1),'free_gib':round(s.f_bavail*s.f_frsize/2**30,1),'free_percent':round(100*s.f_bavail/s.f_blocks,1)}))"
+      - "{{ longhorn_existing_data_path.stdout }}"
+  register: longhorn_capacity
+  changed_when: false
+
+- name: Require storage headroom before installation
+  ansible.builtin.assert:
+    that:
+      - (longhorn_capacity.stdout | from_json).free_gib >= 20
+      - (longhorn_capacity.stdout | from_json).free_percent > 30
+    fail_msg: Longhorn requires at least 20 GiB free and more than 30 percent free on the data filesystem.
+
+- name: Measure tunnel round trip time
+  ansible.builtin.command:
+    argv: [ping, '-I', "{{ wireguard_interface }}", '-c', '10', '-i', '0.2', '-W', '2', "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"]
+  register: longhorn_latency
+  changed_when: false
+  no_log: true
+
+- name: Report capacity and tunnel latency without deployment addresses
+  ansible.builtin.debug:
+    msg:
+      capacity: "{{ longhorn_capacity.stdout | from_json }}"
+      tunnel_rtt: "{{ longhorn_latency.stdout_lines[-1] }}"
+
+- name: Inspect existing Longhorn installation
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get namespace longhorn-system --ignore-not-found -o name
+  register: longhorn_existing
+  changed_when: false
+  when: k3s_mode == 'server'

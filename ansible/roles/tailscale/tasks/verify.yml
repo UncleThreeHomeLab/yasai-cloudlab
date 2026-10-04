@@ -1,0 +1,27 @@
+---
+- name: Validate allowed and denied tailnet policy tests
+  ansible.builtin.command: python /workspace/automation/tailscale/control.py policy-check
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: false
+  no_log: true
+
+- name: Require host Tailscale to be enabled independently of K3s
+  ansible.builtin.command: systemctl is-enabled tailscaled
+  changed_when: false
+
+- name: Read host Tailscale status privately
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  no_log: true
+
+- name: Require the declared durable host tag and usable enrollment
+  ansible.builtin.assert:
+    that:
+      - (tailscale_status.stdout | from_json).BackendState == 'Running'
+      - (tailscale_status.stdout | from_json).Self.Tags == ['tag:cloudlab-host']
+      - not ((tailscale_status.stdout | from_json).Self.Expired | default(false))
+      - (tailscale_status.stdout | from_json).TailscaleIPs | length > 0
+  no_log: true

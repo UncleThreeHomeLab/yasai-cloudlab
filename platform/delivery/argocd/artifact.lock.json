@@ -1,0 +1,15 @@
+{
+  "chart": {
+    "version": "10.9.6",
+    "app_version": "v3.5.3",
+    "url": "https://github.com/argoproj/argo-helm/releases/download/argo-cd-10.9.6/argo-cd-10.9.6.tgz",
+    "sha256": "6eda90bdd18de538511c9b9aca1ca7ba7a1ca5b919f598714d0e91cd7155d119",
+    "archive": "charts/argo-cd-10.9.6.tgz"
+  },
+  "kube_version": "1.36.5",
+  "helm_version": "4.3.0",
+  "images": {
+    "quay.io/argoproj/argocd:v3.5.3": "sha256:dd3f47d5a5e4da563a7a398506e892481b358a7cec50abdf320c71aa55904bfa",
+    "docker.io/library/redis:8.6.4-alpine": "sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763"
+  }
+}

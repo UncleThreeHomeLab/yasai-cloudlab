@@ -1,0 +1,4 @@
+apiVersion: v2
+name: cloudlab-public-root
+version: 0.1.0
+description: Public platform roots and application authorization boundaries.

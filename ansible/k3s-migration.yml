@@ -1,0 +1,111 @@
+---
+- name: Stage the explicit K3s migration on both nodes
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  vars:
+    migration_action: "{{ lookup('env', 'LAB_K3S_MIGRATION_ACTION') | default('migrate', true) }}"
+  tasks:
+    - name: Create private migration checkpoint and tooling directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      loop: [/var/lib/cloudlab/k3s-migration, /opt/cloudlab/k3s-migration]
+    - name: Install version-controlled migration implementation
+      ansible.builtin.copy:
+        src: '../automation/recovery/{{ item }}'
+        dest: '/opt/cloudlab/k3s-migration/{{ item }}'
+        owner: root
+        group: root
+        mode: '0600'
+      loop: [k3s_migration.py, k3s_migration.json, k3s_network.py]
+    - name: Define the target from the single active release owner
+      ansible.builtin.set_fact:
+        migration_target:
+          version: '{{ k3s_version }}'
+          sha256: "{{ k3s_binaries[ansible_facts['architecture']].sha256 }}"
+    - name: Inspect source state and data before staging a transition
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, inspect, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_status
+      changed_when: false
+    - name: Refuse conflicting node phases
+      ansible.builtin.assert:
+        that:
+          - (migration_status.stdout | from_json).phase not in ['rolled-back', 'rolling-back'] or migration_action == 'rollback'
+        fail_msg: Rollback state requires completion of rollback; ordinary migration never discards it.
+    - name: Download target binary before stopping either node
+      ansible.builtin.get_url:
+        url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version | urlencode }}/{{ k3s_binaries[ansible_facts['architecture']].asset }}"
+        dest: /var/lib/cloudlab/k3s-migration/target-k3s
+        checksum: "sha256:{{ migration_target.sha256 }}"
+        owner: root
+        group: root
+        mode: '0700'
+      when: migration_action == 'migrate'
+    - name: Prepare retained artifacts on every node before shutdown
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, prepare, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_prepare
+      changed_when: migration_prepare.rc == 0 and (migration_prepare.stdout | from_json).changed
+      when: migration_action == 'migrate'
+
+- name: Park source state before enabling the target on either node
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Stop source containers and retain old state
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, park, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_park
+      changed_when: migration_park.rc == 0 and (migration_park.stdout | from_json).changed
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'migrate'
+    - name: Resume older checkpoints with scoped Kubernetes network cleanup
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, repair-network, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_network
+      changed_when: migration_network.rc == 0 and (migration_network.stdout | from_json).changed
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'migrate'
+    - name: Install target binary only after every node has parked its datastore
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, activate, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_activate
+      changed_when: migration_activate.rc == 0 and (migration_activate.stdout | from_json).changed
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'migrate'
+    - name: Restore retained source state without deleting failed target state
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, rollback, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_rollback
+      changed_when: migration_rollback.rc == 0 and (migration_rollback.stdout | from_json).changed
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'rollback'
+    - name: Accept only after the runner has completed full proof
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, accept, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      register: migration_accept
+      changed_when: migration_accept.rc == 0 and (migration_accept.stdout | from_json).changed
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'accept'
+    - name: Start restored source services
+      ansible.builtin.systemd_service:
+        name: '{{ k3s_service_name }}'
+        state: started
+        enabled: true
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'rollback'
+    - name: Restore prior recovery timer activity after rollback
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/k3s-migration/k3s_migration.py, restore-timers, '{{ k3s_mode }}']
+        stdin: '{{ migration_target | to_json }}'
+      changed_when: false
+      when: lookup('env', 'LAB_K3S_MIGRATION_ACTION') == 'rollback'

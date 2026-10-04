@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloudlab host Tailscale (independent of Kubernetes)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+RuntimeDirectory=tailscale
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
+Restart=on-failure
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+{
+  "storage_class": "longhorn",
+  "settings": {
+    "default-replica-count": "{\"v1\":\"2\",\"v2\":\"2\"}",
+    "default-data-path": "/var/lib/longhorn",
+    "default-data-locality": "best-effort",
+    "replica-soft-anti-affinity": "false",
+    "storage-over-provisioning-percentage": "100",
+    "storage-minimal-available-percentage": "25",
+    "storage-reserved-percentage-for-default-disk": "30",
+    "v1-data-engine": "true",
+    "v2-data-engine": "false",
+    "upgrade-checker": "false",
+    "allow-collecting-longhorn-usage-metrics": "false"
+  }
+}

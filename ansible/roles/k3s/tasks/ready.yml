@@ -1,0 +1,8 @@
+---
+- name: Wait for Kubernetes API readiness
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get --raw=/readyz
+  register: api_ready
+  until: api_ready.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false

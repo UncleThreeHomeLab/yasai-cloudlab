@@ -1,0 +1,80 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: No implicit deployment privileges.
+  sourceRepos: []
+  destinations: []
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-root
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Platform administrator-controlled public root only.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace | quote }}}
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+  namespaceResourceWhitelist:
+    - {group: argoproj.io, kind: Application}
+    - {group: argoproj.io, kind: AppProject}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-platform
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Reviewed shared platform installation.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace | quote }}}
+  clusterResourceWhitelist:
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+  namespaceResourceWhitelist:
+    - {group: '', kind: ConfigMap}
+    - {group: '', kind: Secret}
+    - {group: '', kind: Service}
+    - {group: '', kind: ServiceAccount}
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: batch, kind: Job}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-public
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Public workloads cannot administer shared platform resources.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: {{ .Values.publicNamespace | quote }}}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: '', kind: ConfigMap}
+    - {group: '', kind: Service}
+    - {group: '', kind: ServiceAccount}
+    - {group: apps, kind: Deployment}
+    - {group: networking.k8s.io, kind: NetworkPolicy}

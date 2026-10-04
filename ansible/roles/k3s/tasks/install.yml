@@ -1,0 +1,48 @@
+---
+- name: Check K3s service installation
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ k3s_service_name }}.service"
+  register: k3s_service
+
+- name: Install the pinned K3s release when needed
+  when: >-
+    k3s_installed.rc != 0 or
+    ('k3s version ' ~ k3s_version ~ ' ') not in k3s_installed.stdout or
+    k3s_binary.stat.checksum | default('') != k3s_binaries[ansible_facts['architecture']].sha256 or
+    not k3s_service.stat.exists
+  block:
+    - name: Download the K3s binary verified against the committed checksum
+      ansible.builtin.get_url:
+        url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version | urlencode }}/{{ k3s_binaries[ansible_facts['architecture']].asset }}"
+        dest: /usr/local/bin/k3s
+        checksum: "sha256:{{ k3s_binaries[ansible_facts['architecture']].sha256 }}"
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create the installer download directory
+      ansible.builtin.file:
+        path: /usr/local/src
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download and verify the release-specific installer
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version | urlencode }}/install.sh"
+        dest: /usr/local/src/k3s-install.sh
+        checksum: "{{ k3s_installer_checksum }}"
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Install K3s and its systemd service
+      ansible.builtin.command: /bin/sh /usr/local/src/k3s-install.sh
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        INSTALL_K3S_EXEC: "{{ k3s_mode }}"
+        INSTALL_K3S_SKIP_START: 'true'
+        INSTALL_K3S_SKIP_DOWNLOAD: 'true'
+      changed_when: true
+      notify: Restart K3s

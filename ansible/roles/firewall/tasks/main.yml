@@ -1,0 +1,61 @@
+---
+# Inputs: SSH port, peer endpoint, tunnel interface/address,
+# and pod/service CIDRs. Output: cloudlab-firewall.service and its nftables table.
+- name: Install nftables
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+- name: Create the lab firewall configuration directory
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Validate and manage the lab firewall rules
+  ansible.builtin.template:
+    src: cloudlab.nft.j2
+    dest: /etc/nftables.d/cloudlab.nft
+    owner: root
+    group: root
+    mode: '0600'
+    validate: /usr/sbin/nft --check --file %s
+  notify: Reload lab firewall
+
+- name: Manage firewall boot persistence
+  ansible.builtin.copy:
+    src: cloudlab-firewall.service
+    dest: /etc/systemd/system/cloudlab-firewall.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload lab firewall
+
+- name: Check whether the managed firewall table exists
+  ansible.builtin.command: nft list table inet cloudlab
+  register: firewall_live_table
+  changed_when: false
+  failed_when: false
+
+- name: Restore missing runtime firewall rules
+  ansible.builtin.command: /usr/sbin/nft -f /etc/nftables.d/cloudlab.nft
+  when: firewall_live_table.rc != 0
+  changed_when: true
+
+- name: Apply validated firewall changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Keep the host firewall enabled
+  ansible.builtin.systemd_service:
+    name: cloudlab-firewall
+    enabled: true
+    state: started
+
+- name: Close the existing SSH connection to test a new connection
+  ansible.builtin.meta: reset_connection
+
+- name: Verify SSH remains available through the firewall
+  ansible.builtin.wait_for_connection:
+    timeout: 30

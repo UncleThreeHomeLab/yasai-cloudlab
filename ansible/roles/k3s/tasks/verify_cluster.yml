@@ -1,0 +1,54 @@
+---
+- name: Check the Kubernetes API
+  ansible.builtin.import_tasks: ready.yml
+
+- name: Wait for both expected nodes to register
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o json
+  register: registered_nodes
+  until: >-
+    registered_nodes.rc == 0 and
+    (registered_nodes.stdout | from_json)['items'] | length == groups['k3s_cluster'] | length
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Check every expected hostname and private InternalIP
+  ansible.builtin.assert:
+    that:
+      - matching_nodes | length == 1
+      - hostvars[item]['wireguard_address'] in (matching_nodes[0].status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | list)
+    fail_msg: A node is missing or advertises the wrong InternalIP.
+  vars:
+    matching_nodes: "{{ (registered_nodes.stdout | from_json)['items'] | selectattr('metadata.name', 'equalto', hostvars[item]['lab_node_name']) | list }}"
+  loop: "{{ groups['k3s_cluster'] }}"
+
+- name: Wait for node readiness
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait node --all --for=condition=Ready --timeout=300s
+  changed_when: false
+
+- name: Wait for cluster DNS
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/coredns -n kube-system --timeout=300s
+  changed_when: false
+
+- name: List packaged deployments
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get deployment -n kube-system -o name
+  register: packaged_deployments
+  changed_when: false
+
+- name: Wait for packaged deployments
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, rollout, status, "{{ item }}", '-n', kube-system, '--timeout=300s']
+  loop: "{{ packaged_deployments.stdout_lines }}"
+  changed_when: false
+
+- name: Wait for metrics from both nodes over their private addresses
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get --raw=/apis/metrics.k8s.io/v1beta1/nodes
+  register: cluster_metrics
+  until: >-
+    cluster_metrics.rc == 0 and
+    (groups['k3s_cluster'] | map('extract', hostvars, 'lab_node_name') | list
+     | difference((cluster_metrics.stdout | from_json)['items'] | map(attribute='metadata.name') | list)
+     | length == 0)
+  retries: 20
+  delay: 10
+  changed_when: false

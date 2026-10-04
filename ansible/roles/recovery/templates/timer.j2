@@ -1,0 +1,11 @@
+[Unit]
+Description=Cloudlab {{ item.name }} schedule
+
+[Timer]
+OnCalendar={{ item.calendar }}
+Persistent=false
+AccuracySec=1s
+Unit={{ item.name }}.service
+
+[Install]
+WantedBy=timers.target

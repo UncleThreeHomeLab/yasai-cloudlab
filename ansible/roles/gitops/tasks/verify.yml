@@ -1,0 +1,24 @@
+---
+- name: Render committed GitOps verification inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/gitops/render.py]
+  delegate_to: localhost
+  become: false
+  register: gitops_verification_payload
+  changed_when: false
+  no_log: true
+- name: Prove public source restrictions and private Argo access
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/gitops/verify.py]
+    stdin: '{{ gitops_verification_payload.stdout }}'
+  register: gitops_verification
+  changed_when: false
+  failed_when: false
+  no_log: true
+- name: Require the public GitOps behavior checks to pass
+  ansible.builtin.assert:
+    that: gitops_verification.rc == 0
+    fail_msg: '{{ gitops_verification.stderr }}'
+- name: Report only the sanitized public GitOps proof
+  ansible.builtin.debug:
+    msg: '{{ gitops_verification.stdout | from_json }}'

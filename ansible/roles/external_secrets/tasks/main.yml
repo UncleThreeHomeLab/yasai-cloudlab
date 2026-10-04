@@ -1,0 +1,110 @@
+---
+- name: Require the bootstrap service account token
+  ansible.builtin.assert:
+    that: external_secrets_token | length > 0
+    fail_msg: Set OP_SERVICE_ACCOUNT_TOKEN in .env.
+  no_log: true
+
+- name: Create the managed External Secrets directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/external-secrets
+    state: directory
+    mode: '0750'
+
+- name: Render locked External Secrets resources
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/external_secrets/render.py, "{{ item }}"]
+  delegate_to: localhost
+  become: false
+  loop: [namespace, crds, system]
+  register: external_secrets_rendered
+  changed_when: false
+  no_log: true
+
+- name: Store declared External Secrets resources
+  ansible.builtin.copy:
+    content: "{{ item.stdout }}\n"
+    dest: "/var/lib/cloudlab/external-secrets/{{ item.item }}.json"
+    mode: '0640'
+  loop: "{{ external_secrets_rendered.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Reconcile the External Secrets namespace and CRDs
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: "/var/lib/cloudlab/external-secrets/{{ item }}.json"
+  loop: [namespace, crds]
+
+- name: Wait for External Secrets CRDs
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Established --timeout=120s -f /var/lib/cloudlab/external-secrets/crds.json
+  changed_when: false
+
+- name: Reconcile External Secrets controllers
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: /var/lib/cloudlab/external-secrets/system.json
+
+- name: Wait for External Secrets controllers and webhook
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment -n external-secrets --timeout=300s
+  changed_when: false
+
+- name: Bootstrap 1Password authentication
+  block:
+    - name: Create a private temporary credential manifest
+      ansible.builtin.tempfile:
+        state: file
+        path: /run
+        prefix: cloudlab-onepassword-
+      register: external_secrets_temp
+      changed_when: false
+
+    - name: Render the bootstrap credential
+      ansible.builtin.copy:
+        content: >-
+          {{ {'apiVersion': 'v1', 'kind': 'Secret',
+              'metadata': {'name': 'onepassword-token', 'namespace': 'external-secrets'},
+              'type': 'Opaque', 'data': {'token': external_secrets_token | b64encode}} | to_json }}
+        dest: "{{ external_secrets_temp.path }}"
+        mode: '0600'
+      no_log: true
+      changed_when: false
+
+    - name: Reconcile the bootstrap credential without logging secret content
+      ansible.builtin.include_role:
+        name: kubernetes_manifest
+        apply:
+          no_log: true
+      vars:
+        manifest_path: "{{ external_secrets_temp.path }}"
+  always:
+    - name: Remove the private temporary credential manifest
+      ansible.builtin.file:
+        path: "{{ external_secrets_temp.path }}"
+        state: absent
+      when: external_secrets_temp.path is defined
+      changed_when: false
+
+- name: Render the CloudLab store
+  ansible.builtin.template:
+    src: store.yml.j2
+    dest: /var/lib/cloudlab/external-secrets/store.yml
+    mode: '0640'
+
+- name: Reconcile the CloudLab store
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: /var/lib/cloudlab/external-secrets/store.yml
+
+- name: Wait for CloudLab vault access
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Ready --timeout=180s clustersecretstore/{{ external_secrets_store }}
+  changed_when: false
+
+- name: Install the External Secrets verification module
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../automation/external_secrets/verify.py"
+    dest: /var/lib/cloudlab/external-secrets/verify.py
+    mode: '0640'

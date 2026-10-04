@@ -1,0 +1,77 @@
+---
+- name: Create K3s configuration directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Compose node settings using the encrypted interface
+  ansible.builtin.set_fact:
+    k3s_node_config:
+      node-name: "{{ lab_node_name }}"
+      node-ip: "{{ wireguard_address }}"
+      flannel-iface: "{{ wireguard_interface }}"
+
+- name: Compose server settings
+  ansible.builtin.set_fact:
+    k3s_effective_config: >-
+      {{ k3s_node_config | combine({
+        'write-kubeconfig-mode': '0600',
+        'advertise-address': wireguard_address,
+        'tls-san': [wireguard_address],
+        'cluster-cidr': k3s_pod_cidr,
+        'service-cidr': k3s_service_cidr,
+        'flannel-backend': 'vxlan'
+      }) }}
+  when: k3s_mode == 'server'
+
+- name: Compose agent settings
+  ansible.builtin.set_fact:
+    k3s_effective_config: >-
+      {{ k3s_node_config | combine({
+        'server': 'https://' ~ k3s_server_address ~ ':6443',
+        'token-file': '/etc/rancher/k3s/agent-token'
+      }) }}
+  when: k3s_mode == 'agent'
+
+- name: Store the agent join credential privately
+  ansible.builtin.copy:
+    content: "{{ k3s_join_token }}\n"
+    dest: /etc/rancher/k3s/agent-token
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when: k3s_mode == 'agent'
+  notify: Restart K3s
+
+- name: Manage K3s configuration
+  ansible.builtin.copy:
+    content: "{{ k3s_effective_config | to_nice_yaml }}"
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart K3s
+
+- name: Create the K3s service dependency directory
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ k3s_service_name }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Require WireGuard and the host firewall before K3s starts
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Requires=wg-quick@{{ wireguard_interface }}.service cloudlab-firewall.service
+      After=wg-quick@{{ wireguard_interface }}.service cloudlab-firewall.service
+    dest: "/etc/systemd/system/{{ k3s_service_name }}.service.d/10-cloudlab-network.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart K3s

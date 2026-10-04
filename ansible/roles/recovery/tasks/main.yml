@@ -1,0 +1,79 @@
+---
+- name: Create private recovery directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [/etc/cloudlab/recovery, /var/lib/cloudlab/recovery, /opt/cloudlab/recovery, /opt/cloudlab/longhorn]
+
+- name: Install recovery modules from the checkout
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/recovery/{{ item }}'
+    dest: '/opt/cloudlab/recovery/{{ item }}'
+    mode: '0600'
+  loop: [backup.py, capture.py, repository.py, b2.py, write_window.py, policy.json]
+
+- name: Remove runner-only files from the host module
+  ansible.builtin.file:
+    path: '/opt/cloudlab/recovery/{{ item }}'
+    state: absent
+  loop: [runner.py, test_recovery.py]
+
+- name: Install the shared cloud-write window contract
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/longhorn/monthly_window.py'
+    dest: /opt/cloudlab/longhorn/monthly_window.py
+    mode: '0600'
+
+- name: Install the same pinned restic binary as the independent runner
+  ansible.builtin.copy:
+    src: /usr/local/bin/restic
+    dest: /usr/local/bin/restic
+    mode: '0755'
+
+- name: Retrieve shared B2 credentials and separate encryption password outside Kubernetes
+  ansible.builtin.command: python /workspace/automation/recovery/runner.py credentials
+  delegate_to: localhost
+  become: false
+  register: recovery_credentials
+  changed_when: false
+  no_log: true
+  when: k3s_backup_enabled | bool
+
+- name: Deliver private recovery credentials to the host job
+  ansible.builtin.copy:
+    content: '{{ recovery_credentials.stdout }}'
+    dest: /etc/cloudlab/recovery/credentials.json
+    mode: '0600'
+  no_log: true
+  when: k3s_backup_enabled | bool
+
+- name: Install independent recovery service units
+  ansible.builtin.copy:
+    src: '{{ item }}'
+    dest: '/etc/systemd/system/{{ item }}'
+    mode: '0644'
+  loop: [cloudlab-recovery.service, cloudlab-recovery-freshness.service]
+  notify: Reload recovery units
+
+- name: Install declared recovery timers
+  ansible.builtin.template:
+    src: timer.j2
+    dest: '/etc/systemd/system/{{ item.name }}.timer'
+    mode: '0644'
+  loop:
+    - name: cloudlab-recovery
+      calendar: '{{ k3s_backup_policy.calendar }}'
+    - name: cloudlab-recovery-freshness
+      calendar: '{{ k3s_backup_policy.freshness_calendar }}'
+  notify: Reload recovery units
+
+- name: Reload declared service definitions
+  ansible.builtin.meta: flush_handlers
+
+- name: Set timers according to explicitly configured credentials
+  ansible.builtin.systemd_service:
+    name: '{{ item }}'
+    enabled: '{{ k3s_backup_enabled | bool }}'
+    state: "{{ 'started' if k3s_backup_enabled | bool else 'stopped' }}"
+  loop: [cloudlab-recovery.timer, cloudlab-recovery-freshness.timer]

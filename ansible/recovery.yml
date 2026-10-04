@@ -1,0 +1,26 @@
+---
+- name: Run the bounded monthly job through the current independent SSH path
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Require enabled monthly recovery credentials
+      ansible.builtin.assert:
+        that: k3s_backup_enabled | bool
+        fail_msg: Configure the restic password item and K3S_BACKUP_ENABLED first.
+    - name: Run monthly capture, off-site verification and safe retention
+      ansible.builtin.command: python3 /opt/cloudlab/recovery/backup.py {{ lookup('env', 'LAB_RECOVERY_ACTION') | default('monthly', true) }}
+      no_log: true
+      changed_when: "'no cloud operation needed.' not in recovery_export.stdout"
+      register: recovery_export
+      failed_when: false
+    - name: Require the sanitized recovery result
+      ansible.builtin.assert:
+        that: recovery_export.rc == 0
+        fail_msg: '{{ recovery_export.stderr }}'
+    - name: Report recovery duration and bounded output size
+      ansible.builtin.debug:
+        msg: '{{ recovery_export.stdout }}'
+    - name: Require a fresh locally recorded verified recovery point
+      ansible.builtin.command: python3 /opt/cloudlab/recovery/backup.py freshness
+      changed_when: false

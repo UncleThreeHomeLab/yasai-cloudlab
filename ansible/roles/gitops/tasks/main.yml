@@ -1,0 +1,92 @@
+---
+- name: Inspect the existing GitOps ownership checkpoint
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/gitops/checkpoint.json
+  register: gitops_checkpoint
+
+- name: Read the existing ownership checkpoint privately
+  ansible.builtin.slurp:
+    src: /var/lib/cloudlab/gitops/checkpoint.json
+  register: gitops_checkpoint_data
+  no_log: true
+  when: gitops_checkpoint.stat.exists
+
+- name: Determine whether a bootstrap transition is pending
+  ansible.builtin.set_fact:
+    gitops_transition_pending: "{{ not gitops_checkpoint.stat.exists or ((gitops_checkpoint_data.content | default('e30=') | b64decode | from_json).phase | default('new')) != 'accepted' }}"
+
+- name: Verify milestone 01 prerequisites before starting or resuming a transition
+  when: gitops_transition_pending | bool
+  block:
+    - name: Require independently configured host access and early recovery
+      ansible.builtin.assert:
+        that: [tailscale_enabled | bool, k3s_backup_enabled | bool]
+        fail_msg: GitOps bootstrap requires the verified host-access and early-recovery inputs.
+    - name: Require a fresh recovery receipt without cloud polling
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/recovery/backup.py, freshness]
+      changed_when: false
+    - name: Prove allowed and denied host access from the runner
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/tailscale/verify_access.py]
+      delegate_to: localhost
+      become: false
+      changed_when: false
+    - name: Independently retrieve and verify the recovery point
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/recovery/runner.py, retrieve]
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+- name: Render and validate the committed GitOps inputs in the runner
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/gitops/render.py]
+  delegate_to: localhost
+  become: false
+  register: gitops_payload
+  changed_when: false
+  no_log: true
+
+- name: Create the bounded GitOps bootstrap tooling directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/gitops
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install the version-controlled GitOps bootstrap implementation
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/gitops/{{ item }}'
+    dest: '/opt/cloudlab/gitops/{{ item }}'
+    owner: root
+    group: root
+    mode: '0600'
+  loop: [bootstrap.py, verify.py]
+
+- name: Install the shared controller stability check from its integration owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../verification/integration/controller_stability.py'
+    dest: /opt/cloudlab/gitops/controller_stability.py
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Seed Argo once and wait for its public ownership transition
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/gitops/bootstrap.py]
+    stdin: '{{ gitops_payload.stdout }}'
+  register: gitops_bootstrap
+  changed_when: gitops_bootstrap.rc == 0 and (gitops_bootstrap.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require the bounded bootstrap or resume checkpoint to succeed
+  ansible.builtin.assert:
+    that: gitops_bootstrap.rc == 0
+    fail_msg: '{{ gitops_bootstrap.stderr }}'
+
+- name: Report the public ownership checkpoint without private metadata
+  ansible.builtin.debug:
+    msg: '{{ gitops_bootstrap.stdout | from_json }}'

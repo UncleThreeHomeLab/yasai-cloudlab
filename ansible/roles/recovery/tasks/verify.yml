@@ -1,0 +1,33 @@
+---
+- name: Validate consistent capture and disposable local recovery without B2
+  ansible.builtin.command: python3 /opt/cloudlab/recovery/backup.py local-check
+  register: recovery_local
+  changed_when: false
+  no_log: true
+  failed_when: false
+
+- name: Require consistent local recovery validation to pass
+  ansible.builtin.assert:
+    that: recovery_local.rc == 0
+    fail_msg: '{{ recovery_local.stderr }}'
+
+- name: Report local recovery check
+  ansible.builtin.debug:
+    msg: '{{ recovery_local.stdout | from_json }}'
+
+- name: Check enabled recovery timers
+  ansible.builtin.command: 'systemctl is-enabled {{ item }}'
+  changed_when: false
+  loop: [cloudlab-recovery.timer, cloudlab-recovery-freshness.timer]
+  when: k3s_backup_enabled | bool
+
+- name: Check monthly freshness without cloud access
+  ansible.builtin.command: python3 /opt/cloudlab/recovery/backup.py freshness
+  register: recovery_freshness
+  failed_when: false
+  changed_when: false
+  when: k3s_backup_enabled | bool
+
+- name: Report recovery acceptance separately from local setup proof
+  ansible.builtin.debug:
+    msg: "{{ 'Monthly recovery point fresh' if (recovery_freshness.rc | default(1)) == 0 else 'Monthly recovery acceptance BLOCKED: no fresh verified receipt; local setup proof is not off-site recovery proof' }}"

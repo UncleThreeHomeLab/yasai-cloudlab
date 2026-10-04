@@ -1,0 +1,26 @@
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: {{ ('s3://' ~ longhorn_backup_bucket ~ '@' ~ longhorn_backup_region ~ '/' ~ longhorn_backup_policy.prefix) | to_json }}
+  credentialSecret: {{ longhorn_backup_secret_name }}
+  pollInterval: {{ longhorn_backup_policy.poll_interval | to_json }}
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: {{ longhorn_backup_policy.job_name }}
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/managed-by: cloudlab
+spec:
+  name: {{ longhorn_backup_policy.job_name }}
+  task: backup
+  cron: {{ longhorn_backup_policy.cron | to_json }}
+  retain: {{ longhorn_backup_policy.retain }}
+  concurrency: {{ longhorn_backup_policy.concurrency }}
+  groups: [default]
+  labels: {}
+  parameters: {}

@@ -1,0 +1,37 @@
+---
+- name: Check k3s is active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "{{ k3s_service_name }}"]
+  changed_when: false
+
+- name: Check k3s is enabled at boot
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "{{ k3s_service_name }}"]
+  changed_when: false
+
+- name: Check the pinned release on every node
+  ansible.builtin.command: /usr/local/bin/k3s --version
+  register: verified_version
+  changed_when: false
+  failed_when: "('k3s version ' ~ k3s_version ~ ' ') not in verified_version.stdout"
+
+- name: Read the installed binary checksum
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+    checksum_algorithm: sha256
+  register: verified_binary
+
+- name: Check K3s matches the committed release artifact
+  ansible.builtin.assert:
+    that:
+      - verified_binary.stat.checksum == k3s_binaries[ansible_facts['architecture']].sha256
+
+- name: Check Flannel carries its overlay over the WireGuard address
+  ansible.builtin.command: ip -j -d link show flannel.1
+  register: verified_flannel
+  changed_when: false
+  until: >-
+    verified_flannel.rc == 0 and
+    (verified_flannel.stdout | from_json)[0].linkinfo.info_data.local == wireguard_address
+  retries: 20
+  delay: 5

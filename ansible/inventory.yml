@@ -1,0 +1,30 @@
+all:
+  children:
+    k3s_cluster:
+      children:
+        k3s_servers:
+          hosts:
+            cloudlab:
+              ansible_host: "{{ lookup('ansible.builtin.env', 'VM_HOST') }}"
+              ansible_user: "{{ lookup('ansible.builtin.env', 'VM_USER') }}"
+              ansible_port: "{{ lookup('ansible.builtin.env', 'VM_PORT') | default('22', true) | int }}"
+              ansible_password: "{{ lookup('ansible.builtin.env', 'VM_PASSWORD') }}"
+              ansible_become_password: "{{ lookup('ansible.builtin.env', 'VM_BECOME_PASSWORD') }}"
+              k3s_mode: server
+              wireguard_public_endpoint: "{{ lookup('ansible.builtin.env', 'VM_PUBLIC_IP') }}"
+              k3s_service_name: k3s
+              wireguard_address: 10.44.0.1
+              wireguard_peer_host: cloudlab-worker
+        k3s_agents:
+          hosts:
+            cloudlab-worker:
+              ansible_host: "{{ lookup('ansible.builtin.env', 'VM2_HOST') }}"
+              ansible_user: "{{ lookup('ansible.builtin.env', 'VM2_USER') }}"
+              ansible_port: "{{ lookup('ansible.builtin.env', 'VM2_PORT') | default('22', true) | int }}"
+              ansible_password: "{{ lookup('ansible.builtin.env', 'VM2_PASSWORD') }}"
+              ansible_become_password: "{{ lookup('ansible.builtin.env', 'VM2_BECOME_PASSWORD') }}"
+              k3s_mode: agent
+              wireguard_public_endpoint: "{{ lookup('ansible.builtin.env', 'VM2_PUBLIC_IP') }}"
+              k3s_service_name: k3s-agent
+              wireguard_address: 10.44.0.2
+              wireguard_peer_host: cloudlab

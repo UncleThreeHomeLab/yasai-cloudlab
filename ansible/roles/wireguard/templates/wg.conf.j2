@@ -1,0 +1,12 @@
+# Managed by Ansible. Do not edit on the VM.
+[Interface]
+Address = {{ wireguard_address }}/32
+ListenPort = {{ wireguard_port }}
+PrivateKey = {{ wireguard_local_key.content | b64decode | trim }}
+MTU = {{ wireguard_mtu }}
+
+[Peer]
+PublicKey = {{ wireguard_peer_public_key }}
+Endpoint = {{ wireguard_peer_endpoint }}:{{ wireguard_port }}
+AllowedIPs = {{ wireguard_peer_address }}/32
+PersistentKeepalive = 25

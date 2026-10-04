@@ -1,0 +1,19 @@
+---
+# Input: manifest_path on the server. Own only declared fields using server-side apply.
+# Result: desired Kubernetes resources; unchanged resources do not count as changes.
+- name: Compare declared Kubernetes resources
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, diff, '--server-side=true', '--field-manager=cloudlab', '-f', "{{ manifest_path }}"]
+  register: manifest_diff
+  until: manifest_diff.rc in [0, 1]
+  retries: 6
+  delay: 5
+  changed_when: false
+  failed_when: manifest_diff.rc not in [0, 1]
+  no_log: true
+
+- name: Reconcile changed Kubernetes resources
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, apply, '--server-side=true', '--field-manager=cloudlab', '-f', "{{ manifest_path }}"]
+  when: manifest_diff.rc == 1
+  changed_when: true

@@ -1,0 +1,83 @@
+argo-cd:
+  fullnameOverride: argocd
+  global:
+    image:
+      tag: v3.5.3@sha256:dd3f47d5a5e4da563a7a398506e892481b358a7cec50abdf320c71aa55904bfa
+    networkPolicy:
+      create: false
+    logging:
+      format: json
+  crds:
+    keep: true
+    annotations:
+      argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+  configs:
+    cm:
+      admin.enabled: false
+      users.anonymous.enabled: false
+      exec.enabled: false
+      statusbadge.enabled: false
+      application.resourceTrackingMethod: annotation
+      timeout.reconciliation: 60s
+      timeout.reconciliation.jitter: 10s
+    rbac:
+      policy.default: role:no-access
+      policy.csv: ''
+      scopes: '[groups]'
+    params:
+      server.insecure: false
+      server.enable.proxy.extension: false
+  dex:
+    enabled: false
+  notifications:
+    enabled: false
+  applicationSet:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+  redis:
+    image:
+      repository: docker.io/library/redis
+      tag: 8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+  controller:
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+  repoServer:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+  server:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+  redisSecretInit:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        memory: 128Mi

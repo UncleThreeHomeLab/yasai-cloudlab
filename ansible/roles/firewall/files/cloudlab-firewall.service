@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloud lab host firewall
+After=network-pre.target nftables.service
+Before=k3s.service k3s-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/cloudlab.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables.d/cloudlab.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

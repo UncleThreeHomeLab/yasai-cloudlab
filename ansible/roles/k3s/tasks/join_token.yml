@@ -1,0 +1,15 @@
+---
+- name: Check the Kubernetes API
+  ansible.builtin.import_tasks: ready.yml
+
+- name: Read the agent join token without logging it
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/agent-token
+  register: server_agent_token
+  no_log: true
+
+- name: Expose the join token only for this playbook run
+  ansible.builtin.set_fact:
+    k3s_agent_join_token: "{{ server_agent_token.content | b64decode | trim }}"
+    cacheable: false
+  no_log: true

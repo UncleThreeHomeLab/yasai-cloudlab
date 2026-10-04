@@ -1,0 +1,68 @@
+---
+- name: Prepare both hosts and their encrypted network
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
+    wireguard_peer_endpoint: "{{ hostvars[wireguard_peer_host]['wireguard_public_endpoint'] }}"
+    wireguard_peer_public_key: "{{ hostvars[wireguard_peer_host]['wireguard_public_key'] }}"
+  roles:
+    - host
+    - firewall
+    - wireguard
+    - role: tailscale
+      when: tailscale_enabled | bool
+
+- name: Configure the control plane and publish the worker join credential
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - k3s
+
+  tasks:
+    - name: Publish the K3s worker join credential
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: join_token
+
+- name: Join the worker over WireGuard
+  hosts: k3s_agents
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    k3s_join_token: "{{ hostvars[k3s_server_host]['k3s_agent_join_token'] }}"
+  roles:
+    - k3s
+
+- name: Prepare persistent storage on both nodes
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - longhorn_host
+
+- name: Install and reconcile secrets and replicated storage
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - external_secrets
+    - longhorn
+    - role: longhorn_backup
+      when: longhorn_backup_enabled | bool
+    - recovery
+
+- name: Bootstrap or verify the public GitOps ownership boundary
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - gitops

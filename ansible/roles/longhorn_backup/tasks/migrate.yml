@@ -1,0 +1,16 @@
+---
+# The initial implementation deployed this resource. Remove only that known job
+# when cloudlab owns it; never prune unrelated recurring jobs or backup data.
+- name: Inspect the superseded daily backup job
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get recurringjobs.longhorn.io daily-backup -n longhorn-system --ignore-not-found --show-managed-fields -o json
+  register: longhorn_old_job
+  changed_when: false
+
+- name: Retire the earlier cloudlab daily backup schedule
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete recurringjobs.longhorn.io daily-backup -n longhorn-system --wait=true --timeout=120s
+  when:
+    - longhorn_old_job.stdout | length > 0
+    - >-
+      (longhorn_old_job.stdout | from_json).metadata.managedFields
+      | selectattr('manager', 'equalto', 'cloudlab') | list | length > 0
+  changed_when: true

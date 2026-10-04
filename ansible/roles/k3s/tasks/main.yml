@@ -1,0 +1,12 @@
+---
+- name: Check the existing K3s installation
+  ansible.builtin.import_tasks: preflight.yml
+
+- name: Configure the node
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Install the pinned release
+  ansible.builtin.import_tasks: install.yml
+
+- name: Apply and start the service
+  ansible.builtin.import_tasks: service.yml

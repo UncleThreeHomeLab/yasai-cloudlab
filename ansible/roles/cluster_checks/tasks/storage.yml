@@ -1,0 +1,39 @@
+---
+- name: Create the verification tooling directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/checks/longhorn
+    state: directory
+    mode: '0750'
+
+- name: Install version-controlled verification modules
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/var/lib/cloudlab/checks/longhorn/{{ item | basename }}"
+    mode: '0640'
+  loop: "{{ query('fileglob', playbook_dir ~ '/../automation/longhorn/verify*.py') + [playbook_dir ~ '/../automation/longhorn/kube.py', playbook_dir ~ '/../automation/longhorn/monthly_window.py'] }}"
+  loop_control:
+    label: "{{ item | basename }}"
+
+- name: Run storage and backup verification from version-controlled code
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/checks/longhorn/verify.py]
+    stdin: >-
+      {{ {'nodes': groups['k3s_cluster'] | map('extract', hostvars, 'lab_node_name') | list,
+          'image': smoke_image,
+          'policy': longhorn_policy,
+          'backup_policy': longhorn_backup_policy,
+          'cloud_backup': lookup('env', 'LAB_MONTHLY_PROOF') == '1',
+          'backup': longhorn_backup_enabled} | to_json }}
+  register: longhorn_proof
+  changed_when: true
+  no_log: true
+  failed_when: false
+
+- name: Report sanitized storage proof
+  ansible.builtin.debug:
+    msg: "{{ longhorn_proof.stdout_lines }}"
+
+- name: Require storage and backup proof to pass
+  ansible.builtin.assert:
+    that: longhorn_proof.rc == 0
+    fail_msg: "{{ longhorn_proof.stderr | default('Storage verification failed') }}"

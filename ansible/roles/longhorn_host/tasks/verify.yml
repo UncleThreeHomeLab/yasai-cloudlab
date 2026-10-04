@@ -1,0 +1,8 @@
+---
+- name: Check persistent storage host prerequisites directly
+  ansible.builtin.command: test -d /sys/module/iscsi_tcp -a -d /sys/module/dm_crypt
+  changed_when: false
+
+- name: Check the iSCSI daemon is active on each node
+  ansible.builtin.command: systemctl is-active iscsid
+  changed_when: false

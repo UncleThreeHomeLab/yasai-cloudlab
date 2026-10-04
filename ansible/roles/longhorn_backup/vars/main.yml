@@ -1,0 +1,2 @@
+---
+longhorn_backup_secret_name: "{{ longhorn_backup_policy.secret_name }}"

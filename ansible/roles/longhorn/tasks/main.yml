@@ -1,0 +1,71 @@
+---
+# Inputs: checked upstream manifest, image lock, and policy in automation/longhorn.
+# Result: private Longhorn V1 installation and an opt-in two-replica StorageClass.
+- name: Create the managed manifest directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/longhorn
+    state: directory
+    mode: '0750'
+
+- name: Render locked Longhorn resources in the runner
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/render.py, "{{ item }}"]
+  delegate_to: localhost
+  become: false
+  loop: [namespace, crds, system, policy]
+  register: longhorn_rendered
+  changed_when: false
+  no_log: true
+
+- name: Store the declared Longhorn resources
+  ansible.builtin.copy:
+    content: "{{ item.stdout }}\n"
+    dest: "/var/lib/cloudlab/longhorn/{{ item.item }}.json"
+    mode: '0640'
+  loop: "{{ longhorn_rendered.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Reconcile Longhorn namespace
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: /var/lib/cloudlab/longhorn/namespace.json
+
+- name: Reconcile Longhorn CRDs
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: /var/lib/cloudlab/longhorn/crds.json
+
+- name: Wait for CRDs
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Established --timeout=120s -f /var/lib/cloudlab/longhorn/crds.json
+  changed_when: false
+
+- name: Reconcile Longhorn controllers
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: /var/lib/cloudlab/longhorn/system.json
+
+- name: Wait for Longhorn manager readiness
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status daemonset/longhorn-manager -n longhorn-system --timeout=600s
+  changed_when: false
+
+- name: Wait for Longhorn controllers and CSI deployment
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment -n longhorn-system --timeout=600s
+  changed_when: false
+
+- name: Reconcile Longhorn settings and storage class
+  ansible.builtin.include_role:
+    name: kubernetes_manifest
+  vars:
+    manifest_path: /var/lib/cloudlab/longhorn/policy.json
+
+- name: Wait for the CSI driver on both nodes
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status daemonset/longhorn-csi-plugin -n longhorn-system --timeout=300s
+  register: longhorn_csi
+  until: longhorn_csi.rc == 0
+  retries: 6
+  delay: 10
+  changed_when: false

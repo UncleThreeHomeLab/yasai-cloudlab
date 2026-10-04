@@ -1,0 +1,28 @@
+---
+- name: Require the B2 ExternalSecret to be ready
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, wait, '--for=condition=Ready', '--timeout=180s', '-n', longhorn-system, 'externalsecret/{{ longhorn_backup_policy.external_secret_name }}']
+  changed_when: false
+
+- name: Inspect the active backup credential reference privately
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get backuptargets.longhorn.io default -n longhorn-system -o json
+  register: longhorn_backup_active
+  changed_when: false
+  no_log: true
+
+- name: Require Longhorn to use the ESO credential after successful restore
+  ansible.builtin.assert:
+    that:
+      - (longhorn_backup_active.stdout | from_json).spec.credentialSecret == longhorn_backup_secret_name
+  no_log: true
+
+- name: Inspect the legacy bootstrap credential
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret cloudlab-backup -n longhorn-system --ignore-not-found -o name
+  register: longhorn_backup_legacy
+  changed_when: false
+
+- name: Remove the legacy credential only after backup restore and ESO verification
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete secret cloudlab-backup -n longhorn-system
+  when: longhorn_backup_legacy.stdout | length > 0
+    and lookup('env', 'LAB_MONTHLY_PROOF') == '1'
+  changed_when: true

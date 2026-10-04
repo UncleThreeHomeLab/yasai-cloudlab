@@ -1,0 +1,27 @@
+---
+- name: Deliberate host identity recovery through the retained SSH path
+  hosts: "{{ lookup('env', 'LAB_TAILSCALE_TARGET') | default('k3s_cluster', true) }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Require an explicit lifecycle action and single host
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'LAB_TAILSCALE_TARGET') in ['cloudlab', 'cloudlab-worker']
+          - lookup('env', 'LAB_TAILSCALE_ACTION') in ['reauth', 'logout']
+    - name: Persist deliberate logout so ordinary apply cannot reenroll it
+      ansible.builtin.copy:
+        content: "Explicit reauthentication required.\n"
+        dest: /var/lib/tailscale/cloudlab-logged-out
+        mode: '0600'
+      when: lookup('env', 'LAB_TAILSCALE_ACTION') == 'logout'
+    - name: Disable this host's tailnet session while retaining public SSH
+      ansible.builtin.command: tailscale logout
+      changed_when: true
+      when: lookup('env', 'LAB_TAILSCALE_ACTION') == 'logout'
+    - name: Reauthenticate only the explicitly selected host
+      ansible.builtin.include_role:
+        name: tailscale
+      vars:
+        tailscale_explicit_reauth: true
+      when: lookup('env', 'LAB_TAILSCALE_ACTION') == 'reauth'

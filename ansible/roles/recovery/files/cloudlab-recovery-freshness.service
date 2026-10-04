@@ -1,0 +1,12 @@
+[Unit]
+Description=Local-only monthly recovery freshness
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/cloudlab/recovery/backup.py freshness
+NoNewPrivileges=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cloudlab/recovery

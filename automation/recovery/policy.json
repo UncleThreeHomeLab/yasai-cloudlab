@@ -1,0 +1,12 @@
+{
+  "calendar": "*-*-01 03:30:00 UTC",
+  "freshness_calendar": "hourly",
+  "max_age_seconds": 2764800,
+  "max_archive_bytes": 10737418240,
+  "max_source_bytes": 21474836480,
+  "staging_ceiling_bytes": 85899345920,
+  "minimum_free_fraction": 0.25,
+  "password_item": "monthly-k3s-b2",
+  "prefix": "k3s-restic/",
+  "tag": "cloudlab-k3s"
+}

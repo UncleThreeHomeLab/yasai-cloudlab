@@ -1,0 +1,14 @@
+---
+argument_specs:
+  main:
+    short_description: Prepare the declared Longhorn data filesystem and host dependencies.
+    options:
+      longhorn_data_path:
+        type: path
+        required: true
+  check:
+    short_description: Inspect the declared Longhorn filesystem without changing it.
+    options:
+      longhorn_data_path:
+        type: path
+        required: true

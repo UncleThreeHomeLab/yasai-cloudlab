@@ -1,0 +1,38 @@
+---
+- name: Check wireguard is active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "wg-quick@{{ wireguard_interface }}"]
+  changed_when: false
+
+- name: Check wireguard is enabled at boot
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "wg-quick@{{ wireguard_interface }}"]
+  changed_when: false
+
+- name: Check the route to the peer uses WireGuard
+  ansible.builtin.command:
+    argv: [ip, '-j', route, get, "{{ wireguard_peer_address }}"]
+  register: verified_route
+  changed_when: false
+  failed_when: (verified_route.stdout | from_json)[0].dev != wireguard_interface
+
+- name: Read encrypted traffic counters before the transport check
+  ansible.builtin.command: "wg show {{ wireguard_interface }} transfer"
+  register: wireguard_transfer_before
+  changed_when: false
+
+- name: Send test traffic through the encrypted interface
+  ansible.builtin.command:
+    argv: [ping, '-I', "{{ wireguard_interface }}", '-c', '3', '-W', '2', "{{ wireguard_peer_address }}"]
+  changed_when: false
+
+- name: Read encrypted traffic counters after the transport check
+  ansible.builtin.command: "wg show {{ wireguard_interface }} transfer"
+  register: wireguard_transfer_after
+  changed_when: false
+
+- name: Prove encrypted traffic moved in both directions
+  ansible.builtin.assert:
+    that:
+      - wireguard_transfer_after.stdout.split()[1] | int > wireguard_transfer_before.stdout.split()[1] | int
+      - wireguard_transfer_after.stdout.split()[2] | int > wireguard_transfer_before.stdout.split()[2] | int

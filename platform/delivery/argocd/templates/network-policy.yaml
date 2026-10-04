@@ -1,0 +1,65 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-default-deny
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-controller-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: argocd
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: argocd
+      ports:
+        - {protocol: TCP, port: 6379}
+        - {protocol: TCP, port: 8081}
+        - {protocol: TCP, port: 8082}
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Kubernetes API and HTTPS Git sources. Repository allowlists are enforced
+    # separately by AppProjects; NetworkPolicy does not authenticate DNS names.
+    - ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 6443}
+{{- range $component, $port := dict "redis" 6379 "repo-server" 8081 "application-controller" 8082 "server" 8080 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-{{ $component }}-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: {{ $component }}
+      app.kubernetes.io/part-of: argocd
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: argocd
+      ports:
+        - {protocol: TCP, port: {{ $port }}}
+{{- end }}
