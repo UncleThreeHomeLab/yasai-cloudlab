@@ -17,13 +17,13 @@ import urllib.request
 from control import API, HOST_TAG, TEST_TAG, policy
 
 
-def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes'):
+def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *, input=None, timeout=30):
     env = dict(os.environ, SSHPASS=os.environ[prefix + '_PASSWORD'])
     result = subprocess.run(['sshpass', '-e', 'ssh', '-p', os.environ[prefix + '_PORT'],
         '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-o', 'PreferredAuthentications=password',
         '-o', 'PubkeyAuthentication=no', '-o', 'StrictHostKeyChecking=' + strict,
         '-o', 'UserKnownHostsFile=' + known_hosts, os.environ[prefix + '_USER'] + '@' + host, command],
-        env=env, capture_output=True, text=True, timeout=30)
+        env=env, input=input, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError('SSH verification failed for ' + prefix + '; recovery path retained')
     return result.stdout

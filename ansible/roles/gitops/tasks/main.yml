@@ -16,28 +16,8 @@
     gitops_transition_pending: "{{ not gitops_checkpoint.stat.exists or ((gitops_checkpoint_data.content | default('e30=') | b64decode | from_json).phase | default('new')) != 'accepted' or lookup('env', 'LAB_GITOPS_ACTION') == 'source-migrate' }}"
 
 - name: Verify milestone 01 prerequisites before starting or resuming a transition
+  ansible.builtin.include_tasks: prerequisites.yml
   when: gitops_transition_pending | bool
-  block:
-    - name: Require independently configured host access and early recovery
-      ansible.builtin.assert:
-        that: [tailscale_enabled | bool, k3s_backup_enabled | bool]
-        fail_msg: GitOps bootstrap requires the verified host-access and early-recovery inputs.
-    - name: Require a fresh recovery receipt without cloud polling
-      ansible.builtin.command:
-        argv: [python3, /opt/cloudlab/recovery/backup.py, freshness]
-      changed_when: false
-    - name: Prove allowed and denied host access from the runner
-      ansible.builtin.command:
-        argv: [python, /workspace/automation/tailscale/verify_access.py]
-      delegate_to: localhost
-      become: false
-      changed_when: false
-    - name: Independently retrieve and verify the recovery point
-      ansible.builtin.command:
-        argv: [python, /workspace/automation/recovery/runner.py, retrieve]
-      delegate_to: localhost
-      become: false
-      changed_when: false
 
 - name: Render and validate the committed GitOps inputs in the runner
   ansible.builtin.command:

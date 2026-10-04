@@ -1,0 +1,38 @@
+---
+- name: Bootstrap 1Password authentication
+  block:
+    - name: Create a private temporary credential manifest
+      ansible.builtin.tempfile:
+        state: file
+        path: /run
+        prefix: cloudlab-onepassword-
+      register: external_secrets_temp
+      changed_when: false
+
+    - name: Render the bootstrap credential
+      ansible.builtin.copy:
+        content: >-
+          {{ {'apiVersion': 'v1', 'kind': 'Secret',
+              'metadata': {'name': 'onepassword-token', 'namespace': 'external-secrets',
+                           'labels': {'cloudlab.io/owner': 'ansible-bootstrap'}},
+              'type': 'Opaque', 'data': {'token': external_secrets_token | b64encode}} | to_json }}
+        dest: "{{ external_secrets_temp.path }}"
+        mode: '0600'
+      no_log: true
+      changed_when: false
+
+    - name: Reconcile the bootstrap credential without logging secret content
+      ansible.builtin.include_role:
+        name: kubernetes_manifest
+        apply:
+          no_log: true
+      vars:
+        manifest_path: "{{ external_secrets_temp.path }}"
+  always:
+    - name: Remove the private temporary credential manifest
+      ansible.builtin.file:
+        path: "{{ external_secrets_temp.path }}"
+        state: absent
+      when: external_secrets_temp.path is defined
+      changed_when: false
+

@@ -16,3 +16,25 @@
     that: external_secrets_proof.rc == 0
     fail_msg: External Secrets verification failed; inspect controller health and CloudLab service account access locally.
     success_msg: CloudLab store ready; disposable Secret creation, refresh, and drift repair passed.
+
+- name: Render ESO ownership verification inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/external_secrets/chart.py]
+  delegate_to: localhost
+  become: false
+  register: external_secrets_acceptance_payload
+  changed_when: false
+  no_log: true
+  when: external_secrets_gitops_enabled | bool
+
+- name: Verify preserved identities and accept the ESO Argo owner
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/external-secrets/bootstrap.py, accept]
+    stdin: '{{ external_secrets_acceptance_payload.stdout }}'
+  register: external_secrets_acceptance
+  changed_when: external_secrets_acceptance.rc == 0 and (external_secrets_acceptance.stdout | from_json).changed
+  until: external_secrets_acceptance.rc == 0
+  retries: 40
+  delay: 5
+  no_log: true
+  when: external_secrets_gitops_enabled | bool

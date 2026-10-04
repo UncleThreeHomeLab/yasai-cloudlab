@@ -2,3 +2,8 @@ repository: https://github.com/UncleThreeHomeLab/yasai-cloudlab.git
 revision: main
 namespace: argocd
 publicNamespace: cloudlab-public
+externalSecrets:
+  # Enable only after bounded bootstrap has recorded its writer-release receipt.
+  enabled: false
+  # Publish false before `lab eso-recover`; restore true to resume Argo ownership.
+  reconcile: true
