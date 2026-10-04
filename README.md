@@ -102,3 +102,10 @@ bucket or credentials. Before enabling `longhornBackup.enabled`, run
 without changing object or credential identities. Recovery requires publishing
 `longhornBackup.reconcile: false`, running `lab longhorn-backup-recover`, restoring
 reconciliation, then running `prove`. These actions do not create off-site backups.
+
+The former ESO/Longhorn renderers and ordinary Ansible apply paths are retired.
+Chart modules own their values, image locks and shared storage policy. `lab charts`
+checks reviewed semantic hashes as well as artifact and image integrity; intentional
+configuration changes require reviewing that contract and running `prove` again.
+Bootstrap and explicit recovery render those same charts. Existing VM-generated
+manifests are not inputs to apply, verification or recovery.

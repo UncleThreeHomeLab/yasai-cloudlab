@@ -30,6 +30,17 @@ class ChartTests(unittest.TestCase):
         self.assertEqual([x['metadata']['name'] for x in secrets], ['external-secrets-webhook'])
         self.assertEqual(set(secrets[0]), {'apiVersion', 'kind', 'metadata'})
 
+    def test_required_read_only_apis_and_three_controllers_remain(self):
+        names = {obj['metadata']['name'] for obj in self.objects if obj['kind'] == 'CustomResourceDefinition'}
+        self.assertTrue({'externalsecrets.external-secrets.io', 'secretstores.external-secrets.io',
+                         'clustersecretstores.external-secrets.io'} <= names)
+        self.assertNotIn('pushsecrets.external-secrets.io', names)
+        deployments = [obj for obj in self.objects if obj['kind'] == 'Deployment']
+        self.assertEqual(len(deployments), 3)
+        for obj in deployments:
+            for container in obj['spec']['template']['spec']['containers']:
+                self.assertRegex(container['image'], r'@sha256:[0-9a-f]{64}$')
+
     def test_tampered_archive_is_rejected_before_render(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

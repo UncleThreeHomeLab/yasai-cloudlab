@@ -1,6 +1,6 @@
 ---
 # Shared policy inputs; JSON files remain the single source of desired storage state.
-longhorn_policy: "{{ lookup('file', playbook_dir ~ '/../automation/longhorn/policy.json') | from_json }}"
+longhorn_policy: "{{ lookup('file', playbook_dir ~ '/../platform/storage/longhorn/policy.json') | from_json }}"
 longhorn_data_path: "{{ longhorn_policy.settings['default-data-path'] }}"
 longhorn_backup_policy: "{{ lookup('file', playbook_dir ~ '/../platform/storage/longhorn-backup/policy.json') | from_json }}"
 longhorn_backup_enabled: "{{ longhorn_backup_policy.enabled }}"

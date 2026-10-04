@@ -3,7 +3,7 @@
 import copy
 import unittest
 
-from chart_parity import container_images, differences, index, normalize
+from chart_parity import container_images, differences, index, normalize, semantic_digest
 
 
 class ParityTests(unittest.TestCase):
@@ -58,6 +58,15 @@ class ParityTests(unittest.TestCase):
     def test_image_scan_includes_init_containers_and_other_registries(self):
         self.resource['spec']['template']['spec']['initContainers'] = [{'image': 'other.example/tool:latest'}]
         self.assertEqual(set(container_images([self.resource])), {'locked', 'other.example/tool:latest'})
+
+    def test_review_contract_detects_spec_and_identity_changes(self):
+        baseline = semantic_digest([self.resource], 'longhorn')
+        changed = copy.deepcopy(self.resource)
+        changed['spec']['selector']['matchLabels']['app'] = 'different'
+        self.assertNotEqual(semantic_digest([changed], 'longhorn'), baseline)
+        changed = copy.deepcopy(self.resource)
+        changed['metadata']['name'] = 'different'
+        self.assertNotEqual(semantic_digest([changed], 'longhorn'), baseline)
 
 
 if __name__ == '__main__':

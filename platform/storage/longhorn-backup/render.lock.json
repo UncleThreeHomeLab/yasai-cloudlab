@@ -1,0 +1,9 @@
+{
+  "semantic_sha256": "e2db61b6d428ea68d7f43af8c31936f5b56be56df5f007d696063d4c0b1f919d",
+  "migration_baseline_revision": "fd37b98e604a4df5ae44852609e27dd6a8f817f4",
+  "fixture": {
+    "store": "cloudlab",
+    "bucket": "parity-fixture",
+    "region": "fixture-region"
+  }
+}
