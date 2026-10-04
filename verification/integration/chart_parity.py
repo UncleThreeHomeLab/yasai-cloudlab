@@ -37,11 +37,11 @@ def index(items):
 
 def normalize(item, module):
     item = copy.deepcopy(item)
-    if module == 'external_secrets' and item['kind'] == 'CustomResourceDefinition':
+    if module in ('external_secrets', 'longhorn') and item['kind'] == 'CustomResourceDefinition':
         annotations = item['metadata'].get('annotations', {})
         option = annotations.pop('argocd.argoproj.io/sync-options', None)
         if option not in (None, 'ServerSideApply=true,Prune=false,Delete=false'):
-            raise ValueError('Unreviewed ESO CRD ownership options')
+            raise ValueError('Unreviewed CRD ownership options')
     if module == 'longhorn':
         # These two labels do not participate in existing selectors.
         for metadata in (item['metadata'], item.get('spec', {}).get('template', {}).get('metadata', {})):
@@ -128,7 +128,8 @@ def verify(module, old):
         candidate += list(filter(None, yaml.safe_load_all((folder / 'config.yaml').read_text())))
     # The chart has no off switches for these hooks. Report them, never apply them.
     hooks = [x for x in candidate if 'helm.sh/hook' in x['metadata'].get('annotations', {})]
-    expected_hooks = {'longhorn-post-upgrade': 'post-upgrade', 'longhorn-uninstall': 'pre-delete'} if old == 'longhorn' else {}
+    expected_hooks = ({'longhorn-post-upgrade': 'post-upgrade', 'longhorn-uninstall': 'pre-delete'}
+                      if old == 'longhorn' and not lock.get('vendor_patch') else {})
     if {x['metadata']['name']: x['metadata']['annotations']['helm.sh/hook'] for x in hooks} != expected_hooks:
         raise ValueError('Unexpected chart hook inventory')
     allowed_images = {tag + '@' + digest for tag, digest in lock['images'].items()}

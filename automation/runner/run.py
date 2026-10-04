@@ -51,6 +51,7 @@ def main():
     if action == 'charts':
         subprocess.run([sys.executable, '/workspace/verification/integration/chart_parity.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/external_secrets/chart.py', 'check'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/longhorn/chart.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'check'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'

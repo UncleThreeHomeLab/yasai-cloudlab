@@ -56,7 +56,7 @@ docker compose run --build --rm lab prove
 ```
 
 This applies twice, requires zero changes on the second apply, and tests
-networking, persistent storage and disposable local SQLite recovery. It creates
+networking, cross-node storage, local snapshot restoration and disposable SQLite recovery. It creates
 no B2 backups. Cloud backup fixtures and initial recovery exports run only on day
 1 UTC through separate monthly proof actions.
 
@@ -74,3 +74,7 @@ resume before that release. For bounded same-version recovery, publish
 `externalSecrets.reconcile: false` in the public root, run `lab eso-recover`
 through Compose, then publish `true` and run `prove`. Recovery refuses an active
 Argo writer. Ansible always owns the 1Password bootstrap token.
+
+The Longhorn chart keeps the existing version and storage policy. Its pinned
+vendor patch removes Helm upgrade/uninstall hooks and retains CRDs during adoption;
+`lab charts` verifies both archive checksums, patch scope, and resource parity.
