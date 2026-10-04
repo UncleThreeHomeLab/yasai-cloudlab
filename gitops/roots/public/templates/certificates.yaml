@@ -1,0 +1,70 @@
+{{- if .Values.certificates.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-cert-manager
+  namespace: {{ .Values.namespace }}
+spec:
+  description: Certificate operator and ESO DNS credential declaration; controllers own generated Secrets.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: cert-manager}
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
+    - {group: admissionregistration.k8s.io, kind: MutatingWebhookConfiguration}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+  namespaceResourceWhitelist:
+    - {group: '', kind: Service}
+    - {group: '', kind: ServiceAccount}
+    - {group: apps, kind: Deployment}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+    - {group: external-secrets.io, kind: ExternalSecret}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-cert-manager
+  namespace: {{ .Values.namespace }}
+spec:
+  project: cloudlab-cert-manager
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: platform/certificates/cert-manager
+    helm:
+      releaseName: cert-manager
+      valueFiles: [values.json]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions:
+      - FailOnSharedResource=true
+      - DisableClientSideApplyMigration=true
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-certificates
+  namespace: {{ .Values.namespace }}
+spec:
+  description: DNS-01 issuers and gateway certificates; the selected zone stays in the runtime Application.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: cert-manager}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-gateway-public}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-gateway-private}
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+    - {group: cert-manager.io, kind: ClusterIssuer}
+  namespaceResourceWhitelist:
+    - {group: cert-manager.io, kind: Certificate}
+{{- end }}

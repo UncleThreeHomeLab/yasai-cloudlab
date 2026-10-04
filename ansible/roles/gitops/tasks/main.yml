@@ -95,3 +95,8 @@
     name: longhorn_backup
     tasks_from: gitops
   when: longhorn_backup_gitops_enabled | bool
+
+- name: Configure certificates after the foundation is reconciled
+  ansible.builtin.include_role:
+    name: certificates
+  when: certificates_enabled | bool

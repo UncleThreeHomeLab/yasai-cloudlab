@@ -14,3 +14,5 @@ longhorn:
 longhornBackup:
   enabled: true
   reconcile: true
+certificates:
+  enabled: true

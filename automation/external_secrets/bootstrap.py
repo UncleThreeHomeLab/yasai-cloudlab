@@ -248,6 +248,14 @@ def run(objects, action, revision=None):
                 state.update(phase='accepted', owner='argocd', revision=status['sync']['revision'])
                 record(state)
                 changed = True
+            elif state['digest'] != digest:
+                # A reviewed store configuration can evolve after adoption. Only
+                # advance recovery inputs after exact-revision Argo convergence
+                # and preserved identities; never revive the bootstrap writer.
+                state.update(digest=digest, revision=status['sync']['revision'],
+                             identities=identities(objects + [token]))
+                record(state)
+                changed = True
         return {'changed': changed, 'phase': state['phase'], 'owner': state['owner'],
                 'bootstrap_token_owner': 'ansible', 'consumer_receipt_count': len(state.get('consumers', {}))}
 

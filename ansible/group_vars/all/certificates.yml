@@ -1,0 +1,3 @@
+---
+certificates_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).certificates.enabled }}"
+certificates_lock: "{{ lookup('file', '/workspace/platform/certificates/cert-manager/artifact.lock.json') | from_json }}"

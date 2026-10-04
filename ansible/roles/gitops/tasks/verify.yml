@@ -49,3 +49,9 @@
 - name: Report sanitized private verification counts
   ansible.builtin.debug:
     msg: '{{ gitops_private_verification.stdout | from_json }}'
+
+- name: Prove certificate issuance and reissuance
+  ansible.builtin.include_role:
+    name: certificates
+    tasks_from: verify
+  when: certificates_enabled | bool
