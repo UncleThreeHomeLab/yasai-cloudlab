@@ -170,6 +170,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_eso_recovery_uses_its_explicit_suspended_writer_gate(self):
         self.invoke('eso-recover').assert_called_once_with('eso-recovery.yml')
+        self.invoke('eso-bootstrap').assert_called_once_with('eso.yml')
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
         with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
             self.invoke('eso-recover')
