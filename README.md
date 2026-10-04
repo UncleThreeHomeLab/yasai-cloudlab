@@ -127,3 +127,26 @@ staging renewal with pinned `cmctl`, checks key rotation without replacing objec
 validates production trust/SANs and renewal schedules, and mounts each certificate
 in a disposable consumer. This proves forced reissuance, not an observed natural
 renewal interval.
+
+Istio ambient uses pinned 1.31.1 release charts with the K3s CNI profile. Only
+explicitly labeled namespaces join the mesh; system namespaces and future
+connectors remain outside automatic enrollment. The mesh default requires STRICT
+mTLS. Workloads also need explicit identity authorization and NetworkPolicy;
+the disposable proof tests each boundary separately, including HBONE port 15008.
+No waypoint is needed for these L4 identity policies.
+
+Public and private gateways use separate namespaces, service accounts, certificates
+and route selectors. Both services remain ClusterIP, with two bounded replicas.
+Istio owns generated gateway workloads; Argo owns Gateway and configuration objects.
+Their selected DNS zone comes from the accepted Certificate resources at runtime.
+Verification checks actual mutual-TLS traffic metrics, trusted HTTPS, unknown
+host/SNI rejection, forbidden route attachment, drift repair and controller stability.
+
+The ten existing Gateway API 1.6.1 standard CRDs match the pinned upstream contract
+and retain their K3s/Traefik owner. `prove` checks their specs and retained identities;
+it does not introduce a second CRD writer. Keep Traefik until the access cutover,
+which must explicitly preserve or transfer CRD ownership before retiring its chart.
+Istio's CA and gateway identities are retained in a private recovery checkpoint.
+Repair declarations or credentials and rerun `prove`; do not delete CA keys, TLS
+Secrets or reinstall controllers to recover. External access and failover proof
+belong to the subsequent access cutover.

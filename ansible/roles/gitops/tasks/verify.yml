@@ -55,3 +55,9 @@
     name: certificates
     tasks_from: verify
   when: certificates_enabled | bool
+
+- name: Prove ambient identity and internal gateway isolation
+  ansible.builtin.include_role:
+    name: mesh
+    tasks_from: verify
+  when: mesh_enabled | bool

@@ -1,0 +1,19 @@
+{
+  "ztunnel": {
+    "profile": "ambient",
+    "image": "docker.io/istio/ztunnel:1.31.1@sha256:dc8d3dfe8b17680a7df2b7176d68caba220bfc88ecfaf349cde4bc56da3cf459",
+    "global": {
+      "platform": "k3s"
+    },
+    "resources": {
+      "requests": {
+        "cpu": "50m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "cpu": "300m",
+        "memory": "512Mi"
+      }
+    }
+  }
+}

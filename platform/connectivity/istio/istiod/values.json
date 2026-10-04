@@ -1,0 +1,45 @@
+{
+  "istiod": {
+    "profile": "ambient",
+    "image": "docker.io/istio/pilot:1.31.1@sha256:212ca088ada22f48be1576e6b688972b8aa7495710abb7c5f1febca856a15577",
+    "autoscaleEnabled": false,
+    "replicaCount": 1,
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "global": {
+      "platform": "k3s",
+      "proxy": {
+        "image": "docker.io/istio/proxyv2:1.31.1@sha256:d86cba0dd1eb15c00b6901c69ce5ae3d2d5f8427a47751098cf8c3ab2a4a62e9",
+        "resources": {
+          "requests": {
+            "cpu": "50m",
+            "memory": "128Mi"
+          },
+          "limits": {
+            "cpu": "200m",
+            "memory": "256Mi"
+          }
+        }
+      },
+      "proxy_init": {
+        "image": "docker.io/istio/proxyv2:1.31.1@sha256:d86cba0dd1eb15c00b6901c69ce5ae3d2d5f8427a47751098cf8c3ab2a4a62e9"
+      }
+    },
+    "meshConfig": {
+      "accessLogFile": "",
+      "defaultConfig": {
+        "proxyMetadata": {
+          "ISTIO_META_ENABLE_HBONE": "true"
+        }
+      }
+    }
+  }
+}

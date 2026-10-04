@@ -100,3 +100,8 @@
   ansible.builtin.include_role:
     name: certificates
   when: certificates_enabled | bool
+
+- name: Configure internal mesh gateways after certificate acceptance
+  ansible.builtin.include_role:
+    name: mesh
+  when: mesh_enabled | bool

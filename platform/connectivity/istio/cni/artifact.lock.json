@@ -1,0 +1,12 @@
+{
+  "version": "1.31.1",
+  "source_release_url": "https://github.com/istio/istio/releases/download/1.31.1/istio-1.31.1-linux-amd64.tar.gz",
+  "source_release_sha256": "cb4af2e8a099acfc51368c1d15d4deab8321ae628554d4ee5c74f62ebe775857",
+  "source_chart_directory": "istio-cni",
+  "archive": "charts/cni-1.31.1.tgz",
+  "upstream_sha256": "871b16aecbbedc25ddeb6c9ac92deb825debc1e738746590836b4fd607a312e4",
+  "sha256": "871b16aecbbedc25ddeb6c9ac92deb825debc1e738746590836b4fd607a312e4",
+  "namespace": "istio-system",
+  "kube_version": "1.36.5",
+  "helm_version": "v4.3.0+gbec5b06"
+}

@@ -1,0 +1,2 @@
+---
+mesh_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).mesh.enabled }}"
