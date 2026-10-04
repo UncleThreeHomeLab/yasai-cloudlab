@@ -1,0 +1,32 @@
+---
+- name: Prove Argo repairs Longhorn declarations without a workload rollout
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/longhorn/verify_gitops.py]
+  changed_when: true
+
+- name: Render storage ownership acceptance inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/longhorn/chart.py]
+  delegate_to: localhost
+  become: false
+  register: longhorn_acceptance_payload
+  changed_when: false
+  no_log: true
+
+- name: Accept storage ownership only after identity and attached data checks
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/longhorn/bootstrap.py, accept]
+    stdin: '{{ (longhorn_acceptance_payload.stdout | from_json) | combine({"fixture": longhorn_handoff_fixture}) | to_json }}'
+  register: longhorn_acceptance
+  changed_when: longhorn_acceptance.rc == 0 and (longhorn_acceptance.stdout | from_json).changed
+  until: longhorn_acceptance.rc != 2
+  retries: 40
+  delay: 5
+  failed_when: false
+  no_log: true
+
+- name: Require storage ownership acceptance without retrying permanent failures
+  ansible.builtin.assert:
+    that: longhorn_acceptance.rc == 0
+    fail_msg: '{{ longhorn_acceptance.stderr }}'
+    success_msg: Longhorn identities, storage, credentials and attached workload survived Argo adoption.

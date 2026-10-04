@@ -78,3 +78,8 @@ Argo writer. Ansible always owns the 1Password bootstrap token.
 The Longhorn chart keeps the existing version and storage policy. Its pinned
 vendor patch removes Helm upgrade/uninstall hooks and retains CRDs during adoption;
 `lab charts` verifies both archive checksums, patch scope, and resource parity.
+`lab longhorn-interruption-test` checkpoints and resumes its initial handoff while
+an attached disposable volume checks disk I/O. Enable `longhorn.enabled` only after
+writer release. To recover, publish `longhorn.reconcile: false`, run
+`lab longhorn-recover`, restore reconciliation, then run `prove`. Storage bootstrap
+refuses competing Argo operations and preserves existing objects and credentials.

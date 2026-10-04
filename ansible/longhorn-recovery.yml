@@ -1,0 +1,54 @@
+---
+- name: Read both node identities for the attached storage fixture
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Derive the node identity
+      ansible.builtin.include_role:
+        name: host
+        tasks_from: identity
+
+- name: Recover Longhorn only after its Argo writer is suspended in Git
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the published root to suspend Longhorn automatic sync
+      ansible.builtin.assert:
+        that:
+          - longhorn_gitops_enabled | bool
+          - not (longhorn_gitops_reconcile | bool)
+        fail_msg: Publish longhorn.reconcile=false before bounded Longhorn recovery.
+    - name: Require independent access and recovery before this ownership transition
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: prerequisites
+    - name: Render the same locked Longhorn module used by GitOps
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/longhorn/chart.py]
+      delegate_to: localhost
+      become: false
+      register: longhorn_recovery_payload
+      changed_when: false
+      no_log: true
+    - name: Install the version-controlled bounded recovery implementation
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../automation/longhorn/{{ item }}'
+        dest: '/var/lib/cloudlab/longhorn/{{ item }}'
+        mode: '0640'
+      loop: [bootstrap.py, handoff_fixture.py, kube.py, verify_health.py, verify_gitops.py]
+    - name: Restore the supported chart without uninstalling or replacing objects
+      ansible.builtin.command:
+        argv: [python3, /var/lib/cloudlab/longhorn/bootstrap.py, recover]
+        stdin: '{{ (longhorn_recovery_payload.stdout | from_json) | combine({"fixture": longhorn_handoff_fixture}) | to_json }}'
+      register: longhorn_recovery
+      changed_when: longhorn_recovery.rc == 0 and (longhorn_recovery.stdout | from_json).changed
+      failed_when: false
+      no_log: true
+    - name: Require safe completion of the recovery transition
+      ansible.builtin.assert:
+        that: longhorn_recovery.rc == 0
+        fail_msg: '{{ longhorn_recovery.stderr }}'

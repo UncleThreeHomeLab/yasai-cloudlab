@@ -41,6 +41,11 @@
       ansible.builtin.include_role:
         name: external_secrets
         tasks_from: verify
+    - name: Accept the Longhorn owner after disposable restore checks
+      ansible.builtin.include_role:
+        name: longhorn
+        tasks_from: verify
+      when: longhorn_gitops_enabled | bool
     - name: Verify consistent local capture without cloud writes
       ansible.builtin.include_role:
         name: recovery
