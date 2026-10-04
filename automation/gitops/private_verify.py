@@ -1,5 +1,6 @@
 """Private GitOps convergence and retained-resource fixtures; sanitized output only."""
 import copy
+import base64
 import fcntl
 import json
 import os
@@ -40,6 +41,40 @@ def mutate(name, document):
     kube('patch', 'application.argoproj.io', name, '-n', 'argocd', '--type=merge', '-p', json.dumps(document))
 
 
+def credential_failure(name, workload, uid):
+    """Invalidate only the fixture's derived credential; ESO remains its writer."""
+    external = get('externalsecret.external-secrets.io', name)
+    original = external['spec']['target']['template']['data']['githubAppPrivateKey']
+    secret = get('secret', name)
+    original_data = secret['data']['githubAppPrivateKey']
+    invalid = 'intentionally-invalid-private-fixture-key'
+    invalid_data = base64.b64encode(invalid.encode()).decode()
+
+    def key_template(value):
+        kube('patch', 'externalsecret.external-secrets.io', name, '-n', 'argocd', '--type=merge',
+             '-p', json.dumps({'spec': {'target': {'template': {'data': {'githubAppPrivateKey': value}}}},
+                              'metadata': {'annotations': {'force-sync': uuid.uuid4().hex}}}))
+
+    try:
+        key_template(invalid)
+        wait(lambda: (get('secret', name) or {}).get('data', {}).get('githubAppPrivateKey') == invalid_data,
+             'fixture credential invalidation')
+        mutate(name, {'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
+        wait(lambda: any(c['type'] == 'ComparisonError' for c in
+                        (get('application.argoproj.io', name) or {}).get('status', {}).get('conditions', [])),
+             'credential failure detection')
+        if (workload() or {}).get('metadata', {}).get('uid') != uid:
+            raise RuntimeError('Private credential failure did not retain its workload')
+        if not all(healthy(app) for app in ('cloudlab-public-root', 'cloudlab-argocd')):
+            raise RuntimeError('Private credential failure disrupted public convergence')
+    finally:
+        key_template(original)
+        wait(lambda: (get('secret', name) or {}).get('data', {}).get('githubAppPrivateKey') == original_data,
+             'fixture credential restoration')
+        mutate(name, {'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
+    wait(lambda: healthy(name), 'credential recovery')
+
+
 def fixture(entry, payload):
     name = 'cloudlab-private-' + entry['name']
     def configmap():
@@ -65,6 +100,7 @@ def fixture(entry, payload):
         mutate(name, {'spec': {'source': {'path': entry['path']}},
                       'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
     wait(lambda: healthy(name), 'source recovery')
+    credential_failure(name, configmap, uid)
     for denial in ('source', 'namespace'):
         app = copy.deepcopy(resources(entry, payload['store'])[-1])
         app['metadata']['name'] = 'cloudlab-private-denied-' + uuid.uuid4().hex[:8]
@@ -128,7 +164,8 @@ def run(payload):
     return {'private_roots_converged': len(payload['sources']), 'private_fixtures_verified': len(fixtures),
             'controllers_stable_after_private_fixtures': True,
             'stability_seconds': round(time.monotonic() - started, 1),
-            'fixture_checks': ['drift', 'source-failure-retention', 'source-denial', 'namespace-denial',
+            'fixture_checks': ['drift', 'source-failure-retention', 'credential-failure-retention',
+                               'public-convergence-during-credential-failure', 'source-denial', 'namespace-denial',
                                'omission-retention', 'removal-retention', 'reattachment'] if fixtures else []}
 
 
