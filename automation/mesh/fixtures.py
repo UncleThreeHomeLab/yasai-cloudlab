@@ -27,7 +27,7 @@ def pod(ns, name, image, service_account, network=True, server=False):
                                'limits': {'cpu': '100m', 'memory': '64Mi'}}}
     spec = {'serviceAccountName': service_account, 'automountServiceAccountToken': False,
             'restartPolicy': 'Never', 'activeDeadlineSeconds': 1800,
-            'securityContext': {'runAsNonRoot': True, 'runAsUser': 1000, 'runAsGroup': 1000,
+            'securityContext': {'runAsNonRoot': True, 'runAsUser': 1000, 'runAsGroup': 1000, 'fsGroup': 1000,
                                 'seccompProfile': {'type': 'RuntimeDefault'}}, 'containers': [container]}
     if server:
         container.update(ports=[{'containerPort': 8080}],
