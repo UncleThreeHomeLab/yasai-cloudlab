@@ -15,6 +15,13 @@ from verify_backup import create_backup
 from monthly_window import require_window
 
 
+def snapshot_parameters(volume, namespace, snapshot, parameters):
+    kubernetes = volume.get('status', {}).get('kubernetesStatus', {})
+    if kubernetes.get('namespace') != namespace or kubernetes.get('pvcName') != 'source':
+        raise RuntimeError('Local restore fixture refuses a volume outside its disposable namespace')
+    return dict(parameters, dataSource='snap://' + volume['metadata']['name'] + '/' + snapshot)
+
+
 def verify(config):
     if config.get('cloud_backup', False):
         require_window(reserve=3600)
@@ -25,6 +32,8 @@ def verify(config):
     run = 'storage-verify-' + uuid.uuid4().hex[:12]
     namespace_created = False
     restore_class_created = False
+    snapshot_class_created = False
+    snapshot_created = False
     backup_created = False
     volumes = []
 
@@ -91,6 +100,35 @@ def verify(config):
             print('External backup restored into a new volume with matching SHA-256: passed', flush=True)
         else:
             print('External backup restore: excluded from local proof; not tested', flush=True)
+
+        # Restore a fixed local recovery point into a distinct volume. This uses
+        # the pinned Longhorn CSI driver's native snapshot data source; it neither
+        # installs another snapshot controller nor writes to the external target.
+        snapshot_name = run + '-local'
+        snapshot_class = run + '-snapshot'
+        owned_source = get('volumes.longhorn.io', source)
+        base = get('storageclass', policy['storage_class'], None)
+        parameters = snapshot_parameters(owned_source, run, snapshot_name, base['parameters'])
+        create('Snapshot', snapshot_name, {'volume': source, 'createSnapshot': True}, api='longhorn.io/v1beta2')
+        snapshot_created = True
+        wait('Local snapshot ready', lambda: get('snapshots.longhorn.io', snapshot_name).get('status', {}).get('readyToUse'))
+        execute('reader', 'printf changed-after-snapshot > /data/proof.bin; sync')
+        if execute('reader', 'sha256sum /data/proof.bin').split()[0] == checksum:
+            raise RuntimeError('Local restore fixture did not change the live source after its snapshot')
+        data_source = parameters['dataSource']
+        create('StorageClass', snapshot_class, namespace=None, api='storage.k8s.io/v1',
+               provisioner='driver.longhorn.io', allowVolumeExpansion=True, reclaimPolicy='Delete',
+               volumeBindingMode='Immediate', parameters=parameters)
+        snapshot_class_created = True
+        pvc('local-restored', snapshot_class)
+        pod('local-restored', nodes[0], 'local-restored')
+        restored = volume_name('local-restored')
+        if restored == source or get('volumes.longhorn.io', restored)['spec'].get('dataSource') != data_source:
+            raise RuntimeError('Local snapshot recovery did not create the intended distinct volume')
+        wait('Local restored volume has two healthy replicas', lambda: healthy_volume(restored, nodes))
+        if execute('local-restored', 'sha256sum /data/proof.bin').split()[0] != checksum:
+            raise RuntimeError('Local snapshot restore checksum mismatch')
+        print('Local snapshot restored its original SHA-256 into a separate volume after source mutation: passed', flush=True)
     finally:
         # Attempt every cleanup even if one resource takes too long to terminate.
         failures = []
@@ -99,6 +137,10 @@ def verify(config):
             operations.append(lambda: delete('namespace', run, None))
         if restore_class_created:
             operations.append(lambda: delete('storageclass', run, None))
+        if snapshot_class_created:
+            operations.append(lambda: delete('storageclass', snapshot_class, None))
+        if snapshot_created:
+            operations.append(lambda: delete('snapshots.longhorn.io', snapshot_name))
         if backup_created:
             operations.append(lambda: (require_window(), delete('backups.longhorn.io', run)))
         for operation in operations:

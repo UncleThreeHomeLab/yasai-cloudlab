@@ -1,7 +1,7 @@
 {
   "version": "1.13.0",
   "url": "https://github.com/longhorn/charts/releases/download/longhorn-1.13.0/longhorn-1.13.0.tgz",
-  "sha256": "e57f010d2a8bcf0da5b8b03ffecf49c5bc35ddc2663588ce8f22b7567b6133ed",
+  "sha256": "68eb79685c38fbb660a13861e5a5a3f5225a3009a68dab47b1b875a2e3a4b39f",
   "release_name": "longhorn",
   "namespace": "longhorn-system",
   "kube_version": "1.36.5",
@@ -25,5 +25,8 @@
     "docker.io/longhornio/longhorn-ui:v1.13.0": "sha256:f22fb0254ae50195c1635ce428dfae26375956b3d7bd39640fae8fe33a236023",
     "docker.io/longhornio/support-bundle-kit:v0.0.98": "sha256:e64a01db35396f967175adcfd0177d2a50e75765c51efe86e55f13f49095d1ae"
   },
-  "baseline_hash_encoding": "UTF-8 text with LF line endings"
+  "baseline_hash_encoding": "UTF-8 text with LF line endings",
+  "upstream_sha256": "e57f010d2a8bcf0da5b8b03ffecf49c5bc35ddc2663588ce8f22b7567b6133ed",
+  "archive": "charts/longhorn-1.13.0.tgz",
+  "vendor_patch": "automation/longhorn/vendor_chart.py"
 }
