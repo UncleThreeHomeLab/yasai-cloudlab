@@ -1,0 +1,18 @@
+---
+- name: Verify DNS-01 reissuance and certificate Secret delivery
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/certificates/verify.py]
+    stdin: '{{ gitops_verification_payload.stdout }}'
+  register: certificates_verified
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Require certificate renewal verification to pass
+  ansible.builtin.assert:
+    that: certificates_verified.rc == 0
+    fail_msg: Certificate verification failed; private diagnostics withheld and issued credentials retained.
+
+- name: Report sanitized certificate checks
+  ansible.builtin.debug:
+    msg: '{{ certificates_verified.stdout | from_json }}'

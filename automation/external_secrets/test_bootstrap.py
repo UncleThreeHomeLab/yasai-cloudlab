@@ -127,6 +127,26 @@ class BootstrapTests(unittest.TestCase):
             bootstrap.preserved({'secret': {'uid': 'same', 'content': 'original'}},
                                 {'secret': {'uid': 'same', 'content': 'changed'}})
 
+    def test_reviewed_configuration_advances_recovery_digest_only_after_convergence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            receipt = base / bootstrap.CHECKPOINT
+            receipt.write_text(json.dumps(dict(phase='accepted', owner='argocd', digest='previous', identities={}, consumers={})))
+            app = {'spec': {'syncPolicy': {'automated': {'enabled': True}}},
+                   'status': {'sync': {'status': 'OutOfSync', 'revision': 'reviewed'},
+                              'health': {'status': 'Healthy'}}}
+            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', return_value=app), \
+                    patch.object(bootstrap, 'identities', return_value={}), \
+                    patch.object(bootstrap, 'argo_owned', return_value=True), patch.object(bootstrap, 'apply') as writer:
+                with self.assertRaises(bootstrap.PendingConvergence):
+                    bootstrap.run(OBJECTS, 'accept', 'reviewed')
+                self.assertEqual(json.loads(receipt.read_text())['digest'], 'previous')
+                app['status']['sync']['status'] = 'Synced'
+                self.assertTrue(bootstrap.run(OBJECTS, 'accept', 'reviewed')['changed'])
+                self.assertEqual(json.loads(receipt.read_text())['digest'], DIGEST)
+                self.assertFalse(bootstrap.run(OBJECTS, 'accept', 'reviewed')['changed'])
+                writer.assert_not_called()
+
     def test_recovery_refuses_an_active_writer(self):
         for app in ({}, {'spec': {'syncPolicy': {'automated': {'enabled': True}}}},
                     {'spec': {'syncPolicy': {'automated': {'enabled': False}}}, 'operation': {'sync': {}}}):

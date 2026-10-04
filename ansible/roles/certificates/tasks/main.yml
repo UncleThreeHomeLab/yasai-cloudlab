@@ -1,0 +1,50 @@
+---
+- name: Validate locked certificate packaging before configuration
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/certificates/chart.py]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Create the private certificate ownership directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/certificates
+    state: directory
+    mode: '0700'
+
+- name: Install certificate configuration and verification modules
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/certificates/{{ item }}'
+    dest: '/var/lib/cloudlab/certificates/{{ item }}'
+    mode: '0600'
+  loop: [configuration.py, inputs.py, kube.py, verify.py]
+
+- name: Install the pinned certificate renewal tool
+  ansible.builtin.get_url:
+    url: '{{ certificates_lock.renewal_tool.url }}'
+    checksum: 'sha256:{{ certificates_lock.renewal_tool.sha256 }}'
+    dest: /usr/local/bin/cloudlab-cmctl
+    mode: '0755'
+
+- name: Require certificate inspection tooling
+  ansible.builtin.apt:
+    name: [openssl, ca-certificates]
+    state: present
+
+- name: Configure staging before production through the private runtime Application
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/certificates/configuration.py]
+    stdin: '{{ gitops_payload.stdout }}'
+  register: certificates_configured
+  changed_when: certificates_configured.rc == 0 and (certificates_configured.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require certificate configuration to pass
+  ansible.builtin.assert:
+    that: certificates_configured.rc == 0
+    fail_msg: Certificate configuration failed; private diagnostics withheld and issued credentials retained.
+
+- name: Report sanitized certificate ownership
+  ansible.builtin.debug:
+    msg: '{{ certificates_configured.stdout | from_json }}'

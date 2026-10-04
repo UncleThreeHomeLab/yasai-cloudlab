@@ -109,3 +109,21 @@ checks reviewed semantic hashes as well as artifact and image integrity; intenti
 configuration changes require reviewing that contract and running `prove` again.
 Bootstrap and explicit recovery render those same charts. Existing VM-generated
 manifests are not inputs to apply, verification or recovery.
+
+Certificate support uses cert-manager 1.21.2 and Cloudflare DNS-01. The
+`CloudLab/cloudlab-dns01` item requires `API_TOKEN` and `ZONE_ID`; restrict the token
+to DNS Edit and Zone Read for that zone. ESO owns the credential, cert-manager
+owns ACME account keys and TLS Secrets, and Argo owns their declarations. The
+selected zone enters a bootstrap-owned Application at runtime, never public Git.
+Staging issuance must pass before production is enabled. Separate wildcard
+certificates cover public names and `internal` names; Cloudflare edge TLS and
+Istio's workload CA remain separate. No HTTP challenge port is opened.
+
+Certificate setup resumes its durable staging checkpoint after interruption.
+Do not delete issued Secrets or account keys to retry issuance. Repair the scoped
+credential or controller, then rerun `prove`; changed zones, conflicting owners
+and replaced identities require an explicit migration. Verification triggers only
+staging renewal with pinned `cmctl`, checks key rotation without replacing objects,
+validates production trust/SANs and renewal schedules, and mounts each certificate
+in a disposable consumer. This proves forced reissuance, not an observed natural
+renewal interval.

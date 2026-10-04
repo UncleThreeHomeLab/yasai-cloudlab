@@ -1,0 +1,35 @@
+{
+  "version": "v1.21.2",
+  "url": "https://charts.jetstack.io/charts/cert-manager-v1.21.2.tgz",
+  "archive": "charts/cert-manager-v1.21.2.tgz",
+  "sha256": "89eb0238619e6a88d6769f1e0995f8c111d8fb8dd60851f929fa4537f7176d61",
+  "upstream_sha256": "73a56e1728edd6c99f1f31082618c3259d279a76b7ebd3d4bdc5475c2442d34a",
+  "release_name": "cert-manager",
+  "namespace": "cert-manager",
+  "kube_version": "1.36.5",
+  "helm_version": "v4.3.0+gbec5b06",
+  "images": {
+    "quay.io/jetstack/cert-manager-controller:v1.21.2": "sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8",
+    "quay.io/jetstack/cert-manager-webhook:v1.21.2": "sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae",
+    "quay.io/jetstack/cert-manager-cainjector:v1.21.2": "sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562",
+    "quay.io/jetstack/cert-manager-acmesolver:v1.21.2": "sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503"
+  },
+  "vendor_patch": "Add only Argo server-side apply and retention annotations to six CRDs; reproduce with automation/certificates/vendor_chart.py.",
+  "compatibility_sources": [
+    "https://cert-manager.io/docs/releases/",
+    "https://cert-manager.io/docs/installation/helm/"
+  ],
+  "credential_schema": {
+    "item": "cloudlab-dns01",
+    "fields": [
+      "API_TOKEN",
+      "ZONE_ID"
+    ],
+    "scope": "Zone DNS Edit and Zone Read restricted to the selected zone"
+  },
+  "renewal_tool": {
+    "version": "2.6.1",
+    "url": "https://github.com/cert-manager/cmctl/releases/download/v2.6.1/cmctl_linux_amd64",
+    "sha256": "0af054c26a2b64ce286fa868d029164867695a93c3eb893662ce16f35e708db0"
+  }
+}

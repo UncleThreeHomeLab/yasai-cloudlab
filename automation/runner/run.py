@@ -54,6 +54,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/longhorn/chart.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/longhorn/backup_parity.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'check'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/certificates/chart.py'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'

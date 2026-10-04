@@ -1,0 +1,64 @@
+{{- range $name := list "cloudlab-gateway-public" "cloudlab-gateway-private" }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    istio-injection: disabled
+{{- end }}
+{{- range $stage := list "staging" "production" }}
+{{- if or (eq $stage "staging") $.Values.production }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cloudlab-acme-{{ $stage }}
+spec:
+  acme:
+    server: {{ if eq $stage "staging" }}https://acme-staging-v02.api.letsencrypt.org/directory{{ else }}https://acme-v02.api.letsencrypt.org/directory{{ end }}
+    privateKeySecretRef:
+      name: cloudlab-acme-{{ $stage }}
+    solvers:
+      - selector:
+          dnsZones: [{{ $.Values.zone | quote }}]
+        dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudlab-dns01
+              key: API_TOKEN
+{{- end }}
+{{- end }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cloudlab-staging
+  namespace: cert-manager
+spec:
+  secretName: cloudlab-staging-tls
+  revisionHistoryLimit: 2
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  issuerRef: {name: cloudlab-acme-staging, kind: ClusterIssuer}
+  dnsNames:
+    - {{ printf "*.%s" .Values.zone | quote }}
+    - {{ printf "*.internal.%s" .Values.zone | quote }}
+{{- if .Values.production }}
+{{- range $type := list "public" "private" }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cloudlab-gateway
+  namespace: cloudlab-gateway-{{ $type }}
+spec:
+  secretName: cloudlab-gateway-tls
+  revisionHistoryLimit: 2
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  issuerRef: {name: cloudlab-acme-production, kind: ClusterIssuer}
+  dnsNames:
+    - {{ if eq $type "public" }}{{ printf "*.%s" $.Values.zone | quote }}{{ else }}{{ printf "*.internal.%s" $.Values.zone | quote }}{{ end }}
+{{- end }}
+{{- end }}
