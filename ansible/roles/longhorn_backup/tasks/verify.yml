@@ -40,3 +40,9 @@
   vars:
     longhorn_backup_action: accept
   when: longhorn_backup_gitops_enabled | bool
+
+- name: Prove backup declaration drift repair without changing its schedule
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/longhorn/verify_gitops.py, backup]
+  changed_when: true
+  when: longhorn_backup_gitops_enabled | bool
