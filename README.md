@@ -83,3 +83,6 @@ an attached disposable volume checks disk I/O. Enable `longhorn.enabled` only af
 writer release. To recover, publish `longhorn.reconcile: false`, run
 `lab longhorn-recover`, restore reconciliation, then run `prove`. Storage bootstrap
 refuses competing Argo operations and preserves existing objects and credentials.
+Argo owns explicit Settings; their duplicate controller defaults are removed.
+Longhorn alone generates the immutable StorageClass from its Argo-owned ConfigMap.
+That ConfigMap preserves its original YAML bytes to prevent controller replacement.

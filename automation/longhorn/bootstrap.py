@@ -67,6 +67,48 @@ def preserve(before, after):
         raise RuntimeError('Storage transition changed an existing identity, attachment, or credential')
 
 
+def contains(actual, desired):
+    if isinstance(desired, dict):
+        return isinstance(actual, dict) and all(k in actual and contains(actual[k], v) for k, v in desired.items())
+    return actual == desired
+
+
+def prior_owner(obj, current):
+    managers = {f.get('manager') for f in current['metadata'].get('managedFields', [])}
+    if 'cloudlab' in managers:
+        return True
+    return (obj['kind'] == 'Setting' and managers == {'longhorn-manager'}
+            and current.get('value') == obj['value'])
+
+
+def generated_valid(objects, generated):
+    for obj in generated:
+        current = get(obj)
+        config = next(x for x in objects if x['kind'] == 'ConfigMap'
+                      and x['metadata']['name'] == 'longhorn-storageclass')
+        active_config = get(config)
+        if (obj['kind'] != 'StorageClass' or not current or not contains(current, obj)
+                or active_config.get('data') != config['data']
+                or current['metadata'].get('annotations', {}).get('longhorn.io/last-applied-configmap')
+                   != config['data']['storageclass.yaml']):
+            raise RuntimeError('Generated storage class differs from its preserved controller configuration')
+
+
+def setting_patch(current, desired):
+    if (desired['kind'] != 'Setting' or desired['apiVersion'] != 'longhorn.io/v1beta2'
+            or desired['metadata'].get('namespace') != 'longhorn-system'
+            or set(desired) != {'apiVersion', 'kind', 'metadata', 'value'}):
+        raise RuntimeError('Setting adoption exceeds its declared field scope')
+    if current.get('value') == desired['value']:
+        return []
+    owners = {f['manager'] for f in current['metadata'].get('managedFields', [])
+              if 'f:value' in f.get('fieldsV1', {})}
+    if not owners or not owners <= {'longhorn-manager', 'cloudlab', 'argocd-controller', 'kubectl-client-side-apply'}:
+        raise RuntimeError('Setting value has an unrecognized writer')
+    return [{'op': 'test', 'path': '/metadata/resourceVersion', 'value': current['metadata']['resourceVersion']},
+            {'op': 'replace', 'path': '/value', 'value': desired['value']}]
+
+
 def storage_receipt():
     result = {}
     for resource in ('persistentvolumeclaims', 'persistentvolumes', 'volumes.longhorn.io', 'secrets'):
@@ -87,9 +129,16 @@ def storage_receipt():
 
 
 def seed(objects):
-    for kinds in ({'Namespace'}, {'CustomResourceDefinition'},
-                  {x['kind'] for x in objects} - {'Namespace', 'CustomResourceDefinition', 'Setting'}, {'Setting'}):
+    for kinds in ({'Namespace'}, {'CustomResourceDefinition'}, {'ConfigMap'},
+                  {x['kind'] for x in objects} - {'Namespace', 'CustomResourceDefinition', 'ConfigMap', 'Setting'}, {'Setting'}):
         group = [x for x in objects if x['kind'] in kinds]
+        if kinds == {'Setting'}:
+            for obj in group:
+                current = get(obj)
+                patch = setting_patch(current, obj) if current else []
+                if patch:
+                    kube('patch', 'settings.longhorn.io', obj['metadata']['name'], '-n', 'longhorn-system',
+                         '--type=json', '--field-manager=cloudlab', '-p', json.dumps(patch))
         if group:
             kube('apply', '--server-side', '--field-manager=cloudlab', '-f', '-', objects=group)
         if kinds == {'CustomResourceDefinition'}:
@@ -119,7 +168,9 @@ def run(payload, action):
     if action not in ('seed', 'seed-stop', 'accept', 'recover'):
         raise RuntimeError('Unknown storage ownership action')
     objects, config = payload['items'], payload['fixture']
-    digest = hashlib.sha256(json.dumps(objects, sort_keys=True).encode()).hexdigest()
+    generated = payload.get('generated', [])
+    inventory = objects + generated
+    digest = hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest()
     os.umask(0o077)
     BASE.mkdir(parents=True, exist_ok=True, mode=0o750)
     if BASE.resolve() != BASE.absolute():
@@ -130,13 +181,13 @@ def run(payload, action):
         if not path.exists():
             if action not in ('seed', 'seed-stop') or get(APP):
                 raise RuntimeError('Storage seed requires no competing Argo writer')
-            existing = identities(objects)
-            if existing and len(existing) != len(objects):
+            existing = identities(inventory)
+            if existing and len(existing) != len(inventory):
                 raise RuntimeError('Partial storage installation has no ownership receipt')
-            if existing and any(not any(f.get('manager') == 'cloudlab'
-                    for f in get(obj)['metadata'].get('managedFields', [])) for obj in objects):
+            if existing and any(not prior_owner(obj, get(obj)) for obj in objects):
                 raise RuntimeError('Existing storage objects lack the expected bootstrap owner')
             if existing:
+                generated_valid(objects, generated)
                 kube('apply', '--server-side', '--dry-run=server', '--field-manager=cloudlab', '-f', '-', objects=objects)
             record({'phase': 'preparing', 'owner': 'cloudlab-bootstrap', 'digest': digest,
                     'identities': existing, 'storage': storage_receipt() if existing else {},
@@ -158,10 +209,16 @@ def run(payload, action):
                              fixture=fixture or handoff_fixture.intent())
                 state.pop('fixture_removed', None)
                 record(state)
-            state['fixture'] = handoff_fixture.prepare(config, state['fixture'])
-            record(state)
-            preserve(state['identities'], identities(objects))
+            preserve(state['identities'], identities(inventory))
             seed(objects)
+            preserve(state['identities'], identities(inventory))
+            generated_valid(objects, generated)
+            # Recovery must be able to repair unhealthy controllers before asking
+            # them to provision a new fixture. An unfinished adoption keeps its
+            # original pod identity; it is never silently replaced to pass proof.
+            if 'pod_uid' not in state['fixture']:
+                state['fixture'] = handoff_fixture.prepare(config, state['fixture'])
+                record(state)
             handoff_fixture.verify(config, state['fixture'])
             preserve(state['storage'], storage_receipt())
             state.update(phase='released', owner='awaiting-argocd')
@@ -176,11 +233,12 @@ def run(payload, action):
                 state['phase'] = 'seeding'
                 record(state)
             seed(objects)
-            preserve(state['identities'], identities(objects))
+            preserve(state['identities'], identities(inventory))
+            generated_valid(objects, generated)
             if state['fixture']:
                 handoff_fixture.verify(config, state['fixture'])
             preserve(state['storage'], storage_receipt())
-            state.update(phase='seeded', identities=identities(objects))
+            state.update(phase='seeded', identities=identities(inventory))
             record(state)
             changed = True
         if action == 'seed-stop':
@@ -214,7 +272,8 @@ def run(payload, action):
                     or app.get('spec', {}).get('syncPolicy', {}).get('automated', {}).get('enabled') is not True
                     or any(c['type'].endswith('Error') for c in status.get('conditions', []))):
                 raise PendingConvergence('Longhorn Argo ownership has not converged')
-            preserve(state['identities'], identities(objects))
+            preserve(state['identities'], identities(inventory))
+            generated_valid(objects, generated)
             if any(not owned(obj, get(obj)) for obj in objects):
                 raise RuntimeError('Storage declarations lack their Argo ownership evidence')
             if state['phase'] != 'accepted':
