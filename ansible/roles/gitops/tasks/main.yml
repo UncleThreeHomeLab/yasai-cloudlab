@@ -106,3 +106,6 @@
 - name: Report the public ownership checkpoint without private metadata
   ansible.builtin.debug:
     msg: '{{ gitops_bootstrap.stdout | from_json }}'
+
+- name: Reconcile optional private roots without waiting on their sources
+  ansible.builtin.include_tasks: private.yml

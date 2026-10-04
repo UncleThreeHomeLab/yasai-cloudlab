@@ -1,0 +1,32 @@
+---
+- name: Render optional private roots from ignored inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/gitops/private_sources.py]
+  delegate_to: localhost
+  become: false
+  register: gitops_private_payload
+  changed_when: false
+  no_log: true
+
+- name: Install private root reconciliation code
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/gitops/{{ item }}'
+    dest: '/opt/cloudlab/gitops/{{ item }}'
+    owner: root
+    group: root
+    mode: '0600'
+  loop: [private_sources.py, private_bootstrap.py, private_verify.py]
+
+- name: Reconcile admin-owned private declarations without disclosing inputs
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/gitops/private_bootstrap.py, '{{ "remove" if lookup("env", "LAB_GITOPS_ACTION") == "private-remove" else "configure" }}']
+    stdin: '{{ (gitops_private_payload.stdout | from_json) | combine({"store": external_secrets_store}) | to_json }}'
+  register: gitops_private_result
+  changed_when: gitops_private_result.rc == 0 and (gitops_private_result.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require valid private ownership declarations
+  ansible.builtin.assert:
+    that: gitops_private_result.rc == 0
+    fail_msg: Private declaration reconciliation failed; inspect through authorized cluster access.

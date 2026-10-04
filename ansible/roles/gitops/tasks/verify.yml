@@ -22,3 +22,30 @@
 - name: Report only the sanitized public GitOps proof
   ansible.builtin.debug:
     msg: '{{ gitops_verification.stdout | from_json }}'
+
+- name: Render optional private verification inputs
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/gitops/private_sources.py]
+  delegate_to: localhost
+  become: false
+  register: gitops_private_verification_payload
+  changed_when: false
+  no_log: true
+
+- name: Prove private convergence and fixture retention without public diagnostics
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/gitops/private_verify.py]
+    stdin: '{{ (gitops_private_verification_payload.stdout | from_json) | combine({"store": external_secrets_store}) | to_json }}'
+  register: gitops_private_verification
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Require configured private sources to pass their checks
+  ansible.builtin.assert:
+    that: gitops_private_verification.rc == 0
+    fail_msg: '{{ gitops_private_verification.stderr }}'
+
+- name: Report sanitized private verification counts
+  ansible.builtin.debug:
+    msg: '{{ gitops_private_verification.stdout | from_json }}'

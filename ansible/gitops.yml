@@ -8,7 +8,12 @@
     - name: Run bounded GitOps bootstrap
       ansible.builtin.include_role:
         name: gitops
-      when: lookup('env', 'LAB_GITOPS_ACTION') != 'verify'
+      when: lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+    - name: Remove an explicitly selected private root while retaining workloads
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: private
+      when: lookup('env', 'LAB_GITOPS_ACTION') == 'private-remove'
     - name: Verify public GitOps behavior
       ansible.builtin.include_role:
         name: gitops
