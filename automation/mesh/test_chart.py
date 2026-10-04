@@ -81,6 +81,12 @@ class MeshChartTests(unittest.TestCase):
         ports = fixtures.network_policy('mesh', 'public')['spec']['ingress'][0]['ports']
         self.assertEqual({p['port'] for p in ports}, {8080, 15008})
 
+    def test_nonroot_backend_can_write_only_its_ephemeral_content_volume(self):
+        backend = fixtures.pod('fixture', 'backend', 'pinned-image', 'backend', server=True)['spec']
+        self.assertEqual(backend['securityContext']['fsGroup'], backend['securityContext']['runAsGroup'])
+        self.assertTrue(backend['containers'][0]['securityContext']['readOnlyRootFilesystem'])
+        self.assertEqual(backend['volumes'], [{'name': 'www', 'emptyDir': {'sizeLimit': '1Mi'}}])
+
 
 if __name__ == '__main__':
     unittest.main()
