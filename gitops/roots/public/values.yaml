@@ -1,4 +1,4 @@
-repository: https://github.com/UncleThreeHomeLab/cloudlab-platform.git
+repository: https://github.com/UncleThreeHomeLab/yasai-cloudlab.git
 revision: main
 namespace: argocd
 publicNamespace: cloudlab-public

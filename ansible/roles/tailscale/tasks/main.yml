@@ -1,4 +1,11 @@
 ---
+- name: Record any running host identity before service changes
+  ansible.builtin.command: /usr/local/bin/tailscale status --json
+  register: tailscale_identity_before_service
+  changed_when: false
+  failed_when: false
+  no_log: true
+
 - name: Inspect deliberate logout state
   ansible.builtin.stat:
     path: /var/lib/tailscale/cloudlab-logged-out
@@ -26,6 +33,22 @@
   loop:
     - {path: /var/lib/tailscale, mode: '0700'}
     - {path: /opt/cloudlab/tailscale, mode: '0755'}
+
+- name: Install the independent compatible firewall frontend
+  ansible.builtin.apt:
+    name: iptables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install scoped Tailscale firewall preparation
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/tailscale/firewall.py'
+    dest: /opt/cloudlab/tailscale/firewall.py
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart host Tailscale
 
 - name: Download the checked host Tailscale artifact
   ansible.builtin.get_url:
@@ -133,6 +156,15 @@
 
 - name: Verify the durable host identity
   ansible.builtin.import_tasks: verify.yml
+
+- name: Require service maintenance to preserve an existing host identity
+  ansible.builtin.assert:
+    that: (tailscale_identity_before_service.stdout | from_json).Self.ID == (tailscale_status.stdout | from_json).Self.ID
+  when:
+    - tailscale_identity_before_service.rc == 0
+    - (tailscale_identity_before_service.stdout | from_json).BackendState == 'Running'
+    - not (tailscale_explicit_reauth | default(false))
+  no_log: true
 
 - name: Clear deliberate logout only after explicit verified reauthentication
   ansible.builtin.file:

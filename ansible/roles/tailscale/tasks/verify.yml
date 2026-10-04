@@ -11,6 +11,11 @@
   ansible.builtin.command: systemctl is-enabled tailscaled
   changed_when: false
 
+- name: Require the shared firewall table to remain readable by NetworkPolicy
+  ansible.builtin.command: /usr/sbin/iptables-save -t filter
+  changed_when: false
+  no_log: true
+
 - name: Read host Tailscale status privately
   ansible.builtin.command: tailscale status --json
   register: tailscale_status
