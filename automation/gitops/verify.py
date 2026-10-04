@@ -166,8 +166,12 @@ def run(payload):
             'if test $status -eq 124; then echo timed out; exit 1; fi; ')
     # Reuse the digest-locked Argo image's complete OpenSSL client. The minimal
     # BusyBox TLS client is not a reliable oracle for the Argo TLS configuration.
-    allowed = (request('/healthz') + "grep -Eq '^HTTP/[0-9.]+ 200' /tmp/response; " +
-        request('/api/v1/applications') + "grep -Eq '^HTTP/[0-9.]+ (401|403)' /tmp/response")
+    # Pod IP selectors may lag container startup briefly. Retry only this
+    # positive readiness probe, still requiring both real HTTP responses.
+    allowed = ("for attempt in 1 2 3 4; do if (" + request('/healthz') +
+        "grep -Eq '^HTTP/[0-9.]+ 200' /tmp/response) && (" +
+        request('/api/v1/applications') + "grep -Eq '^HTTP/[0-9.]+ (401|403)' /tmp/response); " +
+        "then exit 0; fi; sleep 3; done; cat /tmp/tls; exit 1")
     verify_pod(pod('argocd', 'cloudlab-allowed-' + suffix, payload['probe_image'], allowed, trusted=True))
     denied = ('getent hosts ' + endpoint + ' >/dev/null || { echo NXDOMAIN; exit 1; }; status=0; '
         'timeout 6 openssl s_client -brief -connect ' + endpoint + ':443 -servername ' + endpoint +
