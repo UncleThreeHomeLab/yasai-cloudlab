@@ -6,6 +6,11 @@ import re
 
 OWNER = 'private-gitops'
 LABEL = 'cloudlab.io/owner'
+PEM_TEMPLATE = r'''{{- $key := .PRIVATE_KEY | trim -}}
+{{- $header := regexFind "^-----BEGIN (RSA )?PRIVATE KEY-----" $key -}}
+{{- $footer := replace "BEGIN" "END" $header -}}
+{{- $body := $key | trimPrefix $header | trimSuffix $footer -}}
+{{- printf "%s\n%s\n%s\n" $header (regexReplaceAll "[[:space:]]+" $body "") $footer -}}'''
 
 
 def sources(raw):
@@ -55,7 +60,7 @@ def resources(entry, store_name):
                     'labels': {'argocd.argoproj.io/secret-type': 'repository', LABEL: OWNER}},
                     'data': {'type': 'git', 'url': entry['repository'], 'project': name,
                              'githubAppID': '{{ .APP_ID }}', 'githubAppInstallationID': '{{ .INSTALLATION_ID }}',
-                             'githubAppPrivateKey': '{{ .PRIVATE_KEY }}'}}},
+                             'githubAppPrivateKey': PEM_TEMPLATE}}},
             'data': [{'secretKey': key, 'remoteRef': {'key': 'github-argocd/' + key}}
                      for key in ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')]}}
     app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': metadata(name),
