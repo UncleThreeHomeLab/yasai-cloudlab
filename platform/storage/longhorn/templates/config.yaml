@@ -81,24 +81,3 @@ metadata:
   name: allow-collecting-longhorn-usage-metrics
   namespace: longhorn-system
 value: 'false'
----
-kind: StorageClass
-apiVersion: storage.k8s.io/v1
-metadata:
-  name: longhorn
-  annotations:
-    storageclass.kubernetes.io/is-default-class: 'false'
-provisioner: driver.longhorn.io
-allowVolumeExpansion: true
-reclaimPolicy: Delete
-volumeBindingMode: Immediate
-parameters:
-  numberOfReplicas: '2'
-  staleReplicaTimeout: '30'
-  fromBackup: ''
-  fsType: ext4
-  dataLocality: best-effort
-  unmapMarkSnapChainRemoved: ignored
-  disableRevisionCounter: 'true'
-  dataEngine: v1
-  backupTargetName: default

@@ -117,3 +117,22 @@ class StorageOwnershipTests(unittest.TestCase):
             self.assertEqual(result['phase'], 'released')
             self.assertEqual(prepare.call_args.args[1], {'nonce': 'fixture'})
             seed.assert_called_once_with([])
+
+    def test_only_identical_controller_generated_settings_can_enter_adoption(self):
+        obj = {'kind': 'Setting', 'value': '2'}
+        live = {'metadata': {'managedFields': [{'manager': 'longhorn-manager'}]}, 'value': '2'}
+        self.assertTrue(bootstrap.prior_owner(obj, live))
+        self.assertFalse(bootstrap.prior_owner(dict(obj, value='3'), live))
+        self.assertFalse(bootstrap.prior_owner({'kind': 'Deployment'}, live))
+
+    def test_setting_default_adoption_is_scoped_and_checks_resource_version(self):
+        desired = {'apiVersion': 'longhorn.io/v1beta2', 'kind': 'Setting',
+                   'metadata': {'name': 'default-replica-count', 'namespace': 'longhorn-system'}, 'value': '2'}
+        current = {'metadata': {'resourceVersion': 'before', 'managedFields': [
+            {'manager': 'longhorn-manager', 'fieldsV1': {'f:value': {}}}]}, 'value': '3'}
+        self.assertEqual(bootstrap.setting_patch(current, desired), [
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': 'before'},
+            {'op': 'replace', 'path': '/value', 'value': '2'}])
+        current['metadata']['managedFields'][0]['manager'] = 'unrelated-owner'
+        with self.assertRaisesRegex(RuntimeError, 'unrecognized writer'):
+            bootstrap.setting_patch(current, desired)

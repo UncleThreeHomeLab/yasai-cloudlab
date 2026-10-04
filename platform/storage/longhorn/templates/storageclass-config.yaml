@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: longhorn-storageclass
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/name: longhorn
+    app.kubernetes.io/instance: longhorn
+    app.kubernetes.io/version: v1.13.0
+data:
+  storageclass.yaml: |
+{{ .Files.Get "storageclass.yaml" | indent 4 }}

@@ -9,6 +9,11 @@ import yaml
 from vendor_chart import ROOT, verify
 
 
+def generated():
+    """Longhorn alone creates the immutable class from its byte-stable ConfigMap."""
+    return [yaml.safe_load((ROOT / 'storageclass.yaml').read_text())]
+
+
 def container_images(value):
     if isinstance(value, dict):
         for key, child in value.items():
@@ -64,6 +69,7 @@ if __name__ == '__main__':
             print(json.dumps({'objects': len(objects), 'lifecycle_hooks': 0, 'deterministic': True}))
         else:
             revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
-            print(json.dumps({'apiVersion': 'v1', 'kind': 'List', 'items': objects, 'revision': revision}))
+            print(json.dumps({'apiVersion': 'v1', 'kind': 'List', 'items': objects,
+                              'generated': generated(), 'revision': revision}))
     except (ValueError, KeyError, OSError, subprocess.SubprocessError):
         raise SystemExit('Locked Longhorn chart validation failed; no resources applied') from None

@@ -53,7 +53,7 @@ def normalize(item, module):
                     del labels[key]
     if item['kind'] == 'ConfigMap' and item['metadata']['name'] in ('longhorn-default-setting', 'longhorn-storageclass'):
         for key, value in item['data'].items():
-            parsed = yaml.safe_load(value)
+            parsed = yaml.safe_load(value) or {}
             if key == 'default-setting.yaml':
                 parsed = {k: str(v).lower() if isinstance(v, bool) else v for k, v in parsed.items()}
             item['data'][key] = parsed
@@ -108,6 +108,13 @@ def verify(module, old):
     if rendered != subprocess.check_output(command):
         raise ValueError('Chart render is nondeterministic')
     candidate = list(filter(None, yaml.safe_load_all(rendered)))
+    if old == 'longhorn' and (folder / 'storageclass.yaml').exists():
+        generated = yaml.safe_load((folder / 'storageclass.yaml').read_text())
+        config = next(x for x in candidate if x['kind'] == 'ConfigMap'
+                      and x['metadata']['name'] == 'longhorn-storageclass')
+        if config['data']['storageclass.yaml'] != (folder / 'storageclass.yaml').read_text():
+            raise ValueError('StorageClass generator bytes changed; its controller could replace the object')
+        candidate.append(generated)
     if old == 'external_secrets':
         stores = [x for x in candidate if x['kind'] == 'ClusterSecretStore']
         if stores:
@@ -142,6 +149,21 @@ def verify(module, old):
     baseline_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(baseline_module)
     groups = baseline_module.render()
+    if old == 'longhorn' and (folder / 'storageclass.yaml').exists():
+        prior = next(x for x in groups['system'] if x['kind'] == 'ConfigMap'
+                     and x['metadata']['name'] == 'longhorn-storageclass')
+        if prior['data']['storageclass.yaml'] != (folder / 'storageclass.yaml').read_text():
+            raise ValueError('StorageClass generator differs from its existing source bytes')
+        # Reviewed ownership change: Argo owns explicit Settings; remove only
+        # those identical values from controller defaults to prevent two writers.
+        defaults = next(x for x in groups['system'] if x['kind'] == 'ConfigMap'
+                        and x['metadata']['name'] == 'longhorn-default-setting')
+        data = yaml.safe_load(defaults['data']['default-setting.yaml'])
+        for setting in (x for x in groups['policy'] if x['kind'] == 'Setting'):
+            name = setting['metadata']['name']
+            if data.pop(name) != setting['value']:
+                raise ValueError('Settings ownership split changed a declared value')
+        defaults['data']['default-setting.yaml'] = yaml.safe_dump(data)
     baseline = index([normalize(x, old) for items in groups.values() for x in items])
     actual = index([normalize(x, old) for x in candidate if x not in hooks])
     if baseline.keys() != actual.keys():

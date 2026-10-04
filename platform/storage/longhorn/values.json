@@ -74,7 +74,8 @@
     "persistence": {
       "defaultClass": false,
       "defaultClassReplicaCount": 2,
-      "defaultDataLocality": "best-effort"
+      "defaultDataLocality": "best-effort",
+      "createStorageClass": false
     },
     "longhornGlobalManager": {
       "replicas": 2
@@ -82,19 +83,7 @@
     "longhornUI": {
       "replicas": 2
     },
-    "defaultSettings": {
-      "defaultReplicaCount": "{\"v1\":\"2\",\"v2\":\"2\"}",
-      "defaultDataPath": "/var/lib/longhorn",
-      "defaultDataLocality": "best-effort",
-      "replicaSoftAntiAffinity": "false",
-      "storageOverProvisioningPercentage": "100",
-      "storageMinimalAvailablePercentage": "25",
-      "storageReservedPercentageForDefaultDisk": "30",
-      "v1DataEngine": "true",
-      "v2DataEngine": "false",
-      "upgradeChecker": "false",
-      "allowCollectingLonghornUsageMetrics": "false"
-    },
+    "defaultSettings": {},
     "preUpgradeChecker": {
       "jobEnabled": false
     }
