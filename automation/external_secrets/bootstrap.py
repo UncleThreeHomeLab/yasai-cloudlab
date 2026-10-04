@@ -11,6 +11,22 @@ BASE = Path('/var/lib/cloudlab/external-secrets')
 CHECKPOINT = 'ownership.json'
 
 
+class PendingConvergence(RuntimeError):
+    """Only controller convergence is retryable; identity/ownership failures are not."""
+
+
+def argo_owned(obj, current):
+    metadata = (current or {}).get('metadata', {})
+    if obj['kind'] == 'CustomResourceDefinition':
+        # Argo 3.5 deliberately excludes CRDs from tracking annotations. Require
+        # its actual SSA ownership of the CRD spec, alongside Application revision,
+        # convergence and UID checks; a copied annotation is not sufficient.
+        return any(field.get('manager') == 'argocd-controller' and field.get('operation') == 'Apply'
+                   and 'f:spec' in field.get('fieldsV1', {}) for field in metadata.get('managedFields', []))
+    return metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(
+        'cloudlab-external-secrets:')
+
+
 def kube(*args, objects=None):
     result = subprocess.run(['/usr/local/bin/k3s', 'kubectl', *args],
         input=json.dumps({'apiVersion': 'v1', 'kind': 'List', 'items': objects}) if objects is not None else None,
@@ -221,10 +237,9 @@ def run(objects, action, revision=None):
                     or status.get('health', {}).get('status') != 'Healthy' or current.get('operation')
                     or current.get('spec', {}).get('syncPolicy', {}).get('automated', {}).get('enabled') is not True
                     or any(c['type'].endswith('Error') for c in status.get('conditions', []))):
-                raise RuntimeError('ESO Argo ownership has not converged')
+                raise PendingConvergence('ESO Argo ownership has not converged')
             preserved(state['identities'], identities(objects + [token]))
-            if any(not (get(obj) or {}).get('metadata', {}).get('annotations', {}).get(
-                    'argocd.argoproj.io/tracking-id', '').startswith('cloudlab-external-secrets:') for obj in objects):
+            if any(not argo_owned(obj, get(obj)) for obj in objects):
                 raise RuntimeError('ESO declared resources lack their Argo ownership marker')
             if state['phase'] != 'accepted':
                 if 'consumers' not in state:
@@ -241,6 +256,9 @@ if __name__ == '__main__':
     try:
         payload = json.load(sys.stdin)
         print(json.dumps(run(payload['items'], sys.argv[1], payload.get('revision'))))
+    except PendingConvergence as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(2) from None
     except Exception as error:
         raise SystemExit(str(error) if isinstance(error, RuntimeError)
                          else 'ESO ownership operation failed; checkpoint retained, diagnostics withheld') from None
