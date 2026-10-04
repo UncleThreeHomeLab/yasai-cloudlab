@@ -124,12 +124,14 @@ def verify(payload):
             raise RuntimeError('Istio object identities changed')
         wait(lambda: application_ready('cloudlab-gateways', payload['revision']), 'gateway Application convergence')
         check_gateways()
-        for exposure in ('public', 'private'):
-            ns = 'cloudlab-gateway-' + exposure
-            kube('patch', 'configmap', 'cloudlab-gateway-options', '-n', ns, '--type=merge',
-                 '-p', json.dumps({'metadata': {'annotations': {'cloudlab.io/ownership-proof': 'drift-fixture'}}}))
-            wait(lambda ns=ns: get('configmap', 'cloudlab-gateway-options', ns)['metadata'].get('annotations', {}).get(
-                'cloudlab.io/ownership-proof') == 'argocd', 'gateway declaration drift repair', timeout=300)
+        ns = 'cloudlab-gateway-public'
+        kube('patch', 'configmap', 'cloudlab-gateway-options', '-n', ns, '--type=merge',
+             '-p', json.dumps({'metadata': {'annotations': {'cloudlab.io/ownership-proof': 'drift-fixture'}}}))
+        wait(lambda: get('configmap', 'cloudlab-gateway-options', ns)['metadata'].get('annotations', {}).get(
+            'cloudlab.io/ownership-proof') == 'argocd', 'gateway declaration drift repair', timeout=600)
+        # One drift fixture proves this Application's writer. Wait for its full
+        # operation to finish before traffic checks or another verification run.
+        wait(lambda: application_ready('cloudlab-gateways', payload['revision']), 'post-drift gateway convergence')
         zone = selected_zone()
         suffix = uuid.uuid4().hex[:10]
         public, private, plain = ['cloudlab-mesh-' + role + '-' + suffix for role in ('public', 'private', 'plain')]
@@ -151,7 +153,7 @@ def verify(payload):
                 objects.append(fixtures.account(public, account))
             objects.extend([fixtures.pod(public, 'allowed', payload['smoke_image'], 'allowed'),
                             fixtures.pod(public, 'denied', payload['smoke_image'], 'denied'),
-                            fixtures.pod(public, 'network-denied', payload['smoke_image'], 'allowed', network=False),
+                            fixtures.pod(public, 'network-baseline', payload['smoke_image'], 'allowed', network=False),
                             fixtures.account(plain, 'plain'), fixtures.service(plain),
                             fixtures.pod(plain, 'plain', payload['smoke_image'], 'plain'),
                             fixtures.pod(plain, 'tls', payload['probe_image'], 'plain')])
@@ -171,7 +173,7 @@ def verify(payload):
                         raise RuntimeError('Fixture is not captured by ambient without a sidecar')
             target = 'backend.' + public + '.svc.cluster.local'
             # Positive baselines distinguish policy denial from DNS or broken networking.
-            for ns, pod in [(public, 'allowed'), (public, 'denied'), (public, 'network-denied'), (plain, 'plain')]:
+            for ns, pod in [(public, 'allowed'), (public, 'denied'), (public, 'network-baseline'), (plain, 'plain')]:
                 wait(lambda ns=ns, pod=pod: http(ns, pod, target), 'pre-policy traffic', timeout=120)
             policies = fixtures.identity_policy(public, [
                 'cluster.local/ns/' + public + '/sa/allowed',
@@ -183,10 +185,20 @@ def verify(payload):
             before = mtls_connections(public)
             wait(lambda: http(public, 'allowed', target), 'authorized identity traffic', timeout=120)
             wait(lambda: mtls_connections(public) > before, 'mutual TLS traffic metrics', timeout=90)
-            wait(lambda: http(public, 'network-denied', target), 'same authorized identity before network policy')
-            kube('create', '-f', '-', document=fixtures.network_policy(public, 'public'))
-            deny(lambda: http(public, 'network-denied', target), 'network policy with authorized identity')
-            wait(lambda: http(public, 'allowed', target), 'HBONE network policy allow', timeout=120)
+            wait(lambda: http(public, 'network-baseline', target), 'same authorized identity before network policy')
+            kube('create', '-f', '-', document=fixtures.network_policy(public, allow_hbone=False))
+            # NetworkPolicy may retain established connections. Fresh pods force
+            # new HBONE connections for both the allowed and denied network cases.
+            for name, allowed in [('network-denied', False), ('network-allowed', True)]:
+                if allowed:
+                    kube('apply', '-f', '-', document=fixtures.network_policy(public, allow_hbone=True))
+                pod = fixtures.pod(public, name, payload['smoke_image'], 'allowed', network=allowed)
+                pod['spec']['nodeSelector'] = {'kubernetes.io/hostname': nodes[1]}
+                kube('create', '-f', '-', document=pod)
+                kube('wait', '--for=condition=Ready', 'pod/' + name, '-n', public, '--timeout=180s', timeout=210)
+                if not allowed:
+                    deny(lambda: http(public, 'network-denied', target), 'network policy with authorized identity')
+            wait(lambda: http(public, 'network-allowed', target), 'HBONE network policy allow', timeout=120)
             hosts = {'public': 'verify-' + suffix + '.' + zone, 'private': 'verify-' + suffix + '.internal.' + zone}
             routes = [fixtures.route(public, 'accepted', 'public', hosts['public']),
                       fixtures.route(private, 'accepted', 'private', hosts['private']),
@@ -229,6 +241,7 @@ def verify(payload):
         return {'ambient_without_sidecars': True, 'cross_node_mutual_tls_traffic_observed': True,
                 'authorized_identity_allowed': True, 'plaintext_and_unauthorized_identity_denied': True,
                 'network_policy_separately_proven': True, 'trusted_gateway_tls': True,
+                'hbone_port_denied_then_allowed': True,
                 'unknown_hosts_and_sni_denied': True, 'cross_gateway_and_namespace_attachment_denied': True,
                 'gateways_internal_and_separate': True, 'gateway_api_owner_preserved': True,
                 'gateway_declaration_drift_repaired': True,

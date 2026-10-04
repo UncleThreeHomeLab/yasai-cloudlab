@@ -57,7 +57,10 @@
       when: longhorn_backup_enabled | bool
     - name: Observe foundation controllers without restarts or rollouts for sixty seconds
       ansible.builtin.command:
-        argv: [python3, '-']
+        argv: >-
+          {{ ['python3', '-', 'kube-system', 'external-secrets', 'longhorn-system']
+             + (['cert-manager'] if certificates_enabled | bool else [])
+             + (['istio-system', 'cloudlab-gateway-public', 'cloudlab-gateway-private'] if mesh_enabled | bool else []) }}
         stdin: "{{ lookup('file', '../verification/integration/controller_stability.py') }}"
       register: controller_stability
       changed_when: false

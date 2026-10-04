@@ -1,0 +1,35 @@
+---
+- name: Reconcile and verify the accepted mesh without repeating unrelated fixtures
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the certificate and mesh installation gates
+      ansible.builtin.assert:
+        that:
+          - certificates_enabled | bool
+          - mesh_enabled | bool
+
+    - name: Render committed public inputs for the bounded mesh check
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/gitops/render.py]
+      delegate_to: localhost
+      become: false
+      register: gitops_payload
+      changed_when: false
+      no_log: true
+
+    - name: Reconcile only the declared mesh tooling and gateway Application
+      ansible.builtin.include_role:
+        name: mesh
+
+    - name: Pass the same reviewed revision to mesh verification
+      ansible.builtin.set_fact:
+        gitops_verification_payload: '{{ gitops_payload }}'
+      no_log: true
+
+    - name: Run disposable mesh behavior and stability checks
+      ansible.builtin.include_role:
+        name: mesh
+        tasks_from: verify

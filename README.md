@@ -133,6 +133,9 @@ explicitly labeled namespaces join the mesh; system namespaces and future
 connectors remain outside automatic enrollment. The mesh default requires STRICT
 mTLS. Workloads also need explicit identity authorization and NetworkPolicy;
 the disposable proof tests each boundary separately, including HBONE port 15008.
+NetworkPolicy closes then opens only HBONE port 15008; authenticated workload
+identity controls callers. Checks use fresh pods because existing HBONE connections
+may survive policy updates; they do not prove immediate connection revocation.
 No waypoint is needed for these L4 identity policies.
 
 Public and private gateways use separate namespaces, service accounts, certificates
@@ -150,3 +153,6 @@ Istio's CA and gateway identities are retained in a private recovery checkpoint.
 Repair declarations or credentials and rerun `prove`; do not delete CA keys, TLS
 Secrets or reinstall controllers to recover. External access and failover proof
 belong to the subsequent access cutover.
+For focused troubleshooting, `docker compose run --build --rm lab mesh-check`
+reconciles the retained mesh configuration and runs its disposable checks. A full
+`prove` is still required after setup changes.

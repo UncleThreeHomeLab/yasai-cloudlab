@@ -57,14 +57,11 @@ def identity_policy(ns, principals):
     ]
 
 
-def network_policy(ns, exposure):
+def network_policy(ns, allow_hbone=True):
     return {'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
             'metadata': {'name': 'backend', 'namespace': ns},
             'spec': {'podSelector': {'matchLabels': {'app': 'backend'}}, 'policyTypes': ['Ingress'],
-                     'ingress': [{'from': [
-                         {'podSelector': {'matchLabels': {'cloudlab.io/network-access': 'allowed'}}},
-                         {'namespaceSelector': {'matchLabels': {'kubernetes.io/metadata.name': 'cloudlab-gateway-' + exposure}}}],
-                         'ports': [{'protocol': 'TCP', 'port': 8080}, {'protocol': 'TCP', 'port': 15008}]}]}}
+                     'ingress': [{'ports': [{'protocol': 'TCP', 'port': 15008}]}] if allow_hbone else []}}
 
 
 def route(ns, name, exposure, hostname):
