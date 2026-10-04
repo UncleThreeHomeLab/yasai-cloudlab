@@ -4,6 +4,6 @@ namespace: argocd
 publicNamespace: cloudlab-public
 externalSecrets:
   # Enable only after bounded bootstrap has recorded its writer-release receipt.
-  enabled: false
+  enabled: true
   # Publish false before `lab eso-recover`; restore true to resume Argo ownership.
   reconcile: true
