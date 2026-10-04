@@ -13,7 +13,7 @@
 
 - name: Determine whether a bootstrap transition is pending
   ansible.builtin.set_fact:
-    gitops_transition_pending: "{{ not gitops_checkpoint.stat.exists or ((gitops_checkpoint_data.content | default('e30=') | b64decode | from_json).phase | default('new')) != 'accepted' }}"
+    gitops_transition_pending: "{{ not gitops_checkpoint.stat.exists or ((gitops_checkpoint_data.content | default('e30=') | b64decode | from_json).phase | default('new')) != 'accepted' or lookup('env', 'LAB_GITOPS_ACTION') == 'source-migrate' }}"
 
 - name: Verify milestone 01 prerequisites before starting or resuming a transition
   when: gitops_transition_pending | bool
@@ -63,7 +63,7 @@
     owner: root
     group: root
     mode: '0600'
-  loop: [bootstrap.py, verify.py]
+  loop: [bootstrap.py, verify.py, source_transition.py]
 
 - name: Install the shared controller stability check from its integration owner
   ansible.builtin.copy:
@@ -72,6 +72,22 @@
     owner: root
     group: root
     mode: '0600'
+
+- name: Migrate the existing public source through a checkpointed controller pause
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/gitops/source_transition.py]
+    stdin: '{{ gitops_payload.stdout }}'
+  register: gitops_source_transition
+  changed_when: gitops_source_transition.rc == 0 and (gitops_source_transition.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+  when: lookup('env', 'LAB_GITOPS_ACTION') == 'source-migrate'
+
+- name: Require the public source transition to succeed
+  ansible.builtin.assert:
+    that: gitops_source_transition.rc == 0
+    fail_msg: '{{ gitops_source_transition.stderr }}'
+  when: lookup('env', 'LAB_GITOPS_ACTION') == 'source-migrate'
 
 - name: Seed Argo once and wait for its public ownership transition
   ansible.builtin.command:

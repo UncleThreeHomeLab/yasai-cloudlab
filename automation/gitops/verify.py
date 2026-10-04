@@ -2,6 +2,7 @@
 import json
 import fcntl
 import os
+import re
 import sys
 import time
 import uuid
@@ -39,7 +40,23 @@ def verify_pod(document):
             result = json.loads(kube('get', 'pod', name, '-n', namespace, '-o', 'json'))
             phase = result.get('status', {}).get('phase')
             if phase == 'Failed':
-                raise RuntimeError('GitOps network/authentication fixture failed; private output withheld')
+                # Inspect privately before cleanup; expose only bounded categories.
+                logs = kube('logs', name, '-n', namespace)
+                categories = []
+                for label, pattern in (
+                    ('timeout', r'timed out'), ('refused', r'connection refused'),
+                    ('http-denial', r'HTTP/[0-9.]+ (401|403)'),
+                    ('tls-error', r'handshake|SSL|TLS|certificate'),
+                    ('tool-option', r'unrecognized option|invalid option'),
+                    ('dns-error', r'bad address|NXDOMAIN'),
+                    ('route-denial', r'No route to host'),
+                    ('tls-connected', r'CONNECTION ESTABLISHED|Protocol version:'),
+                ):
+                    if re.search(pattern, logs, re.I):
+                        categories.append(label)
+                trusted = document['metadata']['labels'].get('app.kubernetes.io/part-of') == 'argocd'
+                raise RuntimeError('GitOps ' + ('allowed' if trusted else 'denied') +
+                    ' fixture failed; diagnostic categories: ' + ','.join(categories or ['none']))
             return phase == 'Succeeded'
         wait_result(ready, 'GitOps network/authentication fixture')
     finally:
@@ -141,14 +158,23 @@ def run(payload):
     public_lifecycle(payload)
     # These unauthenticated probes test reachability and HTTP denial, not PKI.
     # They send no credentials. Certificate validation is a separate milestone.
-    endpoint = 'https://argocd-server.argocd.svc'
-    allowed = ('wget --no-check-certificate -T 10 -q -O /dev/null ' + endpoint + '/healthz; '
-        'if wget --no-check-certificate -S -T 10 -O /dev/null ' + endpoint + '/api/v1/applications 2>/tmp/response; then exit 1; fi; '
-        "grep -Eq 'HTTP/[0-9.]+ (401|403)' /tmp/response")
+    endpoint = 'argocd-server.argocd.svc'
+    def request(path):
+        return ("status=0; printf 'GET " + path + " HTTP/1.1\\r\\nHost: " + endpoint +
+            "\\r\\nConnection: close\\r\\n\\r\\n' | timeout 10 openssl s_client -quiet -connect " +
+            endpoint + ':443 -servername ' + endpoint + ' >/tmp/response 2>/tmp/tls || status=$?; '
+            'if test $status -eq 124; then echo timed out; exit 1; fi; ')
+    # Reuse the digest-locked Argo image's complete OpenSSL client. The minimal
+    # BusyBox TLS client is not a reliable oracle for the Argo TLS configuration.
+    allowed = (request('/healthz') + "grep -Eq '^HTTP/[0-9.]+ 200' /tmp/response; " +
+        request('/api/v1/applications') + "grep -Eq '^HTTP/[0-9.]+ (401|403)' /tmp/response")
     verify_pod(pod('argocd', 'cloudlab-allowed-' + suffix, payload['probe_image'], allowed, trusted=True))
-    denied = ('nslookup argocd-server.argocd.svc >/dev/null; '
-        'if wget --no-check-certificate -T 5 -O /dev/null ' + endpoint + '/healthz 2>/tmp/response; then exit 1; fi; '
-        "grep -Eiq 'timed out|connection refused' /tmp/response")
+    denied = ('getent hosts ' + endpoint + ' >/dev/null || { echo NXDOMAIN; exit 1; }; status=0; '
+        'timeout 6 openssl s_client -brief -connect ' + endpoint + ':443 -servername ' + endpoint +
+        ' </dev/null >/tmp/response 2>/tmp/tls || status=$?; '
+        'cat /tmp/tls; '
+        "if grep -Eq 'CONNECTION ESTABLISHED|Protocol version:' /tmp/tls; then exit 1; fi; "
+        "test $status -eq 124 || { test $status -ne 0 && grep -Eiq 'Connection refused|No route to host' /tmp/tls; }")
     verify_pod(pod(payload['public_namespace'], 'cloudlab-denied-' + suffix, payload['probe_image'], denied))
     before = {name: get('application.argoproj.io', name)['metadata']['uid']
               for name in ('cloudlab-public-root', 'cloudlab-argocd')}

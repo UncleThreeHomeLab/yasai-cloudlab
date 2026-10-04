@@ -56,10 +56,10 @@ def payload():
             if any(x in options for x in ('ServerSideApply=true', 'Replace=true', 'Force=true')):
                 raise RuntimeError('Broad forced ownership or replacement is forbidden')
     source = yaml.safe_load((PUBLIC / 'values.yaml').read_text())
-    probe = yaml.safe_load((ROOT / 'ansible/group_vars/all/verification.yml').read_text())
+    probe_image = next(image for image in expected if image.startswith('quay.io/argoproj/argocd:'))
     return {'operator': operator, 'roots': roots, 'version': lock['chart']['app_version'],
             'repository': source['repository'], 'branch': source['revision'],
-            'public_namespace': source['publicNamespace'], 'probe_image': probe['smoke_image'],
+            'public_namespace': source['publicNamespace'], 'probe_image': probe_image,
             'image_refs': sorted(expected)}
 
 

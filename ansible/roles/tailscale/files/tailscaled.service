@@ -7,6 +7,8 @@ After=network-online.target
 Type=notify
 RuntimeDirectory=tailscale
 RuntimeDirectoryMode=0755
+Environment=TS_DEBUG_FIREWALL_MODE=iptables
+ExecStartPre=/usr/bin/python3 /opt/cloudlab/tailscale/firewall.py
 ExecStart=/usr/local/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
 Restart=on-failure
 UMask=0077
