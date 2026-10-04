@@ -41,6 +41,31 @@ def ready(kind, name):
                for c in value.get('status', {}).get('conditions', []))
 
 
+def operator_drift():
+    """Exercise Argo repair of a declared label without rolling controller pods."""
+    original = kubectl('get', 'deployment', 'external-secrets', '-o', 'json')
+    label = 'app.kubernetes.io/version'
+    value = original['metadata']['labels'][label]
+    if not original['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(
+            'cloudlab-external-secrets:'):
+        raise RuntimeError('ESO operator drift proof requires Argo ownership')
+    try:
+        kubectl('patch', 'deployment', 'external-secrets', '--type=merge',
+                '-p', json.dumps({'metadata': {'labels': {label: 'drift-fixture'}}}))
+        def repaired():
+            current = kubectl('get', 'deployment', 'external-secrets', '-o', 'json')
+            if current['metadata']['uid'] != original['metadata']['uid'] or current['spec'] != original['spec']:
+                raise RuntimeError('ESO metadata fixture changed operator identity or spec')
+            return current['metadata']['labels'].get(label) == value
+        wait(repaired)
+    finally:
+        current = kubectl('get', 'deployment', 'external-secrets', '-o', 'json')
+        if current['metadata']['labels'].get(label) == 'drift-fixture':
+            kubectl('patch', 'deployment', 'external-secrets', '--type=merge',
+                    '-p', json.dumps({'metadata': {'labels': {label: value}}}))
+    print('Argo repaired ESO operator metadata drift without replacing or changing its workload.')
+
+
 def main(store_name):
     name = 'cloudlab-verify-' + uuid.uuid4().hex[:12]
     vault_name = name + '-vault'
@@ -85,6 +110,8 @@ def main(store_name):
 if __name__ == '__main__':
     try:
         main(sys.argv[1])
+        if sys.argv[2:] == ['argo']:
+            operator_drift()
     except Exception:
         print('External Secrets proof failed; details withheld to protect credentials.', file=sys.stderr)
         sys.exit(1)

@@ -5,7 +5,7 @@
 
 - name: Verify live store readiness and secret reconciliation
   ansible.builtin.command:
-    argv: [python3, /var/lib/cloudlab/external-secrets/verify.py, "{{ external_secrets_store }}"]
+    argv: "{{ ['python3', '/var/lib/cloudlab/external-secrets/verify.py', external_secrets_store] + (['argo'] if external_secrets_gitops_enabled | bool else []) }}"
   register: external_secrets_proof
   changed_when: true
   no_log: true
