@@ -18,7 +18,7 @@ def record(path, state):
         stream.flush()
         os.fsync(stream.fileno())
     temporary.replace(path)
-    descriptor = os.open(BASE, os.O_DIRECTORY)
+    descriptor = os.open(path.parent, os.O_DIRECTORY)
     try:
         os.fsync(descriptor)
     finally:
