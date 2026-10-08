@@ -1,0 +1,40 @@
+---
+- name: Validate and reconcile access grants without changing host SSH ownership
+  ansible.builtin.command: python /workspace/automation/connectivity/policy_apply.py
+  delegate_to: localhost
+  become: false
+  register: access_policy_result
+  changed_when: (access_policy_result.stdout | from_json).changed
+  no_log: true
+
+- name: Create the private access ownership directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/connectivity
+    state: directory
+    mode: '0700'
+
+- name: Install the bounded access Application owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/configuration.py'
+    dest: /var/lib/cloudlab/connectivity/configuration.py
+    mode: '0600'
+
+- name: Reconcile access after operator and credential readiness
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/connectivity/configuration.py]
+    stdin: >-
+      {{ (gitops_payload.stdout | from_json)
+         | combine({'administrator': lookup('ansible.builtin.env', 'TAILSCALE_ADMIN_LOGIN')}) | to_json }}
+  register: access_configured
+  changed_when: access_configured.rc == 0 and (access_configured.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require access configuration to pass
+  ansible.builtin.assert:
+    that: access_configured.rc == 0
+    fail_msg: Access configuration failed; private checkpoint retained.
+
+- name: Report sanitized access configuration status
+  ansible.builtin.debug:
+    msg: '{{ access_configured.stdout | from_json }}'

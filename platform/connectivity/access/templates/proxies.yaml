@@ -1,0 +1,108 @@
+{{- $administrator := required "An approved administrator is required" .Values.administrator }}
+{{- range $mode := list "ingress" "api" }}
+{{- $label := printf "cloudlab-%s" $mode }}
+---
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: {{ $label }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  statefulSet:
+    pod:
+      labels:
+        cloudlab.io/proxy: {{ $label }}
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              cloudlab.io/proxy: {{ $label }}
+      tailscaleContainer:
+        image: {{ index $.Values.images $mode }}
+        imagePullPolicy: IfNotPresent
+        {{- if eq $mode "ingress" }}
+        env:
+          - {name: TS_ENABLE_HEALTH_CHECK, value: "true"}
+        {{- end }}
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {cpu: 200m, memory: 256Mi}
+      {{- if eq $mode "ingress" }}
+      tailscaleInitContainer:
+        image: {{ $.Values.images.ingress }}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {cpu: 50m, memory: 64Mi}
+      {{- end }}
+---
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: {{ $label }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  replicas: 2
+  proxyClass: {{ $label }}
+  {{- if eq $mode "ingress" }}
+  type: ingress
+  tags: [tag:cloudlab-ingress-proxy]
+  {{- else }}
+  type: kube-apiserver
+  tags: [tag:cloudlab-api-proxy]
+  kubeAPIServer:
+    mode: auth
+    hostname: cloudlab-api
+  {{- end }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $label }}
+  namespace: tailscale
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      cloudlab.io/proxy: {{ $label }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudlab-tailnet
+  namespace: cloudlab-gateway-private
+  annotations:
+    tailscale.com/proxy-group: cloudlab-ingress
+    tailscale.com/hostname: cloudlab-private
+    tailscale.com/tags: tag:cloudlab-private
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  allocateLoadBalancerNodePorts: false
+  selector:
+    gateway.networking.k8s.io/gateway-name: cloudlab
+  ports:
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 443
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudlab-tailnet-administrator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ $administrator | quote }}

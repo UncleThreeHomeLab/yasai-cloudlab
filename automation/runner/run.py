@@ -39,7 +39,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'repository-setup', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'repository-setup', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as apply, verify, or prove.')
     if action in {'repository-setup', 'publish-platform', 'github-app-check', 'private-fixture-prepare'}:
         module = {'repository-setup': 'github_setup.py', 'publish-platform': 'publish_snapshot.py',
@@ -56,6 +56,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/certificates/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/mesh/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/connectivity/chart.py'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
@@ -80,7 +81,7 @@ def main():
         if action == 'monthly-proof':
             os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
-        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml'):
+        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml'):
             playbook(name, syntax=True)
         return
 
@@ -92,6 +93,10 @@ def main():
         if os.environ[name] not in ('', '0', '1'):
             raise SystemExit(name + ' must be 0 or 1.')
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
+    for name in ('CLOUDFLARE_ACCESS_HOSTS', 'PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
+                 'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
+        os.environ[name] = values.get(name) or ''
+    os.environ['CLOUDFLARE_HUMAN_EMAIL'] = os.environ['CLOUDFLARE_HUMAN_EMAIL'] or os.environ['TAILSCALE_ADMIN_LOGIN']
     if action in {'recovery-retrieve', 'recovery-preflight'}:
         subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', action.removeprefix('recovery-')], check=True)
         return
@@ -131,7 +136,13 @@ def main():
     if os.environ['VM_PUBLIC_IP'] == os.environ['VM2_PUBLIC_IP']:
         raise SystemExit('Both VM hosts resolve to the same IPv4 address.')
 
-    if action == 'k3s-migrate':
+    if action in {'access-preflight', 'access-external', 'access-prepare-tags'}:
+        module = {'access-preflight': 'preflight.py', 'access-external': 'external.py',
+                  'access-prepare-tags': 'prepare_tags.py'}[action]
+        result = subprocess.run([sys.executable, '/workspace/automation/connectivity/' + module], check=False)
+        if result.returncode:
+            raise SystemExit(result.returncode)
+    elif action == 'k3s-migrate':
         if os.environ['TAILSCALE_HOSTS_ENABLED'] != '1' or os.environ['K3S_BACKUP_ENABLED'] != '1':
             raise SystemExit('Migration requires enabled milestone 01 host access and recovery.')
         gitops_preflight()
@@ -195,6 +206,9 @@ def main():
             playbook('longhorn-backup.yml')
             os.environ['LAB_BACKUP_STOP_AFTER_SEED'] = '0'
         playbook('longhorn-backup-recovery.yml' if action.endswith('recover') else 'longhorn-backup.yml')
+    elif action == 'access-bootstrap':
+        gitops_preflight()
+        playbook('access.yml')
     elif action == 'mesh-check':
         gitops_preflight()
         playbook('mesh.yml')

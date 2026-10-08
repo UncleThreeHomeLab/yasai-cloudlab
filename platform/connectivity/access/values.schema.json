@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["administrator", "images"],
+  "properties": {
+    "administrator": {"type": "string", "minLength": 3, "maxLength": 254, "pattern": "^[^\\s@]+@[^\\s@]+$"},
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ingress", "api", "cloudflared"],
+      "properties": {
+        "ingress": {"const": "tailscale/tailscale:v1.102.4@sha256:2667499ed87ae29218f292556ba062918402dd5e92e93637af14867e4df12dd3"},
+        "api": {"const": "tailscale/k8s-proxy:v1.102.4@sha256:a43ae88f544dab66ffd690a9834ed38adf7cef39e9a4a6d0cbf0467ddaa02281"},
+        "cloudflared": {"const": "cloudflare/cloudflared:2026.9.1@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4"}
+      }
+    }
+  }
+}

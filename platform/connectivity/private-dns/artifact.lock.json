@@ -1,0 +1,7 @@
+{
+  "version": "1.14.7",
+  "url": "https://github.com/coredns/coredns/releases/download/v1.14.7/coredns_1.14.7_linux_amd64.tgz",
+  "sha256": "9a09356438c6d9591cb80011a2a7a52f87fc3a113f6690e41f243f98b98faac9",
+  "architecture": "x86_64",
+  "sources": ["https://coredns.io/plugins/file/", "https://coredns.io/plugins/bind/", "https://coredns.io/plugins/acl/"]
+}

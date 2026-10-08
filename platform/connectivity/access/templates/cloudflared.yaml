@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudflared
+  namespace: cloudlab-connectors
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudlab-connectors
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: cloudflared}
+  template:
+    metadata:
+      labels: {app: cloudflared}
+    spec:
+      serviceAccountName: cloudflared
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app: cloudflared}
+      containers:
+        - name: cloudflared
+          image: {{ .Values.images.cloudflared }}
+          args: [tunnel, --no-autoupdate, --metrics, "0.0.0.0:2000", --grace-period, 30s, run, --token-file, /credentials/token]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          ports:
+            - {name: metrics, containerPort: 2000}
+          startupProbe:
+            httpGet: {path: /ready, port: metrics}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /ready, port: metrics}
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          volumeMounts:
+            - {name: credentials, mountPath: /credentials, readOnly: true}
+      volumes:
+        - name: credentials
+          secret:
+            secretName: cloudflared-runtime
+            defaultMode: 0440
+            items: [{key: token, path: token}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflared
+  namespace: cloudlab-connectors
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: cloudflared}

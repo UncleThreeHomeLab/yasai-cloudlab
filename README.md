@@ -156,3 +156,40 @@ belong to the subsequent access cutover.
 For focused troubleshooting, `docker compose run --build --rm lab mesh-check`
 reconciles the retained mesh configuration and runs its disposable checks. A full
 `prove` is still required after setup changes.
+
+Access rollout is in progress. `docker compose run --build --rm lab access-preflight`
+audits live foundation health, retained ownership, legacy ingress dependencies and
+external credentials without changing the lab. It exits with status 2 when inputs
+are missing. The [access contract](platform/connectivity/access/contract.json) owns
+item fields, tags and selected modes; `.env.example` lists runtime inputs. The
+charts select two-replica L3 ingress and a separate two-replica auth-mode
+API proxy, preserving application HTTPS at Istio. The operator itself remains
+single-replica. Cloudflared reads only the pre-provisioned runtime credential; the
+1Password reader never creates or rotates credentials.
+
+`docker compose run --build --rm lab access-prepare-tags` prepares only operator
+tag ownership through an ETag-guarded policy update, before OAuth credential
+creation. It preserves existing grants. Save generated OAuth and machine secrets
+once in the declared 1Password items; keep the existing reader read-only.
+
+`lab access-external` through Compose is a guarded external reconciliation path.
+It requires prerequisite health and ready access workloads, configures Access
+before tunnel routes and publishes DNS last. It retains external identities and
+create intents in the private `ssh_known_hosts` volume under `connectivity/`.
+Retain that volume during recovery; never delete it to bypass an ownership error.
+Repair missing credentials and rerun. A missing/replaced external identity,
+unowned resource, hostname removal or classification change requires explicit
+migration. Its provider lifecycle is unit-tested, not live-accepted.
+
+`lab access-bootstrap` reconciles scoped tailnet grants and the bounded access
+Application after the GitOps operator and ESO credentials are ready. A native
+Kubernetes admission policy adds probes to new proxy Pods without taking ownership
+of operator-generated StatefulSets. Health probes check local process readiness;
+they do not replace end-to-end HTTPS and API acceptance.
+
+Private DNS installation, live external reconciliation, access/failover proof and
+the Traefik CRD handoff remain unfinished. Do not remove Traefik/ServiceLB until
+replacement acceptance passes.
+Existing host SSH and controller recovery remain independent of the prepared access
+paths. Multiple connectors and gateways do not make the single K3s server highly
+available.

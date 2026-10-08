@@ -1,0 +1,16 @@
+{
+  "images": {
+    "cloudflared": "cloudflare/cloudflared:2026.9.1@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4",
+    "ingress": "tailscale/tailscale:v1.102.4@sha256:2667499ed87ae29218f292556ba062918402dd5e92e93637af14867e4df12dd3",
+    "api": "tailscale/k8s-proxy:v1.102.4@sha256:a43ae88f544dab66ffd690a9834ed38adf7cef39e9a4a6d0cbf0467ddaa02281"
+  },
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "sources": [
+    "https://github.com/tailscale/tailscale/releases/tag/v1.102.4",
+    "https://github.com/cloudflare/cloudflared/releases/tag/2026.9.1",
+    "https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/"
+  ]
+}

@@ -19,8 +19,12 @@ data:
   deployment: |
     spec:
       replicas: 2
+      strategy:
+        type: RollingUpdate
+        rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
       template:
         spec:
+          terminationGracePeriodSeconds: 45
           securityContext:
             runAsNonRoot: true
             seccompProfile: {type: RuntimeDefault}
@@ -41,6 +45,20 @@ data:
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
                 limits: {cpu: 200m, memory: 256Mi}
+              startupProbe:
+                httpGet: {path: /healthz/ready, port: 15021}
+                periodSeconds: 5
+                failureThreshold: 60
+              readinessProbe:
+                httpGet: {path: /healthz/ready, port: 15021}
+                periodSeconds: 5
+                timeoutSeconds: 2
+                failureThreshold: 2
+              livenessProbe:
+                tcpSocket: {port: 15021}
+                periodSeconds: 10
+                timeoutSeconds: 2
+                failureThreshold: 6
   podDisruptionBudget: |
     spec:
       minAvailable: 1
