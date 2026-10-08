@@ -2,9 +2,14 @@
 - name: Retire audited legacy ingress after complete replacement acceptance
   hosts: k3s_servers
   become: true
-  gather_facts: false
+  gather_facts: true
   any_errors_fatal: true
   tasks:
+    - name: Derive the existing server identity before composing K3s settings
+      ansible.builtin.include_role:
+        name: host
+        tasks_from: identity
+
     - name: Validate published handoff inputs
       ansible.builtin.command: python /workspace/automation/gitops/render.py
       delegate_to: localhost
