@@ -51,6 +51,13 @@ class ChartTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             chart.validate(self.operator, access)
 
+    def test_rolling_update_cannot_mix_old_and_new_replica_spread(self):
+        access = copy.deepcopy(self.access)
+        deployment = next(x for x in access if x['kind'] == 'Deployment')
+        deployment['spec']['template']['spec']['topologySpreadConstraints'][0].pop('matchLabelKeys')
+        with self.assertRaises(ValueError):
+            chart.validate(self.operator, access)
+
     def test_connector_cannot_reach_private_gateway_through_declared_policy(self):
         boundary = next(x for x in self.access if x['kind'] == 'NetworkPolicy')
         namespaces = [peer.get('namespaceSelector', {}).get('matchLabels', {}).get('kubernetes.io/metadata.name')

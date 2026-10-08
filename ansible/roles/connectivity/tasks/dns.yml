@@ -126,3 +126,18 @@
   ansible.builtin.assert:
     that: access_cluster_dns.rc == 0
     fail_msg: Cluster DNS forwarding did not converge; existing cluster DNS retained.
+
+- name: Reconcile Access protection before public tunnel routes and DNS
+  ansible.builtin.command: python /workspace/automation/connectivity/external.py
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: access_external_result
+  changed_when: access_external_result.rc == 0 and (access_external_result.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require identity-preserving external convergence
+  ansible.builtin.assert:
+    that: access_external_result.rc == 0
+    fail_msg: External access did not converge; retain credentials and the private ownership checkpoint.
