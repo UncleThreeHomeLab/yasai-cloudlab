@@ -38,3 +38,21 @@
 - name: Report sanitized access configuration status
   ansible.builtin.debug:
     msg: '{{ access_configured.stdout | from_json }}'
+
+- name: Install private DNS input discovery
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/dns_inputs.py'
+    dest: /var/lib/cloudlab/connectivity/dns_inputs.py
+    mode: '0600'
+
+- name: Read private DNS inputs from ready cluster interfaces
+  ansible.builtin.command: python3 /var/lib/cloudlab/connectivity/dns_inputs.py
+  register: access_dns_inputs
+  changed_when: false
+  no_log: true
+
+- name: Install the bounded cluster DNS Application owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/dns_application.py'
+    dest: /var/lib/cloudlab/connectivity/dns_application.py
+    mode: '0600'

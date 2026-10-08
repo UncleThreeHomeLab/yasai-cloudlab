@@ -1,0 +1,14 @@
+{{- if .Values.access.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-private-dns
+  namespace: argocd
+spec:
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: kube-system}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: '', kind: ConfigMap}
+{{- end }}

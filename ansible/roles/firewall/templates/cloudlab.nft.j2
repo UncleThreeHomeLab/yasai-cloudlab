@@ -9,6 +9,10 @@ table inet cloudlab {
 {% if tailscale_enabled | bool %}
         # Let tailscaled enforce grants before delivery. Limit host services too.
         iifname "tailscale0" tcp dport {{ ansible_port }} accept
+{% if access_enabled | default(false) | bool %}
+        iifname "tailscale0" udp dport 53 accept
+        iifname "tailscale0" tcp dport 53 accept
+{% endif %}
         iifname "tailscale0" drop
         udp dport 41641 accept
 {% endif %}

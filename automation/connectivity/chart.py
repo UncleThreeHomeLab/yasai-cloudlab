@@ -97,7 +97,13 @@ def check():
     verify()
     operator = render(ROOT / 'platform/connectivity/tailscale-operator')
     access = render(ROOT / 'platform/connectivity/access', 'admin@example.invalid')
-    return validate(operator, access)
+    result = validate(operator, access)
+    dns = render(ROOT / 'platform/connectivity/private-dns')
+    if len(dns) != 1 or dns[0]['kind'] != 'ConfigMap' or dns[0]['metadata']['name'] != 'coredns-custom' or dns[0]['metadata']['namespace'] != 'kube-system':
+        raise ValueError('Private DNS chart must own only the custom forwarding ConfigMap')
+    if 'forward . 10.44.0.1 10.44.0.2' not in dns[0]['data']['cloudlab-private.server']:
+        raise ValueError('Cluster private DNS must use both independent private resolvers')
+    return result
 
 
 if __name__ == '__main__':

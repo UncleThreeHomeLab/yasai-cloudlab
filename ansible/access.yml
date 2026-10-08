@@ -15,3 +15,19 @@
       no_log: true
   roles:
     - connectivity
+
+- name: Configure independent private resolvers on both hosts
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
+    wireguard_peer_endpoint: "{{ hostvars[wireguard_peer_host]['wireguard_public_endpoint'] }}"
+  roles:
+    - firewall
+  tasks:
+    - name: Configure private DNS
+      ansible.builtin.include_role:
+        name: connectivity
+        tasks_from: dns

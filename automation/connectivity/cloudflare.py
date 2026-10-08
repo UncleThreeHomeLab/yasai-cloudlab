@@ -66,7 +66,7 @@ def tunnel_config(rules, audiences, team):
             origin['access'] = {'required': True, 'teamName': team, 'audTag': [audiences[hostname]]}
         ingress.append({'hostname': hostname, 'service': settings['cloudflareOrigin'], 'originRequest': origin})
     ingress.append({'service': 'http_status:404'})
-    return {'config': {'ingress': ingress}}
+    return {'config': {'ingress': ingress, 'warp-routing': {'enabled': False}}}
 
 
 def access_application(rule, *, human_email=None, identity_provider=None, service_token_id=None):

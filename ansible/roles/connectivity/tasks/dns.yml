@@ -1,0 +1,127 @@
+---
+- name: Read the pinned independent DNS artifact
+  ansible.builtin.set_fact:
+    access_dns_release: "{{ lookup('file', '/workspace/platform/connectivity/private-dns/artifact.lock.json') | from_json }}"
+
+- name: Create DNS configuration and private recovery directories
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: directory
+    mode: '{{ item.mode }}'
+  loop:
+    - {path: /etc/cloudlab-dns, mode: '0755'}
+    - {path: /var/lib/cloudlab/private-dns, mode: '0700'}
+    - {path: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}', mode: '0755'}
+
+- name: Download the checksum-verified independent DNS binary
+  ansible.builtin.get_url:
+    url: '{{ access_dns_release.url }}'
+    checksum: 'sha256:{{ access_dns_release.sha256 }}'
+    dest: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/release.tgz'
+    mode: '0644'
+
+- name: Extract the pinned DNS binary
+  ansible.builtin.unarchive:
+    src: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/release.tgz'
+    dest: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}'
+    remote_src: true
+    creates: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/coredns'
+
+- name: Select the declared independent DNS binary
+  ansible.builtin.file:
+    src: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/coredns'
+    dest: /usr/local/bin/cloudlab-coredns
+    state: link
+  register: access_dns_binary
+
+- name: Install private DNS implementation
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/{{ item }}'
+    dest: '/var/lib/cloudlab/private-dns/{{ item }}'
+    mode: '0600'
+  loop: [dns.py, dns_wire.py, dns_host.py]
+
+- name: Install independent DNS service
+  ansible.builtin.copy:
+    src: cloudlab-private-dns.service
+    dest: /etc/systemd/system/cloudlab-private-dns.service
+    mode: '0644'
+  register: access_dns_service
+
+- name: Enable DNS service without starting an unvalidated configuration
+  ansible.builtin.systemd_service:
+    name: cloudlab-private-dns
+    enabled: true
+    daemon_reload: true
+
+- name: Read independent host tailnet addresses
+  ansible.builtin.command: /usr/local/bin/tailscale ip -4
+  register: access_dns_tailnet
+  changed_when: false
+  no_log: true
+
+- name: Configure and verify each DNS generation before activation
+  throttle: 1
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/private-dns/dns_host.py]
+    stdin: >-
+      {{ (hostvars[groups['k3s_servers'][0]].access_dns_inputs.stdout | from_json)
+         | combine({'names': lookup('env', 'PRIVATE_ACCESS_HOSTS') | from_json,
+           'tailnet_address': access_dns_tailnet.stdout | trim,
+           'host_address': wireguard_address,
+           'nameservers': [hostvars['cloudlab'].access_dns_tailnet.stdout | trim,
+                           hostvars['cloudlab-worker'].access_dns_tailnet.stdout | trim],
+           'artifact': access_dns_release.sha256,
+           'service_changed': access_dns_service.changed or access_dns_binary.changed}) | to_json }}
+  register: access_dns_configured
+  changed_when: access_dns_configured.rc == 0 and (access_dns_configured.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require both independent DNS configurations to pass
+  ansible.builtin.assert:
+    that: access_dns_configured.rc == 0
+    fail_msg: Private DNS configuration failed; original resolver retained.
+
+- name: Switch host resolution only after both independent resolvers pass
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/private-dns/dns_host.py, activate]
+  register: access_dns_activated
+  changed_when: access_dns_activated.rc == 0 and (access_dns_activated.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require private host DNS activation
+  ansible.builtin.assert:
+    that: access_dns_activated.rc == 0
+    fail_msg: Private DNS activation failed; inspect retained resolver ownership.
+
+- name: Publish the private split DNS domain and scoped DNS grants
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/connectivity/dns_tailnet.py]
+    stdin: >-
+      {{ (hostvars[groups['k3s_servers'][0]].access_dns_inputs.stdout | from_json)
+         | combine({'nameservers': [hostvars['cloudlab'].access_dns_tailnet.stdout | trim,
+                                   hostvars['cloudlab-worker'].access_dns_tailnet.stdout | trim]}) | to_json }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: access_split_dns
+  changed_when: (access_split_dns.stdout | from_json).changed
+  no_log: true
+
+- name: Reconcile only custom cluster DNS forwarding after both host resolvers pass
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/connectivity/dns_application.py]
+    stdin: '{{ hostvars[groups["k3s_servers"][0]].gitops_payload.stdout }}'
+  delegate_to: '{{ groups["k3s_servers"][0] }}'
+  run_once: true
+  register: access_cluster_dns
+  changed_when: access_cluster_dns.rc == 0 and (access_cluster_dns.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require the declared cluster DNS forwarding owner
+  ansible.builtin.assert:
+    that: access_cluster_dns.rc == 0
+    fail_msg: Cluster DNS forwarding did not converge; existing cluster DNS retained.

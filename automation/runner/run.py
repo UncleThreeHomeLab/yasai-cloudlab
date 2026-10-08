@@ -57,6 +57,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/certificates/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/mesh/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/connectivity/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/connectivity/dns_check.py'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
