@@ -72,14 +72,15 @@ def authenticated_sql(manifest):
         raise RuntimeError('Restored identities require a reviewed credential mapping')
     if get('namespace', checks.NAMESPACE):
         raise RuntimeError('Previous SQL fixture must be cleaned before restore authentication')
-    roles = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']['managed']['roles']
+    source = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']
+    roles = source['managed']['roles']
     for role in roles:
         name = role['passwordSecret']['name']
         kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Secret',
              'metadata': {'name': name, 'namespace': NAMESPACE, 'labels': LABEL},
              'type': 'kubernetes.io/basic-auth', 'stringData': control.secret(name)})
     kube('patch', 'cluster.postgresql.cnpg.io', 'data-restore', '-n', NAMESPACE, '--type=merge',
-         '-p', json.dumps({'spec': {'managed': {'roles': roles}}}))
+         '-p', json.dumps({'spec': {'managed': {'roles': roles}, 'postgresql': source['postgresql']}}))
     try:
         checks.sql_client(values, database_namespace=NAMESPACE, cluster='data-restore')
         wait(lambda: (result := checks.pod_query([], 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();')).returncode == 0
@@ -89,6 +90,11 @@ def authenticated_sql(manifest):
             result = checks.pod_query([], "SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t")
             if result.returncode or json.loads(result.stdout) != manifest['notes_probe']:
                 raise RuntimeError('Authenticated restored application queries differ')
+        for arguments, statement in [(['env', 'PGDATABASE=postgres'], 'SELECT 1;'),
+                                     (['env', 'PGSSLMODE=disable'], 'SELECT 1;'),
+                                     ([], 'CREATE TABLE cloudlab_restore_forbidden(id int);')]:
+            if checks.pod_query(arguments, statement).returncode == 0:
+                raise RuntimeError('Restored SQL permits plaintext, another database or unauthorized DDL')
     finally:
         cleanup_sql()
 
@@ -158,6 +164,7 @@ def run(directory):
         cluster = {'apiVersion': 'postgresql.cnpg.io/v1', 'kind': 'Cluster',
             'metadata': {'name': 'data-restore', 'namespace': NAMESPACE, 'labels': LABEL},
             'spec': {'instances': 1, 'imageName': pin, 'enableSuperuserAccess': False,
+                'postgresql': get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']['postgresql'],
                 'storage': {'size': '8Gi', 'storageClass': 'cloudlab-data'},
                 'bootstrap': {'initdb': {'database': 'restore_bootstrap', 'owner': 'restore_owner'}},
                 'resources': {'requests': {'cpu': '250m', 'memory': '512Mi'}, 'limits': {'cpu': '2', 'memory': '2Gi'}}}}
