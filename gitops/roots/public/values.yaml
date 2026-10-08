@@ -20,3 +20,6 @@ mesh:
   enabled: true
 access:
   enabled: true
+data:
+  # Enable only with reviewed credentials, artifacts and recovery automation.
+  enabled: true

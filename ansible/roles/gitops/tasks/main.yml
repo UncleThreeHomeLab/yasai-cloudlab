@@ -110,3 +110,8 @@
   ansible.builtin.include_role:
     name: connectivity
   when: access_enabled | bool
+
+- name: Configure data services after private connectivity
+  ansible.builtin.include_role:
+    name: application_data
+  when: data_enabled | bool

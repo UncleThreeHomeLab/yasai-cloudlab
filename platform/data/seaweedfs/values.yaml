@@ -1,0 +1,90 @@
+seaweedfs:
+  global:
+    seaweedfs:
+      automountServiceAccountToken: false
+      createClusterRole: false
+      enableReplication: false
+      replicationPlacement: '000'
+      enableSecurity: true
+      securityConfig:
+        jwtSigning:
+          volumeWrite: false
+          volumeRead: false
+          filerWrite: false
+          filerRead: false
+  master:
+    imageOverride: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    replicas: 1
+    defaultReplication: '000'
+    data: {type: persistentVolumeClaim, size: 2Gi, storageClass: cloudlab-data}
+    logs: {type: emptyDir}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: '1', memory: 512Mi}
+    extraEnvironmentVars:
+      WEED_MASTER_VOLUME_GROWTH_COPY_1: '1'
+    podSecurityContext: {enabled: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+    containerSecurityContext: {enabled: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+  volume:
+    imageOverride: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    replicas: 1
+    dataDirs:
+      - {name: data1, type: persistentVolumeClaim, size: 32Gi, storageClass: cloudlab-data, maxVolumes: 24}
+    logs: {type: emptyDir}
+    resizeHook: {enabled: false}
+    resources:
+      requests: {cpu: 200m, memory: 256Mi}
+      limits: {cpu: '2', memory: 1Gi}
+    podSecurityContext: {enabled: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+    containerSecurityContext: {enabled: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+  filer:
+    imageOverride: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    replicas: 1
+    defaultReplicaPlacement: '000'
+    data: {type: persistentVolumeClaim, size: 4Gi, storageClass: cloudlab-data}
+    logs: {type: emptyDir}
+    extraEnvironmentVars:
+      WEED_LEVELDB2_ENABLED: 'true'
+      WEED_LEVELDB2_DIR: /data/filerldb2
+      WEED_MYSQL_ENABLED: 'false'
+      WEED_POSTGRES_ENABLED: 'false'
+    s3: {enabled: false}
+    resources:
+      requests: {cpu: 200m, memory: 256Mi}
+      limits: {cpu: '2', memory: 1Gi}
+    podSecurityContext: {enabled: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+    containerSecurityContext: {enabled: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+  s3:
+    imageOverride: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    enabled: true
+    replicas: 1
+    enableAuth: true
+    existingConfigSecret: cloudlab-s3-config
+    httpsPort: 8334
+    tlsSecret: cloudlab-s3-tls
+    lancePort: 0
+    extraArgs: ['-iam=false']
+    logs: {type: emptyDir}
+    service: {type: ClusterIP}
+    createBuckets: []
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: '1', memory: 512Mi}
+    podSecurityContext: {enabled: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+    containerSecurityContext: {enabled: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+  admin: {enabled: false}
+  worker: {enabled: false}
+  sftp: {enabled: false}
+  cosi: {enabled: false}
+  allInOne: {enabled: false}
+  certificates:
+    ca: {duration: 87600h, renewBefore: 720h}
+  networkPolicy:
+    enabled: true
+    components:
+      s3:
+        extraIngress:
+          - from:
+              - namespaceSelector:
+                  matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}
+            ports: [{protocol: TCP, port: 8334}]

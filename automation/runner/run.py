@@ -35,6 +35,20 @@ def gitops_preflight():
 
 def main():
     action = sys.argv[1] if len(sys.argv) == 2 else ''
+    data_actions = {'data-local': 'local', 'data-monthly': 'monthly',
+                    'data-acceptance-export': 'acceptance-export',
+                    'data-restore': 'restore-local', 'data-freshness': 'freshness', 'data-resume': 'resume'}
+    if action in ('data-credentials', 'data-retrieve'):
+        module = 'credentials.py' if action == 'data-credentials' else 'independent.py'
+        subprocess.run([sys.executable, '/workspace/automation/data/' + module], check=True)
+        return
+    if action in data_actions:
+        os.environ['LAB_DATA_ACTION'] = data_actions[action]
+        # Common input validation and VM setup still run below.
+        selected_data_action = action
+        action = 'inspect'
+    else:
+        selected_data_action = None
     lifecycle = {'host-reauth-server': ('cloudlab', 'reauth'),
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
@@ -58,6 +72,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/mesh/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/connectivity/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/connectivity/dns_check.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/data/chart.py'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
@@ -84,6 +99,7 @@ def main():
     if action == 'syntax':
         for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml', 'access-cutover.yml'):
             playbook(name, syntax=True)
+        playbook('data.yml', syntax=True)
         return
 
     # No interpolation: passwords containing ${...} must remain literal.
@@ -137,7 +153,9 @@ def main():
     if os.environ['VM_PUBLIC_IP'] == os.environ['VM2_PUBLIC_IP']:
         raise SystemExit('Both VM hosts resolve to the same IPv4 address.')
 
-    if action in {'access-preflight', 'access-external', 'access-prepare-tags'}:
+    if selected_data_action:
+        playbook('data.yml')
+    elif action in {'access-preflight', 'access-external', 'access-prepare-tags'}:
         module = {'access-preflight': 'preflight.py', 'access-external': 'external.py',
                   'access-prepare-tags': 'prepare_tags.py'}[action]
         result = subprocess.run([sys.executable, '/workspace/automation/connectivity/' + module], check=False)
