@@ -38,8 +38,8 @@ def main():
     data_actions = {'data-local': 'local', 'data-monthly': 'monthly',
                     'data-acceptance-export': 'acceptance-export',
                     'data-restore': 'restore-local', 'data-freshness': 'freshness', 'data-resume': 'resume'}
-    if action in ('data-credentials', 'data-retrieve'):
-        module = 'credentials.py' if action == 'data-credentials' else 'independent.py'
+    if action in ('data-credentials', 'data-retrieve', 'data-rotate'):
+        module = {'data-credentials': 'credentials.py', 'data-retrieve': 'independent.py', 'data-rotate': 'rotation.py'}[action]
         subprocess.run([sys.executable, '/workspace/automation/data/' + module], check=True)
         return
     if action in data_actions:

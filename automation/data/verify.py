@@ -29,13 +29,13 @@ def pod_query(arguments, statement='SELECT 1;'):
     return result
 
 
-def sql_client(values):
+def sql_client(values, credentials=None):
     if get('namespace', NAMESPACE):
         raise RuntimeError('Previous SQL fixture remains; review its owner before cleanup')
     kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': NAMESPACE,
          'labels': {'cloudlab.io/fixture': OWNER, 'istio-injection': 'disabled',
                     'pod-security.kubernetes.io/enforce': 'restricted', 'pod-security.kubernetes.io/enforce-version': 'v1.36'}}})
-    credentials = control.secret('notes-application')
+    credentials = credentials or control.secret('notes-application')
     kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Secret',
          'metadata': {'name': 'application', 'namespace': NAMESPACE}, 'stringData': credentials})
     certificate = get('secret', 'cloudlab-postgres-ca', control.NAMESPACE)
@@ -90,13 +90,37 @@ def storage():
     return {'claims': len(claims), 'replicas': replica_count, 'distinct_nodes_per_volume': 2}
 
 
+def schedules_and_limits():
+    policy = json.loads((control.ROOT / 'platform/data/contract.json').read_text())
+    calendars = {}
+    for kind in ('local', 'monthly'):
+        calendar = policy[kind + '_calendar']
+        unit = 'cloudlab-data-' + kind + '.timer'
+        source = (Path('/etc/systemd/system') / unit).read_text()
+        enabled = subprocess.run(['systemctl', 'is-enabled', unit], capture_output=True, text=True)
+        active = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True)
+        if 'OnCalendar=' + calendar not in source or 'Persistent=false' not in source or enabled.returncode or active.returncode:
+            raise RuntimeError('Application backup schedule is not declared, enabled and active')
+        calendars[kind] = calendar
+    resources = {}
+    for pod in get('pods', namespace=control.NAMESPACE)['items']:
+        if pod['status']['phase'] in ('Succeeded', 'Failed'):
+            continue
+        for container in pod['spec']['containers']:
+            limits = container.get('resources', {}).get('limits', {})
+            if not limits.get('cpu') or not limits.get('memory'):
+                raise RuntimeError('A live data container lacks CPU or memory limits')
+            resources[pod['metadata']['name'] + '/' + container['name']] = limits
+    return {'calendars': calendars, 'catch_up_disabled': True, 'live_limits': resources}
+
+
 def run():
     values = control.settings()
     revision = json.loads((control.BASE / 'ownership.json').read_text())['revision']
     for name in ('cloudlab-cnpg', 'cloudlab-data-configuration', 'cloudlab-seaweedfs'):
         if not application_ready(name, revision):
             raise RuntimeError('Data GitOps application is not converged at the tested revision')
-    result = {'storage': storage(), 'b2_reads': 0}
+    result = {'storage': storage(), 'jobs_and_limits': schedules_and_limits(), 'b2_reads': 0}
     with control.locked():
         control.reconcile()
         admin, client = control.s3(), control.s3(False)

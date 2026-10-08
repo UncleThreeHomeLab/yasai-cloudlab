@@ -5,11 +5,42 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from contextlib import ExitStack
 
-from automation.data import backup, capture, chart, control, credentials, remote, s3
+from automation.data import backup, capture, chart, control, credentials, remote, s3, rotation
 
 
 class DataTests(unittest.TestCase):
+    def test_rotation_preserves_unrelated_fields_and_original(self):
+        old = {'id': 'fixture', 'title': 'cnpg-notes-production', 'fields': [
+            {'label': 'username', 'value': 'notes_app'}, {'label': 'password', 'value': 'old-password'},
+            {'label': 'database', 'value': 'notes'}]}
+        new = rotation.replacement(old, ('password',))
+        self.assertEqual(rotation.values(old)['password'], 'old-password')
+        self.assertNotEqual(rotation.values(new)['password'], 'old-password')
+        self.assertEqual(rotation.values(new)['username'], 'notes_app')
+        self.assertEqual(rotation.values(new)['database'], 'notes')
+        self.assertEqual(new['id'], old['id'])
+        with self.assertRaisesRegex(RuntimeError, 'missing'):
+            rotation.replacement(old, ('SECRET_ACCESS_KEY',))
+
+    def test_external_gate_rejects_public_success(self):
+        from automation.data import external
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(external.os.environ, {'CLOUDFLARE_ACCESS_HOSTS': '[]', 'VM_HOST': 'example.invalid', 'VM2_HOST': 'example.invalid'}))
+            stack.enter_context(patch.object(external, 'fields', return_value={'ENDPOINT': 'https://s3.internal.example.invalid', 'BUCKET': 'notes', 'ACCESS_KEY_ID': 'test', 'SECRET_ACCESS_KEY': 'test', 'REGION': 'us-east-1'}))
+            stack.enter_context(patch.object(external, 'remote', return_value={'private': {'tailnet_gateway': '100.64.0.1'}, 'zone': 'example.invalid'}))
+            stack.enter_context(patch.object(external.socket, 'gethostbyname', return_value='100.64.0.1'))
+            stack.enter_context(patch.object(external.socket, 'create_connection', side_effect=ConnectionRefusedError))
+            stack.enter_context(patch.object(external, 'query', return_value={'addresses': []}))
+            stack.enter_context(patch.object(external, 'S3', return_value=Mock(objects=Mock(return_value=[]))))
+            stack.enter_context(patch.object(external, 'host_rules', return_value=[{'hostname': 'public.example.invalid', 'access': 'public'}]))
+            probe = stack.enter_context(patch.object(external, 'https', return_value={'public_peer': True, 'headers': {'cf-ray': 'fixture'}, 'status': 404}))
+            self.assertTrue(external.run()['public_s3_denied'])
+            probe.return_value['status'] = 200
+            with self.assertRaisesRegex(RuntimeError, 'not denied'):
+                external.run()
+
     def generation(self, root):
         (root / 'database.dump').write_bytes(b'dump')
         manifest = {'format': 1, 'consistency': 'application-roles-disabled-s3-restarted',

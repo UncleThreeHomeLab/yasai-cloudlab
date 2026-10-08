@@ -43,6 +43,10 @@ def render():
             for container in obj['spec']['template']['spec']['containers']:
                 if container['image'] not in expected or not container.get('resources', {}).get('limits'):
                     raise ValueError('Certificate controller needs a pinned image and resource limits')
+                if container['name'] == 'cert-manager-controller' and not {
+                        '--dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53',
+                        '--dns01-recursive-nameservers-only'} <= set(container.get('args', [])):
+                    raise ValueError('Public DNS-01 checks must not use the private split DNS view')
     if sum(obj['kind'] == 'CustomResourceDefinition' for obj in objects) != 6:
         raise ValueError('Certificate API inventory changed')
     return objects

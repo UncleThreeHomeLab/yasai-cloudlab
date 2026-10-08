@@ -241,6 +241,8 @@ with one PostgreSQL 18.4 instance and one SeaweedFS master, volume, filer and S3
 instance. Each persistent volume explicitly selects two-replica Longhorn storage;
 the global default stays `local-path`. SeaweedFS uses embedded LevelDB metadata.
 Native SQL TLS and private S3 HTTPS require scoped application credentials.
+Certificate DNS-01 self-checks use public resolvers, independent of private split
+DNS; this exposes only the necessary ACME TXT records, not public service addresses.
 Argo owns declarations, CNPG owns PostgreSQL roles and generated workloads, ESO
 owns application Secrets, and cert-manager owns TLS Secrets. The data reconciler
 owns SQL grants, buckets and S3 credential reloads; it does not rely on Helm hooks.
@@ -254,6 +256,12 @@ values. The writer stays local. Database, S3 and encryption secrets are generate
 securely; the endpoint derives from the existing private DNS zone. The application
 backup reuses the existing Longhorn B2 item with a separate `application-data-restic/`
 prefix and encryption password. Shared keys do not enforce separation between prefixes.
+`lab data-rotate` explicitly rotates the notes SQL password and S3 key pair through
+1Password, forces ESO refresh, reloads the consumers, and tests new acceptance and
+old denial. A failed run resumes from a private local checkpoint on rerun; no writer
+token leaves the runner. Ordinary apply never rotates credentials. Other vault
+credential changes reconcile within the hourly ESO refresh plus the five-minute
+S3 reload interval. Plan for a brief client reconnect during rotation.
 
 Daily local generations retain seven consistent dumps with roles, extensions,
 objects, checksums and object metadata. A short maintenance window disables app

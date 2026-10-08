@@ -233,6 +233,10 @@ def configure(payload):
             state['applications'][name] = get('application.argoproj.io', name, 'argocd')['metadata']['uid']
             state['revision'] = payload['revision']
             atomic(receipt, state)
+        # Routes depend on the service, while SeaweedFS depends on config Secrets.
+        # Declare both owners before waiting for either health graph to converge.
+        for component in ('data-configuration', 'seaweedfs'):
+            name = 'cloudlab-' + component
             wait(lambda: application_ready(name, payload['revision']), 'data Application convergence', timeout=900)
         for name in ('notes-application', 'notes-migration', 'database-backup', 'cloudlab-s3-config', 'data-offsite'):
             wait(lambda: condition(get('externalsecret.external-secrets.io', name, NAMESPACE), 'Ready'), 'data credential readiness')
