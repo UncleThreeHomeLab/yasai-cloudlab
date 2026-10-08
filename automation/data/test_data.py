@@ -276,6 +276,13 @@ class DataTests(unittest.TestCase):
 
 
 class DataChartTests(unittest.TestCase):
+    def test_backup_claims_match_the_pinned_chart(self):
+        from automation.data.volumes import CLAIMS
+        actual = {claim['metadata']['name'] + '-' + obj['metadata']['name'] + '-0'
+                  for obj in chart.render('seaweedfs') if obj['kind'] == 'StatefulSet'
+                  for claim in obj['spec']['volumeClaimTemplates']}
+        self.assertEqual(actual, {name for component, name in CLAIMS.items() if component != 'postgres'})
+
     def test_pinned_charts(self):
         result = chart.check()
         self.assertEqual(result['persistent_seaweedfs_claims'], 3)
