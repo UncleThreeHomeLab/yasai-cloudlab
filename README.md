@@ -187,9 +187,20 @@ Kubernetes admission policy adds probes to new proxy Pods without taking ownersh
 of operator-generated StatefulSets. Health probes check local process readiness;
 they do not replace end-to-end HTTPS and API acceptance.
 
-Private DNS installation, live external reconciliation, access/failover proof and
-the Traefik CRD handoff remain unfinished. Do not remove Traefik/ServiceLB until
-replacement acceptance passes.
+Private DNS runs as a separate systemd service on each existing host. Tailnet
+clients receive the L3 service address; hosts and Pods receive the private gateway
+ClusterIP. Both views are authoritative: unknown private names never fall back to
+public resolvers. The host service retains original upstream resolvers to avoid a
+cluster bootstrap dependency. Configuration is checked with the pinned binary
+before activation, and both host resolvers must pass before host resolution changes.
+Only the custom CoreDNS forwarding ConfigMap belongs to the DNS Application.
+Keep `/var/lib/cloudlab/private-dns`, `/etc/cloudlab-dns`, and the access ownership
+checkpoints during recovery. Repair declared inputs and rerun `lab access-bootstrap`;
+never delete retained identities to bypass a conflict. Cloudflared uses HTTP/2
+transport because the existing network does not pass its QUIC checks.
+
+Live access/failover proof and the Traefik CRD handoff remain unfinished. Do not
+remove Traefik/ServiceLB until replacement acceptance passes.
 Existing host SSH and controller recovery remain independent of the prepared access
 paths. Multiple connectors and gateways do not make the single K3s server highly
 available.

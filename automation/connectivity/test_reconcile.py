@@ -56,6 +56,10 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(self.state, before)
         self.assertFalse(self.run_apply()['acceptance_passed'])
 
+    def test_unused_api_managed_tunnel_can_have_null_configuration(self):
+        self.api.config = {'config': None}
+        self.assertTrue(self.run_apply()['configured'])
+
     def test_interrupted_create_resumes_without_duplicate_identity(self):
         self.api.interrupt_create = True
         with self.assertRaises(RuntimeError):

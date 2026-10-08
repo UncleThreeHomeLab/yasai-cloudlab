@@ -95,7 +95,7 @@ class Reconciler:
         config_path = 'accounts/' + account + '/cfd_tunnel/' + tunnel + '/configurations'
         current = self.admin.request('GET', config_path)
         if not self.state:
-            ingress = current.get('config', {}).get('ingress', [])
+            ingress = (current.get('config') or {}).get('ingress', [])
             if ingress not in ([], [{'service': 'http_status:404'}]):
                 raise RuntimeError('Tunnel contains unowned routes; explicit adoption required')
             self.state.update(binding=binding, phase='preparing', objects={}, original_config=current.get('config', {}))

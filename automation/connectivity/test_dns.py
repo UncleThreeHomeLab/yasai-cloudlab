@@ -1,6 +1,7 @@
 """Reject DNS injection and forwarding loops before host changes."""
 import unittest
 from automation.connectivity.dns import configuration
+from automation.connectivity.dns_tailnet import dns_policy
 
 
 class DNSTests(unittest.TestCase):
@@ -31,6 +32,20 @@ class DNSTests(unittest.TestCase):
         for key in ['tailnet_address', 'host_address', 'cluster_gateway', 'tailnet_gateway']:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 configuration(dict(self.payload, **{key: '1.1.1.1'}))
+
+    def test_both_hosts_publish_identical_zone_records(self):
+        other = dict(self.payload, host_address='10.44.0.2', tailnet_address='100.64.0.2')
+        for view in ('tailnet.zone', 'internal.zone'):
+            self.assertEqual(configuration(other)[view], configuration(self.payload)[view])
+
+    def test_dns_grants_preserve_host_ssh_and_deny_other_users(self):
+        ssh = {'src': ['admin@example.invalid'], 'dst': ['tag:cloudlab-host'], 'ip': ['tcp:22']}
+        current = {'grants': [ssh]}
+        desired = dns_policy(current, 'admin@example.invalid', self.payload['nameservers'], ['other@example.invalid'])
+        self.assertEqual(desired['grants'][0], ssh)
+        self.assertEqual(len(desired['grants']), 2)
+        self.assertEqual(len([t for t in desired['tests'] if t['src'] == 'other@example.invalid' and 'deny' in t]), 2)
+        self.assertEqual(dns_policy(desired, 'admin@example.invalid', self.payload['nameservers'], ['other@example.invalid']), desired)
 
 
 if __name__ == '__main__':
