@@ -62,7 +62,7 @@ def sql_client(values, credentials=None, *, database_namespace=control.NAMESPACE
 
 def storage():
     if any('application-logical-only' in job['spec'].get('groups', []) for job in get('recurringjobs.longhorn.io', namespace='longhorn-system')['items']):
-        raise RuntimeError('Logical-only storage group must have no volume backup jobs')
+        raise RuntimeError('Coordinated storage group must have no independent volume backup jobs')
     claims = get('pvc', namespace=control.NAMESPACE)['items']
     if len(claims) != 4:
         raise RuntimeError('Expected one database and three SeaweedFS PVCs')
@@ -93,7 +93,9 @@ def storage():
 def schedules_and_limits():
     policy = json.loads((control.ROOT / 'platform/data/contract.json').read_text())
     calendars = {}
-    for kind in ('local', 'monthly'):
+    if Path('/etc/systemd/system/cloudlab-data-local.timer').exists():
+        raise RuntimeError('Superseded daily application backup timer remains')
+    for kind in ('monthly',):
         calendar = policy[kind + '_calendar']
         unit = 'cloudlab-data-' + kind + '.timer'
         source = (Path('/etc/systemd/system') / unit).read_text()
@@ -210,8 +212,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
             result['local_s3_network'] = client.counters()
         finally:
             admin.request('DELETE', unrelated_bucket)
-    result['local_capture'] = backup.run('local')
-    result['local_restore'] = backup.run('restore-local')
+    result['temporary_snapshot_restore'] = backup.run('check-local')
     result['routine_cloud_reads'] = 0
     # Shared stability checker covers rollouts/restarts after all fixtures finish.
     check = subprocess.run(['python3', '/opt/cloudlab/gitops/controller_stability.py', 'cnpg-system', 'cloudlab-data'],

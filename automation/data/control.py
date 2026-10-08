@@ -215,7 +215,8 @@ def configure(payload):
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else {'applications': {}}
         existing = get('application.argoproj.io', APP, 'argocd')
-        if existing and existing['spec']['source']['helm']['valuesObject'].get('maintenance'):
+        if existing and (existing['spec']['source']['helm']['valuesObject'].get('maintenance')
+                         or (BASE / 'cold-maintenance.json').exists()):
             raise RuntimeError('Data capture was interrupted; run data-resume before apply')
         changed = False
         for component in ('data-configuration', 'seaweedfs'):
@@ -241,6 +242,14 @@ def configure(payload):
         for name in ('notes-application', 'notes-migration', 'database-backup', 'cloudlab-s3-config', 'data-offsite'):
             wait(lambda: condition(get('externalsecret.external-secrets.io', name, NAMESPACE), 'Ready'), 'data credential readiness')
         primary()
+        from automation.data.volumes import inventory, LH
+        for row in inventory().values():
+            volume = get('volumes.longhorn.io', row['volume'], LH)
+            if volume['spec'].get('backupCompressionMethod') != 'gzip':
+                kube('patch', 'volumes.longhorn.io', row['volume'], '-n', LH, '--type=merge',
+                     '--field-manager=cloudlab-application-backup',
+                     '-p', '{"spec":{"backupCompressionMethod":"gzip"}}')
+                changed = True
         atomic(BASE / 'desired.json', payload['values'])
         # DNS is configured after this role. Reconciliation uses the real private
         # endpoint only after both host resolvers have applied it.
@@ -255,7 +264,8 @@ if __name__ == '__main__':
         else:
             with locked():
                 if action == 'resume':
-                    maintenance(False)
+                    from automation.data.volumes import resume
+                    resume()
                     result = True
                 elif action == 'reconcile':
                     result = reconcile()

@@ -255,10 +255,11 @@ with CloudLab Read Items and Write Items permissions. Put its token in ignored
 `.env` as `OP_PROVISION_SERVICE_ACCOUNT_TOKEN`; keep the existing ESO token
 read-only. Run `docker compose run --build --rm lab data-credentials`. This creates
 only missing items from `platform/data/contract.json` and preserves existing
-values. The writer stays local. Database, S3 and encryption secrets are generated
+values. The writer stays local. Database and S3 secrets are generated
 securely; the endpoint derives from the existing private DNS zone. The application
-backup reuses the existing Longhorn B2 item with a separate `application-data-restic/`
-prefix and encryption password. Shared keys do not enforce separation between prefixes.
+backup reuses the existing Longhorn B2 item and native backup store. B2-managed
+AES256 encryption protects stored backups; Backblaze holds the encryption keys.
+Shared keys do not enforce separation between prefixes.
 `lab data-rotate` explicitly rotates the notes SQL password and S3 key pair through
 1Password, forces ESO refresh, reloads the consumers, and tests new acceptance and
 old denial. A failed run resumes from a private local checkpoint on rerun; no writer
@@ -266,36 +267,45 @@ token leaves the runner. Ordinary apply never rotates credentials. Other vault
 credential changes reconcile within the hourly ESO refresh plus the five-minute
 S3 reload interval. Plan for a brief client reconnect during rotation.
 
-Daily local generations retain seven consistent dumps with roles, extensions,
-objects, checksums and object metadata. A short maintenance window disables app
-SQL logins, drains existing sessions and restarts S3 with app keys disabled. The
-data module captures the database and bucket together, then restores access.
-No new application may write this dataset through another role or key. Captures
-admit at most 4 GiB of database data and 8 GiB of objects; each generation is capped
-at 16 GiB. Local capture requires 32 GiB free staging space. RLS needs a reviewed
-backup policy before use. Fixture restores run on isolated volumes on the existing VMs.
-Restore checks reinstate current vault passwords through CNPG and query with the
-application identity over verified SQL TLS. Only the disposable S3 namespace admits
-the verifier's exact private host addresses, including Kubernetes service SNAT.
+Application backups run monthly, on day 1 at 03:00 UTC. No daily dumps or retained
+local backup generations remain. The data owner disables app SQL logins and S3
+keys, drains sessions, then cleanly stops PostgreSQL and all SeaweedFS writers.
+It takes a coordinated four-volume Longhorn snapshot before restoring service.
+The monthly operation uploads those snapshots to the existing B2 target, restores
+all four volumes into disposable services, and checks SQL roles, extensions,
+object bytes, tags, metadata and attachment references. Only a passing replacement
+can retire the previous good generation. The old logical backup path retires
+after this gate; no duplicate restic application export remains.
 
-Monthly exports create fresh encrypted restic generations and exercise isolated
-restore before replacing the previous good generation. Local freshness checks
-make no B2 requests. `lab data-local`, `data-restore`, and `data-freshness` use the
-Compose entry point; `data-monthly` runs only on day 1 UTC. `data-acceptance-export`
-is the explicitly authorized, once-recorded initial exception. Transfer, full
-integrity reads, retrieval and retention all access B2 during that operation.
-Data PVCs exclude recurring volume backups to avoid duplicate logical/volume paths.
-After interrupted maintenance, inspect the failure and use `lab data-resume` to
-restore declared access; existing data and generations remain intact.
-After inspecting an interrupted test, `lab data-cleanup-fixtures` removes only
-the owner-checked disposable namespaces and their recorded PV identities, never
-production volumes or retained backup generations.
-Interrupted remote candidates are retrieved and restore-tested before the next
-export proceeds. `lab data-retrieve` retrieves the latest verified generation into
-the Compose recovery volume using only a checkout and the vault reader. This is
-an explicit restore-test exception to the monthly B2 window; it needs no cluster.
-The logical-only Longhorn group has no recurring volume jobs. The verifier rejects
-default-group membership or any job assigned to that reserved group.
+Temporary snapshots are removed after verification. Longhorn may retain removed
+snapshot blocks in its active volume chain until they become purgeable; these
+are not retained recovery points. Recovery inventories and job receipts remain
+locally, not database dumps or object copies. Object checksums stream without
+staging object files. Captures admit at most 4 GiB of database data and 8 GiB of
+objects. Cold capture causes a brief service outage. No additional writer role
+or key may bypass this maintenance boundary.
+
+Physical recovery requires the pinned PostgreSQL major version and matching
+SeaweedFS format. Tests use isolated PVCs on the existing VMs, current vault
+passwords, verified SQL TLS, and private HTTPS. They do not prove empty-VM recovery.
+The legacy StorageClass group name remains unchanged because its parameters are
+immutable; it has no independent recurring jobs. Only the coordinated data owner
+starts these four backups, excluding disposable telemetry.
+
+Use the Compose entry point with `lab data-monthly`, `data-freshness`,
+`data-restore`, or `data-retrieve`. Freshness reads only local receipts.
+Transfer, retention and full backup verification are batched monthly.
+`data-acceptance-export` is the recorded initial exception for this replacement.
+`data-restore` deliberately restores the latest B2 generation into isolated
+services. `data-retrieve` independently checks every compressed backup block using
+only the checkout and vault reader, without retaining local backup files.
+Both restore commands are explicit exceptions to the monthly B2 schedule.
+`data-check` tests temporary local snapshots without B2 access or retained backups.
+
+After interrupted maintenance, inspect the failure and use `lab data-resume`.
+Retry a failed monthly candidate before another capture. After inspecting an
+interrupted test, `lab data-cleanup-fixtures` removes only owner-checked disposable
+namespaces and recorded PV identities, never production volumes or good backups.
 
 Whole-lab loss can lose every change since the last successful monthly export,
 roughly a month or longer after failures. No continuous WAL archiving or PITR is

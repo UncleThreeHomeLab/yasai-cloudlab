@@ -69,7 +69,7 @@ def check():
     storage = next(obj for obj in config if obj['kind'] == 'StorageClass')
     if (storage['parameters']['numberOfReplicas'] != '2' or json.loads(storage['parameters']['recurringJobSelector']) != [{'name': 'application-logical-only', 'isGroup': True}]
             or storage['metadata']['annotations']['storageclass.kubernetes.io/is-default-class'] != 'false'):
-        raise ValueError('Explicit two-replica logical-only storage contract changed')
+        raise ValueError('Explicit two-replica coordinated storage contract changed')
     # Upstream post-install/post-upgrade hooks map to Argo PostSync; they do not
     # provide periodic drift reconciliation. Keep them disabled and assert absence.
     return {'operator_resources': len(records['cnpg']), 'seaweedfs_resources': len(records['seaweedfs']),

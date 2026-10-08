@@ -27,7 +27,8 @@ parameters:
   dataLocality: disabled
   replicaSoftAntiAffinity: disabled
   fsType: ext4
-  # Logical application generations own recovery; exclude duplicate volume exports.
+  # Keep the existing selector immutable. The data owner coordinates Longhorn
+  # backups explicitly; no independent recurring job may snapshot these volumes.
   recurringJobSelector: '[{"name":"application-logical-only","isGroup":true}]'
 ---
 apiVersion: v1

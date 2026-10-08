@@ -35,9 +35,9 @@ def gitops_preflight():
 
 def main():
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    data_actions = {'data-local': 'local', 'data-monthly': 'monthly',
+    data_actions = {'data-monthly': 'monthly',
                     'data-acceptance-export': 'acceptance-export',
-                    'data-restore': 'restore-local', 'data-freshness': 'freshness', 'data-resume': 'resume',
+                    'data-restore': 'restore-offsite', 'data-freshness': 'freshness', 'data-resume': 'resume',
                     'data-cleanup-fixtures': 'cleanup-fixtures', 'data-bootstrap': 'bootstrap', 'data-check': 'check'}
     if action in ('data-credentials', 'data-retrieve', 'data-rotate'):
         module = {'data-credentials': 'credentials.py', 'data-retrieve': 'independent.py', 'data-rotate': 'rotation.py'}[action]

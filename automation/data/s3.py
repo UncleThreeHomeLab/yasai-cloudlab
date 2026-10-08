@@ -122,14 +122,14 @@ class S3:
         self.request('HEAD', bucket)
         return True
 
-    def objects(self, bucket):
-        query = {'list-type': '2'}
+    def objects(self, bucket, prefix=''):
+        query = {'list-type': '2', 'prefix': prefix}
         seen = set()
         for _ in range(10000):
             root = ET.fromstring(self.request('GET', bucket, query=query)['data'])
             for row in root.findall('s:Contents', NS):
                 key = row.findtext('s:Key', namespaces=NS)
-                if key is None or key in seen:
+                if key is None or key in seen or not key.startswith(prefix):
                     raise RuntimeError('S3 returned an ambiguous object listing')
                 seen.add(key)
                 yield {'key': key, 'size': int(row.findtext('s:Size', namespaces=NS))}

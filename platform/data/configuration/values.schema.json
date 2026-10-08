@@ -11,6 +11,7 @@
     "backupRole": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
     "bucket": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"},
     "maintenance": {"type": "boolean"},
+    "hibernated": {"type": "boolean"},
     "postgresImage": {"const": "ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec"}
   }
 }

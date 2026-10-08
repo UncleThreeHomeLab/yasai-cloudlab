@@ -5,13 +5,12 @@ import json
 import socket
 from pathlib import Path
 import subprocess
-import tempfile
 import time
 import xml.etree.ElementTree as ET
 
 import yaml
 
-from automation.data import control
+from automation.data import control, physical
 from automation.data.capture import verify
 from automation.data.s3 import S3, S3Error
 from automation.mesh.kube import condition, get, kube, wait
@@ -51,7 +50,11 @@ def restore_source_cidrs(node, source):
 
 
 def postgres(arguments, *, source=None, data=None):
-    primary = get('cluster.postgresql.cnpg.io', 'data-restore', NAMESPACE)['status']['currentPrimary']
+    pods = [p for p in get('pods', namespace=NAMESPACE)['items']
+            if p['metadata'].get('labels', {}).get('cloudlab.io/restore') == 'postgres' and condition(p, 'Ready')]
+    if len(pods) != 1:
+        raise RuntimeError('Expected one ready physical PostgreSQL restore fixture')
+    primary = pods[0]['metadata']['name']
     result = subprocess.run(['/usr/local/bin/k3s', 'kubectl', 'exec', '-i', '-n', NAMESPACE,
                              primary, '-c', 'postgres', '--', *arguments], stdin=source,
                             input=data, capture_output=True, timeout=1800)
@@ -72,15 +75,12 @@ def authenticated_sql(manifest):
         raise RuntimeError('Restored identities require a reviewed credential mapping')
     if get('namespace', checks.NAMESPACE):
         raise RuntimeError('Previous SQL fixture must be cleaned before restore authentication')
-    source = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']
-    roles = source['managed']['roles']
-    for role in roles:
-        name = role['passwordSecret']['name']
-        kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Secret',
-             'metadata': {'name': name, 'namespace': NAMESPACE, 'labels': LABEL},
-             'type': 'kubernetes.io/basic-auth', 'stringData': control.secret(name)})
-    kube('patch', 'cluster.postgresql.cnpg.io', 'data-restore', '-n', NAMESPACE, '--type=merge',
-         '-p', json.dumps({'spec': {'managed': {'roles': roles}, 'postgresql': source['postgresql']}}))
+    for role, name in zip(manifest['roles'], ('notes-application', 'notes-migration', 'database-backup')):
+        credential = control.secret(name)
+        if credential['username'] != role:
+            raise RuntimeError('Restore credential identity differs')
+        password = credential['password'].replace("'", "''")
+        sql('ALTER ROLE ' + control.identity(role) + " LOGIN PASSWORD '" + password + "';")
     try:
         checks.sql_client(values, database_namespace=NAMESPACE, cluster='data-restore')
         wait(lambda: (result := checks.pod_query([], 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();')).returncode == 0
@@ -112,11 +112,12 @@ def cleanup():
             if ref.get('namespace') != NAMESPACE:
                 continue
             if (ref.get('name') not in names or volume['status']['phase'] != 'Released'
-                    or volume['spec'].get('storageClassName') != 'cloudlab-data'
+                    or volume['spec'].get('storageClassName') not in {'cloudlab-data', *[physical.storage_class(c) for c in physical.CLAIMS]}
                     or volume['metadata']['name'] != 'pvc-' + ref.get('uid', '')):
                 raise RuntimeError('Orphan restore volume has an unexpected identity')
             targets.append([volume['metadata']['name'], volume['metadata']['uid'], ref['uid']])
         if not targets:
+            physical.cleanup_classes()
             return
         control.atomic(checkpoint, targets)
     if namespace and namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture']:
@@ -149,10 +150,11 @@ def cleanup():
         kube('patch', 'pv', name, '--type=merge', '-p', '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}')
         kube('delete', 'pv', name, '--ignore-not-found=true', '--wait=true', '--timeout=300s', timeout=330)
     checkpoint.unlink()
+    physical.cleanup_classes()
 
 
-def run(directory):
-    manifest = verify(directory)
+def run(manifest, offsite=False):
+    verify(manifest)
     if get('namespace', NAMESPACE):
         raise RuntimeError('Previous isolated restore remains; inspect and run fixture cleanup before retrying')
     started = time.monotonic()
@@ -160,19 +162,8 @@ def run(directory):
         'metadata': {'name': NAMESPACE, 'labels': {**LABEL, 'istio-injection': 'disabled',
             'pod-security.kubernetes.io/enforce': 'restricted', 'pod-security.kubernetes.io/enforce-version': 'v1.36'}}})
     try:
-        pin = json.loads((control.ROOT / 'platform/data/cnpg/artifact.lock.json').read_text())['postgres_image']
-        cluster = {'apiVersion': 'postgresql.cnpg.io/v1', 'kind': 'Cluster',
-            'metadata': {'name': 'data-restore', 'namespace': NAMESPACE, 'labels': LABEL},
-            'spec': {'instances': 1, 'imageName': pin, 'enableSuperuserAccess': False,
-                'postgresql': get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']['postgresql'],
-                'storage': {'size': '8Gi', 'storageClass': 'cloudlab-data'},
-                'bootstrap': {'initdb': {'database': 'restore_bootstrap', 'owner': 'restore_owner'}},
-                'resources': {'requests': {'cpu': '250m', 'memory': '512Mi'}, 'limits': {'cpu': '2', 'memory': '2Gi'}}}}
-        kube('apply', '-f', '-', document=cluster)
-        wait(lambda: condition(get('cluster.postgresql.cnpg.io', 'data-restore', NAMESPACE), 'Ready'), 'isolated PostgreSQL', timeout=600)
-        sql((directory / 'roles.sql').read_text())
-        with (directory / 'database.dump').open('rb') as source:
-            postgres(['pg_restore', '--exit-on-error', '--create', '-d', 'postgres'], source=source)
+        physical.provision(manifest, offsite)
+        physical.postgres(manifest)
         actual_extensions = json.loads(sql("SELECT coalesce(json_agg(json_build_object('name',extname,'version',extversion)), '[]'::json) FROM pg_extension", manifest['database']))
         if sorted(actual_extensions, key=lambda e: e['name']) != sorted(manifest['extensions'], key=lambda e: e['name']):
             raise RuntimeError('Restored extension inventory differs')
@@ -199,8 +190,7 @@ def run(directory):
         if len(peers) != 1:
             raise RuntimeError('Restore proof requires the declared two-node topology')
         result = subprocess.run(['helm', 'template', 'data-restore', str(chart), '--namespace', NAMESPACE,
-                                 '--kube-version', '1.36.5', '--set-json',
-                                 'seaweedfs.volume.dataDirs=[{"name":"data1","type":"persistentVolumeClaim","size":"12Gi","storageClass":"cloudlab-data","maxVolumes":10}]'],
+                                 '--kube-version', '1.36.5'],
                                 capture_output=True, text=True, timeout=90)
         if result.returncode:
             raise RuntimeError('Isolated SeaweedFS render failed')
@@ -213,6 +203,11 @@ def run(directory):
             obj['metadata'].setdefault('labels', {}).update(LABEL)
             if obj['kind'] == 'Deployment' and obj['metadata'].get('labels', {}).get('app.kubernetes.io/component') == 's3':
                 obj['spec']['template']['spec']['nodeSelector'] = {'kubernetes.io/hostname': peers[0]['metadata']['labels']['kubernetes.io/hostname']}
+            if obj['kind'] == 'StatefulSet':
+                component = obj['metadata']['labels']['app.kubernetes.io/component']
+                for claim in obj['spec']['volumeClaimTemplates']:
+                    claim['spec']['storageClassName'] = physical.storage_class(component)
+                    claim['spec']['resources']['requests']['storage'] = manifest['volumes'][component]['size']
             kube('apply', '-f', '-', document=obj)
         for name in ('master', 'volume', 'filer'):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
@@ -231,14 +226,11 @@ def run(directory):
                                                                      for cidr in restore_source_cidrs(node, source_address)],
                                                              'ports': [{'protocol': 'TCP', 'port': 8334}]}]}})
         wait(lambda: s3_ready(client, manifest['bucket']), 'isolated S3 native TLS readiness')
-        client.ensure_bucket(manifest['bucket'])
         for row in manifest['objects']:
-            client.upload(manifest['bucket'], row['key'], directory / row['file'], headers=row['headers'])
-            client.request('PUT', manifest['bucket'], row['key'], query={'tagging': ''}, data=row['tags'].encode())
-            with tempfile.TemporaryFile() as target:
+            with open('/dev/null', 'wb') as target:
                 response = client.request('GET', manifest['bucket'], row['key'], target=target,
                                           limit=16 * 1024**3)
-            record = next(item for item in manifest['files'] if item['file'] == row['file'])
+            record = row
             if response['sha256'] != record['sha256'] or response['bytes'] != record['bytes']:
                 raise RuntimeError('Restored object checksum differs')
             headers = {key.lower(): value for key, value in response['headers'].items()}
@@ -265,8 +257,7 @@ def run(directory):
             if pod['status'].get('phase') != 'Running':
                 continue
             kube('delete', 'pod', pod['metadata']['name'], '-n', NAMESPACE, '--wait=true', '--timeout=120s')
-        wait(lambda: condition(get('cluster.postgresql.cnpg.io', 'data-restore', NAMESPACE), 'Ready'), 'restarted restore database', timeout=600)
-        wait(lambda: condition(get('pod', get('cluster.postgresql.cnpg.io', 'data-restore', NAMESPACE)['status']['currentPrimary'], NAMESPACE), 'Ready'), 'restarted PostgreSQL pod', timeout=600)
+        kube('rollout', 'status', 'deployment/restore-postgres', '-n', NAMESPACE, '--timeout=600s', timeout=630)
         for name in ('master', 'volume', 'filer'):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
         kube('rollout', 'status', 'deployment/data-restore-seaweedfs-s3', '-n', NAMESPACE, '--timeout=600s', timeout=630)
@@ -276,8 +267,8 @@ def run(directory):
         if len(s3_pods) != 1 or s3_pods[0]['spec']['nodeName'] != peers[0]['metadata']['name']:
             raise RuntimeError('Restored S3 did not exercise the cross-node private path')
         for row in manifest['objects']:
-            record = next(item for item in manifest['files'] if item['file'] == row['file'])
-            with tempfile.TemporaryFile() as target:
+            record = row
+            with open('/dev/null', 'wb') as target:
                 recovered = app.request('GET', manifest['bucket'], row['key'], target=target, limit=16 * 1024**3)
             if recovered['sha256'] != record['sha256']:
                 raise RuntimeError('Restart lost restored committed object data')
@@ -288,7 +279,7 @@ def run(directory):
         authenticated_sql(manifest)
         return {'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),
-                'same_existing_hosts': True, 'offsite_reads': False, 'fixture_restarts': True,
+                'same_existing_hosts': True, 'physical_restore': True, 'offsite_reads': offsite, 'fixture_restarts': True,
                 'notes_object_generation_verified': 'notes_probe' in manifest,
                 'current_vault_sql_login_and_tls': True, 'cross_node_restore_s3': True}
     finally:
