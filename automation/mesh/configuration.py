@@ -35,8 +35,10 @@ def gateway_api(expected):
         if not actual or not contains(actual['spec'], obj['spec']):
             raise RuntimeError('Existing Gateway API differs from its pinned standard contract')
         annotations = actual['metadata'].get('annotations', {})
-        if annotations.get('meta.helm.sh/release-name') != 'traefik-crd':
-            raise RuntimeError('Gateway API owner changed before the separate Traefik cutover')
+        legacy_owner = annotations.get('meta.helm.sh/release-name')
+        if not (legacy_owner == 'traefik-crd' or
+                (legacy_owner is None and annotations.get('cloudlab.io/owner') == 'cloudlab-gateway-api')):
+            raise RuntimeError('Gateway API owner changed outside the declared handoff')
         if annotations.get('gateway.networking.k8s.io/bundle-version') != 'v1.6.1':
             raise RuntimeError('Gateway API version changed')
         identities[name] = actual['metadata']['uid']

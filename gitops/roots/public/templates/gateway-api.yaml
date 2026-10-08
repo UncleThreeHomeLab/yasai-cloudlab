@@ -1,0 +1,15 @@
+{{- if .Values.access.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-gateway-api
+  namespace: argocd
+spec:
+  description: Retained Gateway API CRDs after the audited legacy ingress cutover.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: argocd}
+  clusterResourceWhitelist:
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+  namespaceResourceWhitelist: []
+{{- end }}

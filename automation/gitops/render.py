@@ -73,7 +73,8 @@ def committed_payload():
              'ansible/roles/longhorn_backup', 'platform/certificates', 'automation/certificates',
              'ansible/roles/certificates', 'ansible/group_vars/all/certificates.yml',
                'platform/connectivity', 'automation/connectivity', 'ansible/roles/connectivity',
-               'ansible/group_vars/all/connectivity.yml', 'ansible/access.yml',
+               'ansible/group_vars/all/connectivity.yml', 'ansible/access.yml', 'ansible/access-cutover.yml',
+               'ansible/roles/k3s',
                'automation/mesh', 'ansible/roles/mesh', 'ansible/group_vars/all/mesh.yml']
     result = subprocess.run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', *paths],
                             capture_output=True, text=True, timeout=30, check=True)

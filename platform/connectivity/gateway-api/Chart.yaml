@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cloudlab-gateway-api
+description: Retained Gateway API definitions after the audited Traefik handoff.
+type: application
+version: 1.0.0
+appVersion: 1.6.1

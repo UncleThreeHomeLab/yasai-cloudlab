@@ -105,6 +105,15 @@ def check():
         raise ValueError('Private DNS chart must own only the custom forwarding ConfigMap')
     if 'forward . 10.44.0.1 10.44.0.2' not in dns[0]['data']['cloudlab-private.server']:
         raise ValueError('Cluster private DNS must use both independent private resolvers')
+    from automation.connectivity.cutover import definitions
+    expected = {obj['metadata']['name']: obj['spec'] for obj in definitions()}
+    retained = render(ROOT / 'platform/connectivity/gateway-api')
+    if len(retained) != 10 or {obj['metadata']['name']: obj['spec'] for obj in retained} != expected:
+        raise ValueError('Gateway API handoff changes the pinned CRD contract')
+    for obj in retained:
+        annotations = obj['metadata']['annotations']
+        if annotations.get('argocd.argoproj.io/sync-options') != 'ServerSideApply=true,Prune=false,Delete=false' or annotations.get('helm.sh/resource-policy') != 'keep':
+            raise ValueError('Gateway API handoff must preserve deletion protection')
     return result
 
 
