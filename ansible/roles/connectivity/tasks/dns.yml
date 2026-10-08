@@ -11,25 +11,26 @@
   loop:
     - {path: /etc/cloudlab-dns, mode: '0755'}
     - {path: /var/lib/cloudlab/private-dns, mode: '0700'}
-    - {path: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}', mode: '0755'}
+    - {path: /usr/local/lib/cloudlab-private-dns, mode: '0755'}
+    - {path: '/usr/local/lib/cloudlab-private-dns/{{ access_dns_release.version }}', mode: '0755'}
 
 - name: Download the checksum-verified independent DNS binary
   ansible.builtin.get_url:
     url: '{{ access_dns_release.url }}'
     checksum: 'sha256:{{ access_dns_release.sha256 }}'
-    dest: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/release.tgz'
+    dest: '/usr/local/lib/cloudlab-private-dns/{{ access_dns_release.version }}/release.tgz'
     mode: '0644'
 
 - name: Extract the pinned DNS binary
   ansible.builtin.unarchive:
-    src: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/release.tgz'
-    dest: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}'
+    src: '/usr/local/lib/cloudlab-private-dns/{{ access_dns_release.version }}/release.tgz'
+    dest: '/usr/local/lib/cloudlab-private-dns/{{ access_dns_release.version }}'
     remote_src: true
-    creates: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/coredns'
+    creates: '/usr/local/lib/cloudlab-private-dns/{{ access_dns_release.version }}/coredns'
 
 - name: Select the declared independent DNS binary
   ansible.builtin.file:
-    src: '/opt/cloudlab/private-dns/{{ access_dns_release.version }}/coredns'
+    src: '/usr/local/lib/cloudlab-private-dns/{{ access_dns_release.version }}/coredns'
     dest: /usr/local/bin/cloudlab-coredns
     state: link
   register: access_dns_binary
