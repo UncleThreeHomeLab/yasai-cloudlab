@@ -18,10 +18,12 @@ uses SQLite and depends on the main VM.
 
 | Category | Component | Purpose |
 | --- | --- | --- |
-| Platform | K3s | Kubernetes with bundled DNS, ingress, metrics, and local storage |
+| Platform | K3s | Kubernetes with bundled DNS, metrics, and local storage |
 | Deployment | Argo CD | Private API, public platform root and optional scoped private sources |
 | Connectivity | WireGuard | Encrypted traffic between the VMs |
 | Host access | Tailscale | Independent SSH access; requires scoped enrollment credentials |
+| Private access | Tailscale operator + CoreDNS | L3 gateway ingress, independent private DNS and an authenticated Kubernetes API proxy |
+| HTTPS and mesh | cert-manager + Istio | Automatic certificates, separate public/private gateways and workload identity |
 | Security | Host firewalls | Restrict public access; keep cluster and ingress ports private |
 | Secrets | External Secrets Operator | Synchronize 1Password values into Kubernetes Secrets |
 | Storage | [Longhorn](https://github.com/longhorn/longhorn) | Persistent volumes with one replica on each VM |
@@ -33,6 +35,7 @@ uses SQLite and depends on the main VM.
 | --- | --- | --- |
 | Storage | [Backblaze B2](https://www.backblaze.com/cloud-storage) | External storage for Longhorn backups |
 | Secrets | 1Password | CloudLab vault, accessed with a read-only service account |
+| Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies |
 
 **Storage:** Applications opt in to Longhorn; `local-path` remains the default.
 Longhorn schedules monthly B2 backups and keeps the latest scheduled backup per
@@ -145,19 +148,18 @@ Their selected DNS zone comes from the accepted Certificate resources at runtime
 Verification checks actual mutual-TLS traffic metrics, trusted HTTPS, unknown
 host/SNI rejection, forbidden route attachment, drift repair and controller stability.
 
-The ten existing Gateway API 1.6.1 standard CRDs match the pinned upstream contract
-and retain their K3s/Traefik owner. `prove` checks their specs and retained identities;
-it does not introduce a second CRD writer. Keep Traefik until the access cutover,
-which must explicitly preserve or transfer CRD ownership before retiring its chart.
+The ten Gateway API 1.6.1 CRDs match the pinned upstream contract and retain their
+original identities under a restricted Argo Application. The staged access cutover
+retires Traefik before adopting its retained CRDs. `prove` checks their specs,
+identities and the sole active GitOps owner.
 Istio's CA and gateway identities are retained in a private recovery checkpoint.
 Repair declarations or credentials and rerun `prove`; do not delete CA keys, TLS
-Secrets or reinstall controllers to recover. External access and failover proof
-belong to the subsequent access cutover.
+Secrets or reinstall controllers to recover.
 For focused troubleshooting, `docker compose run --build --rm lab mesh-check`
 reconciles the retained mesh configuration and runs its disposable checks. A full
 `prove` is still required after setup changes.
 
-Access rollout is in progress. `docker compose run --build --rm lab access-preflight`
+`docker compose run --build --rm lab access-preflight`
 audits live foundation health, retained ownership, legacy ingress dependencies and
 external credentials without changing the lab. It exits with status 2 when inputs
 are missing. The [access contract](platform/connectivity/access/contract.json) owns
@@ -181,7 +183,8 @@ Existing local receipts migrate once from the private `ssh_known_hosts` volume.
 Retain the server receipts during recovery; never delete them to bypass an ownership error.
 Repair missing credentials and rerun. A missing/replaced external identity,
 unowned resource, hostname removal or classification change requires explicit
-migration. Its provider lifecycle is unit-tested, not live-accepted.
+migration. Ordinary apply reconciles local and external resources without replacing
+their retained identities.
 
 `lab access-bootstrap` reconciles scoped tailnet grants and the bounded access
 Application after the GitOps operator and ESO credentials are ready. A native
@@ -220,16 +223,14 @@ rechecks access, and audits the stored Helm release for all ten CRD retention ru
 Only then does Ansible disable bundled Traefik and restart K3s. ServiceLB stays
 active until its controller removes Traefik's Service finalizer and all load-balancer
 workloads. After CRD adoption, Ansible disables unused ServiceLB with a second K3s
-restart. These required configuration restarts interrupt the single control plane; this is not
-a control-plane HA test. The handoff retains CRD UIDs and pinned definitions, then
+restart. These required configuration restarts interrupt the single control plane;
+they do not prove control-plane HA. The handoff retains CRD UIDs and pinned definitions, then
 assigns their sole ongoing owner to a restricted Gateway API Argo Application.
 Keep `/var/lib/cloudlab/connectivity/cutover.json` and `k3s-before-cutover.yaml`.
 Rerun `lab access-cutover` after a failed transition; normal apply resumes a prepared
-handoff. Do not restore the old K3s configuration after adoption without suspending
-the new CRD owner and reviewing a reverse handoff. Never delete retained CRDs.
+or adopted handoff. Do not restore the old K3s configuration after adoption without
+suspending the new CRD owner and reviewing a reverse handoff. Never delete retained CRDs.
 
-Live access/failover proof and the Traefik CRD handoff remain unfinished. Do not
-remove Traefik/ServiceLB until replacement acceptance passes.
-Existing host SSH and controller recovery remain independent of the prepared access
-paths. Multiple connectors and gateways do not make the single K3s server highly
+Existing host SSH and controller recovery remain independent of the operator and
+access paths. Multiple connectors and gateways do not make the single K3s server highly
 available.
