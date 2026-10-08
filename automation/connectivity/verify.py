@@ -27,9 +27,17 @@ from automation.connectivity.checkpoint import transaction
 
 
 def remote(action, **payload):
-    return json.loads(ssh('VM', os.environ['VM_HOST'],
+    result = json.loads(ssh('VM', os.environ['VM_HOST'],
         'python3 /var/lib/cloudlab/connectivity/cluster_fixture.py',
         input=json.dumps(dict(payload, action=action)), timeout=600))
+    if action == 'fail-one' and 'crash_target' in result:
+        for prefix in ('VM', 'VM2'):
+            if ssh(prefix, os.environ[prefix + '_HOST'], 'hostname').strip() == result['node']:
+                return json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
+                    'python3 /var/lib/cloudlab/connectivity/proxy_failure.py',
+                    input=json.dumps(result['crash_target']), timeout=45))
+        raise RuntimeError('Proxy crash target is not on either declared VM')
+    return result
 
 
 def retry(function, label, timeout=120):
@@ -47,7 +55,7 @@ def retry(function, label, timeout=120):
 
 
 def disruption(component, probe):
-    """Kill one disposable Pod; each probe uses a new TCP/TLS connection."""
+    """Crash one proxy container or replace one Pod; probe with fresh TCP/TLS."""
     if not probe():
         raise RuntimeError('Failure fixture lacks a successful baseline')
     before = remote('snapshot')
@@ -80,12 +88,18 @@ def disruption(component, probe):
             time.sleep(1)
     longest_gap = max(longest_gap, time.monotonic() - last_success)
     after = retry(lambda: remote('snapshot'), 'replicas restored after failure', timeout=300)
-    if deletion['deleted_uid'] not in {p['uid'] for p in before[component]} or deletion['deleted_uid'] in {p['uid'] for p in after[component]}:
+    if 'crashed_container' in deletion:
+        old = next((p for p in before[component] if p['uid'] == deletion['retained_pod_uid']), None)
+        new = next((p for p in after[component] if p['uid'] == deletion['retained_pod_uid']), None)
+        if not old or not new or deletion['crashed_container'] not in old['containers'] or deletion['crashed_container'] in new['containers']:
+            raise RuntimeError('Crash test did not restart the selected container with its original Pod identity')
+    elif deletion['deleted_uid'] not in {p['uid'] for p in before[component]} or deletion['deleted_uid'] in {p['uid'] for p in after[component]}:
         raise RuntimeError('Failure test did not replace its selected disposable Pod')
     if successes < 10:
         raise RuntimeError('Too few new successful requests during disruption observation')
     return {'new_requests_ok': successes, 'request_errors': errors, 'longest_success_gap_seconds': round(longest_gap, 2),
-            'limit_seconds': limit, 'observation_seconds': observe, 'replicas_restored': True}
+            'limit_seconds': limit, 'observation_seconds': observe, 'replicas_restored': True,
+            'failure_mode': 'container-sigkill' if 'crashed_container' in deletion else 'pod-replacement'}
 
 
 def _run(*, failures=True, keep=False):

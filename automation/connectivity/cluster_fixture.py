@@ -85,7 +85,8 @@ def snapshot():
         if not any(b['spec'].get('minAvailable') == 1 and b.get('status', {}).get('currentHealthy') == 2
                    and b.get('status', {}).get('disruptionsAllowed') == 1 for b in selected):
             raise RuntimeError('Access replicas lack a ready one-at-a-time disruption budget')
-        result[namespace + '/' + selector] = [{'name': p['metadata']['name'], 'uid': p['metadata']['uid']} for p in pods]
+        result[namespace + '/' + selector] = [{'name': p['metadata']['name'], 'uid': p['metadata']['uid'],
+            'containers': [c['containerID'].removeprefix('containerd://') for c in p['status']['containerStatuses']]} for p in pods]
     return result
 
 
@@ -144,6 +145,14 @@ def fail_one(payload):
         raise RuntimeError('Failure target is outside the disposable access components')
     namespace = key.split('/')[0]
     target = allowed[key][0]
+    if namespace == 'tailscale':
+        pod = get('pod', target['name'], namespace)
+        containers = pod['status']['containerStatuses']
+        if len(containers) != 1 or not containers[0].get('ready'):
+            raise RuntimeError('Proxy crash fixture requires one healthy container')
+        return {'crash_target': {'name': target['name'], 'uid': target['uid'],
+            'container_id': containers[0]['containerID'].removeprefix('containerd://')},
+            'node': pod['spec']['nodeName'], 'component': key}
     kube('delete', 'pod', target['name'], '-n', namespace, '--grace-period=0', '--force', '--wait=false')
     return {'deleted_uid': target['uid'], 'component': key}
 
