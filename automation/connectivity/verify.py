@@ -77,16 +77,19 @@ def disruption(component, probe):
             except (OSError, RuntimeError, http.client.HTTPException):
                 ok = False
             now = time.monotonic()
+            # A late successful response must not erase an excessive outage.
+            if now - last_success > limit:
+                raise RuntimeError('New requests exceeded the declared 30-second failure recovery limit')
             if ok:
                 longest_gap = max(longest_gap, now - last_success)
                 last_success = now
                 successes += 1
             else:
                 errors += 1
-            if now - last_success > limit:
-                raise RuntimeError('New requests exceeded the declared 30-second failure recovery limit')
             time.sleep(1)
     longest_gap = max(longest_gap, time.monotonic() - last_success)
+    if longest_gap > limit:
+        raise RuntimeError('New requests exceeded the declared 30-second failure recovery limit')
     after = retry(lambda: remote('snapshot'), 'replicas restored after failure', timeout=300)
     if 'crashed_container' in deletion:
         old = next((p for p in before[component] if p['uid'] == deletion['retained_pod_uid']), None)
