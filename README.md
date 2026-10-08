@@ -271,6 +271,9 @@ No new application may write this dataset through another role or key. Captures
 admit at most 4 GiB of database data and 8 GiB of objects; each generation is capped
 at 16 GiB. Local capture requires 32 GiB free staging space. RLS needs a reviewed
 backup policy before use. Fixture restores run on isolated volumes on the existing VMs.
+Restore checks reinstate current vault passwords through CNPG and query with the
+application identity over verified SQL TLS. Only the disposable S3 namespace admits
+the verifier's exact private host addresses, including Kubernetes service SNAT.
 
 Monthly exports create fresh encrypted restic generations and exercise isolated
 restore before replacing the previous good generation. Local freshness checks
