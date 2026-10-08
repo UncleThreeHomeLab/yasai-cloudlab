@@ -41,7 +41,22 @@ def cleanup():
     checkpoint = control.BASE / 'restore-cleanup.json'
     namespace = get('namespace', NAMESPACE)
     if not namespace and not checkpoint.exists():
-        return
+        # Recover fixtures left by the pre-checkpoint cleanup implementation.
+        targets = []
+        names = {'data-restore-1', 'data-data-restore-seaweedfs-master-0',
+                 'data-data-restore-seaweedfs-filer-0', 'data1-data-restore-seaweedfs-volume-0'}
+        for volume in get('pv')['items']:
+            ref = volume['spec'].get('claimRef', {})
+            if ref.get('namespace') != NAMESPACE:
+                continue
+            if (ref.get('name') not in names or volume['status']['phase'] != 'Released'
+                    or volume['spec'].get('storageClassName') != 'cloudlab-data'
+                    or volume['metadata']['name'] != 'pvc-' + ref.get('uid', '')):
+                raise RuntimeError('Orphan restore volume has an unexpected identity')
+            targets.append([volume['metadata']['name'], volume['metadata']['uid'], ref['uid']])
+        if not targets:
+            return
+        control.atomic(checkpoint, targets)
     if namespace and namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture']:
         raise RuntimeError('Restore namespace is not owned by this fixture')
     # Retain-class PVs outlive PVC deletion. Record only this fixture's exact UIDs.
@@ -70,7 +85,7 @@ def cleanup():
                 or volume['spec']['claimRef']['namespace'] != NAMESPACE or volume['status']['phase'] != 'Released'):
             raise RuntimeError('Disposable restore volume is not safely released')
         kube('patch', 'pv', name, '--type=merge', '-p', '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}')
-        kube('delete', 'pv', name, '--wait=true', '--timeout=300s', timeout=330)
+        kube('delete', 'pv', name, '--ignore-not-found=true', '--wait=true', '--timeout=300s', timeout=330)
     checkpoint.unlink()
 
 

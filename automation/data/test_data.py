@@ -30,6 +30,24 @@ class DataTests(unittest.TestCase):
             kube.assert_not_called()
             self.assertTrue(path.exists())
 
+    def test_orphan_cleanup_is_scoped_and_tolerates_automatic_pv_deletion(self):
+        volume = {'metadata': {'name': 'pvc-claim', 'uid': 'volume'}, 'status': {'phase': 'Released'},
+                  'spec': {'storageClassName': 'cloudlab-data', 'claimRef': {
+                      'name': 'data-restore-1', 'namespace': restore.NAMESPACE, 'uid': 'claim'}}}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
+                patch.object(restore, 'wait'), patch.object(restore, 'kube') as kube:
+            def get(kind, name=None):
+                return None if kind == 'namespace' else volume if name else {'items': [volume]}
+            with patch.object(restore, 'get', side_effect=get):
+                restore.cleanup()
+                self.assertIn('--ignore-not-found=true', kube.call_args.args)
+                self.assertFalse((Path(temporary) / 'restore-cleanup.json').exists())
+                kube.reset_mock()
+                volume['spec']['claimRef']['name'] = 'unrelated'
+                with self.assertRaisesRegex(RuntimeError, 'unexpected identity'):
+                    restore.cleanup()
+                kube.assert_not_called()
+
     def test_rotation_preserves_unrelated_fields_and_original(self):
         old = {'id': 'fixture', 'title': 'cnpg-notes-production', 'category': 'SECURE_NOTE', 'tags': ['cloudlab-managed'], 'fields': [
             {'label': 'username', 'value': 'notes_app'}, {'label': 'password', 'value': 'old-password'},
