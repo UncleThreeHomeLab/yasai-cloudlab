@@ -112,6 +112,16 @@ def legacy_removed():
     return not any(d['metadata']['name'].startswith('svclb-') for d in workloads)
 
 
+def gitops_owned(actual):
+    metadata = actual.get('metadata', {})
+    annotations = metadata.get('annotations', {})
+    # Like the accepted mesh/Longhorn handoffs, use SSA ownership for CRDs.
+    # Argo intentionally omits their normal resource tracking annotations.
+    return (annotations.get('cloudlab.io/owner') == APP and not annotations.get('meta.helm.sh/release-name')
+            and any(field.get('manager') == 'argocd-controller' and field.get('operation') == 'Apply'
+                    and 'f:spec' in field.get('fieldsV1', {}) for field in metadata.get('managedFields', [])))
+
+
 def finish(payload):
     state = json.loads(RECEIPT.read_text())
     if identities(payload['gateway_api']) != state['crds']:
@@ -158,9 +168,7 @@ def finish(payload):
         raise RuntimeError('Gateway API identities changed during adoption')
     for name in state['crds']:
         actual = get('customresourcedefinition', name)
-        if (not actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(APP + ':')
-                or not any(field.get('manager') == 'argocd-controller' and field.get('operation') == 'Apply'
-                           and 'f:spec' in field.get('fieldsV1', {}) for field in actual['metadata'].get('managedFields', []))):
+        if not gitops_owned(actual):
             raise RuntimeError('Gateway API spec is not owned by the declared GitOps reconciler')
     if state['phase'] == 'prepared':
         state['phase'] = 'adopted'
