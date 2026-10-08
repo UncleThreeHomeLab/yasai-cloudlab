@@ -28,7 +28,7 @@
     src: '{{ playbook_dir }}/../automation/data/{{ item }}'
     dest: '/opt/cloudlab/automation/data/{{ item }}'
     mode: '0600'
-  loop: [control.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py]
+  loop: [control.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py, rotation.py]
 
 - name: Install the shared Kubernetes helper from its owner
   ansible.builtin.copy:

@@ -1,4 +1,22 @@
 ---
+- name: Prove outside data access and public isolation
+  ansible.builtin.command: python /workspace/automation/data/external.py
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  register: data_external
+  failed_when: false
+  no_log: true
+
+- name: Require outside data isolation
+  ansible.builtin.assert:
+    that: data_external.rc == 0
+    fail_msg: '{{ data_external.stderr }}'
+
+- name: Report outside data proof
+  ansible.builtin.debug:
+    msg: '{{ data_external.stdout | from_json }}'
+
 - name: Verify private data paths and local coordinated recovery without B2 access
   ansible.builtin.command: python3 /opt/cloudlab/automation/data/verify.py
   register: data_verified
