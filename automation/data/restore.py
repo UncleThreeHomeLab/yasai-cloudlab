@@ -1,6 +1,8 @@
 """Restore immutable generations into disposable, isolated service fixtures."""
 import base64
+import ipaddress
 import json
+import socket
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,6 +25,31 @@ def object_tags(document):
                   for tag in ET.fromstring(document).findall('.//{*}Tag'))
 
 
+def s3_ready(client, bucket):
+    try:
+        client.request('HEAD', bucket)
+        return True
+    except S3Error as error:
+        if error.status != 404:
+            raise
+        return True
+    except RuntimeError:
+        return False
+
+
+def restore_source_cidrs(node, source):
+    addresses = {source}
+    subnet = ipaddress.ip_network(node['spec']['podCIDR'])
+    interfaces = json.loads(subprocess.check_output(['ip', '-j', 'address'], stderr=subprocess.PIPE))
+    for interface in interfaces:
+        if interface['ifname'] in ('cni0', 'flannel.1'):
+            addresses.update(row['local'] for row in interface['addr_info'] if row['family'] == 'inet'
+                             and ipaddress.ip_address(row['local']) in subnet)
+    if any(ipaddress.ip_address(address).version != 4 or not ipaddress.ip_address(address).is_private for address in addresses):
+        raise RuntimeError('Restore client policy requires private host addresses')
+    return [address + '/32' for address in sorted(addresses)]
+
+
 def postgres(arguments, *, source=None, data=None):
     primary = get('cluster.postgresql.cnpg.io', 'data-restore', NAMESPACE)['status']['currentPrimary']
     result = subprocess.run(['/usr/local/bin/k3s', 'kubectl', 'exec', '-i', '-n', NAMESPACE,
@@ -37,14 +64,43 @@ def sql(statement, database='postgres'):
     return postgres(['psql', '-X', '-At', '-v', 'ON_ERROR_STOP=1', '-d', database], data=statement.encode()).decode().strip()
 
 
+def authenticated_sql(manifest):
+    from automation.data import verify as checks
+    from automation.data.rotation import cleanup_sql
+    values = control.settings()
+    if manifest['database'] != values['database'] or manifest['roles'] != [values[key] for key in ('applicationRole', 'migrationRole', 'backupRole')]:
+        raise RuntimeError('Restored identities require a reviewed credential mapping')
+    if get('namespace', checks.NAMESPACE):
+        raise RuntimeError('Previous SQL fixture must be cleaned before restore authentication')
+    roles = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']['managed']['roles']
+    for role in roles:
+        name = role['passwordSecret']['name']
+        kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Secret',
+             'metadata': {'name': name, 'namespace': NAMESPACE, 'labels': LABEL},
+             'type': 'kubernetes.io/basic-auth', 'stringData': control.secret(name)})
+    kube('patch', 'cluster.postgresql.cnpg.io', 'data-restore', '-n', NAMESPACE, '--type=merge',
+         '-p', json.dumps({'spec': {'managed': {'roles': roles}}}))
+    try:
+        checks.sql_client(values, database_namespace=NAMESPACE, cluster='data-restore')
+        wait(lambda: (result := checks.pod_query([], 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();')).returncode == 0
+             and result.stdout.strip() == 't',
+             'restored password and verified SQL TLS')
+        if 'notes_probe' in manifest:
+            result = checks.pod_query([], "SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t")
+            if result.returncode or json.loads(result.stdout) != manifest['notes_probe']:
+                raise RuntimeError('Authenticated restored application queries differ')
+    finally:
+        cleanup_sql()
+
+
 def cleanup():
     checkpoint = control.BASE / 'restore-cleanup.json'
     namespace = get('namespace', NAMESPACE)
     if not namespace and not checkpoint.exists():
         # Recover fixtures left by the pre-checkpoint cleanup implementation.
         targets = []
-        names = {'data-restore-1', 'data-data-restore-seaweedfs-master-0',
-                 'data-data-restore-seaweedfs-filer-0', 'data1-data-restore-seaweedfs-volume-0'}
+        names = {'data-restore-1', 'data-cloudlab-data-restore-data-restore-seaweedfs-master-0',
+                 'data-filer-data-restore-seaweedfs-filer-0', 'data1-data-restore-seaweedfs-volume-0'}
         for volume in get('pv')['items']:
             ref = volume['spec'].get('claimRef', {})
             if ref.get('namespace') != NAMESPACE:
@@ -131,6 +187,10 @@ def run(directory):
                  'metadata': {'name': name, 'namespace': NAMESPACE, 'labels': LABEL},
                  'type': original.get('type', 'Opaque'), 'data': data})
         chart = control.ROOT / 'platform/data/seaweedfs'
+        node = get('node', socket.gethostname())
+        peers = [row for row in get('nodes')['items'] if row['metadata']['name'] != node['metadata']['name']]
+        if len(peers) != 1:
+            raise RuntimeError('Restore proof requires the declared two-node topology')
         result = subprocess.run(['helm', 'template', 'data-restore', str(chart), '--namespace', NAMESPACE,
                                  '--kube-version', '1.36.5', '--set-json',
                                  'seaweedfs.volume.dataDirs=[{"name":"data1","type":"persistentVolumeClaim","size":"12Gi","storageClass":"cloudlab-data","maxVolumes":10}]'],
@@ -144,6 +204,8 @@ def run(directory):
                 raise RuntimeError('Restore chart contains an unexpected resource kind')
             obj['metadata']['namespace'] = NAMESPACE
             obj['metadata'].setdefault('labels', {}).update(LABEL)
+            if obj['kind'] == 'Deployment' and obj['metadata'].get('labels', {}).get('app.kubernetes.io/component') == 's3':
+                obj['spec']['template']['spec']['nodeSelector'] = {'kubernetes.io/hostname': peers[0]['metadata']['labels']['kubernetes.io/hostname']}
             kube('apply', '-f', '-', document=obj)
         for name in ('master', 'volume', 'filer'):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
@@ -152,7 +214,16 @@ def run(directory):
         values = control.settings()
         source = control.s3()
         endpoint = 'https://' + values['s3Host'] + ':8334'
-        client = S3(endpoint, source.access, source.secret, address=service['spec']['clusterIP'])
+        source_address = next(row['address'] for row in node['status']['addresses'] if row['type'] == 'InternalIP')
+        # Bind to WireGuard: host access must also work when the S3 pod is remote.
+        client = S3(endpoint, source.access, source.secret, address=service['spec']['clusterIP'], source_address=source_address)
+        kube('apply', '-f', '-', document={'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
+             'metadata': {'name': 'restore-client', 'namespace': NAMESPACE, 'labels': LABEL},
+             'spec': {'podSelector': {'matchLabels': {'app.kubernetes.io/component': 's3'}},
+                      'policyTypes': ['Ingress'], 'ingress': [{'from': [{'ipBlock': {'cidr': cidr}}
+                                                                     for cidr in restore_source_cidrs(node, source_address)],
+                                                             'ports': [{'protocol': 'TCP', 'port': 8334}]}]}})
+        wait(lambda: s3_ready(client, manifest['bucket']), 'isolated S3 native TLS readiness')
         client.ensure_bucket(manifest['bucket'])
         for row in manifest['objects']:
             client.upload(manifest['bucket'], row['key'], directory / row['file'], headers=row['headers'])
@@ -171,11 +242,11 @@ def run(directory):
             if actual_tags != expected_tags:
                 raise RuntimeError('Restored object tags differ')
         app_source = control.s3(False)
-        app = S3(endpoint, app_source.access, app_source.secret, address=service['spec']['clusterIP'])
+        app = S3(endpoint, app_source.access, app_source.secret, address=service['spec']['clusterIP'], source_address=source_address)
         if {r['key'] for r in app.objects(manifest['bucket'])} != {r['key'] for r in manifest['objects']}:
             raise RuntimeError('Restored application cannot list its complete bucket')
         try:
-            S3(endpoint, 'unrelated-restore-fixture', 'invalid-secret', address=service['spec']['clusterIP']).request('GET', manifest['bucket'])
+            S3(endpoint, 'unrelated-restore-fixture', 'invalid-secret', address=service['spec']['clusterIP'], source_address=source_address).request('GET', manifest['bucket'])
             raise RuntimeError('Restored S3 accepted unrelated credentials')
         except S3Error as error:
             if error.status not in (401, 403):
@@ -192,6 +263,11 @@ def run(directory):
         for name in ('master', 'volume', 'filer'):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
         kube('rollout', 'status', 'deployment/data-restore-seaweedfs-s3', '-n', NAMESPACE, '--timeout=600s', timeout=630)
+        wait(lambda: s3_ready(app, manifest['bucket']), 'restarted S3 native TLS readiness')
+        s3_pods = [row for row in get('pods', namespace=NAMESPACE)['items']
+                   if row['metadata'].get('labels', {}).get('app.kubernetes.io/component') == 's3']
+        if len(s3_pods) != 1 or s3_pods[0]['spec']['nodeName'] != peers[0]['metadata']['name']:
+            raise RuntimeError('Restored S3 did not exercise the cross-node private path')
         for row in manifest['objects']:
             record = next(item for item in manifest['files'] if item['file'] == row['file'])
             with tempfile.TemporaryFile() as target:
@@ -202,9 +278,11 @@ def run(directory):
             recovered = json.loads(sql('SET ROLE ' + role + "; SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t", manifest['database']).splitlines()[-1])
             if recovered != manifest['notes_probe']:
                 raise RuntimeError('Restart lost restored notes or attachment references')
+        authenticated_sql(manifest)
         return {'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),
                 'same_existing_hosts': True, 'offsite_reads': False, 'fixture_restarts': True,
-                'notes_object_generation_verified': 'notes_probe' in manifest}
+                'notes_object_generation_verified': 'notes_probe' in manifest,
+                'current_vault_sql_login_and_tls': True, 'cross_node_restore_s3': True}
     finally:
         cleanup()

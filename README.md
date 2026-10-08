@@ -241,6 +241,9 @@ with one PostgreSQL 18.4 instance and one SeaweedFS master, volume, filer and S3
 instance. Each persistent volume explicitly selects two-replica Longhorn storage;
 the global default stays `local-path`. SeaweedFS uses embedded LevelDB metadata.
 Native SQL TLS and private S3 HTTPS require scoped application credentials.
+After milestone 03 prerequisites, `lab data-bootstrap` reapplies only this module;
+`lab data-check` runs its private-access and local recovery gates without B2.
+These focused checks do not replace the required full `lab prove`.
 Certificate DNS-01 self-checks use public resolvers, independent of private split
 DNS; this exposes only the necessary ACME TXT records, not public service addresses.
 Argo owns declarations, CNPG owns PostgreSQL roles and generated workloads, ESO
@@ -271,6 +274,9 @@ No new application may write this dataset through another role or key. Captures
 admit at most 4 GiB of database data and 8 GiB of objects; each generation is capped
 at 16 GiB. Local capture requires 32 GiB free staging space. RLS needs a reviewed
 backup policy before use. Fixture restores run on isolated volumes on the existing VMs.
+Restore checks reinstate current vault passwords through CNPG and query with the
+application identity over verified SQL TLS. Only the disposable S3 namespace admits
+the verifier's exact private host addresses, including Kubernetes service SNAT.
 
 Monthly exports create fresh encrypted restic generations and exercise isolated
 restore before replacing the previous good generation. Local freshness checks

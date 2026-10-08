@@ -91,6 +91,14 @@ class RunnerTests(unittest.TestCase):
                          ['apply.yml', 'apply.yml', 'verify.yml'])
         self.assertEqual(playbook.call_args_list[1].kwargs, {'unchanged': True})
 
+    def test_scoped_data_actions_keep_common_vm_validation(self):
+        for action, expected in [('data-bootstrap', 'bootstrap'), ('data-check', 'check')]:
+            with self.subTest(action=action), patch.dict(os.environ, {}, clear=True):
+                playbook = self.invoke(action)
+                playbook.assert_called_once_with('data.yml')
+                self.assertEqual(os.environ['LAB_DATA_ACTION'], expected)
+                self.assertEqual(os.environ['VM2_PASSWORD'], self.values['VM2_PASSWORD'])
+
     def test_initial_export_uses_host_playbook_and_does_not_enable_longhorn(self):
         window = Mock()
         with patch.dict(runner.sys.modules, {'write_window': window}), \

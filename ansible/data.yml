@@ -4,25 +4,39 @@
   become: true
   gather_facts: false
   any_errors_fatal: true
+  vars:
+    data_action: "{{ lookup('env', 'LAB_DATA_ACTION') }}"
   tasks:
     - name: Require enabled application data services
       ansible.builtin.assert:
         that: data_enabled | bool
         fail_msg: Application data services are not enabled.
+    - name: Run scoped data configuration or verification after milestone 03
+      ansible.builtin.include_role:
+        name: application_data
+        tasks_from: "{{ 'main' if data_action == 'bootstrap' else 'verify' }}"
+      when: data_action in ['bootstrap', 'check']
+    - name: Reconcile scoped grants and buckets after data configuration
+      ansible.builtin.include_role:
+        name: application_data
+        tasks_from: finalize
+      when: data_action == 'bootstrap'
     - name: Run the scoped data action
       ansible.builtin.command:
         argv: [python3, '/opt/cloudlab/automation/data/{{ data_module }}.py', '{{ data_action }}']
       vars:
         data_module: "{{ 'control' if lookup('env', 'LAB_DATA_ACTION') == 'resume' else 'backup' }}"
-        data_action: "{{ lookup('env', 'LAB_DATA_ACTION') }}"
       register: data_action_result
       changed_when: false
       failed_when: false
       no_log: true
+      when: data_action not in ['bootstrap', 'check']
     - name: Require the data action to succeed
       ansible.builtin.assert:
         that: data_action_result.rc == 0
         fail_msg: '{{ data_action_result.stderr }}'
+      when: data_action not in ['bootstrap', 'check']
     - name: Report only sanitized data results
       ansible.builtin.debug:
         msg: '{{ data_action_result.stdout | from_json }}'
+      when: data_action not in ['bootstrap', 'check']

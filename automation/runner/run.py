@@ -38,7 +38,7 @@ def main():
     data_actions = {'data-local': 'local', 'data-monthly': 'monthly',
                     'data-acceptance-export': 'acceptance-export',
                     'data-restore': 'restore-local', 'data-freshness': 'freshness', 'data-resume': 'resume',
-                    'data-cleanup-fixtures': 'cleanup-fixtures'}
+                    'data-cleanup-fixtures': 'cleanup-fixtures', 'data-bootstrap': 'bootstrap', 'data-check': 'check'}
     if action in ('data-credentials', 'data-retrieve', 'data-rotate'):
         module = {'data-credentials': 'credentials.py', 'data-retrieve': 'independent.py', 'data-rotate': 'rotation.py'}[action]
         subprocess.run([sys.executable, '/workspace/automation/data/' + module], check=True)
@@ -155,6 +155,8 @@ def main():
         raise SystemExit('Both VM hosts resolve to the same IPv4 address.')
 
     if selected_data_action:
+        if selected_data_action in ('data-bootstrap', 'data-check'):
+            gitops_preflight()
         playbook('data.yml')
     elif action in {'access-preflight', 'access-external', 'access-prepare-tags'}:
         module = {'access-preflight': 'preflight.py', 'access-external': 'external.py',
