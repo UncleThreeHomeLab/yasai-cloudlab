@@ -1,0 +1,33 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cloudlab-s3
+spec:
+  secretName: cloudlab-s3-tls
+  revisionHistoryLimit: 2
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  issuerRef: {name: cloudlab-acme-production, kind: ClusterIssuer}
+  dnsNames: [{{ .Values.s3Host | quote }}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: cloudlab-s3
+spec:
+  parentRefs:
+    - {name: cloudlab, namespace: cloudlab-gateway-private, sectionName: https}
+  hostnames: [{{ .Values.s3Host | quote }}]
+  rules:
+    - backendRefs:
+        - {name: cloudlab-seaweedfs-s3, port: 8334}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: cloudlab-s3
+spec:
+  targetRefs:
+    - {group: '', kind: Service, name: cloudlab-seaweedfs-s3, sectionName: swfs-s3-tls}
+  validation:
+    hostname: {{ .Values.s3Host | quote }}
+    wellKnownCACertificates: System

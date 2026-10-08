@@ -78,3 +78,15 @@
         name: connectivity
         tasks_from: dns
       when: access_enabled | bool
+
+- name: Provision application data after both private resolvers are ready
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Reconcile application data grants and buckets
+      ansible.builtin.include_role:
+        name: application_data
+        tasks_from: finalize
+      when: data_enabled | bool

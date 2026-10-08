@@ -79,7 +79,8 @@
     argv: [python3, /var/lib/cloudlab/private-dns/dns_host.py]
     stdin: >-
       {{ (hostvars[groups['k3s_servers'][0]].access_dns_inputs.stdout | from_json)
-         | combine({'names': lookup('env', 'PRIVATE_ACCESS_HOSTS') | from_json,
+         | combine({'names': ((lookup('env', 'PRIVATE_ACCESS_HOSTS') | from_json)
+             + ([data_policy.s3_label] if data_enabled | bool else [])) | unique | list,
            'tailnet_address': access_dns_tailnet.stdout | trim,
            'host_address': wireguard_address,
            'nameservers': [hostvars['cloudlab'].access_dns_tailnet.stdout | trim,

@@ -72,3 +72,8 @@
       ansible.builtin.include_role:
         name: gitops
         tasks_from: verify
+    - name: Verify application data and coordinated local recovery
+      ansible.builtin.include_role:
+        name: application_data
+        tasks_from: verify
+      when: data_enabled | bool

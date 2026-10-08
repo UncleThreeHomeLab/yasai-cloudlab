@@ -1,0 +1,3 @@
+---
+data_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).data.enabled }}"
+data_policy: "{{ lookup('file', '/workspace/platform/data/contract.json') | from_json }}"

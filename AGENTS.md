@@ -60,6 +60,18 @@ Use `VM_HOST` and `VM_PASSWORD` from `.env` for VM access. Application secrets
 belong in 1Password and are synchronized through External Secrets. Keep required
 item field names with their owning module. Never print or commit secret values.
 
+When `OP_PROVISION_SERVICE_ACCOUNT_TOKEN` is supplied in ignored `.env`, agents
+may create missing 1Password items required by the authorized task in CloudLab
+without asking again. Use a separate service account with Read Items and Write
+Items access to that vault. Keep `OP_SERVICE_ACCOUNT_TOKEN` read-only for ESO.
+The provisioning token stays local; never deliver it to hosts or Kubernetes.
+Check for existing items before creation, preserve their values on repeat runs,
+and stop on duplicate titles or incompatible fields. Generate secrets securely
+and send sensitive item JSON through standard input, never command arguments or
+logs. Do not overwrite, rotate, delete, share items, or create vaults unless the
+task separately authorizes that action. Missing write access is a prerequisite
+to report, not permission to expand the reader's privileges.
+
 ## Scope
 
 Do only the requested work. Make routine implementation choices yourself;

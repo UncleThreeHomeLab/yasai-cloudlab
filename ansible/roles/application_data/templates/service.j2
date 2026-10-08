@@ -1,0 +1,19 @@
+[Unit]
+Description=CloudLab application data {{ item.name }}
+After=k3s.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/cloudlab/application-data/ownership.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/cloudlab/automation/data/{{ item.module }}.py {{ item.action }}
+UMask=0077
+TimeoutStartSec=4h
+Nice=10
+MemoryMax=2G
+CPUQuota=200%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cloudlab/application-data
+ReadOnlyPaths=/etc/rancher/k3s

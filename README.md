@@ -27,6 +27,7 @@ uses SQLite and depends on the main VM.
 | Security | Host firewalls | Restrict public access; keep cluster and ingress ports private |
 | Secrets | External Secrets Operator | Synchronize 1Password values into Kubernetes Secrets |
 | Storage | [Longhorn](https://github.com/longhorn/longhorn) | Persistent volumes with one replica on each VM |
+| Application data | CloudNativePG + SeaweedFS | Private SQL/TLS and authenticated S3; gated by restore acceptance |
 | Recovery | SQLite + restic | Consistent monthly control-plane export; separate credentials and acceptance |
 
 ## External services
@@ -234,3 +235,52 @@ suspending the new CRD owner and reviewing a reverse handoff. Never delete retai
 Existing host SSH and controller recovery remain independent of the operator and
 access paths. Multiple connectors and gateways do not make the single K3s server highly
 available.
+
+Application data uses the locked charts and policy in `platform/data`. It starts
+with one PostgreSQL 18.4 instance and one SeaweedFS master, volume, filer and S3
+instance. Each persistent volume explicitly selects two-replica Longhorn storage;
+the global default stays `local-path`. SeaweedFS uses embedded LevelDB metadata.
+Native SQL TLS and private S3 HTTPS require scoped application credentials.
+Argo owns declarations, CNPG owns PostgreSQL roles and generated workloads, ESO
+owns application Secrets, and cert-manager owns TLS Secrets. The data reconciler
+owns SQL grants, buckets and S3 credential reloads; it does not rely on Helm hooks.
+
+For initial credential provisioning, create a separate 1Password service account
+with CloudLab Read Items and Write Items permissions. Put its token in ignored
+`.env` as `OP_PROVISION_SERVICE_ACCOUNT_TOKEN`; keep the existing ESO token
+read-only. Run `docker compose run --build --rm lab data-credentials`. This creates
+only missing items from `platform/data/contract.json` and preserves existing
+values. The writer stays local. Database, S3 and encryption secrets are generated
+securely; the endpoint derives from the existing private DNS zone. The application
+backup reuses the existing Longhorn B2 item with a separate `application-data-restic/`
+prefix and encryption password. Shared keys do not enforce separation between prefixes.
+
+Daily local generations retain seven consistent dumps with roles, extensions,
+objects, checksums and object metadata. A short maintenance window disables app
+SQL logins, drains existing sessions and restarts S3 with app keys disabled. The
+data module captures the database and bucket together, then restores access.
+No new application may write this dataset through another role or key. Captures
+admit at most 4 GiB of database data and 8 GiB of objects; each generation is capped
+at 16 GiB. Local capture requires 32 GiB free staging space. RLS needs a reviewed
+backup policy before use. Fixture restores run on isolated volumes on the existing VMs.
+
+Monthly exports create fresh encrypted restic generations and exercise isolated
+restore before replacing the previous good generation. Local freshness checks
+make no B2 requests. `lab data-local`, `data-restore`, and `data-freshness` use the
+Compose entry point; `data-monthly` runs only on day 1 UTC. `data-acceptance-export`
+is the explicitly authorized, once-recorded initial exception. Transfer, full
+integrity reads, retrieval and retention all access B2 during that operation.
+Data PVCs exclude recurring volume backups to avoid duplicate logical/volume paths.
+After interrupted maintenance, inspect the failure and use `lab data-resume` to
+restore declared access; existing data and generations remain intact.
+Interrupted remote candidates are retrieved and restore-tested before the next
+export proceeds. `lab data-retrieve` retrieves the latest verified generation into
+the Compose recovery volume using only a checkout and the vault reader. This is
+an explicit restore-test exception to the monthly B2 window; it needs no cluster.
+The logical-only Longhorn group has no recurring volume jobs. The verifier rejects
+default-group membership or any job assigned to that reserved group.
+
+Whole-lab loss can lose every change since the last successful monthly export,
+roughly a month or longer after failures. No continuous WAL archiving or PITR is
+provided. Disk replication is not database or S3 service HA. Identity and other
+dependent applications remain gated until the complete data recovery proof passes.

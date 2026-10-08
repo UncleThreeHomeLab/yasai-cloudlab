@@ -1,0 +1,16 @@
+---
+- name: Verify private data paths and local coordinated recovery without B2 access
+  ansible.builtin.command: python3 /opt/cloudlab/automation/data/verify.py
+  register: data_verified
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Require application data verification
+  ansible.builtin.assert:
+    that: data_verified.rc == 0
+    fail_msg: '{{ data_verified.stderr }}'
+
+- name: Report sanitized data evidence
+  ansible.builtin.debug:
+    msg: '{{ data_verified.stdout | from_json }}'

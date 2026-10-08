@@ -1,0 +1,106 @@
+---
+- name: Resolve the committed data contract and private identities
+  ansible.builtin.command: python /workspace/automation/data/inputs.py
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: data_payload
+
+- name: Install the host parser used for isolated chart restores
+  ansible.builtin.apt:
+    name: python3-yaml
+    state: present
+
+- name: Create private data automation directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop:
+    - /opt/cloudlab/automation/data
+    - /opt/cloudlab/automation/mesh
+    - /opt/cloudlab/platform/data
+    - /var/lib/cloudlab/application-data
+
+- name: Install application data automation from its owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/data/{{ item }}'
+    dest: '/opt/cloudlab/automation/data/{{ item }}'
+    mode: '0600'
+  loop: [control.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py]
+
+- name: Install the shared Kubernetes helper from its owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/mesh/kube.py'
+    dest: /opt/cloudlab/automation/mesh/kube.py
+    mode: '0600'
+
+- name: Retain the locked restore artifacts and recovery policy
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../platform/data/{{ item }}/'
+    dest: '/opt/cloudlab/platform/data/{{ item }}/'
+    mode: '0600'
+    directory_mode: '0700'
+  loop: [cnpg, seaweedfs]
+
+- name: Install the single application data policy
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../platform/data/contract.json'
+    dest: /opt/cloudlab/platform/data/contract.json
+    mode: '0600'
+
+- name: Install pinned restore and transfer tools
+  ansible.builtin.copy:
+    src: '/usr/local/bin/{{ item }}'
+    dest: '/usr/local/bin/{{ item }}'
+    mode: '0755'
+  loop: [helm, restic]
+
+- name: Reconcile the bounded data Applications
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/automation/data/control.py, configure]
+    stdin: '{{ data_payload.stdout }}'
+  no_log: true
+  register: data_configured
+  changed_when: data_configured.rc == 0 and (data_configured.stdout | from_json).changed
+  failed_when: false
+
+- name: Require data configuration convergence
+  ansible.builtin.assert:
+    that: data_configured.rc == 0
+    fail_msg: '{{ data_configured.stderr }}'
+
+- name: Install serialized data service jobs
+  ansible.builtin.template:
+    src: service.j2
+    dest: '/etc/systemd/system/cloudlab-data-{{ item.name }}.service'
+    mode: '0644'
+  loop:
+    - {name: local, module: backup, action: local}
+    - {name: monthly, module: backup, action: monthly}
+    - {name: freshness, module: backup, action: freshness}
+    - {name: reconcile, module: control, action: reconcile}
+  notify: Reload application data units
+
+- name: Install explicit local and monthly schedules
+  ansible.builtin.template:
+    src: timer.j2
+    dest: '/etc/systemd/system/cloudlab-data-{{ item.name }}.timer'
+    mode: '0644'
+  loop:
+    - {name: local, calendar: '{{ data_policy.local_calendar }}'}
+    - {name: monthly, calendar: '{{ data_policy.monthly_calendar }}'}
+    - {name: freshness, calendar: '*-*-* 06:00:00 UTC'}
+    - {name: reconcile, calendar: '*-*-* *:0/5:00 UTC'}
+  notify: Reload application data units
+
+- name: Load the declared data job definitions
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable data timers
+  ansible.builtin.systemd_service:
+    name: 'cloudlab-data-{{ item }}.timer'
+    enabled: true
+    state: started
+  loop: [local, monthly, freshness, reconcile]

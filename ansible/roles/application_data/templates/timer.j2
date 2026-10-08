@@ -1,0 +1,12 @@
+[Unit]
+Description=CloudLab application data {{ item.name }} schedule
+
+[Timer]
+OnCalendar={{ item.calendar }}
+Persistent=false
+RandomizedDelaySec=0
+AccuracySec=1min
+Unit=cloudlab-data-{{ item.name }}.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,80 @@
+{{- if or (eq .Values.applicationRole .Values.migrationRole) (eq .Values.applicationRole .Values.backupRole) (eq .Values.migrationRole .Values.backupRole) }}
+{{- fail "Application, migration and backup roles must differ" }}
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cloudlab-postgres
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    cloudlab.io/backup-path: logical
+spec:
+  instances: 1
+  imageName: {{ .Values.postgresImage | quote }}
+  enableSuperuserAccess: false
+  storage: {size: 16Gi, storageClass: cloudlab-data}
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: '2', memory: 4Gi}
+  bootstrap:
+    initdb:
+      database: {{ .Values.database | quote }}
+      owner: {{ .Values.migrationRole | quote }}
+      secret: {name: notes-migration}
+      dataChecksums: true
+      postInitSQL:
+        - REVOKE CONNECT ON DATABASE postgres FROM PUBLIC
+        - REVOKE CONNECT ON DATABASE template1 FROM PUBLIC
+      postInitApplicationSQL:
+        - {{ printf "REVOKE ALL ON DATABASE %s FROM PUBLIC" .Values.database | quote }}
+        - REVOKE CREATE ON SCHEMA public FROM PUBLIC
+  managed:
+    roles:
+      {{- range $role := list (dict "name" .Values.applicationRole "secret" "notes-application") (dict "name" .Values.migrationRole "secret" "notes-migration") (dict "name" .Values.backupRole "secret" "database-backup") }}
+      - name: {{ $role.name | quote }}
+        ensure: present
+        login: {{ if and $.Values.maintenance (ne $role.secret "database-backup") }}false{{ else }}true{{ end }}
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        connectionLimit: 20
+        inRoles: []
+        passwordSecret: {name: {{ $role.secret }}}
+      {{- end }}
+  postgresql:
+    parameters:
+      ssl_min_protocol_version: TLSv1.2
+      password_encryption: scram-sha-256
+      max_connections: '100'
+      shared_buffers: 256MB
+    pg_hba:
+      - hostnossl all all all reject
+      {{- range $name := list .Values.applicationRole .Values.migrationRole .Values.backupRole }}
+      - {{ printf "hostssl %s %s all scram-sha-256" $.Values.database $name | quote }}
+      {{- end }}
+      - host all all all reject
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-private
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: cloudlab-postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cnpg-system}
+      ports: [{protocol: TCP, port: 8000}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cloudlab-notes}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cloudlab-data-proof}
+        - podSelector: {}
+      ports: [{protocol: TCP, port: 5432}]
