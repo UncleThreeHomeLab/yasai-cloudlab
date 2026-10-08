@@ -47,16 +47,17 @@ class DataTests(unittest.TestCase):
         roles = [{'name': 'notes_app', 'passwordSecret': {'name': 'notes-application'}}]
         with patch.object(control, 'settings', return_value=values), \
                 patch.object(control, 'secret', return_value={'username': 'notes_app', 'password': 'synthetic'}), \
-                patch.object(restore, 'get', side_effect=lambda kind, *args: None if kind == 'namespace' else {'spec': {'managed': {'roles': roles}}}), \
+                patch.object(restore, 'get', side_effect=lambda kind, *args: None if kind == 'namespace' else {'spec': {'managed': {'roles': roles}, 'postgresql': {'pg_hba': ['host all all all reject']}}}), \
                 patch.object(restore, 'kube') as kube, patch.object(restore, 'wait'), \
                 patch.object(checks, 'sql_client') as client, \
-                patch.object(checks, 'pod_query', return_value=Mock(returncode=0, stdout='[]')), \
+                patch.object(checks, 'pod_query', side_effect=[Mock(returncode=0, stdout='[]'), *[Mock(returncode=1) for _ in range(3)]]), \
                 patch.object(rotation, 'cleanup_sql') as cleanup:
             restore.authenticated_sql(manifest)
             client.assert_called_once_with(values, database_namespace=restore.NAMESPACE, cluster='data-restore')
             cleanup.assert_called_once()
             self.assertEqual(kube.call_args_list[0].kwargs['document']['stringData']['password'], 'synthetic')
             self.assertNotIn('synthetic', str(kube.call_args_list[1].args))
+            self.assertIn('host all all all reject', str(kube.call_args_list[1].args))
             with self.assertRaisesRegex(RuntimeError, 'credential mapping'):
                 restore.authenticated_sql(dict(manifest, database='unrelated'))
 
