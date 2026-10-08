@@ -23,6 +23,7 @@ from automation.connectivity.dns_wire import absent_answer, private_answer, quer
 from automation.connectivity.traffic import denied, https, success
 from automation.connectivity.tailnet_probe import verify as denied_tailnet
 from automation.connectivity.human import retained as human_evidence
+from automation.connectivity.checkpoint import transaction
 
 
 def remote(action, **payload):
@@ -107,6 +108,11 @@ def _run(*, failures=True, keep=False):
     try:
         remote('prepare', **payload)
         remote('snapshot')
+        identities = remote('identities')
+        with transaction() as receipts:
+            previous = receipts.load('acceptance')
+        if previous and previous.get('identities') != identities:
+            raise RuntimeError('Persisted proxy identity changed since accepted proof')
         for hostname in categories['public']:
             response = retry(lambda: (r if success(r := https(hostname)) else False), 'outside public HTTPS')
             if not response['public_peer'] or not response['headers'].get('cf-ray'):
@@ -122,7 +128,9 @@ def _run(*, failures=True, keep=False):
         public_host = categories['public'][0]
         private_host = private[0] + '.' + runtime['private']['zone']
         for hostname in ['unknown-cloudlab-proof.' + runtime['zone'], private_host]:
-            if not denied(https(public_host, headers={'Host': hostname})):
+            response = https(public_host, headers={'Host': hostname})
+            edge_unknown = response['status'] == 530 and response['headers'].get('cf-ray') and b'mesh-ok' not in response['body']
+            if not denied(response) and not edge_unknown:
                 raise RuntimeError('Unknown or private hostname leaked through the public edge')
         for prefix in ('VM', 'VM2'):
             for port in (80, 443, 6443):
@@ -166,7 +174,15 @@ def _run(*, failures=True, keep=False):
                 output['disruptions'][component] = disruption(component, probe)
                 print(json.dumps({'component': component, **output['disruptions'][component]}), flush=True)
         output.update(human_evidence())
+        if remote('identities') != identities:
+            raise RuntimeError('Disposable failure changed a persisted proxy identity')
+        output['proxy_identities_preserved'] = True
         output['acceptance_passed'] = failures
+        if failures:
+            with transaction() as receipts:
+                external = receipts.load('external')
+                receipts.save('acceptance', {'verified_at': int(time.time()), 'identities': identities,
+                    'external_binding': external['binding'], 'evidence': output})
         return output
     finally:
         if not keep:

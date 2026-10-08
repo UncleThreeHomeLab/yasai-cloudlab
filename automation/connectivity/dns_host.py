@@ -123,7 +123,16 @@ def configure(payload):
                 command('systemctl', 'restart', SERVICE)
             raise
     else:
-        validate_answers(payload)
+        # An unchanged generation still needs live proof. Bound transient packet
+        # loss without restarting a healthy resolver or declaring a change.
+        for attempt in range(5):
+            try:
+                validate_answers(payload)
+                break
+            except (OSError, ValueError, RuntimeError):
+                if attempt == 4:
+                    raise
+                time.sleep(1)
     atomic(STATE / 'inputs.json', json.dumps(payload, sort_keys=True))
     atomic(receipt, digest)
     return {'changed': changed or not active, 'dns_ready': True, 'host_resolver_changed': False}

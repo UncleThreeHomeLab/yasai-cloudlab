@@ -29,6 +29,10 @@ class HumanTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.receipt = Path(temp.name) / 'proof.json'
+        receipt_store = patch.object(human, 'transaction')
+        store = receipt_store.start().return_value.__enter__.return_value
+        self.addCleanup(receipt_store.stop)
+        store.load.side_effect = lambda name: json.loads(self.receipt.read_text()) if self.receipt.exists() else None
         for item in (patch.object(human, 'RECEIPT', self.receipt),
                      patch.dict(os.environ, {'CLOUDFLARE_HUMAN_EMAIL': 'admin@example.invalid'}),
                      patch.object(human, 'selected', return_value=([{'hostname': 'human.example.invalid', 'aud': 'audience'}],
