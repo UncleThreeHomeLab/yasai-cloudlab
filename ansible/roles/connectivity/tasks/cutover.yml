@@ -15,6 +15,37 @@
   changed_when: access_cutover_result.rc == 0 and (access_cutover_result.stdout | from_json).changed
   no_log: true
 
+- name: Disable unused ServiceLB only after its controller removes the legacy Service finalizer
+  ansible.builtin.include_role:
+    name: k3s
+    tasks_from: configure
+
+- name: Apply the final packaged controller configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Require the single server to return ready after ServiceLB retirement
+  ansible.builtin.include_role:
+    name: k3s
+    tasks_from: ready
+
+- name: Read the applied packaged controller configuration
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/config.yaml
+  register: access_final_k3s_config
+  no_log: true
+
+- name: Accept the handoff only after both packaged controllers are disabled
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/connectivity/cutover.py]
+    stdin: >-
+      {{ (gitops_payload.stdout | from_json) | combine({'action': 'accept',
+         'disabled': (access_final_k3s_config.content | b64decode | from_yaml).disable}) | to_json }}
+  register: access_cutover_result
+  delegate_to: localhost
+  become: false
+  changed_when: access_cutover_result.rc == 0 and (access_cutover_result.stdout | from_json).changed
+  no_log: true
+
 - name: Report retained Gateway API handoff
   ansible.builtin.debug:
     msg: '{{ access_cutover_result.stdout | from_json }}'

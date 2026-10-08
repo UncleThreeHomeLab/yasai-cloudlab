@@ -217,8 +217,10 @@ audience and policy. Changed human policy requires a fresh sign-in proof.
 
 `lab access-cutover` requires complete replacement acceptance from the last 24 hours,
 rechecks access, and audits the stored Helm release for all ten CRD retention rules.
-Only then does Ansible disable bundled Traefik and unused ServiceLB and restart K3s.
-This required configuration restart interrupts the single control plane; it is not
+Only then does Ansible disable bundled Traefik and restart K3s. ServiceLB stays
+active until its controller removes Traefik's Service finalizer and all load-balancer
+workloads. After CRD adoption, Ansible disables unused ServiceLB with a second K3s
+restart. These required configuration restarts interrupt the single control plane; this is not
 a control-plane HA test. The handoff retains CRD UIDs and pinned definitions, then
 assigns their sole ongoing owner to a restricted Gateway API Argo Application.
 Keep `/var/lib/cloudlab/connectivity/cutover.json` and `k3s-before-cutover.yaml`.

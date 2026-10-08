@@ -115,7 +115,7 @@ def finish(payload):
     if any(d['metadata']['name'].startswith('svclb-') for d in get('daemonsets', namespace='kube-system')['items']):
         raise RuntimeError('Unused ServiceLB workloads remain')
     # The old Helm reconciler is gone. Retained CRDs can now acquire one new owner.
-    changed = state['phase'] != 'accepted'
+    changed = state['phase'] not in ('adopted', 'accepted')
     for name in state['crds']:
         obj = get('customresourcedefinition', name)
         annotations = obj['metadata'].get('annotations', {})
@@ -158,11 +158,24 @@ def finish(payload):
                 or not any(field.get('manager') == 'argocd-controller' and field.get('operation') == 'Apply'
                            and 'f:spec' in field.get('fieldsV1', {}) for field in actual['metadata'].get('managedFields', []))):
             raise RuntimeError('Gateway API spec is not owned by the declared GitOps reconciler')
+    if state['phase'] == 'prepared':
+        state['phase'] = 'adopted'
+        record(state)
+    return {'changed': changed, 'phase': state['phase'], 'retained_gateway_crds': 10,
+            'traefik_removed': True, 'servicelb_workloads_removed': True, 'control_plane_ha': False}
+
+
+def accept(payload):
+    state = json.loads(RECEIPT.read_text())
+    if state['phase'] not in ('adopted', 'accepted') or sorted(payload.get('disabled', [])) != ['servicelb', 'traefik']:
+        raise RuntimeError('Both packaged components must be disabled after CRD adoption')
+    # Recheck the retained owner and absence of consumers after the final restart.
+    result = finish(payload)
     if state['phase'] != 'accepted':
         state['phase'] = 'accepted'
         record(state)
-    return {'changed': changed, 'phase': 'accepted', 'retained_gateway_crds': 10,
-            'traefik_removed': True, 'servicelb_removed': True, 'control_plane_ha': False}
+        result['changed'] = True
+    return dict(result, phase='accepted', servicelb_removed=True)
 
 
 if __name__ == '__main__':
@@ -171,7 +184,7 @@ if __name__ == '__main__':
         action = payload.pop('action')
         result = ({'state': json.loads(RECEIPT.read_text()) if RECEIPT.exists() else None} if action == 'status'
                   else release() if action == 'release' else prepare(payload) if action == 'prepare'
-                  else finish(payload) if action == 'finish' else None)
+                  else finish(payload) if action == 'finish' else accept(payload) if action == 'accept' else None)
         if result is None: raise ValueError('Invalid legacy handoff action')
         print(json.dumps(result))
     except Exception:

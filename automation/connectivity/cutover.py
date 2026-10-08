@@ -33,7 +33,7 @@ def retention(manifest, expected):
 
 def remote(action, payload=None):
     return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 /var/lib/cloudlab/connectivity/legacy.py',
-        input=json.dumps(dict(payload or {}, action=action)), timeout=1500 if action == 'finish' else 180))
+        input=json.dumps(dict(payload or {}, action=action)), timeout=1500 if action in ('finish', 'accept') else 180))
 
 
 def prepare(payload):
@@ -60,9 +60,9 @@ if __name__ == '__main__':
         payload = json.load(sys.stdin)
         payload['gateway_api'] = definitions()
         action = payload.pop('action', 'prepare')
-        if action == 'finish':
+        if action in ('finish', 'accept'):
             with transaction():
-                result = remote('finish', payload)
+                result = remote(action, payload)
         elif action == 'prepare':
             result = prepare(payload)
         else:
