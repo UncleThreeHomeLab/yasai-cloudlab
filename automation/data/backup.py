@@ -61,6 +61,8 @@ def run(action):
         for candidate in base.glob('candidate-*'):
             discard_candidate(candidate, base)
         directory = base / ('candidate-' + str(time.time_ns()))
+        # A killed job must not leave the previous successful attempt looking fresh.
+        control.atomic(control.BASE / (kind + '-attempt.json'), {'success': False, 'started_at': time.time()})
         try:
             manifest = capture(directory)
             # Name becomes eligible for retention only after integrity validation.

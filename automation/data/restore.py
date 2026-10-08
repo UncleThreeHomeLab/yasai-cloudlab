@@ -82,7 +82,8 @@ def authenticated_sql(manifest):
          '-p', json.dumps({'spec': {'managed': {'roles': roles}}}))
     try:
         checks.sql_client(values, database_namespace=NAMESPACE, cluster='data-restore')
-        wait(lambda: checks.pod_query([], 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();').stdout.strip() == 't',
+        wait(lambda: (result := checks.pod_query([], 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();')).returncode == 0
+             and result.stdout.strip() == 't',
              'restored password and verified SQL TLS')
         if 'notes_probe' in manifest:
             result = checks.pod_query([], "SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t")

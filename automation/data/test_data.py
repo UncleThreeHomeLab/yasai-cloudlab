@@ -11,6 +11,16 @@ from automation.data import backup, capture, chart, control, credentials, remote
 
 
 class DataTests(unittest.TestCase):
+    def test_interrupted_capture_cannot_keep_successful_attempt_status(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
+                patch.object(control, 'settings', return_value={'maintenance': False}), \
+                patch.object(backup, 'capture', side_effect=KeyboardInterrupt):
+            path = Path(temporary) / 'local-attempt.json'
+            path.write_text('{"success":true}')
+            with self.assertRaises(KeyboardInterrupt):
+                backup.run('local')
+            self.assertFalse(json.loads(path.read_text())['success'])
+
     def test_restore_policy_allows_only_exact_private_host_snat_addresses(self):
         interfaces = [{'ifname': name, 'addr_info': [{'family': 'inet', 'local': value}]} for name, value in (
             ('flannel.1', '10.42.0.0'), ('cni0', '10.42.0.1'), ('eth0', '203.0.113.1'), ('cni0', '10.43.0.1'))]
