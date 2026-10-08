@@ -241,6 +241,9 @@ with one PostgreSQL 18.4 instance and one SeaweedFS master, volume, filer and S3
 instance. Each persistent volume explicitly selects two-replica Longhorn storage;
 the global default stays `local-path`. SeaweedFS uses embedded LevelDB metadata.
 Native SQL TLS and private S3 HTTPS require scoped application credentials.
+After milestone 03 prerequisites, `lab data-bootstrap` reapplies only this module;
+`lab data-check` runs its private-access and local recovery gates without B2.
+These focused checks do not replace the required full `lab prove`.
 Certificate DNS-01 self-checks use public resolvers, independent of private split
 DNS; this exposes only the necessary ACME TXT records, not public service addresses.
 Argo owns declarations, CNPG owns PostgreSQL roles and generated workloads, ESO
