@@ -37,6 +37,34 @@ def sql(statement, database='postgres'):
     return postgres(['psql', '-X', '-At', '-v', 'ON_ERROR_STOP=1', '-d', database], data=statement.encode()).decode().strip()
 
 
+def authenticated_sql(manifest):
+    from automation.data import verify as checks
+    from automation.data.rotation import cleanup_sql
+    values = control.settings()
+    if manifest['database'] != values['database'] or manifest['roles'] != [values[key] for key in ('applicationRole', 'migrationRole', 'backupRole')]:
+        raise RuntimeError('Restored identities require a reviewed credential mapping')
+    if get('namespace', checks.NAMESPACE):
+        raise RuntimeError('Previous SQL fixture must be cleaned before restore authentication')
+    roles = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE)['spec']['managed']['roles']
+    for role in roles:
+        name = role['passwordSecret']['name']
+        kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Secret',
+             'metadata': {'name': name, 'namespace': NAMESPACE, 'labels': LABEL},
+             'type': 'kubernetes.io/basic-auth', 'stringData': control.secret(name)})
+    kube('patch', 'cluster.postgresql.cnpg.io', 'data-restore', '-n', NAMESPACE, '--type=merge',
+         '-p', json.dumps({'spec': {'managed': {'roles': roles}}}))
+    try:
+        checks.sql_client(values, database_namespace=NAMESPACE, cluster='data-restore')
+        wait(lambda: checks.pod_query([], 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();').stdout.strip() == 't',
+             'restored password and verified SQL TLS')
+        if 'notes_probe' in manifest:
+            result = checks.pod_query([], "SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t")
+            if result.returncode or json.loads(result.stdout) != manifest['notes_probe']:
+                raise RuntimeError('Authenticated restored application queries differ')
+    finally:
+        cleanup_sql()
+
+
 def cleanup():
     checkpoint = control.BASE / 'restore-cleanup.json'
     namespace = get('namespace', NAMESPACE)
@@ -202,9 +230,11 @@ def run(directory):
             recovered = json.loads(sql('SET ROLE ' + role + "; SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t", manifest['database']).splitlines()[-1])
             if recovered != manifest['notes_probe']:
                 raise RuntimeError('Restart lost restored notes or attachment references')
+        authenticated_sql(manifest)
         return {'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),
                 'same_existing_hosts': True, 'offsite_reads': False, 'fixture_restarts': True,
-                'notes_object_generation_verified': 'notes_probe' in manifest}
+                'notes_object_generation_verified': 'notes_probe' in manifest,
+                'current_vault_sql_login_and_tls': True}
     finally:
         cleanup()

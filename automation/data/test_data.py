@@ -11,6 +11,26 @@ from automation.data import backup, capture, chart, control, credentials, remote
 
 
 class DataTests(unittest.TestCase):
+    def test_restore_authentication_uses_current_secrets_and_isolated_sql_tls(self):
+        from automation.data import verify as checks
+        values = {'database': 'notes', 'applicationRole': 'notes_app', 'migrationRole': 'notes_migration', 'backupRole': 'backup'}
+        manifest = {'database': 'notes', 'roles': ['notes_app', 'notes_migration', 'backup'], 'notes_probe': []}
+        roles = [{'name': 'notes_app', 'passwordSecret': {'name': 'notes-application'}}]
+        with patch.object(control, 'settings', return_value=values), \
+                patch.object(control, 'secret', return_value={'username': 'notes_app', 'password': 'synthetic'}), \
+                patch.object(restore, 'get', side_effect=lambda kind, *args: None if kind == 'namespace' else {'spec': {'managed': {'roles': roles}}}), \
+                patch.object(restore, 'kube') as kube, patch.object(restore, 'wait'), \
+                patch.object(checks, 'sql_client') as client, \
+                patch.object(checks, 'pod_query', return_value=Mock(returncode=0, stdout='[]')), \
+                patch.object(rotation, 'cleanup_sql') as cleanup:
+            restore.authenticated_sql(manifest)
+            client.assert_called_once_with(values, database_namespace=restore.NAMESPACE, cluster='data-restore')
+            cleanup.assert_called_once()
+            self.assertEqual(kube.call_args_list[0].kwargs['document']['stringData']['password'], 'synthetic')
+            self.assertNotIn('synthetic', str(kube.call_args_list[1].args))
+            with self.assertRaisesRegex(RuntimeError, 'credential mapping'):
+                restore.authenticated_sql(dict(manifest, database='unrelated'))
+
     def test_restored_tag_gate_preserves_key_value_pairs(self):
         original = '<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag><Tag><Key>b</Key><Value>2</Value></Tag></TagSet></Tagging>'
         swapped = original.replace('<Value>1', '<Value>x').replace('<Value>2', '<Value>1').replace('<Value>x', '<Value>2')

@@ -29,7 +29,7 @@ def pod_query(arguments, statement='SELECT 1;'):
     return result
 
 
-def sql_client(values, credentials=None):
+def sql_client(values, credentials=None, *, database_namespace=control.NAMESPACE, cluster='cloudlab-postgres'):
     if get('namespace', NAMESPACE):
         raise RuntimeError('Previous SQL fixture remains; review its owner before cleanup')
     kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': NAMESPACE,
@@ -38,13 +38,13 @@ def sql_client(values, credentials=None):
     credentials = credentials or control.secret('notes-application')
     kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'Secret',
          'metadata': {'name': 'application', 'namespace': NAMESPACE}, 'stringData': credentials})
-    certificate = get('secret', 'cloudlab-postgres-ca', control.NAMESPACE)
+    certificate = get('secret', cluster + '-ca', database_namespace)
     kube('apply', '-f', '-', document={'apiVersion': 'v1', 'kind': 'ConfigMap',
          'metadata': {'name': 'database-ca', 'namespace': NAMESPACE},
          'data': {'ca.crt': base64.b64decode(certificate['data']['ca.crt']).decode()}})
     pin = json.loads((control.ROOT / 'platform/data/cnpg/artifact.lock.json').read_text())['postgres_image']
     env = [{'name': name, 'value': value} for name, value in {
-        'PGHOST': 'cloudlab-postgres-rw.cloudlab-data.svc', 'PGDATABASE': values['database'],
+        'PGHOST': cluster + '-rw.' + database_namespace + '.svc', 'PGDATABASE': values['database'],
         'PGUSER': credentials['username'], 'PGSSLMODE': 'verify-full', 'PGSSLROOTCERT': '/tls/ca.crt',
         'PGCONNECT_TIMEOUT': '10'}.items()]
     env.append({'name': 'PGPASSWORD', 'valueFrom': {'secretKeyRef': {'name': 'application', 'key': 'password'}}})
