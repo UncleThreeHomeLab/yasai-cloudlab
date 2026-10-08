@@ -99,8 +99,8 @@ def cleanup():
     if not namespace and not checkpoint.exists():
         # Recover fixtures left by the pre-checkpoint cleanup implementation.
         targets = []
-        names = {'data-restore-1', 'data-data-restore-seaweedfs-master-0',
-                 'data-data-restore-seaweedfs-filer-0', 'data1-data-restore-seaweedfs-volume-0'}
+        names = {'data-restore-1', 'data-cloudlab-data-restore-data-restore-seaweedfs-master-0',
+                 'data-filer-data-restore-seaweedfs-filer-0', 'data1-data-restore-seaweedfs-volume-0'}
         for volume in get('pv')['items']:
             ref = volume['spec'].get('claimRef', {})
             if ref.get('namespace') != NAMESPACE:
