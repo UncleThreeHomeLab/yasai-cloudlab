@@ -1,5 +1,6 @@
 """Restore immutable generations into disposable, isolated service fixtures."""
 import base64
+import ipaddress
 import json
 import socket
 from pathlib import Path
@@ -34,6 +35,19 @@ def s3_ready(client, bucket):
         return True
     except RuntimeError:
         return False
+
+
+def restore_source_cidrs(node, source):
+    addresses = {source}
+    subnet = ipaddress.ip_network(node['spec']['podCIDR'])
+    interfaces = json.loads(subprocess.check_output(['ip', '-j', 'address'], stderr=subprocess.PIPE))
+    for interface in interfaces:
+        if interface['ifname'] in ('cni0', 'flannel.1'):
+            addresses.update(row['local'] for row in interface['addr_info'] if row['family'] == 'inet'
+                             and ipaddress.ip_address(row['local']) in subnet)
+    if any(ipaddress.ip_address(address).version != 4 or not ipaddress.ip_address(address).is_private for address in addresses):
+        raise RuntimeError('Restore client policy requires private host addresses')
+    return [address + '/32' for address in sorted(addresses)]
 
 
 def postgres(arguments, *, source=None, data=None):
@@ -200,7 +214,8 @@ def run(directory):
         kube('apply', '-f', '-', document={'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
              'metadata': {'name': 'restore-client', 'namespace': NAMESPACE, 'labels': LABEL},
              'spec': {'podSelector': {'matchLabels': {'app.kubernetes.io/component': 's3'}},
-                      'policyTypes': ['Ingress'], 'ingress': [{'from': [{'ipBlock': {'cidr': source_address + '/32'}}],
+                      'policyTypes': ['Ingress'], 'ingress': [{'from': [{'ipBlock': {'cidr': cidr}}
+                                                                     for cidr in restore_source_cidrs(node, source_address)],
                                                              'ports': [{'protocol': 'TCP', 'port': 8334}]}]}})
         wait(lambda: s3_ready(client, manifest['bucket']), 'isolated S3 native TLS readiness')
         client.ensure_bucket(manifest['bucket'])

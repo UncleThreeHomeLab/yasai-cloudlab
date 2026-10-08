@@ -11,6 +11,13 @@ from automation.data import backup, capture, chart, control, credentials, remote
 
 
 class DataTests(unittest.TestCase):
+    def test_restore_policy_allows_only_exact_private_host_snat_addresses(self):
+        interfaces = [{'ifname': name, 'addr_info': [{'family': 'inet', 'local': value}]} for name, value in (
+            ('flannel.1', '10.42.0.0'), ('cni0', '10.42.0.1'), ('eth0', '203.0.113.1'), ('cni0', '10.43.0.1'))]
+        with patch.object(restore.subprocess, 'check_output', return_value=json.dumps(interfaces)):
+            self.assertEqual(restore.restore_source_cidrs({'spec': {'podCIDR': '10.42.0.0/24'}}, '172.30.0.1'),
+                             ['10.42.0.0/32', '10.42.0.1/32', '172.30.0.1/32'])
+
     def test_restore_readiness_preserves_authentication_and_private_source(self):
         client = Mock()
         client.request.side_effect = RuntimeError('temporarily unavailable')
