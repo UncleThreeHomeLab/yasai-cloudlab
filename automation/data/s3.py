@@ -26,7 +26,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class S3:
-    def __init__(self, endpoint, access, secret, region='us-east-1', address=None):
+    def __init__(self, endpoint, access, secret, region='us-east-1', address=None, source_address=None):
         parsed = urllib.parse.urlsplit(endpoint)
         if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
                 or parsed.path not in ('', '/') or parsed.query or parsed.fragment):
@@ -36,6 +36,8 @@ class S3:
         self.endpoint, self.host = endpoint.rstrip('/'), parsed.netloc
         self.access, self.secret, self.region = access, secret, region
         self.opener = urllib.request.build_opener(NoRedirect())
+        if source_address is not None and (address is None or not ipaddress.ip_address(source_address).is_private):
+            raise ValueError('Restore source address must be private and use a dial override')
         if address is not None:
             # Isolated restore uses a private Service IP while preserving hostname
             # verification and SNI. Never disable certificate verification.
@@ -43,7 +45,8 @@ class S3:
                 raise ValueError('Restore dial override must be a private IP')
             class Connection(http.client.HTTPSConnection):
                 def connect(self):
-                    raw = socket.create_connection((address, self.port), self.timeout)
+                    raw = socket.create_connection((address, self.port), self.timeout,
+                                                   source_address=(source_address, 0) if source_address else None)
                     self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
             class Handler(urllib.request.HTTPSHandler):
                 def https_open(self, request):

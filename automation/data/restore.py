@@ -1,6 +1,7 @@
 """Restore immutable generations into disposable, isolated service fixtures."""
 import base64
 import json
+import socket
 from pathlib import Path
 import subprocess
 import tempfile
@@ -21,6 +22,18 @@ LABEL = {'cloudlab.io/fixture': 'application-data-restore'}
 def object_tags(document):
     return sorted((tag.findtext('{*}Key'), tag.findtext('{*}Value'))
                   for tag in ET.fromstring(document).findall('.//{*}Tag'))
+
+
+def s3_ready(client, bucket):
+    try:
+        client.request('HEAD', bucket)
+        return True
+    except S3Error as error:
+        if error.status != 404:
+            raise
+        return True
+    except RuntimeError:
+        return False
 
 
 def postgres(arguments, *, source=None, data=None):
@@ -180,7 +193,16 @@ def run(directory):
         values = control.settings()
         source = control.s3()
         endpoint = 'https://' + values['s3Host'] + ':8334'
-        client = S3(endpoint, source.access, source.secret, address=service['spec']['clusterIP'])
+        node = get('node', socket.gethostname())
+        source_address = next(row['address'] for row in node['status']['addresses'] if row['type'] == 'InternalIP')
+        # Bind to WireGuard: host access must also work when the S3 pod is remote.
+        client = S3(endpoint, source.access, source.secret, address=service['spec']['clusterIP'], source_address=source_address)
+        kube('apply', '-f', '-', document={'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
+             'metadata': {'name': 'restore-client', 'namespace': NAMESPACE, 'labels': LABEL},
+             'spec': {'podSelector': {'matchLabels': {'app.kubernetes.io/component': 's3'}},
+                      'policyTypes': ['Ingress'], 'ingress': [{'from': [{'ipBlock': {'cidr': source_address + '/32'}}],
+                                                             'ports': [{'protocol': 'TCP', 'port': 8334}]}]}})
+        wait(lambda: s3_ready(client, manifest['bucket']), 'isolated S3 native TLS readiness')
         client.ensure_bucket(manifest['bucket'])
         for row in manifest['objects']:
             client.upload(manifest['bucket'], row['key'], directory / row['file'], headers=row['headers'])
@@ -199,11 +221,11 @@ def run(directory):
             if actual_tags != expected_tags:
                 raise RuntimeError('Restored object tags differ')
         app_source = control.s3(False)
-        app = S3(endpoint, app_source.access, app_source.secret, address=service['spec']['clusterIP'])
+        app = S3(endpoint, app_source.access, app_source.secret, address=service['spec']['clusterIP'], source_address=source_address)
         if {r['key'] for r in app.objects(manifest['bucket'])} != {r['key'] for r in manifest['objects']}:
             raise RuntimeError('Restored application cannot list its complete bucket')
         try:
-            S3(endpoint, 'unrelated-restore-fixture', 'invalid-secret', address=service['spec']['clusterIP']).request('GET', manifest['bucket'])
+            S3(endpoint, 'unrelated-restore-fixture', 'invalid-secret', address=service['spec']['clusterIP'], source_address=source_address).request('GET', manifest['bucket'])
             raise RuntimeError('Restored S3 accepted unrelated credentials')
         except S3Error as error:
             if error.status not in (401, 403):
@@ -220,6 +242,7 @@ def run(directory):
         for name in ('master', 'volume', 'filer'):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
         kube('rollout', 'status', 'deployment/data-restore-seaweedfs-s3', '-n', NAMESPACE, '--timeout=600s', timeout=630)
+        wait(lambda: s3_ready(app, manifest['bucket']), 'restarted S3 native TLS readiness')
         for row in manifest['objects']:
             record = next(item for item in manifest['files'] if item['file'] == row['file'])
             with tempfile.TemporaryFile() as target:

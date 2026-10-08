@@ -11,6 +11,18 @@ from automation.data import backup, capture, chart, control, credentials, remote
 
 
 class DataTests(unittest.TestCase):
+    def test_restore_readiness_preserves_authentication_and_private_source(self):
+        client = Mock()
+        client.request.side_effect = RuntimeError('temporarily unavailable')
+        self.assertFalse(restore.s3_ready(client, 'notes'))
+        client.request.side_effect = s3.S3Error(404)
+        self.assertTrue(restore.s3_ready(client, 'notes'))
+        client.request.side_effect = s3.S3Error(403)
+        with self.assertRaises(s3.S3Error):
+            restore.s3_ready(client, 'notes')
+        with self.assertRaisesRegex(ValueError, 'source address'):
+            s3.S3('https://example.invalid', 'test', 'test', address='10.0.0.1', source_address='8.8.8.8')
+
     def test_restore_authentication_uses_current_secrets_and_isolated_sql_tls(self):
         from automation.data import verify as checks
         values = {'database': 'notes', 'applicationRole': 'notes_app', 'migrationRole': 'notes_migration', 'backupRole': 'backup'}
