@@ -115,7 +115,7 @@ def verify():
                 state = json.loads(subprocess.check_output(cli + ['status', '--json'], stderr=subprocess.DEVNULL))
                 if state['BackendState'] != 'Running' or state['Self'].get('Tags') != [TEST_TAG]:
                     raise RuntimeError('Denied fixture has unexpected identity')
-                peers = {ip for peer in state.get('Peer', {}).values() for ip in peer.get('TailscaleIPs', [])}
+                peers = {ip for peer in (state.get('Peer') or {}).values() for ip in peer.get('TailscaleIPs', [])}
                 for address, destination_port in targets:
                     if tailnet_connect(control_socket, address, destination_port, peers):
                         raise RuntimeError('Denied fixture reached a host SSH port')
