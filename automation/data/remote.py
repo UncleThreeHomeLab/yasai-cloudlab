@@ -173,6 +173,9 @@ class Repository:
             raise RuntimeError('Monthly retention did not leave exactly one generation')
         return {'captured_at': manifest['captured_at'], 'verified_at': datetime.now(timezone.utc).timestamp(),
                 'snapshot': keep, 'previous_preserved_until_verified': bool(previous), 'retention_complete': True,
-                'retained_generations': 1, 'repository_bytes': size, 'uploaded_bytes': summary.get('data_added', 0),
+                'retained_generations': 1, 'repository_bytes': size,
+                'backup_added_bytes': summary.get('data_added', 0),
+                'backup_added_packed_bytes': summary.get('data_added_packed', 0),
+                'wire_bytes_measured': False,
                 'restore': proof, 'explicit_acceptance_exception': self.acceptance,
                 'b2_cleanup_network': self.client.counters(), 'b2_transfer_network': 'restic backup, full check, retrieval, retention and final check'}
