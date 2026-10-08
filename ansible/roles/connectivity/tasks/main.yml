@@ -56,3 +56,9 @@
     src: '{{ playbook_dir }}/../automation/connectivity/dns_application.py'
     dest: /var/lib/cloudlab/connectivity/dns_application.py
     mode: '0600'
+
+- name: Install the disposable access fixture owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/cluster_fixture.py'
+    dest: /var/lib/cloudlab/connectivity/cluster_fixture.py
+    mode: '0600'
