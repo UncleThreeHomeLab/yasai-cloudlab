@@ -187,6 +187,10 @@ def run(directory):
                  'metadata': {'name': name, 'namespace': NAMESPACE, 'labels': LABEL},
                  'type': original.get('type', 'Opaque'), 'data': data})
         chart = control.ROOT / 'platform/data/seaweedfs'
+        node = get('node', socket.gethostname())
+        peers = [row for row in get('nodes')['items'] if row['metadata']['name'] != node['metadata']['name']]
+        if len(peers) != 1:
+            raise RuntimeError('Restore proof requires the declared two-node topology')
         result = subprocess.run(['helm', 'template', 'data-restore', str(chart), '--namespace', NAMESPACE,
                                  '--kube-version', '1.36.5', '--set-json',
                                  'seaweedfs.volume.dataDirs=[{"name":"data1","type":"persistentVolumeClaim","size":"12Gi","storageClass":"cloudlab-data","maxVolumes":10}]'],
@@ -200,6 +204,8 @@ def run(directory):
                 raise RuntimeError('Restore chart contains an unexpected resource kind')
             obj['metadata']['namespace'] = NAMESPACE
             obj['metadata'].setdefault('labels', {}).update(LABEL)
+            if obj['kind'] == 'Deployment' and obj['metadata'].get('labels', {}).get('app.kubernetes.io/component') == 's3':
+                obj['spec']['template']['spec']['nodeSelector'] = {'kubernetes.io/hostname': peers[0]['metadata']['labels']['kubernetes.io/hostname']}
             kube('apply', '-f', '-', document=obj)
         for name in ('master', 'volume', 'filer'):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
@@ -208,7 +214,6 @@ def run(directory):
         values = control.settings()
         source = control.s3()
         endpoint = 'https://' + values['s3Host'] + ':8334'
-        node = get('node', socket.gethostname())
         source_address = next(row['address'] for row in node['status']['addresses'] if row['type'] == 'InternalIP')
         # Bind to WireGuard: host access must also work when the S3 pod is remote.
         client = S3(endpoint, source.access, source.secret, address=service['spec']['clusterIP'], source_address=source_address)
@@ -259,6 +264,10 @@ def run(directory):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
         kube('rollout', 'status', 'deployment/data-restore-seaweedfs-s3', '-n', NAMESPACE, '--timeout=600s', timeout=630)
         wait(lambda: s3_ready(app, manifest['bucket']), 'restarted S3 native TLS readiness')
+        s3_pods = [row for row in get('pods', namespace=NAMESPACE)['items']
+                   if row['metadata'].get('labels', {}).get('app.kubernetes.io/component') == 's3']
+        if len(s3_pods) != 1 or s3_pods[0]['spec']['nodeName'] != peers[0]['metadata']['name']:
+            raise RuntimeError('Restored S3 did not exercise the cross-node private path')
         for row in manifest['objects']:
             record = next(item for item in manifest['files'] if item['file'] == row['file'])
             with tempfile.TemporaryFile() as target:
@@ -274,6 +283,6 @@ def run(directory):
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),
                 'same_existing_hosts': True, 'offsite_reads': False, 'fixture_restarts': True,
                 'notes_object_generation_verified': 'notes_probe' in manifest,
-                'current_vault_sql_login_and_tls': True}
+                'current_vault_sql_login_and_tls': True, 'cross_node_restore_s3': True}
     finally:
         cleanup()
