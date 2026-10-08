@@ -19,6 +19,16 @@ from automation.connectivity import legacy
 
 
 class CutoverTests(unittest.TestCase):
+    def test_crd_owner_requires_real_ssa_not_a_copied_annotation(self):
+        actual = {'metadata': {'annotations': {'cloudlab.io/owner': legacy.APP,
+                  'argocd.argoproj.io/tracking-id': legacy.APP + ':copied'}}}
+        self.assertFalse(legacy.gitops_owned(actual))
+        actual['metadata']['managedFields'] = [{'manager': 'argocd-controller', 'operation': 'Apply', 'fieldsV1': {'f:spec': {}}}]
+        actual['metadata']['annotations'].pop('argocd.argoproj.io/tracking-id')
+        self.assertTrue(legacy.gitops_owned(actual))
+        actual['metadata']['annotations']['meta.helm.sh/release-name'] = 'traefik-crd'
+        self.assertFalse(legacy.gitops_owned(actual))
+
     def test_empty_legacy_inventories_are_successful_removal(self):
         with patch.object(legacy, 'get', return_value=None):
             self.assertTrue(legacy.legacy_removed())
