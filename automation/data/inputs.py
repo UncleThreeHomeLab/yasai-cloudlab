@@ -27,7 +27,8 @@ def payload():
         raise ValueError('Application and migration identities must target the same database')
     result['values'] = {'s3Host': endpoint.hostname, 'database': app['database'],
                         'applicationRole': app['username'], 'migrationRole': migration['username'],
-                        'backupRole': backup['username'], 'bucket': s3['BUCKET'], 'maintenance': False}
+                        'backupRole': backup['username'], 'bucket': s3['BUCKET'], 'maintenance': False,
+                        'hibernated': False}
     render('configuration', result['values'])
     return {key: result[key] for key in ('repository', 'branch', 'revision', 'values')}
 

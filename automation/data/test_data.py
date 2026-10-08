@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
+import gzip
 import json
 from pathlib import Path
 import tempfile
@@ -15,10 +16,10 @@ class DataTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
                 patch.object(control, 'settings', return_value={'maintenance': False}), \
                 patch.object(backup, 'capture', side_effect=KeyboardInterrupt):
-            path = Path(temporary) / 'local-attempt.json'
+            path = Path(temporary) / backup.ATTEMPT
             path.write_text('{"success":true}')
             with self.assertRaises(KeyboardInterrupt):
-                backup.run('local')
+                backup.run('acceptance-export')
             self.assertFalse(json.loads(path.read_text())['success'])
 
     def test_restore_policy_allows_only_exact_private_host_snat_addresses(self):
@@ -44,20 +45,17 @@ class DataTests(unittest.TestCase):
         from automation.data import verify as checks
         values = {'database': 'notes', 'applicationRole': 'notes_app', 'migrationRole': 'notes_migration', 'backupRole': 'backup'}
         manifest = {'database': 'notes', 'roles': ['notes_app', 'notes_migration', 'backup'], 'notes_probe': []}
-        roles = [{'name': 'notes_app', 'passwordSecret': {'name': 'notes-application'}}]
         with patch.object(control, 'settings', return_value=values), \
-                patch.object(control, 'secret', return_value={'username': 'notes_app', 'password': 'synthetic'}), \
-                patch.object(restore, 'get', side_effect=lambda kind, *args: None if kind == 'namespace' else {'spec': {'managed': {'roles': roles}, 'postgresql': {'pg_hba': ['host all all all reject']}}}), \
-                patch.object(restore, 'kube') as kube, patch.object(restore, 'wait'), \
-                patch.object(checks, 'sql_client') as client, \
+                patch.object(control, 'secret', side_effect=[{'username': role, 'password': "synthetic'quote"} for role in manifest['roles']]), \
+                patch.object(restore, 'get', return_value=None), patch.object(restore, 'sql') as sql, \
+                patch.object(restore, 'wait'), patch.object(checks, 'sql_client') as client, \
                 patch.object(checks, 'pod_query', side_effect=[Mock(returncode=0, stdout='[]'), *[Mock(returncode=1) for _ in range(3)]]), \
                 patch.object(rotation, 'cleanup_sql') as cleanup:
             restore.authenticated_sql(manifest)
             client.assert_called_once_with(values, database_namespace=restore.NAMESPACE, cluster='data-restore')
             cleanup.assert_called_once()
-            self.assertEqual(kube.call_args_list[0].kwargs['document']['stringData']['password'], 'synthetic')
-            self.assertNotIn('synthetic', str(kube.call_args_list[1].args))
-            self.assertIn('host all all all reject', str(kube.call_args_list[1].args))
+            self.assertEqual(len(sql.call_args_list), 3)
+            self.assertIn("synthetic''quote", sql.call_args.args[0])
             with self.assertRaisesRegex(RuntimeError, 'credential mapping'):
                 restore.authenticated_sql(dict(manifest, database='unrelated'))
 
@@ -69,7 +67,7 @@ class DataTests(unittest.TestCase):
 
     def test_cleanup_checkpoint_never_deletes_a_rebound_volume(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
-                patch.object(restore, 'wait'), patch.object(restore, 'kube') as kube:
+                patch.object(restore, 'wait'), patch.object(restore.physical, 'cleanup_classes'), patch.object(restore, 'kube') as kube:
             path = Path(temporary) / 'restore-cleanup.json'
             path.write_text(json.dumps([['fixture-pv', 'expected-uid', 'expected-claim']]))
             rebound = {'metadata': {'uid': 'different-uid'}, 'spec': {'claimRef': {
@@ -85,7 +83,7 @@ class DataTests(unittest.TestCase):
                   'spec': {'storageClassName': 'cloudlab-data', 'claimRef': {
                       'name': 'data-restore-1', 'namespace': restore.NAMESPACE, 'uid': 'claim'}}}
         with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
-                patch.object(restore, 'wait'), patch.object(restore, 'kube') as kube:
+                patch.object(restore, 'wait'), patch.object(restore.physical, 'cleanup_classes'), patch.object(restore, 'kube') as kube:
             def get(kind, name=None):
                 return None if kind == 'namespace' else volume if name else {'items': [volume]}
             with patch.object(restore, 'get', side_effect=get):
@@ -130,94 +128,125 @@ class DataTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'not denied'):
                 external.run()
 
-    def generation(self, root):
-        (root / 'database.dump').write_bytes(b'dump')
-        manifest = {'format': 1, 'consistency': 'application-roles-disabled-s3-restarted',
-                    'captured_at': 1, 'objects': [], 'files': [
-                        {'file': 'database.dump', 'bytes': 4, 'sha256': hashlib.sha256(b'dump').hexdigest()}]}
-        (root / 'manifest.json').write_text(json.dumps(manifest))
-        return manifest
+    def generation(self):
+        from automation.data.volumes import CLAIMS
+        generation = 'data-' + 'a' * 24
+        return {'format': 2, 'generation': generation, 'captured_at': 1, 'captured': True,
+                'consistency': 'all-writers-stopped', 'database': 'notes',
+                'roles': ['notes_app', 'notes_migration', 'backup'], 'objects': [],
+                'volumes': {c: {'claim': name, 'volume': 'pvc-' + 'a' * 8 + '-aaaa-aaaa-aaaa-' + 'a' * 12,
+                               'snapshot': generation + '-' + c, 'size': '2Gi', 'actual_bytes': 4096}
+                            for c, name in CLAIMS.items()}}
 
-    def test_generation_detects_corruption_extra_files_and_traversal(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            self.generation(root)
-            capture.verify(root)
-            (root / 'database.dump').write_bytes(b'FAIL')
-            with self.assertRaisesRegex(ValueError, 'integrity'):
-                capture.verify(root)
-            manifest = self.generation(root)
-            (root / 'unexpected').write_text('extra')
-            with self.assertRaisesRegex(ValueError, 'boundary'):
-                capture.verify(root)
-            (root / 'unexpected').unlink()
-            manifest['files'][0]['file'] = '../database.dump'
-            (root / 'manifest.json').write_text(json.dumps(manifest))
-            with self.assertRaisesRegex(ValueError, 'invalid'):
-                capture.verify(root)
+    def test_generation_rejects_incomplete_and_foreign_sources(self):
+        manifest = self.generation()
+        capture.verify(manifest)
+        with self.assertRaises(ValueError):
+            capture.verify(dict(manifest, captured=False))
+        manifest['volumes']['master']['snapshot'] = 'foreign'
+        with self.assertRaises(ValueError):
+            capture.verify(manifest)
 
     def test_failed_capture_releases_application_maintenance(self):
-        with tempfile.TemporaryDirectory() as temporary, \
-                patch.object(capture.shutil, 'disk_usage', return_value=Mock(free=100 * 1024**3)), \
-                patch.object(control, 'maintenance', return_value={'database': 'notes'}) as maintenance, \
+        manifest = self.generation()
+        values = {'database': 'notes', 'bucket': 'notes', 'applicationRole': 'notes_app',
+                  'migrationRole': 'notes_migration', 'backupRole': 'backup'}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
+                patch.object(capture.volumes, 'inventory', return_value=manifest['volumes']), \
+                patch.object(capture.volumes, 'resume') as resume, \
+                patch.object(control, 'maintenance', return_value=values), \
                 patch.object(control, 'sql', side_effect=RuntimeError('database unavailable')):
             with self.assertRaisesRegex(RuntimeError, 'unavailable'):
-                capture.capture(Path(temporary) / 'candidate')
-            self.assertEqual([call.args[0] for call in maintenance.call_args_list], [True, False])
+                capture.capture()
+            resume.assert_called_once()
+            self.assertFalse(json.loads((Path(temporary) / 'pending-volume.json').read_text())['captured'])
 
     def test_monthly_window_and_explicit_acceptance(self):
         remote.require_window(now=datetime(2026, 10, 1, tzinfo=timezone.utc))
         with self.assertRaisesRegex(RuntimeError, 'day 1'):
             remote.require_window(now=datetime(2026, 10, 8, tzinfo=timezone.utc))
         remote.require_window(True, now=datetime(2026, 10, 8, tzinfo=timezone.utc))
+        with self.assertRaises(RuntimeError):
+            remote.require_window(now=datetime(2026, 10, 1, 23, tzinfo=timezone.utc), reserve=3600)
+
+    def test_independent_reader_checks_compressed_blocks_without_files(self):
+        repository = remote.Repository({'AWS_ENDPOINT': 'https://s3.us-west-004.backblazeb2.com',
+            'BUCKET': 'example-bucket', 'REGION': 'us-west-004',
+            'AWS_ACCESS_KEY_ID': 'synthetic', 'AWS_SECRET_ACCESS_KEY': 'synthetic'}, acceptance=True)
+        manifest = self.generation()
+        payload = b'committed fixture'
+        checksum = hashlib.sha512(payload).hexdigest()[:64]
+        compressed = gzip.compress(payload)
+        for row in manifest['volumes'].values():
+            row['url'] = 's3://example-bucket@us-west-004/' + remote.storage_policy()['prefix'] + '?backup=' + row['snapshot'] + '&volume=' + row['volume']
+        def request(method, key, **kwargs):
+            if key.endswith('.cfg'):
+                row = next(row for row in manifest['volumes'].values() if row['snapshot'] in key)
+                return {'data': json.dumps({'VolumeName': row['volume'], 'SnapshotName': row['snapshot'],
+                                           'CompressionMethod': 'gzip', 'Blocks': [{'BlockChecksum': checksum}]}).encode()}
+            return {'data': compressed, 'bytes': len(compressed)}
+        with patch.object(repository, 'request', side_effect=request):
+            self.assertEqual(repository.read_blocks(manifest)['verified_blocks'], 4)
+            compressed = gzip.compress(b'corrupted')
+            with self.assertRaisesRegex(RuntimeError, 'checksum'):
+                repository.read_blocks(manifest)
+
+    def test_temporary_restore_never_uses_cloud_and_removes_snapshots(self):
+        manifest = self.generation()
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
+                patch.object(control, 'settings', return_value={'maintenance': False}), \
+                patch.object(backup, 'capture', side_effect=lambda: ((Path(temporary) / 'pending-volume.json').write_text(json.dumps(manifest)), manifest)[1]), \
+                patch.object(restore, 'run', side_effect=RuntimeError('fixture failed')), \
+                patch.object(backup.volumes, 'cleanup_snapshots') as cleanup, \
+                patch.object(backup, 'Repository') as repository:
+            with self.assertRaisesRegex(RuntimeError, 'fixture failed'):
+                backup.run('check-local')
+            cleanup.assert_called_once_with(manifest)
+            repository.assert_not_called()
+            self.assertFalse((Path(temporary) / 'pending-volume.json').exists())
 
     def test_backup_environment_cannot_escape_its_b2_prefix(self):
         values = {'AWS_ENDPOINT': 'https://s3.us-west-004.backblazeb2.com', 'BUCKET': 'example-bucket',
-                  'REGION': 'us-west-004', 'AWS_ACCESS_KEY_ID': 'synthetic', 'AWS_SECRET_ACCESS_KEY': 'synthetic',
-                  'RESTIC_PASSWORD': 'synthetic'}
-        env = remote.environment(values)
-        self.assertTrue(env['RESTIC_REPOSITORY'].endswith('/application-data-restic/'))
+                  'REGION': 'us-west-004', 'AWS_ACCESS_KEY_ID': 'synthetic', 'AWS_SECRET_ACCESS_KEY': 'synthetic'}
+        repository = remote.Repository(values)
+        with self.assertRaises(ValueError):
+            repository.validate_url({'url': 's3://foreign@us-west-004/prefix/?backup=x&volume=y', 'snapshot': 'x', 'volume': 'y'})
         for endpoint in ('http://s3.us-west-004.backblazeb2.com', 'https://evil.example',
                          'https://user@s3.us-west-004.backblazeb2.com', 'https://s3.us-west-004.backblazeb2.com/path'):
             with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
-                remote.environment(dict(values, AWS_ENDPOINT=endpoint))
+                remote.Repository(dict(values, AWS_ENDPOINT=endpoint))
 
-    def test_remote_restore_rejects_links_before_extraction(self):
-        repository = object.__new__(remote.Repository)
-        rows = [{'type': 'file', 'path': '/database.dump', 'size': 4},
-                {'type': 'symlink', 'path': '/escape', 'linktarget': '/etc'}]
-        with patch.object(repository, 'run', return_value='\n'.join(map(json.dumps, rows))) as run:
-            with self.assertRaisesRegex(RuntimeError, 'restore scope'):
-                repository.retrieve('fixture', Path('/unused'))
-            self.assertEqual(len(run.call_args_list), 1)
+    def test_legacy_cleanup_refuses_links_and_foreign_paths(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)):
+            base = Path(temporary) / 'generations'
+            base.mkdir()
+            foreign = base / 'unrelated'
+            foreign.mkdir()
+            with self.assertRaises(RuntimeError):
+                backup.retire_local()
+            self.assertTrue(foreign.exists())
+            foreign.rmdir()
+            own = base / 'generation-123'
+            own.mkdir()
+            (own / 'manifest.json').write_text('{"format":1}')
+            self.assertEqual(backup.retire_local(), 1)
+            self.assertFalse(base.exists())
 
     def test_restore_failure_never_prunes_previous_generation(self):
-        values = {'AWS_ENDPOINT': 'https://s3.us-west-004.backblazeb2.com', 'BUCKET': 'example-bucket',
-                  'REGION': 'us-west-004', 'AWS_ACCESS_KEY_ID': 'synthetic', 'AWS_SECRET_ACCESS_KEY': 'synthetic',
-                  'RESTIC_PASSWORD': 'synthetic'}
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            manifest = self.generation(root)
-            repository = remote.Repository(values, acceptance=True)
-            def command(*args, **kwargs):
-                if args[0] == 'backup':
-                    return '{"message_type":"summary","snapshot_id":"candidate"}'
-                return '{}'
-            with patch.object(repository, 'run', side_effect=command) as run, \
-                    patch.object(repository, 'snapshots', return_value=[{'id': 'previous', 'tags': ['verified']}]), \
-                    patch.object(repository, 'retrieve', return_value=manifest):
-                with self.assertRaisesRegex(RuntimeError, 'restore failed'):
-                    repository.export(root, Mock(side_effect=RuntimeError('restore failed')))
-                self.assertFalse(any(call.args[0] in ('forget', 'prune', 'tag') for call in run.call_args_list))
+        repository = object.__new__(remote.Repository)
+        with patch.object(repository, 'request') as request, patch.object(repository, 'manifests') as manifests:
+            with self.assertRaisesRegex(RuntimeError, 'Restore gate'):
+                repository.accept(self.generation(), {'restored': False})
+            request.assert_not_called()
+            manifests.assert_not_called()
 
     def test_freshness_reads_only_local_receipts(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
-                patch.object(remote.subprocess, 'run') as run:
-            for kind in ('local', 'monthly'):
-                (Path(temporary) / (kind + '-receipt.json')).write_text(json.dumps({'captured_at': 100}))
+                patch.object(remote.S3, 'request') as request:
+            (Path(temporary) / backup.RECEIPT).write_text(json.dumps({'captured_at': 100, 'retention_complete': True}))
             self.assertEqual(backup.freshness(now=200)['b2_reads'], 0)
-            run.assert_not_called()
-            (Path(temporary) / 'local-attempt.json').write_text('{"success":false}')
+            request.assert_not_called()
+            (Path(temporary) / backup.ATTEMPT).write_text('{"success":false}')
             with self.assertRaisesRegex(RuntimeError, 'failed'):
                 backup.freshness(now=200)
 
@@ -240,7 +269,7 @@ class DataTests(unittest.TestCase):
 
     def test_secret_definitions_do_not_copy_b2_credentials(self):
         definitions = credentials.definitions('https://s3.internal.example.invalid')
-        self.assertEqual(set(definitions['monthly-application-data-b2']), {'RESTIC_PASSWORD'})
+        self.assertNotIn('monthly-application-data-b2', definitions)
         for item, fields in definitions.items():
             if 'password' in fields:
                 self.assertNotEqual(fields['password'][1](), fields['password'][1]())

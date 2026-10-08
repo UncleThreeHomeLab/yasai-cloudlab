@@ -28,7 +28,7 @@
     src: '{{ playbook_dir }}/../automation/data/{{ item }}'
     dest: '/opt/cloudlab/automation/data/{{ item }}'
     mode: '0600'
-  loop: [control.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py, rotation.py]
+  loop: [control.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py, rotation.py, volumes.py, physical.py]
 
 - name: Install the shared Kubernetes helper from its owner
   ansible.builtin.copy:
@@ -50,12 +50,12 @@
     dest: /opt/cloudlab/platform/data/contract.json
     mode: '0600'
 
-- name: Install pinned restore and transfer tools
+- name: Install the pinned restore rendering tool
   ansible.builtin.copy:
     src: '/usr/local/bin/{{ item }}'
     dest: '/usr/local/bin/{{ item }}'
     mode: '0755'
-  loop: [helm, restic]
+  loop: [helm]
 
 - name: Reconcile the bounded data Applications
   ansible.builtin.command:
@@ -77,19 +77,36 @@
     dest: '/etc/systemd/system/cloudlab-data-{{ item.name }}.service'
     mode: '0644'
   loop:
-    - {name: local, module: backup, action: local}
     - {name: monthly, module: backup, action: monthly}
     - {name: freshness, module: backup, action: freshness}
     - {name: reconcile, module: control, action: reconcile}
   notify: Reload application data units
 
-- name: Install explicit local and monthly schedules
+- name: Inspect the superseded daily application timer
+  ansible.builtin.stat:
+    path: /etc/systemd/system/cloudlab-data-local.timer
+  register: data_daily_timer
+
+- name: Disable the superseded daily application timer
+  ansible.builtin.systemd_service:
+    name: cloudlab-data-local.timer
+    enabled: false
+    state: stopped
+  when: data_daily_timer.stat.exists
+
+- name: Remove the superseded daily application units
+  ansible.builtin.file:
+    path: '/etc/systemd/system/cloudlab-data-local.{{ item }}'
+    state: absent
+  loop: [timer, service]
+  notify: Reload application data units
+
+- name: Install monthly backup and local receipt-check schedules
   ansible.builtin.template:
     src: timer.j2
     dest: '/etc/systemd/system/cloudlab-data-{{ item.name }}.timer'
     mode: '0644'
   loop:
-    - {name: local, calendar: '{{ data_policy.local_calendar }}'}
     - {name: monthly, calendar: '{{ data_policy.monthly_calendar }}'}
     - {name: freshness, calendar: '*-*-* 06:00:00 UTC'}
     - {name: reconcile, calendar: '*-*-* *:0/5:00 UTC'}
@@ -103,4 +120,4 @@
     name: 'cloudlab-data-{{ item }}.timer'
     enabled: true
     state: started
-  loop: [local, monthly, freshness, reconcile]
+  loop: [monthly, freshness, reconcile]

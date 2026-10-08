@@ -7,8 +7,9 @@ metadata:
   name: cloudlab-postgres
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    cnpg.io/hibernation: {{ ternary "on" "off" .Values.hibernated | quote }}
   labels:
-    cloudlab.io/backup-path: logical
+    cloudlab.io/backup-path: coordinated-longhorn
 spec:
   instances: 1
   imageName: {{ .Values.postgresImage | quote }}
