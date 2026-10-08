@@ -42,6 +42,18 @@
     mode: '0600'
   loop: [dns.py, dns_wire.py, dns_host.py]
 
+- name: Create the private access automation directory on each host
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/connectivity
+    state: directory
+    mode: '0700'
+
+- name: Install the bounded proxy container crash fixture
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/proxy_failure.py'
+    dest: /var/lib/cloudlab/connectivity/proxy_failure.py
+    mode: '0600'
+
 - name: Install independent DNS service
   ansible.builtin.copy:
     src: cloudlab-private-dns.service

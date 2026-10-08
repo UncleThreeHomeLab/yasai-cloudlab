@@ -203,8 +203,10 @@ transport because the existing network does not pass its QUIC checks.
 
 `lab access-check` tests real outside HTTPS, machine authentication, anonymous
 denial, private DNS/HTTPS and Kubernetes RBAC. It then replaces one stateless
-connector, gateway or proxy Pod at a time and measures new requests for 90 seconds
-per component, with a maximum 30-second interval without a successful request.
+connector or gateway Pod, or sends SIGKILL to one verified proxy container. Proxy
+Pod identities are retained to avoid overlapping StatefulSet identities after a
+forced deletion. Each component gets 90 seconds of new requests after the confirmed
+failure, with a maximum 30-second interval without a successful request.
 It requires two healthy replicas on distinct nodes before each failure, waits for
 both replicas to recover, and removes disposable backend namespaces afterward.
 `prove` includes these checks. Human sign-in requires the approved mailbox once;

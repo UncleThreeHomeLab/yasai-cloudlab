@@ -1,4 +1,4 @@
-"""Failure injection must target only redundant, healthy stateless access Pods."""
+"""Failure injection must target only redundant, healthy access components."""
 import copy
 import json
 import unittest
@@ -36,3 +36,14 @@ class FailureBoundaryTests(unittest.TestCase):
                 patch.object(cluster_fixture, 'kube') as kube:
             with self.assertRaises(RuntimeError): cluster_fixture.cleanup()
             kube.assert_not_called()
+
+    def test_stateful_proxy_failure_retains_pod_identity(self):
+        component = 'tailscale/cloudlab.io/proxy=cloudlab-ingress'
+        pod = self.pods()[0]
+        pod['status']['containerStatuses'] = [{'ready': True, 'containerID': 'containerd://' + 'a' * 64}]
+        with patch.object(cluster_fixture, 'snapshot', return_value={component: [{'name': 'cloudlab-ingress-0', 'uid': 'pod-uid'}]}), \
+                patch.object(cluster_fixture, 'get', return_value=pod), \
+                patch.object(cluster_fixture, 'kube') as kube:
+            result = cluster_fixture.fail_one({'component': component})
+            kube.assert_not_called()
+            self.assertEqual(result['crash_target'], {'name': 'cloudlab-ingress-0', 'uid': 'pod-uid', 'container_id': 'a' * 64})
