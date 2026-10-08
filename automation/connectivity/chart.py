@@ -72,6 +72,8 @@ def validate(operator, access):
     image_lock = json.loads((ROOT / 'platform/connectivity/access/images.lock.json').read_text())['images']
     if cloudflared['image'] != image_lock['cloudflared']:
         raise ValueError('Cloudflared image differs from its lock')
+    if connector['spec']['template']['spec']['topologySpreadConstraints'][0].get('matchLabelKeys') != ['pod-template-hash']:
+        raise ValueError('Connector spread must remain balanced across rollout revisions')
     services = [value for value in access if value['kind'] == 'Service']
     if len(services) != 1 or services[0]['spec'].get('loadBalancerClass') != 'tailscale' or services[0]['spec'].get('allocateLoadBalancerNodePorts') is not False or services[0]['spec']['ports'] != [{'name': 'https', 'protocol': 'TCP', 'port': 443, 'targetPort': 443}]:
         raise ValueError('Private L3 service must preserve Istio HTTPS without NodePorts or public listener')

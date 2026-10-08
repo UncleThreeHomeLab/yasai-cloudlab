@@ -92,6 +92,26 @@ def runtime():
             'api_url': group['status']['url']}
 
 
+def dns_proof(payload):
+    import socket
+    settings = runtime()['private']
+    hostname = payload['private'][0] + '.' + settings['zone']
+    if socket.gethostbyname(hostname) != settings['cluster_gateway']:
+        raise RuntimeError('Host default resolver did not use private DNS')
+    pods = get('pods', namespace=NAMES[1])['items']
+    if len(pods) != 2:
+        raise RuntimeError('Both private backend fixtures are required for DNS proof')
+    for pod in pods:
+        answer = kube('exec', '-n', NAMES[1], pod['metadata']['name'], '--', 'nslookup', hostname)
+        if settings['cluster_gateway'] not in answer:
+            raise RuntimeError('Pod default resolver did not return the internal gateway address')
+        denied = kube('exec', '-n', NAMES[1], pod['metadata']['name'], '--', 'nslookup',
+                      'nonexistent-cloudlab-proof.' + settings['zone'], allow_failure=True)
+        if denied.returncode == 0 or 'NXDOMAIN' not in denied.stdout + denied.stderr:
+            raise RuntimeError('Unknown private name did not fail closed from a Pod')
+    return {'server_default_dns': True, 'pod_default_dns_both_nodes': True, 'pod_unknown_private_denied': True}
+
+
 def fail_one(payload):
     allowed = snapshot()
     key = payload['component']
@@ -116,6 +136,8 @@ if __name__ == '__main__':
             result = snapshot()
         elif action == 'runtime':
             result = runtime()
+        elif action == 'dns-proof':
+            result = dns_proof(payload)
         elif action == 'fail-one':
             result = fail_one(payload)
         else:
