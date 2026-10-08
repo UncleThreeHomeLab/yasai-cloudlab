@@ -36,6 +36,27 @@
       }) }}
   when: k3s_mode == 'agent'
 
+- name: Inspect the audited legacy ingress handoff
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/connectivity/cutover.json
+  register: k3s_access_cutover
+  when: k3s_mode == 'server'
+
+- name: Read the durable legacy ingress handoff
+  ansible.builtin.slurp:
+    src: /var/lib/cloudlab/connectivity/cutover.json
+  register: k3s_access_receipt
+  when: k3s_mode == 'server' and k3s_access_cutover.stat.exists
+  no_log: true
+
+- name: Disable legacy ingress only after replacement acceptance and retention audit
+  ansible.builtin.set_fact:
+    k3s_effective_config: "{{ k3s_effective_config | combine({'disable': ['traefik', 'servicelb']}) }}"
+  when:
+    - k3s_mode == 'server'
+    - k3s_access_cutover.stat.exists
+    - (k3s_access_receipt.content | b64decode | from_json).phase in ['prepared', 'accepted']
+
 - name: Store the agent join credential privately
   ansible.builtin.copy:
     content: "{{ k3s_join_token }}\n"

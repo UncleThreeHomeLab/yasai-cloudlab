@@ -62,3 +62,12 @@
     src: '{{ playbook_dir }}/../automation/connectivity/cluster_fixture.py'
     dest: /var/lib/cloudlab/connectivity/cluster_fixture.py
     mode: '0600'
+
+- name: Inspect whether legacy cutover already started
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/connectivity/cutover.json
+  register: access_cutover_receipt
+
+- name: Resume and verify an existing legacy handoff
+  ansible.builtin.include_tasks: cutover.yml
+  when: access_cutover_receipt.stat.exists

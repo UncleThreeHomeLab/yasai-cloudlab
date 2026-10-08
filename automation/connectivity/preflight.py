@@ -59,6 +59,7 @@ print(json.dumps({
  'backup_receipt':receipt('/var/lib/cloudlab/longhorn/backup-ownership.json'),
  'gateway_api_crds':len(gateway_crds),
  'gateway_api_traefik_owned':all(c['metadata'].get('annotations',{}).get('meta.helm.sh/release-name')=='traefik-crd' for c in gateway_crds),
+ 'gateway_api_cutover_owned':all(c['metadata'].get('annotations',{}).get('cloudlab.io/owner')=='cloudlab-gateway-api' for c in gateway_crds),
  'traefik_chart_present':any(h['metadata']['name']=='traefik' for h in helm),
  'traefik_ingress_dependencies':traefik_ingresses,'traefik_crd_dependencies':traefik_crd_dependencies,
  'other_gateway_route_dependencies':traefik_routes,'other_servicelb_consumers':legacy_services,
@@ -105,7 +106,7 @@ def audit():
             blockers.append('Milestone 02 live health or independent host access prerequisite failed')
         if any(cluster.get(k) != 'accepted' for k in ('eso_receipt', 'mesh_receipt', 'longhorn_receipt', 'backup_receipt')):
             blockers.append('Milestone 02 mesh or storage ownership handoff is not accepted')
-        if cluster.get('gateway_api_crds') != 10 or not cluster.get('gateway_api_traefik_owned'):
+        if cluster.get('gateway_api_crds') != 10 or not (cluster.get('gateway_api_traefik_owned') or cluster.get('gateway_api_cutover_owned')):
             blockers.append('Gateway API baseline ownership requires review before cutover')
         if any(cluster.get(k) for k in ('traefik_ingress_dependencies', 'traefik_crd_dependencies', 'other_gateway_route_dependencies', 'other_servicelb_consumers')):
             blockers.append('Legacy ingress dependency audit found consumers; cutover prohibited')

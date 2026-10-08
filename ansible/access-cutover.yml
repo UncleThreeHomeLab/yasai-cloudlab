@@ -1,0 +1,53 @@
+---
+- name: Retire audited legacy ingress after complete replacement acceptance
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Validate published handoff inputs
+      ansible.builtin.command: python /workspace/automation/gitops/render.py
+      delegate_to: localhost
+      become: false
+      register: gitops_payload
+      changed_when: false
+      no_log: true
+
+    - name: Install the resumable handoff implementation
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../automation/connectivity/legacy.py'
+        dest: /var/lib/cloudlab/connectivity/legacy.py
+        mode: '0600'
+
+    - name: Require accepted replacements and audit Helm CRD retention before removal
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/connectivity/cutover.py]
+        stdin: '{{ gitops_payload.stdout }}'
+      delegate_to: localhost
+      become: false
+      register: access_cutover_prepared
+      changed_when: access_cutover_prepared.rc == 0 and (access_cutover_prepared.stdout | from_json).changed
+      no_log: true
+
+    - name: Apply the gated K3s configuration
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: configure
+
+    - name: Apply required K3s restart for packaged component removal
+      ansible.builtin.meta: flush_handlers
+
+    - name: Require the single server to return ready
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: ready
+
+    - name: Finish retained Gateway API adoption
+      ansible.builtin.include_role:
+        name: connectivity
+        tasks_from: cutover
+
+    - name: Prove all replacement paths after legacy removal
+      ansible.builtin.include_role:
+        name: connectivity
+        tasks_from: verify

@@ -1,0 +1,20 @@
+---
+- name: Install the resumable legacy handoff implementation
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/legacy.py'
+    dest: /var/lib/cloudlab/connectivity/legacy.py
+    mode: '0600'
+
+- name: Converge the retained Gateway API owner after legacy removal
+  ansible.builtin.command:
+    argv: [python, /workspace/automation/connectivity/cutover.py]
+    stdin: "{{ (gitops_payload.stdout | from_json) | combine({'action': 'finish'}) | to_json }}"
+  register: access_cutover_result
+  delegate_to: localhost
+  become: false
+  changed_when: access_cutover_result.rc == 0 and (access_cutover_result.stdout | from_json).changed
+  no_log: true
+
+- name: Report retained Gateway API handoff
+  ansible.builtin.debug:
+    msg: '{{ access_cutover_result.stdout | from_json }}'

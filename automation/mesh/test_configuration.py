@@ -29,6 +29,9 @@ class ConfigurationTests(unittest.TestCase):
             actual['metadata']['annotations']['meta.helm.sh/release-name'] = 'competing'
             with self.assertRaisesRegex(RuntimeError, 'owner changed'):
                 configuration.gateway_api([desired])
+            actual['metadata']['annotations'].pop('meta.helm.sh/release-name')
+            actual['metadata']['annotations']['cloudlab.io/owner'] = 'cloudlab-gateway-api'
+            self.assertEqual(list(configuration.gateway_api([desired]).values()), ['retained'])
 
     def test_recursive_contract_allows_defaults_but_not_missing_versions(self):
         self.assertTrue(contains({'versions': [{'name': 'v1', 'served': True}]}, {'versions': [{'name': 'v1'}]}))

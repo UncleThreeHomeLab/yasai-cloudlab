@@ -57,7 +57,13 @@ def disruption(component, probe):
     longest_gap = 0.0
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         failure = executor.submit(remote, 'fail-one', component=component)
-        while time.monotonic() - start < observe:
+        failure_at = None
+        while failure_at is None or time.monotonic() - failure_at < observe:
+            if failure_at is None and failure.done():
+                deletion = failure.result()
+                failure_at = time.monotonic()
+            if failure_at is None and time.monotonic() - start > 120:
+                raise RuntimeError('Disposable failure injection did not finish within 120 seconds')
             try:
                 ok = probe()
             except (OSError, RuntimeError, http.client.HTTPException):
@@ -72,7 +78,6 @@ def disruption(component, probe):
             if now - last_success > limit:
                 raise RuntimeError('New requests exceeded the declared 30-second failure recovery limit')
             time.sleep(1)
-        deletion = failure.result()
     longest_gap = max(longest_gap, time.monotonic() - last_success)
     after = retry(lambda: remote('snapshot'), 'replicas restored after failure', timeout=300)
     if deletion['deleted_uid'] not in {p['uid'] for p in before[component]} or deletion['deleted_uid'] in {p['uid'] for p in after[component]}:
@@ -178,11 +183,6 @@ def _run(*, failures=True, keep=False):
             raise RuntimeError('Disposable failure changed a persisted proxy identity')
         output['proxy_identities_preserved'] = True
         output['acceptance_passed'] = failures
-        if failures:
-            with transaction() as receipts:
-                external = receipts.load('external')
-                receipts.save('acceptance', {'verified_at': int(time.time()), 'identities': identities,
-                    'external_binding': external['binding'], 'evidence': output})
         return output
     finally:
         if not keep:
@@ -196,6 +196,12 @@ def run(*, failures=True, keep=False):
     with (directory / 'verification.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = _run(failures=failures, keep=keep)
+        if failures and not keep:
+            identities = remote('identities')
+            with transaction() as receipts:
+                external = receipts.load('external')
+                receipts.save('acceptance', {'verified_at': int(time.time()), 'identities': identities,
+                    'external_binding': external['binding'], 'evidence': result})
         temporary = directory / 'last-traffic.tmp'
         descriptor = os.open(temporary, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, 'w') as stream:

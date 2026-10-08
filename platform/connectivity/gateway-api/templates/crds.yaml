@@ -1,0 +1,10 @@
+{{- range $document := splitList "\n---\n" (.Files.Get "upstream.yaml") }}
+{{- $object := fromYaml $document }}
+{{- if eq $object.kind "CustomResourceDefinition" }}
+{{- $_ := set $object.metadata.annotations "helm.sh/resource-policy" "keep" }}
+{{- $_ := set $object.metadata.annotations "argocd.argoproj.io/sync-options" "ServerSideApply=true,Prune=false,Delete=false" }}
+{{- $_ := set $object.metadata.annotations "cloudlab.io/owner" "cloudlab-gateway-api" }}
+---
+{{ toYaml $object }}
+{{- end }}
+{{- end }}
