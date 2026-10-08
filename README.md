@@ -281,6 +281,9 @@ integrity reads, retrieval and retention all access B2 during that operation.
 Data PVCs exclude recurring volume backups to avoid duplicate logical/volume paths.
 After interrupted maintenance, inspect the failure and use `lab data-resume` to
 restore declared access; existing data and generations remain intact.
+After inspecting an interrupted test, `lab data-cleanup-fixtures` removes only
+the owner-checked disposable namespaces and their recorded PV identities, never
+production volumes or retained backup generations.
 Interrupted remote candidates are retrieved and restore-tested before the next
 export proceeds. `lab data-retrieve` retrieves the latest verified generation into
 the Compose recovery volume using only a checkout and the vault reader. This is

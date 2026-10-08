@@ -25,6 +25,8 @@ def values(document):
 
 
 def replacement(document, names):
+    if document.get('category') != 'SECURE_NOTE' or 'cloudlab-managed' not in document.get('tags', []):
+        raise RuntimeError('Rotation is restricted to provisioner-owned secure notes')
     updated = copy.deepcopy(document)
     current = values(document)
     if any(not current.get(name) for name in names):
@@ -51,9 +53,9 @@ def local():
     path = Path('/state/data-rotation-pending.json')
     with Path('/state/data-vault-provision.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        inventory = command(['item', 'list', '--vault', 'CloudLab'], token)
         if not path.exists():
             documents = {}
-            inventory = command(['item', 'list', '--vault', 'CloudLab'], token)
             for title, names in FIELDS.items():
                 matches = [row for row in inventory if row['title'] == title]
                 if len(matches) != 1:
@@ -66,8 +68,11 @@ def local():
             raise RuntimeError('Rotation checkpoint has an unexpected scope')
         for title, pair in documents.items():
             old, new = pair['old'], pair['new']
+            if [row['id'] for row in inventory if row['title'] == title] != [old['id']]:
+                raise RuntimeError('Rotation item title became ambiguous or changed identity')
             current = command(['item', 'get', old['id'], '--vault', 'CloudLab'], token)
-            if current['title'] != title:
+            if (current['title'] != title or current.get('category') != 'SECURE_NOTE'
+                    or 'cloudlab-managed' not in current.get('tags', [])):
                 raise RuntimeError('Rotation item identity changed')
             actual, before, after = values(current), values(old), values(new)
             if all(actual[name] == after[name] for name in FIELDS[title]):
@@ -139,7 +144,9 @@ def cleanup_sql():
     from automation.data import verify
     from automation.mesh.kube import get, kube
     namespace = get('namespace', verify.NAMESPACE)
-    if namespace and namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') == verify.OWNER:
+    if namespace:
+        if namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != verify.OWNER:
+            raise RuntimeError('SQL fixture namespace has an unexpected owner')
         kube('delete', 'namespace', verify.NAMESPACE, '--wait=true', '--timeout=120s')
 
 

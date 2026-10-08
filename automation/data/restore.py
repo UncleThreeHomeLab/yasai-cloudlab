@@ -18,6 +18,11 @@ NAMESPACE = 'cloudlab-data-restore'
 LABEL = {'cloudlab.io/fixture': 'application-data-restore'}
 
 
+def object_tags(document):
+    return sorted((tag.findtext('{*}Key'), tag.findtext('{*}Value'))
+                  for tag in ET.fromstring(document).findall('.//{*}Tag'))
+
+
 def postgres(arguments, *, source=None, data=None):
     primary = get('cluster.postgresql.cnpg.io', 'data-restore', NAMESPACE)['status']['currentPrimary']
     result = subprocess.run(['/usr/local/bin/k3s', 'kubectl', 'exec', '-i', '-n', NAMESPACE,
@@ -33,14 +38,30 @@ def sql(statement, database='postgres'):
 
 
 def cleanup():
+    checkpoint = control.BASE / 'restore-cleanup.json'
     namespace = get('namespace', NAMESPACE)
-    if not namespace:
-        return
-    if namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture']:
+    if not namespace and not checkpoint.exists():
+        # Recover fixtures left by the pre-checkpoint cleanup implementation.
+        targets = []
+        names = {'data-restore-1', 'data-data-restore-seaweedfs-master-0',
+                 'data-data-restore-seaweedfs-filer-0', 'data1-data-restore-seaweedfs-volume-0'}
+        for volume in get('pv')['items']:
+            ref = volume['spec'].get('claimRef', {})
+            if ref.get('namespace') != NAMESPACE:
+                continue
+            if (ref.get('name') not in names or volume['status']['phase'] != 'Released'
+                    or volume['spec'].get('storageClassName') != 'cloudlab-data'
+                    or volume['metadata']['name'] != 'pvc-' + ref.get('uid', '')):
+                raise RuntimeError('Orphan restore volume has an unexpected identity')
+            targets.append([volume['metadata']['name'], volume['metadata']['uid'], ref['uid']])
+        if not targets:
+            return
+        control.atomic(checkpoint, targets)
+    if namespace and namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture']:
         raise RuntimeError('Restore namespace is not owned by this fixture')
     # Retain-class PVs outlive PVC deletion. Record only this fixture's exact UIDs.
-    claims = get('pvc', namespace=NAMESPACE)['items']
-    targets = []
+    claims = get('pvc', namespace=NAMESPACE)['items'] if namespace else []
+    targets = json.loads(checkpoint.read_text()) if checkpoint.exists() else []
     for claim in claims:
         name = claim['spec'].get('volumeName')
         if not name:
@@ -49,17 +70,23 @@ def cleanup():
         ref = volume['spec'].get('claimRef', {})
         if ref.get('namespace') != NAMESPACE or ref.get('uid') != claim['metadata']['uid']:
             raise RuntimeError('Restore PVC binding changed before cleanup')
-        targets.append((name, volume['metadata']['uid'], ref['uid']))
-    kube('delete', 'namespace', NAMESPACE, '--wait=true', '--timeout=300s', timeout=330)
+        target = [name, volume['metadata']['uid'], ref['uid']]
+        if target not in targets:
+            targets.append(target)
+    control.atomic(checkpoint, targets)
+    if namespace:
+        kube('delete', 'namespace', NAMESPACE, '--wait=true', '--timeout=300s', timeout=330)
     for name, uid, claim_uid in targets:
         wait(lambda: not get('pv', name) or get('pv', name)['status']['phase'] == 'Released', 'fixture volume release', timeout=120)
         volume = get('pv', name)
         if not volume:
             continue
-        if volume['metadata']['uid'] != uid or volume['spec']['claimRef']['uid'] != claim_uid or volume['status']['phase'] != 'Released':
+        if (volume['metadata']['uid'] != uid or volume['spec']['claimRef']['uid'] != claim_uid
+                or volume['spec']['claimRef']['namespace'] != NAMESPACE or volume['status']['phase'] != 'Released'):
             raise RuntimeError('Disposable restore volume is not safely released')
         kube('patch', 'pv', name, '--type=merge', '-p', '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}')
-        kube('delete', 'pv', name, '--wait=true', '--timeout=300s', timeout=330)
+        kube('delete', 'pv', name, '--ignore-not-found=true', '--wait=true', '--timeout=300s', timeout=330)
+    checkpoint.unlink()
 
 
 def run(directory):
@@ -139,8 +166,8 @@ def run(directory):
             headers = {key.lower(): value for key, value in response['headers'].items()}
             if any(headers.get(key) != value for key, value in row['headers'].items()):
                 raise RuntimeError('Restored object metadata differs')
-            expected_tags = sorted((e.tag.split('}')[-1], e.text) for e in ET.fromstring(row['tags']).iter() if e.text and e.text.strip())
-            actual_tags = sorted((e.tag.split('}')[-1], e.text) for e in ET.fromstring(client.request('GET', manifest['bucket'], row['key'], query={'tagging': ''})['data']).iter() if e.text and e.text.strip())
+            expected_tags = object_tags(row['tags'])
+            actual_tags = object_tags(client.request('GET', manifest['bucket'], row['key'], query={'tagging': ''})['data'])
             if actual_tags != expected_tags:
                 raise RuntimeError('Restored object tags differ')
         app_source = control.s3(False)

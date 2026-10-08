@@ -7,12 +7,49 @@ import unittest
 from unittest.mock import Mock, patch
 from contextlib import ExitStack
 
-from automation.data import backup, capture, chart, control, credentials, remote, s3, rotation
+from automation.data import backup, capture, chart, control, credentials, remote, s3, rotation, restore
 
 
 class DataTests(unittest.TestCase):
+    def test_restored_tag_gate_preserves_key_value_pairs(self):
+        original = '<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag><Tag><Key>b</Key><Value>2</Value></Tag></TagSet></Tagging>'
+        swapped = original.replace('<Value>1', '<Value>x').replace('<Value>2', '<Value>1').replace('<Value>x', '<Value>2')
+        self.assertNotEqual(restore.object_tags(original), restore.object_tags(swapped))
+        self.assertEqual(restore.object_tags(original), restore.object_tags(original.replace('<Tagging>', '<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/">')))
+
+    def test_cleanup_checkpoint_never_deletes_a_rebound_volume(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
+                patch.object(restore, 'wait'), patch.object(restore, 'kube') as kube:
+            path = Path(temporary) / 'restore-cleanup.json'
+            path.write_text(json.dumps([['fixture-pv', 'expected-uid', 'expected-claim']]))
+            rebound = {'metadata': {'uid': 'different-uid'}, 'spec': {'claimRef': {
+                'uid': 'different-claim', 'namespace': 'production'}}, 'status': {'phase': 'Released'}}
+            with patch.object(restore, 'get', side_effect=lambda kind, *args: None if kind == 'namespace' else rebound):
+                with self.assertRaisesRegex(RuntimeError, 'safely released'):
+                    restore.cleanup()
+            kube.assert_not_called()
+            self.assertTrue(path.exists())
+
+    def test_orphan_cleanup_is_scoped_and_tolerates_automatic_pv_deletion(self):
+        volume = {'metadata': {'name': 'pvc-claim', 'uid': 'volume'}, 'status': {'phase': 'Released'},
+                  'spec': {'storageClassName': 'cloudlab-data', 'claimRef': {
+                      'name': 'data-restore-1', 'namespace': restore.NAMESPACE, 'uid': 'claim'}}}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
+                patch.object(restore, 'wait'), patch.object(restore, 'kube') as kube:
+            def get(kind, name=None):
+                return None if kind == 'namespace' else volume if name else {'items': [volume]}
+            with patch.object(restore, 'get', side_effect=get):
+                restore.cleanup()
+                self.assertIn('--ignore-not-found=true', kube.call_args.args)
+                self.assertFalse((Path(temporary) / 'restore-cleanup.json').exists())
+                kube.reset_mock()
+                volume['spec']['claimRef']['name'] = 'unrelated'
+                with self.assertRaisesRegex(RuntimeError, 'unexpected identity'):
+                    restore.cleanup()
+                kube.assert_not_called()
+
     def test_rotation_preserves_unrelated_fields_and_original(self):
-        old = {'id': 'fixture', 'title': 'cnpg-notes-production', 'fields': [
+        old = {'id': 'fixture', 'title': 'cnpg-notes-production', 'category': 'SECURE_NOTE', 'tags': ['cloudlab-managed'], 'fields': [
             {'label': 'username', 'value': 'notes_app'}, {'label': 'password', 'value': 'old-password'},
             {'label': 'database', 'value': 'notes'}]}
         new = rotation.replacement(old, ('password',))
@@ -23,6 +60,8 @@ class DataTests(unittest.TestCase):
         self.assertEqual(new['id'], old['id'])
         with self.assertRaisesRegex(RuntimeError, 'missing'):
             rotation.replacement(old, ('SECRET_ACCESS_KEY',))
+        with self.assertRaisesRegex(RuntimeError, 'provisioner-owned'):
+            rotation.replacement(dict(old, category='LOGIN'), ('password',))
 
     def test_external_gate_rejects_public_success(self):
         from automation.data import external
@@ -92,6 +131,15 @@ class DataTests(unittest.TestCase):
                          'https://user@s3.us-west-004.backblazeb2.com', 'https://s3.us-west-004.backblazeb2.com/path'):
             with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
                 remote.environment(dict(values, AWS_ENDPOINT=endpoint))
+
+    def test_remote_restore_rejects_links_before_extraction(self):
+        repository = object.__new__(remote.Repository)
+        rows = [{'type': 'file', 'path': '/database.dump', 'size': 4},
+                {'type': 'symlink', 'path': '/escape', 'linktarget': '/etc'}]
+        with patch.object(repository, 'run', return_value='\n'.join(map(json.dumps, rows))) as run:
+            with self.assertRaisesRegex(RuntimeError, 'restore scope'):
+                repository.retrieve('fixture', Path('/unused'))
+            self.assertEqual(len(run.call_args_list), 1)
 
     def test_restore_failure_never_prunes_previous_generation(self):
         values = {'AWS_ENDPOINT': 'https://s3.us-west-004.backblazeb2.com', 'BUCKET': 'example-bucket',

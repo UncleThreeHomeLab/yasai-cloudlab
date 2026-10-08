@@ -130,6 +130,4 @@ def retain_local(base, successful):
         if old == successful or old.is_symlink() or old.parent.resolve() != base.resolve():
             raise RuntimeError('Unexpected local retention target')
         old.chmod(0o700)
-        for child in old.iterdir():
-            child.chmod(0o600)
         shutil.rmtree(old)

@@ -60,7 +60,9 @@ class Repository:
     def retrieve(self, snapshot, directory):
         rows = [json.loads(line) for line in self.run('ls', snapshot, '--json').splitlines()]
         files = [row for row in rows if row.get('type') == 'file']
-        if (not files or sum(row['size'] for row in files) > POLICY['max_generation_bytes'] + 16 * 1024**2
+        if (any(row.get('type') not in (None, 'file') and not (row.get('type') == 'dir' and row.get('path') == '/') for row in rows)
+                or not files or any(not isinstance(row.get('size'), int) or row['size'] < 0 for row in files)
+                or sum(row['size'] for row in files) > POLICY['max_generation_bytes'] + 16 * 1024**2
                 or any(not re.fullmatch(r'/(?:database\.dump|roles\.sql|manifest\.json|object-[a-f0-9]{64})', row['path']) for row in files)):
             raise RuntimeError('Off-site snapshot exceeds its restore scope')
         self.run('restore', snapshot, '--target', str(directory), '--verify')

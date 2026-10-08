@@ -32,13 +32,18 @@ def freshness(now=None):
 def run(action):
     if action == 'freshness':
         return freshness()
-    if action not in ('local', 'monthly', 'acceptance-export', 'restore-local'):
+    if action not in ('local', 'monthly', 'acceptance-export', 'restore-local', 'cleanup-fixtures'):
         raise ValueError('Unknown application backup action')
     monthly = action in ('monthly', 'acceptance-export')
     acceptance = action == 'acceptance-export'
     if monthly:
         require_window(acceptance)
     with control.locked():
+        if action == 'cleanup-fixtures':
+            from automation.data.rotation import cleanup_sql
+            restore.cleanup()
+            cleanup_sql()
+            return {'disposable_fixtures_removed': True, 'production_data_removed': False, 'b2_reads': 0}
         if monthly and (control.BASE / 'monthly-receipt.json').exists():
             existing = json.loads((control.BASE / 'monthly-receipt.json').read_text())
             if acceptance and existing.get('explicit_acceptance_exception'):
