@@ -11,7 +11,7 @@ OWNER = 'cloudlab-application-backup'
 CLAIMS = {
     'postgres': 'cloudlab-postgres-1',
     'master': 'data-cloudlab-data-cloudlab-seaweedfs-master-0',
-    'filer': 'data-filer-cloudlab-data-cloudlab-seaweedfs-filer-0',
+    'filer': 'data-filer-cloudlab-seaweedfs-filer-0',
     'volume': 'data1-cloudlab-seaweedfs-volume-0',
 }
 
