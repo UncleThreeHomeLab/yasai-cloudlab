@@ -101,19 +101,23 @@ def prepare(payload):
     return {'changed': True, 'phase': 'prepared'}
 
 
+def legacy_removed():
+    # kubectl --ignore-not-found may produce no JSON for an empty collection.
+    charts = (get('helmcharts.helm.cattle.io', namespace='kube-system') or {}).get('items', [])
+    if any(c['metadata']['name'] in ('traefik', 'traefik-crd') for c in charts):
+        return False
+    if get('deployment', 'traefik', 'kube-system') or get('service', 'traefik', 'kube-system'):
+        return False
+    workloads = (get('daemonsets', namespace='kube-system') or {}).get('items', [])
+    return not any(d['metadata']['name'].startswith('svclb-') for d in workloads)
+
+
 def finish(payload):
     state = json.loads(RECEIPT.read_text())
     if identities(payload['gateway_api']) != state['crds']:
         raise RuntimeError('Gateway API identities were not retained')
-    def removed():
-        charts = get('helmcharts.helm.cattle.io', namespace='kube-system')['items']
-        return not any(c['metadata']['name'] in ('traefik', 'traefik-crd') for c in charts)
-    wait(removed, 'bundled Traefik chart removal', timeout=600)
+    wait(legacy_removed, 'bundled Traefik and unused ServiceLB workload removal', timeout=600)
     dependencies()
-    if get('deployment', 'traefik', 'kube-system') or get('service', 'traefik', 'kube-system'):
-        raise RuntimeError('Bundled Traefik still exists')
-    if any(d['metadata']['name'].startswith('svclb-') for d in get('daemonsets', namespace='kube-system')['items']):
-        raise RuntimeError('Unused ServiceLB workloads remain')
     # The old Helm reconciler is gone. Retained CRDs can now acquire one new owner.
     changed = state['phase'] not in ('adopted', 'accepted')
     for name in state['crds']:

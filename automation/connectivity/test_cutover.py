@@ -19,6 +19,18 @@ from automation.connectivity import legacy
 
 
 class CutoverTests(unittest.TestCase):
+    def test_empty_legacy_inventories_are_successful_removal(self):
+        with patch.object(legacy, 'get', return_value=None):
+            self.assertTrue(legacy.legacy_removed())
+
+    def test_remaining_chart_service_or_workload_prevents_adoption(self):
+        for kind, value in [('helmcharts.helm.cattle.io', {'items': [{'metadata': {'name': 'traefik'}}]}),
+                            ('deployment', {'metadata': {'name': 'traefik'}}),
+                            ('service', {'metadata': {'name': 'traefik'}}),
+                            ('daemonsets', {'items': [{'metadata': {'name': 'svclb-traefik'}}]})]:
+            with self.subTest(kind=kind), patch.object(legacy, 'get', side_effect=lambda resource, *args, **kwargs: value if resource == kind else None):
+                self.assertFalse(legacy.legacy_removed())
+
     def test_final_acceptance_requires_adoption_and_both_disabled_components(self):
         with tempfile.TemporaryDirectory() as folder:
             receipt = Path(folder) / 'cutover.json'
