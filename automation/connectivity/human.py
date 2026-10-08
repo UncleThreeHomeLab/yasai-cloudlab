@@ -19,6 +19,7 @@ from automation.connectivity.contract import host_rules
 from automation.connectivity.provider_http import open_request
 from automation.connectivity.reconcile import matches
 from automation.connectivity.traffic import denied, https, success
+from automation.connectivity.checkpoint import transaction
 
 RECEIPT = Path('/state/connectivity/human-proof.json')
 
@@ -88,12 +89,15 @@ def record(token):
         stream.flush()
         os.fsync(stream.fileno())
     temporary.replace(RECEIPT)
+    with transaction() as receipts:
+        receipts.save('human-proof', json.loads(RECEIPT.read_text()))
     return {'human_authenticated': True, 'human_cannot_use_machine_route': True, 'session_persisted': False}
 
 
 def retained():
     _, _, _, binding = selected()
-    evidence = json.loads(RECEIPT.read_text()) if RECEIPT.exists() else {}
+    with transaction() as receipts:
+        evidence = receipts.load('human-proof') or {}
     if (evidence.get('binding') != binding or not evidence.get('signed_identity_verified')
             or not evidence.get('human_backend_passed') or not evidence.get('machine_boundary_denied')):
         raise RuntimeError('Human sign-in proof is missing or its selected policy changed')

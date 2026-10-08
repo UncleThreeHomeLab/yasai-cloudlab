@@ -78,8 +78,33 @@ def snapshot():
         if any(not all(c.get(probe) for probe in ('startupProbe', 'readinessProbe', 'livenessProbe'))
                for p in pods for c in p['spec']['containers']):
             raise RuntimeError('An access replica lacks its required health probes')
+        budgets = get('poddisruptionbudgets', namespace=namespace)['items']
+        selected = [b for b in budgets if b['spec'].get('selector', {}).get('matchLabels')
+                    and all(all(p['metadata'].get('labels', {}).get(k) == v
+                        for k, v in b['spec']['selector']['matchLabels'].items()) for p in pods)]
+        if not any(b['spec'].get('minAvailable') == 1 and b.get('status', {}).get('currentHealthy') == 2
+                   and b.get('status', {}).get('disruptionsAllowed') == 1 for b in selected):
+            raise RuntimeError('Access replicas lack a ready one-at-a-time disruption budget')
         result[namespace + '/' + selector] = [{'name': p['metadata']['name'], 'uid': p['metadata']['uid']} for p in pods]
     return result
+
+
+def identities():
+    import hashlib
+    retained = {}
+    for group in ('cloudlab-api', 'cloudlab-ingress'):
+        retained[group] = get('proxygroup', group)['metadata']['uid']
+        for index in range(2):
+            name = group + '-' + str(index)
+            secret = get('secret', name, 'tailscale')
+            data = secret.get('data', {})
+            if not data.get('device_id') or not data.get('_machinekey'):
+                raise RuntimeError('Proxy device identity is not persisted')
+            retained[name] = {'uid': secret['metadata']['uid'],
+                'identity': hashlib.sha256(json.dumps({key: data[key] for key in ('device_id', '_machinekey')}, sort_keys=True).encode()).hexdigest()}
+    service = get('service', 'cloudlab-tailnet', 'cloudlab-gateway-private')
+    retained['private-service'] = {'uid': service['metadata']['uid'], 'addresses': service['status']['loadBalancer']}
+    return retained
 
 
 def runtime():
@@ -134,6 +159,8 @@ if __name__ == '__main__':
             result = {'fixtures_removed': True}
         elif action == 'snapshot':
             result = snapshot()
+        elif action == 'identities':
+            result = identities()
         elif action == 'runtime':
             result = runtime()
         elif action == 'dns-proof':

@@ -11,6 +11,7 @@ from automation.connectivity.cloudflare import API
 from automation.connectivity.preflight import audit, ssh
 from automation.connectivity.reconcile import Reconciler
 from automation.credentials.vault import fields
+from automation.connectivity.checkpoint import transaction
 
 
 READY = '''import json, subprocess
@@ -50,11 +51,12 @@ def run():
     state_dir = Path('/state/connectivity')
     state_dir.mkdir(mode=0o700, exist_ok=True)
     path = state_dir / 'external.json'
-    with (state_dir / 'external.lock').open('a') as lock:
+    with (state_dir / 'external.lock').open('a') as lock, transaction() as receipts:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        state = json.loads(path.read_text()) if path.exists() else {}
+        state = receipts.load('external') or {}
 
         def save(value):
+            receipts.save('external', value)
             temporary = path.with_suffix('.tmp')
             with temporary.open('w') as stream:
                 json.dump(value, stream, sort_keys=True)

@@ -175,8 +175,10 @@ once in the declared 1Password items; keep the existing reader read-only.
 `lab access-external` through Compose is a guarded external reconciliation path.
 It requires prerequisite health and ready access workloads, configures Access
 before tunnel routes and publishes DNS last. It retains external identities and
-create intents in the private `ssh_known_hosts` volume under `connectivity/`.
-Retain that volume during recovery; never delete it to bypass an ownership error.
+create intents on the existing server under `/var/lib/cloudlab/connectivity/receipts`.
+A host lock covers each provider transaction, including runs from another checkout.
+Existing local receipts migrate once from the private `ssh_known_hosts` volume.
+Retain the server receipts during recovery; never delete them to bypass an ownership error.
 Repair missing credentials and rerun. A missing/replaced external identity,
 unowned resource, hostname removal or classification change requires explicit
 migration. Its provider lifecycle is unit-tested, not live-accepted.

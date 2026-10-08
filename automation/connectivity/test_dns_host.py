@@ -67,6 +67,13 @@ class HostDNSTests(unittest.TestCase):
         self.assertTrue(self.apply()['changed'])
         self.command.assert_called_once()
 
+    def test_transient_unchanged_generation_failure_does_not_restart(self):
+        self.apply()
+        self.command.reset_mock()
+        self.validate.side_effect = [TimeoutError(), None]
+        self.assertFalse(self.apply()['changed'])
+        self.command.assert_not_called()
+
     def test_activation_requires_both_resolvers_before_replacing_original(self):
         self.apply()
         with patch.object(dns_host, 'private_answer', side_effect=RuntimeError('second resolver failed')):

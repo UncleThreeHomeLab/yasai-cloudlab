@@ -134,7 +134,7 @@ def rbac_transport(source, destination):
 
 def verify(api_hostname, api_address, ingress_address, nameservers):
     with client() as (control_socket, status):
-        peers = {ip for p in status.get('Peer', {}).values() for ip in p.get('TailscaleIPs', [])}
+        peers = {ip for p in (status.get('Peer') or {}).values() for ip in p.get('TailscaleIPs', [])}
         for address, port in [(api_address, 443), (ingress_address, 443)] + [(server, 53) for server in nameservers]:
             if tailnet_connect(control_socket, address, port, peers):
                 raise RuntimeError('Unauthorized tailnet fixture reached a private route')
