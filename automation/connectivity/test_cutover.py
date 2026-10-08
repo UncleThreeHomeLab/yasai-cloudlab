@@ -1,5 +1,7 @@
 """Helm release retention is a prerequisite, not an annotation added after removal."""
 import copy
+from contextlib import nullcontext, redirect_stdout, redirect_stderr
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -11,11 +13,22 @@ from unittest.mock import patch
 import yaml
 
 from automation.connectivity.cutover import definitions, retention
+from automation.connectivity import cutover, verify
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'mesh'))
 from automation.connectivity import legacy
 
 
 class CutoverTests(unittest.TestCase):
+    def test_fresh_verification_progress_does_not_corrupt_structured_result(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(cutover, 'remote', side_effect=[{'state': None}, {'state': {'phase': 'prepared'}}, {'changed': False}]), \
+                patch.object(cutover, 'transaction', return_value=nullcontext()), \
+                patch.object(verify, 'run', side_effect=lambda **kwargs: print('progress')), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            self.assertEqual(cutover.prepare({}), {'changed': False})
+        self.assertEqual(stdout.getvalue(), '')
+        self.assertEqual(stderr.getvalue(), 'progress\n')
+
     def test_release_requires_retention_for_every_pinned_crd(self):
         objects = definitions()
         for obj in objects:

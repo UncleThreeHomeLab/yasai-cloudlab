@@ -1,4 +1,5 @@
 """Validate stored Helm retention before authorizing the server-side handoff."""
+from contextlib import redirect_stdout
 import hashlib
 import json
 import os
@@ -38,7 +39,9 @@ def remote(action, payload=None):
 def prepare(payload):
     if not remote('status')['state']:
         from automation.connectivity.verify import run as verify_access
-        verify_access(failures=False)
+        # Keep the CLI's stdout a single JSON result for Ansible changed_when.
+        with redirect_stdout(sys.stderr):
+            verify_access(failures=False)
     with transaction():
         # Serialize acceptance/provider changes with the destructive cutover gate.
         state = remote('status')['state']
