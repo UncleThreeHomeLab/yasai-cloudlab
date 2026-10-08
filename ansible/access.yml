@@ -1,0 +1,17 @@
+---
+- name: Reconcile the bounded access Application
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Validate the published GitOps source
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/gitops/render.py]
+      delegate_to: localhost
+      become: false
+      register: gitops_payload
+      changed_when: false
+      no_log: true
+  roles:
+    - connectivity

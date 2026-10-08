@@ -105,3 +105,8 @@
   ansible.builtin.include_role:
     name: mesh
   when: mesh_enabled | bool
+
+- name: Configure private access after mesh acceptance
+  ansible.builtin.include_role:
+    name: connectivity
+  when: access_enabled | bool

@@ -42,6 +42,25 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(os.environ['VM2_PUBLIC_IP'], '192.0.2.2')
             playbook.assert_called_once_with('inspect.yml')
 
+    def test_access_preflight_never_runs_playbooks_or_gitops_writes(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+            playbook = self.invoke('access-preflight')
+        playbook.assert_not_called()
+        self.assertEqual(run.call_args.args[0][-1], '/workspace/automation/connectivity/preflight.py')
+
+    def test_access_preflight_preserves_blocker_exit_without_traceback(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=2)):
+            with self.assertRaises(SystemExit) as failure:
+                self.invoke('access-preflight')
+        self.assertEqual(failure.exception.code, 2)
+
+    def test_access_actions_use_own_modules_without_host_playbooks(self):
+        for action, module in [('access-prepare-tags', 'prepare_tags.py'), ('access-external', 'external.py')]:
+            with self.subTest(action=action), patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+                playbook = self.invoke(action)
+                playbook.assert_not_called()
+                self.assertEqual(run.call_args.args[0][-1], '/workspace/automation/connectivity/' + module)
+
     def test_missing_worker_password_fails_before_any_playbook(self):
         del self.values['VM2_PASSWORD']
         with self.assertRaisesRegex(SystemExit, 'Missing .env inputs: VM2_PASSWORD'):
@@ -113,7 +132,7 @@ class RunnerTests(unittest.TestCase):
     def test_syntax_does_not_require_credentials_or_dns(self):
         self.values = {}
         playbook = self.invoke('syntax')
-        self.assertEqual(playbook.call_count, 16)
+        self.assertEqual(playbook.call_count, 17)
         self.assertTrue(all(call.kwargs == {'syntax': True} for call in playbook.call_args_list))
 
     def test_independent_retrieval_does_not_require_vm_credentials_or_playbooks(self):

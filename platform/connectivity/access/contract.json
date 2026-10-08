@@ -1,0 +1,33 @@
+{
+  "items": {
+    "tailscale-operator": ["CLIENT_ID", "CLIENT_SECRET"],
+    "tailscale-policy": ["CLIENT_ID", "CLIENT_SECRET"],
+    "cloudflare-management": ["API_TOKEN", "ACCOUNT_ID", "ZONE_ID"],
+    "cloudlab-dns01": ["API_TOKEN", "ZONE_ID"],
+    "cloudflare-tunnel": ["TUNNEL_ID", "TUNNEL_TOKEN"],
+    "cloudflare-access-machine": ["SERVICE_TOKEN_ID", "CLIENT_ID", "CLIENT_SECRET"]
+  },
+  "tags": {
+    "operator": "tag:cloudlab-operator",
+    "ingressDevice": "tag:cloudlab-ingress-proxy",
+    "ingressService": "tag:cloudlab-private",
+    "apiDevice": "tag:cloudlab-api-proxy",
+    "apiService": "tag:cloudlab-api-proxy"
+  },
+  "replicas": 2,
+  "apiMode": "auth",
+  "privateGatewayHostname": "cloudlab-private",
+  "apiHostname": "cloudlab-api",
+  "operatorScopes": ["auth_keys", "devices:core", "services"],
+  "policyScopes": ["policy_file", "dns"],
+  "credentialPersistence": "pre-provisioned-1password-items",
+  "cloudflareOrigin": "https://cloudlab-istio.cloudlab-gateway-public.svc.cluster.local:443",
+  "sessionDuration": "1h",
+  "sources": [
+    "https://tailscale.com/docs/kubernetes-operator/ingress/expose-workload-to-tailnet-l3",
+    "https://tailscale.com/docs/kubernetes-operator/api-server-access",
+    "https://tailscale.com/docs/kubernetes-operator/reference/rbac",
+    "https://developers.cloudflare.com/tunnel/get-started/",
+    "https://developers.cloudflare.com/cloudflare-one/access-controls/policies/"
+  ]
+}

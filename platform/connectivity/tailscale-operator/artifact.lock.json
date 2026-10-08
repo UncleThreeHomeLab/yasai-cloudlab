@@ -1,0 +1,13 @@
+{
+  "version": "1.102.4",
+  "upstream_url": "https://pkgs.tailscale.com/helmcharts/tailscale-operator-1.102.4-1789680537-f298a860775749037dd6f42bf764369bbe2865bdfff0289e864851a4bc90c1e2.tgz",
+  "upstream_sha256": "f298a860775749037dd6f42bf764369bbe2865bdfff0289e864851a4bc90c1e2",
+  "sha256": "a673900922c0d49a7881d6b6f0bf15ba68369dc76c69b816b458995b4a6e098a",
+  "patch": "Eight CRD retention annotations only; no schema changes",
+  "kube_version": "1.36.5",
+  "images": {
+    "operator": "tailscale/k8s-operator@sha256:3c8958c42fb3c46068e8553e11b944f2133b4671d4f36c86adc11f206746bf34",
+    "ingress": "tailscale/tailscale:v1.102.4@sha256:2667499ed87ae29218f292556ba062918402dd5e92e93637af14867e4df12dd3",
+    "api": "tailscale/k8s-proxy:v1.102.4@sha256:a43ae88f544dab66ffd690a9834ed38adf7cef39e9a4a6d0cbf0467ddaa02281"
+  }
+}

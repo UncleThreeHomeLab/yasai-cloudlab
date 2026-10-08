@@ -1,0 +1,61 @@
+{{- if .Values.access.enabled }}
+{{- range $component := list "tailscale-operator" "access" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-{{ $component }}
+  namespace: argocd
+spec:
+  sourceRepos: [{{ $.Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: tailscale}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-connectors}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-gateway-private}
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+    {{- if eq $component "tailscale-operator" }}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    {{- else }}
+    - {group: tailscale.com, kind: ProxyClass}
+    - {group: tailscale.com, kind: ProxyGroup}
+    - {group: admissionregistration.k8s.io, kind: MutatingAdmissionPolicy}
+    - {group: admissionregistration.k8s.io, kind: MutatingAdmissionPolicyBinding}
+    {{- end }}
+  namespaceResourceWhitelist:
+    - {group: '', kind: ServiceAccount}
+    - {group: '', kind: Service}
+    - {group: '', kind: ConfigMap}
+    - {group: apps, kind: Deployment}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-tailscale-operator
+  namespace: argocd
+spec:
+  project: cloudlab-tailscale-operator
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: platform/connectivity/tailscale-operator
+    helm:
+      releaseName: tailscale-operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- end }}

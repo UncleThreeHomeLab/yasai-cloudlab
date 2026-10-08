@@ -18,3 +18,5 @@ certificates:
   enabled: true
 mesh:
   enabled: true
+access:
+  enabled: true

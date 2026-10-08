@@ -1,0 +1,59 @@
+# Admission owns only Pod probes; the operator remains the StatefulSet owner.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: cloudlab-proxy-health
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+spec:
+  failurePolicy: Fail
+  reinvocationPolicy: IfNeeded
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: tailscale}
+    objectSelector:
+      matchExpressions:
+        - key: cloudlab.io/proxy
+          operator: In
+          values: [cloudlab-ingress, cloudlab-api]
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  matchConditions:
+    - name: pinned-proxy-container
+      expression: >-
+        object.spec.containers.exists(c, c.name in ['tailscale', 'k8s-proxy'] &&
+          c.image in [{{ .Values.images.ingress | quote }}, {{ .Values.images.api | quote }}])
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{spec: Object.spec{
+            terminationGracePeriodSeconds: 45,
+            containers: [Object.spec.containers{
+              name: object.spec.containers.filter(c, c.name in ['tailscale', 'k8s-proxy'])[0].name,
+              startupProbe: Object.spec.containers.startupProbe{
+                httpGet: Object.spec.containers.startupProbe.httpGet{path: '/healthz', port: 9002},
+                periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 60
+              },
+              readinessProbe: Object.spec.containers.readinessProbe{
+                httpGet: Object.spec.containers.readinessProbe.httpGet{path: '/healthz', port: 9002},
+                periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 2
+              },
+              livenessProbe: Object.spec.containers.livenessProbe{
+                tcpSocket: Object.spec.containers.livenessProbe.tcpSocket{port: 9002},
+                periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 6
+              }
+            }]
+          }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-proxy-health
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  policyName: cloudlab-proxy-health
