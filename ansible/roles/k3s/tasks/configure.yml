@@ -51,11 +51,14 @@
 
 - name: Disable legacy ingress only after replacement acceptance and retention audit
   ansible.builtin.set_fact:
-    k3s_effective_config: "{{ k3s_effective_config | combine({'disable': ['traefik', 'servicelb']}) }}"
+    k3s_effective_config: >-
+      {{ k3s_effective_config | combine({'disable': ['traefik'] +
+        (['servicelb'] if (k3s_access_receipt.content | b64decode | from_json).phase
+         in ['adopted', 'accepted'] else [])}) }}
   when:
     - k3s_mode == 'server'
     - k3s_access_cutover.stat.exists
-    - (k3s_access_receipt.content | b64decode | from_json).phase in ['prepared', 'accepted']
+    - (k3s_access_receipt.content | b64decode | from_json).phase in ['prepared', 'adopted', 'accepted']
 
 - name: Store the agent join credential privately
   ansible.builtin.copy:

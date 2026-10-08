@@ -19,6 +19,22 @@ from automation.connectivity import legacy
 
 
 class CutoverTests(unittest.TestCase):
+    def test_final_acceptance_requires_adoption_and_both_disabled_components(self):
+        with tempfile.TemporaryDirectory() as folder:
+            receipt = Path(folder) / 'cutover.json'
+            with patch.object(legacy, 'RECEIPT', receipt), patch.object(legacy, 'finish') as finish, \
+                    patch.object(legacy, 'record') as record:
+                for phase, disabled in [('prepared', ['traefik', 'servicelb']), ('adopted', ['traefik'])]:
+                    receipt.write_text(json.dumps({'phase': phase}))
+                    with self.assertRaises(RuntimeError): legacy.accept({'disabled': disabled})
+                finish.assert_not_called()
+                record.assert_not_called()
+                finish.return_value = {'changed': False, 'phase': 'adopted'}
+                result = legacy.accept({'disabled': ['traefik', 'servicelb']})
+                self.assertEqual(result['phase'], 'accepted')
+                self.assertTrue(result['changed'])
+                record.assert_called_once_with({'phase': 'accepted'})
+
     def test_fresh_verification_progress_does_not_corrupt_structured_result(self):
         stdout, stderr = io.StringIO(), io.StringIO()
         with patch.object(cutover, 'remote', side_effect=[{'state': None}, {'state': {'phase': 'prepared'}}, {'changed': False}]), \
