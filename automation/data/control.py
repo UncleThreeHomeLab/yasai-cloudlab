@@ -242,14 +242,8 @@ def configure(payload):
         for name in ('notes-application', 'notes-migration', 'database-backup', 'cloudlab-s3-config', 'data-offsite'):
             wait(lambda: condition(get('externalsecret.external-secrets.io', name, NAMESPACE), 'Ready'), 'data credential readiness')
         primary()
-        from automation.data.volumes import inventory, LH
-        for row in inventory().values():
-            volume = get('volumes.longhorn.io', row['volume'], LH)
-            if volume['spec'].get('backupCompressionMethod') != 'gzip':
-                kube('patch', 'volumes.longhorn.io', row['volume'], '-n', LH, '--type=merge',
-                     '--field-manager=cloudlab-application-backup',
-                     '-p', '{"spec":{"backupCompressionMethod":"gzip"}}')
-                changed = True
+        from automation.data.volumes import inventory
+        inventory()
         atomic(BASE / 'desired.json', payload['values'])
         # DNS is configured after this role. Reconciliation uses the real private
         # endpoint only after both host resolvers have applied it.

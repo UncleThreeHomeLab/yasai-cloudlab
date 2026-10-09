@@ -1,5 +1,8 @@
 # Locked wheels for Python 3.13 on Linux amd64 and arm64.
 # All direct and transitive dependencies are versioned and hash-checked.
+lz4==4.4.5 \
+    --hash=sha256:533298d208b58b651662dd972f52d807d48915176e5b032fb4f8c3b6f5fe535c \
+    --hash=sha256:451039b609b9a88a934800b5fc6ee401c89ad9c175abf2f4d9f8b2e4ef1afc64
 ansible-core==2.21.4 \
     --hash=sha256:ebe74d9c8fadcb41ad2151e031bf1e785e3098aaa015019b4e19a0a96f0dcc4f
 python-dotenv==1.2.4 \

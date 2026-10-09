@@ -72,9 +72,10 @@ def run(action):
         if action == 'restore-offsite':
             repository = Repository(control.secret('data-offsite'), True)
             manifest = repository.latest()
-            blocks = repository.read_blocks(manifest)
+            for row in manifest['volumes'].values():
+                repository.validate_url(row)
             proof = restore.run(manifest, offsite=True)
-            return {**proof, **blocks, 'explicit_restore_exception': True,
+            return {**proof, 'explicit_restore_exception': True,
                     'network': repository.client.counters()}
         pending = control.BASE / 'pending-volume.json'
         if action == 'check-local' and pending.exists():
@@ -106,10 +107,11 @@ def run(action):
                 pending.unlink()
         repository = Repository(control.secret('data-offsite'), acceptance)
         repository.upload(manifest)
-        blocks = repository.read_blocks(manifest)
+        # Longhorn verifies block checksums during the complete physical restore.
+        # The cluster-free reader is a separate deliberate acceptance command.
         proof = restore.run(manifest, offsite=True)
         result = repository.accept(manifest, proof)
-        result.update(blocks)
+        result['local_backup_files'] = 0
         volumes.cleanup_snapshots(manifest)
         result['removed_legacy_local_generations'] = retire_local()
         control.atomic(receipt, result)

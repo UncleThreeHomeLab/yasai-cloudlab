@@ -27,7 +27,9 @@ def inventory():
         volume = get('volumes.longhorn.io', pv['spec']['csi']['volumeHandle'], LH)
         if (claim['status']['phase'] != 'Bound' or claim['spec']['storageClassName'] != 'cloudlab-data'
                 or pv['spec']['claimRef']['uid'] != claim['metadata']['uid']
-                or volume['spec']['numberOfReplicas'] != 2 or volume['status']['robustness'] != 'healthy'):
+                or volume['spec']['numberOfReplicas'] != 2 or volume['status']['robustness'] != 'healthy'
+                or volume['spec'].get('backupCompressionMethod') != 'lz4'
+                or volume['spec'].get('backupTargetName') != 'default'):
             raise RuntimeError('Application backup source binding or replica health changed')
         result[component] = {'claim': name, 'claim_uid': claim['metadata']['uid'],
                              'volume': volume['metadata']['name'], 'volume_uid': volume['metadata']['uid'],
