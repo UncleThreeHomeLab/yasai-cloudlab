@@ -29,6 +29,9 @@ spec:
   namespaceResourceWhitelist:
     - {group: argoproj.io, kind: Application}
     - {group: argoproj.io, kind: AppProject}
+    {{- if .Values.identity.argo }}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    {{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -39,7 +42,11 @@ metadata:
     argocd.argoproj.io/sync-wave: "-20"
 spec:
   description: Reviewed shared platform installation.
-  sourceRepos: [{{ .Values.repository | quote }}]
+  sourceRepos:
+    - {{ .Values.repository | quote }}
+    {{- if .Values.identity.argo }}
+    - {{ .Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace | quote }}}
   clusterResourceWhitelist:

@@ -33,6 +33,7 @@ spec:
     {{- else if eq $name "data-configuration" }}
     - {group: '', kind: ResourceQuota}
     - {group: postgresql.cnpg.io, kind: Cluster}
+    - {group: postgresql.cnpg.io, kind: Database}
     - {group: external-secrets.io, kind: ExternalSecret}
     - {group: cert-manager.io, kind: Certificate}
     - {group: networking.k8s.io, kind: NetworkPolicy}

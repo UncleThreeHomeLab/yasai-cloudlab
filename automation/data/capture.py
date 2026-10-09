@@ -17,6 +17,19 @@ def verify(manifest):
             or manifest.get('captured') is not True):
         raise ValueError('Incomplete or unsupported cold application generation')
     volumes.validate_sources(manifest)
+    if 'identity' in manifest:
+        state = manifest['identity']
+        expected = {'database', 'role', 'captured_at', 'signing_state_sha256', 'users',
+                    'disabled_users', 'recovery_inputs'}
+        if (not isinstance(state, dict) or set(state) != expected
+                or type(state['users']) is not int or type(state['disabled_users']) is not int
+                or not 0 <= state['disabled_users'] <= state['users']
+                or not re.fullmatch('[a-f0-9]{64}', state['signing_state_sha256'])
+                or type(state['captured_at']) not in (int, float)
+                or not 0 <= state['captured_at'] <= time.time() + 60):
+            raise ValueError('Invalid identity physical recovery inventory')
+        control.identity(state['database'])
+        control.identity(state['role'])
     if len(manifest['objects']) > POLICY['max_objects'] or len({r['key'] for r in manifest['objects']}) != len(manifest['objects']):
         raise ValueError('Invalid object inventory')
     if any(not re.fullmatch('[a-f0-9]{64}', r['sha256']) or r['bytes'] < 0 for r in manifest['objects']):
@@ -53,6 +66,12 @@ def capture():
             raise RuntimeError('Database exceeds the selected backup budget')
         manifest['extensions'] = json.loads(control.sql("SELECT coalesce(json_agg(json_build_object('name',extname,'version',extversion)), '[]'::json) FROM pg_extension", values['database']))
         manifest['postgres_version'] = control.sql('SHOW server_version')
+        from automation.identity.maintenance import set_maintenance
+        set_maintenance(True)
+        from automation.identity.recovery import capture_state
+        identity_state = capture_state()
+        if identity_state is not None:
+            manifest['identity'] = identity_state
         if control.sql("SELECT to_regclass('public.cloudlab_recovery_probe') IS NOT NULL", values['database']) == 't':
             manifest['notes_probe'] = json.loads(control.sql("SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t", values['database']))
         client = control.s3()

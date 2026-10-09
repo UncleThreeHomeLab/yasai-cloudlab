@@ -1,0 +1,28 @@
+{
+  "operator_version": "26.6.4",
+  "server_version": "26.8.0",
+  "config_cli_version": "6.5.1",
+  "config_cli_build_server": "26.5.5",
+  "compatibility": "Verified isolated K3s 1.36.5: official Operator 26.6.4 starts without preview CRDs; patched server 26.8.0 reaches Ready under restricted Pod security using MutatingAdmissionPolicy/v1 JSONPatch, without unsupported podTemplate. Repeat preserves StatefulSet; CR change and stop/resume reconcile. Config-cli 6.5.1-26.5.5 scoped writer/convergence/verified TLS protocol and virtual WebAuthn fixture passed.",
+  "operator_install_verified": true,
+  "sources": {
+    "kubernetes.yml": {
+      "url": "https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.6.4/kubernetes/kubernetes.yml",
+      "sha256": "b363f8032616bb8b3c6d33fc83af32e89fa72d48c064c33aa56055f3d310a14c"
+    },
+    "keycloaks.k8s.keycloak.org-v1.yml": {
+      "url": "https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.6.4/kubernetes/keycloaks.k8s.keycloak.org-v1.yml",
+      "sha256": "846783b8de418a5b4187705d9f651af46d1740df58fa4b4348b5e10a91e1678a"
+    },
+    "keycloakrealmimports.k8s.keycloak.org-v1.yml": {
+      "url": "https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.6.4/kubernetes/keycloakrealmimports.k8s.keycloak.org-v1.yml",
+      "sha256": "4b2220309a91f04e7b561fe1c3bdabe112612842d3e2658193e364721579d762"
+    }
+  },
+  "images": {
+    "server": "quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc",
+    "operator": "quay.io/keycloak/keycloak-operator:26.6.4@sha256:831827a0a267805d0e5bef00e402d99f728ce7fc4caa62d486a9114912412434",
+    "config_cli": "quay.io/adorsys/keycloak-config-cli:6.5.1-26.5.5@sha256:0955d98c8a341898b7aa177477edf8a1e90569ae50bbe7598141c1270b773274",
+    "python": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed"
+  }
+}

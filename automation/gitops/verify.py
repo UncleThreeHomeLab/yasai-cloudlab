@@ -6,7 +6,7 @@ import re
 import sys
 import time
 import uuid
-from bootstrap import BASE, kube, get, wait_application
+from bootstrap import matches_revision, BASE, kube, get, wait_application
 from controller_stability import fingerprint
 
 
@@ -192,7 +192,7 @@ def run(payload):
             current = get('application.argoproj.io', name)
             status = current.get('status', {})
             if (current['metadata']['uid'] != uid or status.get('sync', {}).get('status') != 'Synced' or
-                    status.get('sync', {}).get('revision') != payload['revision'] or
+                    not matches_revision(current, payload['revision']) or
                     status.get('health', {}).get('status') != 'Healthy'):
                 raise RuntimeError('Public GitOps did not remain converged')
     result = {'public_roots_converged': True, 'source_denied': True, 'namespace_denied': True,

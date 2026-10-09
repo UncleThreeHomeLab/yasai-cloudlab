@@ -1,0 +1,97 @@
+{{- if and .Values.enabled .Values.reconciliationEnabled }}
+{{- if .Values.operation }}
+{{- if or .Values.bootstrapMode (not .Values.privateStateEnabled) (ne .Values.operation.action "remove-client") (not (has .Values.operation.realm (list "platform" "applications"))) (not (regexMatch "^[a-z][a-z0-9-]{0,62}$" .Values.operation.client)) }}
+{{- fail "Removal requires a bounded managed realm/client and ready private inputs" }}
+{{- end }}
+{{- end }}
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: identity-writer
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: identity-writer
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec: {}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: identity-writer
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [identity-writer]
+    verbs: [get, update]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: identity-writer
+subjects: [{kind: ServiceAccount, name: identity-writer}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: identity-writer}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-writer-code
+data:
+  configuration.py: |
+{{ .Files.Get "runtime/configuration.py" | indent 4 }}
+  lease.py: |
+{{ .Files.Get "runtime/lease.py" | indent 4 }}
+  config-cli.properties: |
+{{ .Files.Get "config-cli.properties" | indent 4 }}
+{{- $pod := dict }}
+{{- /* The same Lease protects both writers. Deadlines terminate pods before lease expiry. */}}
+
+---
+{{- if not .Values.bootstrapMode }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: identity-reconcile
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  suspend: {{ or .Values.maintenance (not (empty .Values.operation)) }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 210
+      backoffLimit: 0
+      template:
+        metadata:
+          labels: {cloudlab.io/identity-writer: 'true'}
+        spec:
+{{ include "identity.pod" . | indent 10 }}
+{{- end }}
+{{- if not .Values.maintenance }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: identity-reconcile-sync
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  activeDeadlineSeconds: 210
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {cloudlab.io/identity-writer: 'true'}
+    spec:
+{{ include "identity.pod" . | indent 6 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,61 @@
+{{- if and .Values.enabled .Values.reconciliationEnabled (not .Values.bootstrapMode) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: identity-health
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-health-code
+data:
+  health.py: |
+{{ .Files.Get "runtime/health.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: identity-health
+spec:
+  schedule: '*/5 * * * *'
+  timeZone: Etc/UTC
+  suspend: {{ .Values.maintenance }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 120
+      backoffLimit: 0
+      template:
+        metadata:
+          labels: {cloudlab.io/identity-health: 'true'}
+        spec:
+          serviceAccountName: identity-health
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: health
+              image: {{ (.Files.Get "artifact.lock.json" | fromJson).images.python | quote }}
+              command: [python, /code/health.py]
+              args: [{{ .Values.loginHost | quote }}, {{ .Values.adminHost | quote }}]
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 100m, memory: 64Mi}
+              volumeMounts:
+                - {name: code, mountPath: /code, readOnly: true}
+                - {name: credentials, mountPath: /credentials, readOnly: true}
+          volumes:
+            - {name: code, configMap: {name: identity-health-code}}
+            - {name: credentials, secret: {secretName: keycloak-realm-health, defaultMode: 0440}}
+{{- end }}

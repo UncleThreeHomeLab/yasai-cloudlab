@@ -1,0 +1,5 @@
+{{- $key := .PRIVATE_KEY | trim -}}
+{{- $header := regexFind "^-----BEGIN (RSA )?PRIVATE KEY-----" $key -}}
+{{- $footer := replace "BEGIN" "END" $header -}}
+{{- $body := $key | trimPrefix $header | trimSuffix $footer -}}
+{{- printf "%s\n%s\n%s\n" $header (regexReplaceAll "[[:space:]]+" $body "") $footer -}}

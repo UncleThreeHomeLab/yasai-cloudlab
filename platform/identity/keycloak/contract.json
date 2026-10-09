@@ -1,0 +1,208 @@
+{
+  "status": "inactive candidate; installation and live acceptance incomplete",
+  "realms": [
+    "platform",
+    "applications"
+  ],
+  "writer": "keycloak-config-cli; no RealmImport or preview client controllers",
+  "runtime_application_requirement": "Bounded bootstrap owner preserves Lease /spec with ignoreDifferences and RespectIgnoreDifferences=true; server/bootstrap/scoped phases preserve bootstrap access until separately verified retirement",
+  "private_inputs": [
+    "desired_state",
+    "revocations",
+    "client_secrets"
+  ],
+  "vault_items": {
+    "cnpg-keycloak": [
+      "username",
+      "database",
+      "password"
+    ],
+    "keycloak-bootstrap-admin": [
+      "username",
+      "password"
+    ],
+    "keycloak-realm-writers": [
+      "platform_client_secret",
+      "applications_client_secret"
+    ],
+    "keycloak-client-secrets": [
+      "client_secrets"
+    ],
+    "keycloak-realm-health": [
+      "platform_client_secret",
+      "applications_client_secret"
+    ]
+  },
+  "managed_fields": {
+    "realm": "Fields emitted by configuration.baseline; master excluded",
+    "client": "Fields emitted by configuration.client; only explicit private inventory",
+    "membership": "Complete group list for explicitly inventoried users; never enabled:true or credentials",
+    "revocations": "Persistent private tombstones override desired clients and memberships",
+    "unmanaged": [
+      "Other users",
+      "Human credentials",
+      "Signing keys",
+      "Sessions",
+      "Omitted clients"
+    ],
+    "removal": "Explicit retire then remove-client plan and published persistent tombstone. Old source containing removed clients fails closed; missing private inputs never become empty imports. Scoped runtime operation verifies disabled client, waits 600 seconds for declared Keycloak/client sessions and JWTs, runs serialized Argo seed/removal job and restores normal reconciliation. Unrelated clients and users are preserved. Live operation unverified; application sessions require their own measured contracts.",
+    "master": "Separate bootstrap-only private frontend URL, MFA flow and audit settings; never private membership/user/client/key imports; no normal writer access to master",
+    "groups": "Generic platform-admin/developer/viewer realm roles. Private role_groups maps declared client roles to those approved groups through client-owned /client-<id>/<role> subgroups. Only explicitly inventoried memberships receive derived client groups; shared groups are never assigned a complete clientRoles map. Omitted group/subgroup objects are not automatically deleted."
+  },
+  "sessions": {
+    "access_token_seconds": 300,
+    "keycloak_session_max_seconds": 600,
+    "reconcile_schedule_seconds": 300,
+    "warning": "Logout does not revoke an already issued JWT. Argo and Access deadlines must be measured before acceptance.",
+    "disposable_measurement": {
+      "new_login_denied_seconds": 8,
+      "access_jwt_denied_seconds": 299,
+      "scope": "Synthetic virtual WebAuthn reference; not Argo/Access sessions or production proof",
+      "existing_keycloak_sso_cookie_denied": true
+    }
+  },
+  "integrations": {
+    "reference": {
+      "realm": "applications",
+      "flow": "Code + PKCE S256",
+      "checks": [
+        "state",
+        "nonce",
+        "exact callback",
+        "access JWT signature/issuer/audience/expiry/role"
+      ]
+    },
+    "argo": {
+      "realm": "platform",
+      "flow": "Native OIDC Code + PKCE",
+      "callback_paths": [
+        "/auth/callback",
+        "/pkce/verify"
+      ],
+      "groups": [
+        "platform-admin",
+        "developer",
+        "viewer"
+      ],
+      "status": "not integrated; preserve independent local repair admin"
+    },
+    "access": {
+      "realm": "platform",
+      "flow": "Dedicated confidential OIDC client with PKCE",
+      "scopes": [
+        "openid",
+        "profile",
+        "email"
+      ],
+      "groups_claim": "groups",
+      "status": "not integrated; preserve existing provider until acceptance"
+    },
+    "grafana_05": {
+      "realm": "platform",
+      "callback_path": "/login/generic_oauth",
+      "flow": "Code + PKCE S256",
+      "roles": {
+        "platform-admin": "Admin",
+        "developer": "Editor",
+        "viewer": "Viewer"
+      },
+      "requirements": [
+        "Community Generic OAuth",
+        "Strict role mapping; deny unmapped groups",
+        "Vault/ESO client secret",
+        "No enterprise team sync"
+      ],
+      "status": "contract only; do not install before 05"
+    },
+    "harbor_06": {
+      "realm": "platform",
+      "callback_path": "/c/oidc/callback",
+      "requirements": [
+        "Verify packaged Harbor PKCE support at 06",
+        "Dedicated confidential client",
+        "Explicit administrator group; project roles assigned separately",
+        "Independent scoped robot credentials for CI and pulls"
+      ],
+      "status": "contract only; do not install before 06"
+    }
+  },
+  "recovery": {
+    "policy": "Monthly-only coordinated Longhorn/B2; no retained daily local generations",
+    "state": [
+      "CNPG physical database including signing state",
+      "Current vault recovery material",
+      "Current private membership and revocation registry"
+    ],
+    "gate": "Suspend every identity writer and server before physical capture. Isolated restored issuer never serves real clients. Invalidate sessions and review current revocations before reopening.",
+    "status": "Monthly capture hooks and isolated SQL signing/session checks implemented; live identity capture, recovery-input replay and isolated issuer proof unverified",
+    "restore_replay": "Validate both current private realm inputs before any import. Inventory restored clients; disable existing removed-client tombstones without recreating absent clients. Keep issuer isolated pending human credential, membership and revocation review."
+  },
+  "health": {
+    "schedule_seconds": 300,
+    "permission": "Dedicated realm-health service clients with view-events only",
+    "audit": "Redacted latest 100 events per category; no identities, IPs, paths or representations",
+    "status": "Chart implemented; disposable role-scope checks passed; live schedule unverified"
+  },
+  "private_source": {
+    "path": "identity",
+    "object": "ConfigMap/identity-private-state",
+    "keys": [
+      "desired_state",
+      "revocations"
+    ],
+    "credential": "ESO project-scoped github-argocd",
+    "permissions": "ConfigMap only in cloudlab-identity; no prune or empty apply; unavailable source blocks realm import",
+    "status": "Owner and validation implemented; source content/publication and live proof pending",
+    "file": "identity/configmap.yaml only; adjacent argo-values.yaml is a values input, never a Kubernetes manifest"
+  },
+  "operations": {
+    "plans": [
+      "provision-client",
+      "disable-client",
+      "retire-client",
+      "remove-client",
+      "offboard-user",
+      "provision-argo",
+      "provision-access"
+    ],
+    "runtime_phases": [
+      "identity-server",
+      "identity-bootstrap",
+      "identity-scoped"
+    ],
+    "limitations": "Real enrollment/recovery, bootstrap retirement, credential rotation and integrated session deadlines still incomplete"
+  },
+  "credential_operations": {
+    "command": "lab identity-client-credential",
+    "inputs": [
+      "action: provision or rotate",
+      "realm",
+      "client_id"
+    ],
+    "scope": "One inventoried active confidential client in keycloak-client-secrets; public and retired clients rejected",
+    "provision": "Create missing secret; preserve existing value; verify read-only vault retrieval. Does not claim realm convergence.",
+    "rotate": "Persist private checkpoint; compare aggregate before mutation; retain unrelated values; ESO/serialized CLI reconcile; prove new credential authenticated and old credential rejected using invalid authorization code without creating sessions.",
+    "status": "implemented; live vault-to-realm rotation unverified"
+  },
+  "master_emergency_proof": {
+    "environment": "Isolated Compose fixture; no production custody or vault retirement claim",
+    "private_master_browser_mfa": true,
+    "private_master_issuer_without_public_loop": true,
+    "offline_emergency_service_bootstrap": true,
+    "temporary_bootstrap_user_disabled": true,
+    "master_password_grant_denied": true,
+    "temporary_emergency_client_disabled": true,
+    "unrelated_master_users_and_keys_preserved": true,
+    "repeat_retirement_safe": true,
+    "procedure": [
+      "Complete browser proof before retirement",
+      "Stop server and writer; verify both stopped",
+      "Run --profile recovery run --rm --no-deps emergency-bootstrap",
+      "Start server; restart admin-gateway and reference to attach their network namespace",
+      "Run up -d --no-deps writer",
+      "Run --profile recovery run --rm --no-deps emergency-proof",
+      "Clean only the named disposable project after verification"
+    ],
+    "limits": "Offline creation is the official bootstrap recovery boundary, not an additional normal realm writer. Retirement and emergency-client disable use config-cli. Real custody, credential retirement and live recovery remain required."
+  }
+}

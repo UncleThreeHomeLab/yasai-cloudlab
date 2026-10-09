@@ -46,6 +46,20 @@ spec:
         inRoles: []
         passwordSecret: {name: {{ $role.secret }}}
       {{- end }}
+      {{- if .Values.identity.enabled }}
+      - name: {{ .Values.identity.role | quote }}
+        ensure: present
+        login: {{ not .Values.maintenance }}
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: false
+        connectionLimit: 12
+        inRoles: []
+        passwordSecret: {name: keycloak-database}
+      {{- end }}
   postgresql:
     parameters:
       ssl_min_protocol_version: TLSv1.2
@@ -56,6 +70,9 @@ spec:
       - hostnossl all all all reject
       {{- range $name := list .Values.applicationRole .Values.migrationRole .Values.backupRole }}
       - {{ printf "hostssl %s %s all scram-sha-256" $.Values.database $name | quote }}
+      {{- end }}
+      {{- if .Values.identity.enabled }}
+      - {{ printf "hostssl %s %s all scram-sha-256" .Values.identity.database .Values.identity.role | quote }}
       {{- end }}
       - host all all all reject
 ---
@@ -78,4 +95,8 @@ spec:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: cloudlab-data-proof}
         - podSelector: {}
+        {{- if .Values.identity.enabled }}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cloudlab-identity}
+        {{- end }}
       ports: [{protocol: TCP, port: 5432}]

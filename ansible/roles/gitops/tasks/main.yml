@@ -43,7 +43,7 @@
     owner: root
     group: root
     mode: '0600'
-  loop: [bootstrap.py, verify.py, source_transition.py]
+  loop: [bootstrap.py, verify.py, source_transition.py, source_revision.py]
 
 - name: Install the shared controller stability check from its integration owner
   ansible.builtin.copy:

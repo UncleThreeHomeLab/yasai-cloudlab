@@ -1,0 +1,19 @@
+---
+- name: Run the bounded identity bootstrap phase
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    identity_phase: "{{ lookup('env', 'LAB_IDENTITY_PHASE') }}"
+  pre_tasks:
+    - name: Validate the published public source before identity changes
+      ansible.builtin.command:
+        argv: [python, /workspace/automation/identity/inputs.py]
+      delegate_to: localhost
+      become: false
+      register: identity_public_source
+      changed_when: false
+      no_log: true
+  roles:
+    - identity

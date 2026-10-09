@@ -1,0 +1,38 @@
+{{- if .Values.identity.enabled }}
+{{- if or (eq .Values.identity.database .Values.database) (has .Values.identity.role (list .Values.applicationRole .Values.migrationRole .Values.backupRole "postgres")) }}
+{{- fail "Identity must use a dedicated database and role" }}
+{{- end }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: keycloak-database
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: keycloak-database
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels: {cnpg.io/reload: 'true'}
+      data:
+        username: '{{ `{{ .username }}` }}'
+        password: '{{ `{{ .password }}` }}'
+  dataFrom: [{extract: {key: cnpg-keycloak}}]
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keycloak
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  cluster: {name: cloudlab-postgres}
+  name: {{ .Values.identity.database | quote }}
+  owner: {{ .Values.identity.role | quote }}
+  ensure: present
+  databaseReclaimPolicy: retain
+{{- end }}

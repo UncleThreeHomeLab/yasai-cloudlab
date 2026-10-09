@@ -2,6 +2,10 @@
 import json
 import subprocess
 import time
+try:
+    from automation.gitops.source_revision import matches_revision
+except ModuleNotFoundError:
+    from source_revision import matches_revision  # Installed beside the standalone VM modules.
 
 
 def kube(*args, document=None, timeout=180, allow_failure=False):
@@ -52,7 +56,7 @@ def application_ready(name, revision):
     obj = get('application.argoproj.io', name, 'argocd') or {}
     status = obj.get('status', {})
     return (status.get('sync', {}).get('status') == 'Synced'
-            and status.get('sync', {}).get('revision') == revision
+            and matches_revision(obj, revision)
             and status.get('health', {}).get('status') == 'Healthy'
             and not obj.get('operation')
             and status.get('operationState', {}).get('phase') in (None, 'Succeeded')

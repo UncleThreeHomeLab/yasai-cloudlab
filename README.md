@@ -310,4 +310,44 @@ namespaces and recorded PV identities, never production volumes or good backups.
 Whole-lab loss can lose every change since the last successful monthly export,
 roughly a month or longer after failures. No continuous WAL archiving or PITR is
 provided. Disk replication is not database or S3 service HA. Identity and other
-dependent applications remain gated until the complete data recovery proof passes.
+dependent applications require the complete data recovery proof.
+
+Identity remains inactive until its live recovery and SSO gates pass. The pinned
+Operator/server/config-cli combination is verified in disposable fixtures; see
+`platform/identity/keycloak/contract.json` for inputs, lifecycle ownership,
+limitations and client contracts. No Grafana or Harbor installation is included.
+
+Run `docker compose run --build --rm lab identity-check` for chart and input checks.
+Run `docker compose -p cloudlab-identity-proof -f compose.identity-proof.yaml run
+--build --rm browser` for the HTTPS reference app, virtual WebAuthn and measured
+JWT offboarding proof. Run the `compose.identity-operator-proof.yaml` fixture under
+project `cloudlab-identity-operator-proof` with `run --build --rm proof` for Operator
+reconciliation. Afterwards clean each named project with `down --volumes
+--remove-orphans`; wait for cleanup before restarting it. These fixtures prove no
+personal passkey enrollment, production gateway privacy or Argo/Access cutover.
+The contract also records the disposable offline emergency/retirement procedure.
+Run it after browser proof and before fixture cleanup; it disables the fixture
+bootstrap account and temporary emergency client through config-cli.
+
+`lab identity-credentials` creates missing task-owned vault items and preserves
+existing values. `lab identity-operation` accepts complete private JSON on standard
+input and writes a reviewable source change to the private recovery volume.
+It supports provisioning, retirement, removal plans, offboarding and Argo/Access
+client plans. It sends no invitations and makes no realm changes.
+`lab identity-client-credential` accepts private `{action, realm, client_id}` JSON;
+provisioning preserves existing secrets, rotation uses a resumable vault checkpoint
+and verifies new credentials accepted and old credentials denied after ESO/CLI
+reconciliation. Public or retired clients are rejected. `lab identity-client-remove`
+accepts `{realm, client_id}` only after the private retirement/removal tombstone is
+published and the client is disabled. It waits the declared session/token bound,
+runs the serialized Argo removal job and restores normal reconciliation. These
+live operations remain unverified. Runtime phases
+`identity-server`, `identity-bootstrap` and `identity-scoped` require published,
+explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
+They preserve bootstrap access; retirement and live cutovers remain incomplete.
+
+Identity shares the existing monthly-only Longhorn backup boundary. Capture hooks
+quiesce identity before CNPG shutdown; restore hooks check signing-state hashes
+and invalidate sessions in the isolated database. Full identity recovery also needs
+current private inputs and membership/revocation review before issuer reopening.
+No daily generations or additional cloud schedule are introduced.

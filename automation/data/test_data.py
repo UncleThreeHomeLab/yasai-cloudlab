@@ -32,6 +32,7 @@ class DataTests(unittest.TestCase):
         cluster = {'metadata': {'generation': 1}, 'status': {'conditions': [
             {'type': 'cnpg.io/hibernation', 'status': 'True'}]}}
         with patch.object(control, 'atomic'), patch.object(volumes, 'patch_values'), \
+                patch('automation.identity.maintenance.get', return_value=None), \
                 patch.object(volumes, 'get', side_effect=lambda kind, *args, **kwargs: None if kind == 'pods' else cluster), \
                 patch.object(volumes, 'wait', side_effect=lambda predicate, *args, **kwargs: self.assertTrue(predicate())):
             volumes.stop()

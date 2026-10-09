@@ -277,7 +277,9 @@ def run(manifest, offsite=False):
             if recovered != manifest['notes_probe']:
                 raise RuntimeError('Restart lost restored notes or attachment references')
         authenticated_sql(manifest)
-        return {'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
+        from automation.identity.recovery import verify_restored
+        identity_evidence = verify_restored(manifest, sql)
+        return {**identity_evidence, 'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),
                 'same_existing_hosts': True, 'physical_restore': True, 'offsite_reads': offsite, 'fixture_restarts': True,
                 'notes_object_generation_verified': 'notes_probe' in manifest,

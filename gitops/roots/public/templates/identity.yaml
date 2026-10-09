@@ -1,0 +1,82 @@
+{{- if .Values.identity.enabled }}
+{{- range $namespace := list "cloudlab-identity" "cloudlab-identity-admin" }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-30'
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+{{- end }}
+{{- range $name := list "keycloak-operator" "identity" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-{{ $name }}
+  namespace: argocd
+spec:
+  sourceRepos: [{{ $.Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity-admin}
+    {{- if eq $name "identity" }}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-gateway-public}
+    {{- end }}
+  clusterResourceWhitelist:
+    {{- if eq $name "keycloak-operator" }}
+    - {group: '', kind: Namespace}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+    - {group: admissionregistration.k8s.io, kind: MutatingAdmissionPolicy}
+    - {group: admissionregistration.k8s.io, kind: MutatingAdmissionPolicyBinding}
+    {{- else }}
+    []
+    {{- end }}
+  namespaceResourceWhitelist:
+    - {group: '', kind: ServiceAccount}
+    - {group: '', kind: ConfigMap}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+    {{- if eq $name "keycloak-operator" }}
+    - {group: '', kind: Service}
+    - {group: apps, kind: Deployment}
+    {{- else }}
+    - {group: k8s.keycloak.org, kind: Keycloak}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: cert-manager.io, kind: Certificate}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+    - {group: gateway.networking.k8s.io, kind: BackendTLSPolicy}
+    - {group: gateway.networking.k8s.io, kind: ReferenceGrant}
+    - {group: security.istio.io, kind: AuthorizationPolicy}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: coordination.k8s.io, kind: Lease}
+    - {group: batch, kind: Job}
+    - {group: batch, kind: CronJob}
+    {{- end }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-keycloak-operator
+  namespace: argocd
+spec:
+  project: cloudlab-keycloak-operator
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: platform/identity/keycloak
+    helm:
+      releaseName: cloudlab-keycloak-operator
+      valuesObject: {enabled: true, operatorEnabled: true, serverEnabled: false}
+  destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+{{- end }}

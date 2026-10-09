@@ -1,0 +1,35 @@
+{{- if and .Values.enabled .Values.operatorEnabled }}
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson }}
+{{- if not $lock.operator_install_verified }}
+{{- fail "Identity Operator installation blocked: isolated pinned Operator/server reconciliation has not been verified" }}
+{{- end }}
+{{- range $file := list "keycloaks.k8s.keycloak.org-v1.yml" "keycloakrealmimports.k8s.keycloak.org-v1.yml" }}
+{{- $obj := $.Files.Get (printf "upstream/%s" $file) | fromYaml }}
+{{- $_ := set $obj.metadata "annotations" (dict "argocd.argoproj.io/sync-options" "ServerSideApply=true,Prune=false,Delete=false") }}
+---
+{{ toYaml $obj }}
+{{- end }}
+{{- range $text := regexSplit "(?m)^---\\s*$" (.Files.Get "upstream/kubernetes.yml") -1 }}
+{{- $obj := $text | fromYaml }}
+{{- if and $obj.kind (not (regexMatch "keycloak(oidcclient|samlclient)controller" $obj.metadata.name)) }}
+{{- if eq $obj.kind "Deployment" }}
+{{- $_ := set $obj.spec.template.spec "securityContext" (dict "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault")) }}
+{{- range $container := $obj.spec.template.spec.containers }}
+{{- $_ := set $container "image" $lock.images.operator }}
+{{- $_ := set $container "resources" (dict "requests" (dict "cpu" "100m" "memory" "256Mi") "limits" (dict "cpu" "300m" "memory" "450Mi")) }}
+{{- $_ := set $container "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL"))) }}
+{{- range $env := $container.env }}
+{{- if has $env.name (list "kc.operator.keycloak.image" "RELATED_IMAGE_KEYCLOAK") }}
+{{- $_ := set $env "value" $lock.images.server }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $subject := $obj.subjects }}
+{{- $_ := set $subject "namespace" $.Release.Namespace }}
+{{- end }}
+---
+{{ toYaml $obj }}
+{{- end }}
+{{- end }}
+{{- end }}

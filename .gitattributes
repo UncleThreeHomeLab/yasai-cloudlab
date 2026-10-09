@@ -1,3 +1,6 @@
 * text=auto eol=lf
 # The vendored upstream artifact is checked byte-for-byte on every apply.
 platform/connectivity/gateway-api/upstream.yaml -text whitespace=-blank-at-eol
+
+# Official Operator manifests retain the exact upstream checksum bytes.
+platform/identity/keycloak/upstream/* -text whitespace=-blank-at-eol

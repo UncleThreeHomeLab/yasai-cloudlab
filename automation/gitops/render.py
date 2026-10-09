@@ -77,7 +77,9 @@ def committed_payload():
                'ansible/roles/k3s',
                'automation/mesh', 'ansible/roles/mesh', 'ansible/group_vars/all/mesh.yml',
                'platform/data', 'automation/data', 'automation/credentials', 'ansible/roles/application_data',
-               'ansible/group_vars/all/data.yml', 'ansible/data.yml']
+               'ansible/group_vars/all/data.yml', 'ansible/data.yml',
+               'platform/identity', 'automation/identity', 'ansible/roles/identity',
+               'ansible/group_vars/all/identity.yml', 'ansible/identity.yml']
     result = subprocess.run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', *paths],
                             capture_output=True, text=True, timeout=30, check=True)
     if result.stdout.strip():

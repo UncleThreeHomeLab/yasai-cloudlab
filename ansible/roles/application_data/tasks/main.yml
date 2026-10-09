@@ -20,6 +20,8 @@
   loop:
     - /opt/cloudlab/automation/data
     - /opt/cloudlab/automation/mesh
+    - /opt/cloudlab/automation/identity
+    - /opt/cloudlab/automation/gitops
     - /opt/cloudlab/platform/data
     - /var/lib/cloudlab/application-data
 
@@ -29,6 +31,19 @@
     dest: '/opt/cloudlab/automation/data/{{ item }}'
     mode: '0600'
   loop: [control.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py, rotation.py, volumes.py, physical.py]
+
+- name: Install identity hooks for the shared monthly capture and restore boundary
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/identity/{{ item }}'
+    dest: '/opt/cloudlab/automation/identity/{{ item }}'
+    mode: '0600'
+  loop: [maintenance.py, recovery.py, configuration.py]
+
+- name: Install the public convergence helper from its GitOps owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/gitops/source_revision.py'
+    dest: /opt/cloudlab/automation/gitops/source_revision.py
+    mode: '0600'
 
 - name: Install the shared Kubernetes helper from its owner
   ansible.builtin.copy:
