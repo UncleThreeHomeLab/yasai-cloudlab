@@ -9,6 +9,31 @@ import source_transition as migration
 
 
 class SourceTransitionTests(unittest.TestCase):
+    def test_identity_binding_resumes_sole_controller_when_root_patch_fails(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / 'checkpoint.json').write_text(json.dumps({'phase': 'accepted'}))
+            objects = self.fixtures()
+            root = objects['application.argoproj.io', migration.ROOT_APP]
+            root['spec']['source'].update(targetRevision='main', helm={'releaseName': 'root'})
+            root['metadata']['resourceVersion'] = '1'
+            target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}
+            writes = []
+            def write(*args, **kwargs):
+                writes.append(args)
+                if args[0] == 'patch': raise RuntimeError('synthetic patch failure')
+            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda kind, name: objects[kind, name]), \
+                    patch.object(migration, 'resume_identity_binding', return_value=False), \
+                    patch.object(migration, 'pause'), patch.object(migration, 'kube', side_effect=write):
+                with self.assertRaisesRegex(RuntimeError, 'synthetic patch failure'):
+                    migration.bind_identity({'private_repository': target['valuesRepository'], 'repository': 'old',
+                                             'branch': 'main', 'revision': 'public'}, target)
+            self.assertEqual(writes[-1], ('scale', 'statefulset/' + migration.CONTROLLER, '-n', 'argocd', '--replicas=1'))
+            patch_body = json.loads(writes[0][-1])
+            self.assertEqual(patch_body[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'root'})
+            self.assertEqual(patch_body[1]['path'], '/metadata/resourceVersion')
+            self.assertEqual(json.loads((base / 'identity-values-binding.json').read_text())['phase'], 'paused')
+
     def fixtures(self):
         return {
             ('application.argoproj.io', migration.ROOT_APP): {

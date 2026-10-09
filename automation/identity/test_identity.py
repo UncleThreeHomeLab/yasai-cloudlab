@@ -9,11 +9,11 @@ import unittest
 from unittest.mock import patch
 
 from automation.identity.configuration import exact_url, baseline, bootstrap_writer, bootstrap_health, client, compile_state, prepare, prepare_master, prepare_removal, restrict_password_grants, bootstrap_retirement
-from automation.identity.rotation import replacement, inventory
+from automation.identity.rotation import replacement, inventory, request_scope
 from automation.identity.lifecycle import remove
 from automation.identity.lease import available, previous_writer_done
 from automation.identity.operations import change, private_files
-from automation.identity.health import redact
+from automation.identity.health import redact, proxy_privacy
 from automation.identity.tokens import access_token, identity_token
 from automation.identity.maintenance import set_maintenance
 from automation.identity.recovery import verify_restored, signature_state, restore_configuration
@@ -22,13 +22,110 @@ from automation.identity.isolated_restore import policies, pod, client_inventory
 from automation.identity.access_inputs import names
 from automation.gitops.source_revision import matches_revision
 from automation.gitops.private_sources import PEM_TEMPLATE
-from automation.identity.bootstrap import application, private_resources
-from automation.identity.private_source import publish
+from automation.identity.bootstrap import application, private_resources, discover
+from automation.identity.private_source import publish, argo_values
+from automation.identity.argo import validate as validate_native_argo
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_proxy_privacy_rejects_spoofed_issuers_redirects_and_reachable_management(self):
+        import urllib.error
+        from unittest.mock import MagicMock
+        def discovery(url, **kwargs):
+            issuer = url.removesuffix('/.well-known/openid-configuration')
+            return {'issuer': issuer, 'token_endpoint': issuer + '/protocol/openid-connect/token'}
+        opener = MagicMock()
+        opener.open.side_effect = lambda request, **kwargs: (_ for _ in ()).throw(
+            urllib.error.HTTPError(request.full_url, 403, 'denied', {}, None))
+        with patch('automation.identity.health.json_get', side_effect=discovery) as read, \
+                patch('automation.identity.health.urllib.request.build_opener', return_value=opener):
+            result = proxy_privacy('login.example.invalid')
+            self.assertTrue(result['canonical_proxy_headers'])
+            self.assertEqual(result['public_management_paths_denied'], 10)
+            self.assertEqual(read.call_args.kwargs['headers']['X-Forwarded-Host'], 'forbidden.invalid')
+            for status in (200, 302, 401, 500):
+                opener.open.side_effect = None
+                opener.open.return_value.__enter__.return_value.status = status
+                with self.assertRaisesRegex(RuntimeError, 'not denied at the gateway'):
+                    proxy_privacy('login.example.invalid')
+        with patch('automation.identity.health.json_get', return_value={'issuer': 'https://forbidden.invalid'}), \
+                self.assertRaisesRegex(RuntimeError, 'changed the stable identity issuer'):
+            proxy_privacy('login.example.invalid')
+
+    def test_gateway_proxy_trust_survives_pod_replacement_but_rejects_host_network_or_wrong_range(self):
+        host_network = [False]
+        suffix = [10]
+        def objects(kind, name=None, namespace=None):
+            if kind == 'certificate.cert-manager.io':
+                return {'metadata': {}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]},
+                        'spec': {'dnsNames': ['*.internal.example.invalid']}}
+            if kind == 'nodes': return {'items': [{'metadata': {'name': 'node'}, 'spec': {'podCIDR': '10.42.0.0/24'}}]}
+            if kind == 'pods': return {'items': [{'metadata': {'labels': {'gateway.networking.k8s.io/gateway-name': 'cloudlab'}},
+                'spec': {'nodeName': 'node', 'hostNetwork': host_network[0]}, 'status': {'podIP': '10.42.0.' + str(suffix[0])}}]}
+            if kind == 'cluster.postgresql.cnpg.io': return {'metadata': {'uid': 'cluster'},
+                'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+            if kind == 'secret': return {'metadata': {'ownerReferences': [{'uid': 'cluster'}]},
+                'data': {'ca.crt': base64.b64encode(b'fixture-ca').decode()}}
+            if kind == 'database.postgresql.cnpg.io': return {'spec': {'name': 'keycloak', 'owner': 'keycloak'}}
+            raise AssertionError('Unexpected API read')
+        with patch('automation.identity.bootstrap.get', side_effect=objects):
+            initial = discover()
+            suffix[0] = 27
+            self.assertEqual(discover()['trustedProxyAddresses'], initial['trustedProxyAddresses'])
+            self.assertEqual(initial['trustedProxyAddresses'], ['10.42.0.0/24'])
+            host_network[0] = True
+            with self.assertRaisesRegex(RuntimeError, 'verified node Pod range'): discover()
+
+    def test_native_argo_handoff_rejects_changed_private_revision_or_unsafe_configuration(self):
+        contract = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
+                        ['https://cd.internal.example.invalid'])
+        target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}
+        payload = {'values': {'loginHost': 'login.example.invalid'}, 'argo': {
+            'target': target, 'configuration': contract['helm'], 'client': contract['client']}}
+        source = {'format': 1, 'realms': {'platform': {'clients': [contract['client']]}}}
+        revoked = {'format': 1, 'realms': {}}
+        self.assertEqual(validate_native_argo(payload, source, revoked, 'a' * 40), target)
+        with self.assertRaisesRegex(RuntimeError, 'advanced'):
+            validate_native_argo(payload, source, revoked, 'b' * 40)
+        revoked['realms']['platform'] = {'clients': ['argocd']}
+        with self.assertRaisesRegex(RuntimeError, 'active exact-callback'):
+            validate_native_argo(payload, source, revoked, 'a' * 40)
+        unsafe = copy.deepcopy(payload)
+        unsafe['argo']['configuration']['argo-cd']['configs']['cm']['admin.enabled'] = True
+        with self.assertRaisesRegex(ValueError, 'scoped producer'):
+            validate_native_argo(unsafe, source, {'format': 1, 'realms': {}}, 'a' * 40)
+
+    def test_private_argo_values_validate_immutable_scope_and_active_callback_inventory(self):
+        from unittest.mock import Mock
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        contract = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
+                        ['https://cd.internal.example.invalid'])
+        source = {'format': 1, 'realms': {'platform': {'clients': [contract['client']]}}}
+        revoked = {'format': 1, 'realms': {}}
+        files = private_files(source, revoked, {}, 'login.example.invalid', contract)
+        def api_client():
+            api = Mock()
+            api.request.side_effect = [{'full_name': 'example/private', 'private': True,
+                'description': 'Managed by CloudLab repository setup: private-config'}, *[
+                {'type': 'file', 'encoding': 'base64', 'size': len(content.encode()),
+                 'content': base64.b64encode(content.encode()).decode()} for content in files.values()]]
+            return api
+        inputs = ('a' * 40, 'https://login.example.invalid/realms/platform', 'https://console.example.invalid',
+                  ['https://cd.internal.example.invalid'])
+        self.assertEqual(argo_values(api_client(), values, *inputs), contract)
+        with self.assertRaises(ValueError): argo_values(api_client(), values, 'main', *inputs[1:])
+        unsafe = copy.deepcopy(contract)
+        unsafe['helm']['argo-cd']['server'] = {'extraArgs': ['--insecure']}
+        files['identity/argo-values.yaml'] = yaml.safe_dump(unsafe['helm'])
+        with self.assertRaisesRegex(RuntimeError, 'scoped native'):
+            argo_values(api_client(), values, *inputs)
+        revoked['realms']['platform'] = {'clients': ['argocd']}
+        files = private_files(source, revoked, {}, 'login.example.invalid', contract)
+        with self.assertRaisesRegex(RuntimeError, 'active exact-callback'):
+            argo_values(api_client(), values, *inputs)
+
     def test_private_retry_rejects_unrelated_branch_changes_before_pull_request_creation(self):
         from unittest.mock import Mock
         api = Mock()
@@ -321,11 +418,28 @@ class IdentityTests(unittest.TestCase):
                 'spec': {'source': {'helm': {'valuesObject': {'adminHost': 'identity-admin.internal.example.invalid'}}}}}
             return {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-identity-private:/ConfigMap:fixture'}},
                     'data': {'desired_state': json.dumps(source), 'revocations': json.dumps({'format': 1, 'realms': {}})}}
-        with patch('automation.mesh.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
-        source['realms']['applications']['clients'][0]['public'] = False
-        with patch('automation.mesh.kube.get', side_effect=objects): self.assertIn('callback', inventory(operation))
-        source['realms']['applications']['clients'][0]['enabled'] = False
-        with patch('automation.mesh.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
+        with patch('automation.identity.bootstrap.private_inputs', return_value=(source, {'format': 1, 'realms': {}}, 'private')):
+            with patch('automation.mesh.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
+            source['realms']['applications']['clients'][0]['public'] = False
+            with patch('automation.mesh.kube.get', side_effect=objects): self.assertIn('callback', inventory(operation))
+            source['realms']['applications']['clients'][0]['enabled'] = False
+            with patch('automation.mesh.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
+
+    def test_initial_confidential_secret_can_precede_publication_without_reenabling_retired_clients(self):
+        proposed = dict(self.source()['realms']['applications']['clients'][0], public=False)
+        request = {'action': 'provision', 'realm': 'applications', 'client_id': 'reference', 'client': proposed}
+        app = {'metadata': {'labels': {'cloudlab.io/owner': 'cloudlab-identity-bootstrap'}},
+               'spec': {'source': {'helm': {'valuesObject': {'adminHost': 'identity-admin.internal.example.invalid'}}}}}
+        source, revoked = {'format': 1, 'realms': {}}, {'format': 1, 'realms': {}}
+        with patch('automation.mesh.kube.get', return_value=app), \
+                patch('automation.identity.bootstrap.private_inputs', return_value=(source, revoked, 'private')):
+            self.assertEqual(inventory(request)['callback'], proposed['callbacks'][0])
+            revoked['realms']['applications'] = {'clients': ['reference'], 'removed_clients': ['reference']}
+            with self.assertRaises(ValueError): inventory(request)
+        for change in ({'action': 'rotate'}, {'client': dict(proposed, public=True)},
+                       {'client': dict(proposed, callbacks=['https://unsafe.invalid/*'])},
+                       {'client': dict(proposed, enabled=False)}):
+            with self.assertRaises(ValueError): request_scope(dict(request, **change))
 
     def test_removal_waits_for_expiry_and_uses_only_existing_argo_owner(self):
         source = {'format': 1, 'realms': {'applications': {'clients': []}}}
@@ -454,6 +568,11 @@ class IdentityTests(unittest.TestCase):
             self.assertFalse(spec['syncPolicy']['automated']['prune'])
             self.assertFalse(spec['source']['helm']['valuesObject']['operatorEnabled'])
             self.assertEqual(spec['source']['helm']['valuesObject']['bootstrapMode'], phase == 'bootstrap')
+        for unsafe in ('10.0.0.0/8', '0.0.0.0/0', '203.0.114.0/24'):
+            payload['values']['trustedProxyAddresses'] = [unsafe]
+            with self.assertRaises(ValueError): application(payload, 'server')
+        payload['values']['trustedProxyAddresses'] = ['10.42.0.0/24']
+        application(payload, 'server')
         payload['values']['adminHost'] = 'admin.other.invalid'
         with self.assertRaises(ValueError): application(payload, 'server')
     def test_oidc_integration_contracts_reject_unsafe_issuers_and_unscoped_rbac(self):

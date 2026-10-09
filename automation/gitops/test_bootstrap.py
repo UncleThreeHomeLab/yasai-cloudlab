@@ -9,6 +9,24 @@ import bootstrap
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_interrupted_identity_binding_repairs_controller_without_idp_or_replacement(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / 'identity-values-binding.json').write_text(json.dumps({
+                'phase': 'paused', 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project'}))
+            objects = {'application.argoproj.io': {'metadata': {'uid': 'root'}},
+                'statefulset': {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 0}},
+                'appproject.argoproj.io': {'metadata': {'uid': 'project'}}}
+            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda kind, name: objects[kind]), \
+                    patch.object(bootstrap, 'kube') as repair:
+                self.assertTrue(bootstrap.resume_identity_binding())
+                self.assertEqual(repair.call_args.args, ('scale', 'statefulset/argocd-application-controller',
+                    '-n', 'argocd', '--replicas=1'))
+                objects['statefulset']['metadata']['uid'] = 'foreign'
+                with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                    bootstrap.resume_identity_binding()
+                self.assertEqual(repair.call_count, 1)
+
     def test_explicit_interruption_stops_before_root_creation_and_is_not_repeated(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)

@@ -7,6 +7,22 @@ from automation.connectivity import cluster_fixture
 
 
 class FailureBoundaryTests(unittest.TestCase):
+    def test_disposable_routes_never_claim_application_root_paths(self):
+        documents = []
+        def write(*args, **kwargs):
+            if args[0] == 'apply': documents.extend(kwargs['document']['items'])
+        certificate = {'metadata': {'generation': 1}, 'spec': {'dnsNames': ['*.example.invalid']}, 'status': {'conditions': [
+            {'type': 'Ready', 'status': 'True'}]}}
+        with patch.object(cluster_fixture, 'get', return_value=certificate), \
+                patch.object(cluster_fixture, 'cleanup'), patch.object(cluster_fixture, 'kube', side_effect=write), \
+                patch.object(cluster_fixture, 'wait'):
+            cluster_fixture.prepare({'public': [{'name': 'fixture', 'access': 'public'}],
+                                     'private': ['cd'], 'smoke_image': 'fixture@sha256:' + 'a' * 64})
+        routes = [obj for obj in documents if obj['kind'] == 'HTTPRoute']
+        self.assertEqual(len(routes), 2)
+        self.assertTrue(all(obj['spec']['rules'][0]['matches'] == [
+            {'path': {'type': 'Exact', 'value': cluster_fixture.PROOF_PATH}}] for obj in routes))
+
     def pods(self):
         return [{'metadata': {'name': 'fixture-' + str(n), 'uid': str(n)},
                  'spec': {'nodeName': 'node-' + str(n), 'containers': [{

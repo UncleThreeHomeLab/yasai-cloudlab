@@ -5,6 +5,7 @@ import ssl
 import sys
 import time
 from pathlib import Path
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -32,8 +33,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def json_get(url, token=None, form=None):
-    headers = {'Accept': 'application/json'}
+def json_get(url, token=None, form=None, headers=None):
+    headers = dict(headers or {}, Accept='application/json')
     if token:
         headers['Authorization'] = 'Bearer ' + token
     data = None
@@ -69,6 +70,37 @@ def check(issuer):
     if not any(k.get('kty') == 'RSA' and k.get('alg') == 'RS256' and k.get('use') == 'sig' for k in jwks.get('keys', [])):
         raise RuntimeError('No supported realm signing key')
     return {'discovery': True, 'jwks': True, 'stable_https_issuer': True}
+
+
+def proxy_privacy(login_host):
+    if not re.fullmatch('[a-z0-9.-]+', login_host):
+        raise ValueError('Identity privacy requires its exact login hostname')
+    origin = 'https://' + login_host
+    spoof = {'Forwarded': 'for=198.51.100.23;proto=http;host=forbidden.invalid',
+             'X-Forwarded-Host': 'forbidden.invalid', 'X-Forwarded-Proto': 'http', 'X-Forwarded-Port': '80'}
+    for realm in ('platform', 'applications'):
+        issuer = origin + '/realms/' + realm
+        document = json_get(issuer + '/.well-known/openid-configuration', headers=spoof)
+        if document.get('issuer') != issuer or document.get('token_endpoint') != issuer + '/protocol/openid-connect/token':
+            raise RuntimeError('Gateway proxy headers changed the stable identity issuer')
+    paths = ['/admin/realms', '/admin/master/console/', '/realms/master/.well-known/openid-configuration',
+             '/health/ready', '/metrics', '/realms/platform/clients-registrations',
+             '/realms/applications/clients-registrations', '/realms/platform/../../admin/realms',
+             '/realms/platform/%2e%2e/%2e%2e/admin/realms',
+             '/realms/platform/%2e%2e%2f%2e%2e%2fadmin/realms']
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    for path in paths:
+        try:
+            with opener.open(urllib.request.Request(origin + path, headers=spoof), timeout=15) as response:
+                status = response.status
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+        except Exception:
+            raise RuntimeError('Identity gateway privacy probe unavailable') from None
+        if status not in (403, 404):
+            raise RuntimeError('Public identity management or traversal path is not denied at the gateway')
+    return {'canonical_proxy_headers': True, 'public_management_paths_denied': len(paths)}
 
 
 def run(login_host, admin_host):

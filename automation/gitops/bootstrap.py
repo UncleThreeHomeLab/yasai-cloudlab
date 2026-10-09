@@ -84,6 +84,31 @@ def wait_application(name, revision, timeout=600):
     raise RuntimeError('Public GitOps convergence timed out; retained checkpoint and resources')
 
 
+def resume_identity_binding():
+    """Repair an interrupted bounded root handoff without contacting the IdP."""
+    path = BASE / 'identity-values-binding.json'
+    if not path.exists():
+        return False
+    state = json.loads(path.read_text())
+    if state.get('phase') == 'accepted':
+        return False
+    if state.get('phase') not in ('prepared', 'paused', 'source-updated', 'resumed'):
+        raise RuntimeError('Unknown identity root handoff checkpoint')
+    objects = {key: get(kind, name) for key, kind, name in (
+        ('root_uid', 'application.argoproj.io', 'cloudlab-public-root'),
+        ('controller_uid', 'statefulset', 'argocd-application-controller'),
+        ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
+    if any(not obj or obj['metadata']['uid'] != state[key] for key, obj in objects.items()):
+        raise RuntimeError('Interrupted identity root handoff resource identity changed')
+    controller = objects['controller_uid']
+    if controller['spec']['replicas'] not in (0, 1):
+        raise RuntimeError('Interrupted identity root handoff has an unexpected topology')
+    if controller['spec']['replicas'] == 0:
+        kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
+        return True
+    return False
+
+
 def run(payload):
     os.umask(0o077)
     if BASE.resolve() != BASE.absolute():
@@ -100,6 +125,7 @@ def run(payload):
                 raise RuntimeError('Unowned Argo installation exists; automatic adoption refused')
             atomic({'phase': 'seeding', 'version': payload['version']})
         state = json.loads(path.read_text())
+        repair_changed = resume_identity_binding() if state.get('phase') == 'accepted' else False
         if state.get('phase') not in ('seeding', 'seeded', 'argo-requested', 'accepted'):
             raise RuntimeError('Unknown GitOps checkpoint phase')
         if payload.get('stop_after_seed') and state['phase'] == 'accepted' and not state.get('interruption_test_completed'):
@@ -140,7 +166,7 @@ def run(payload):
             atomic(state)
             changed = True
         elif state['phase'] == 'accepted':
-            changed = False
+            changed = repair_changed
         else:
             raise RuntimeError('Unknown GitOps checkpoint phase')
         print(json.dumps({'changed': changed, 'owner': 'argocd', 'public_root_synced': True,

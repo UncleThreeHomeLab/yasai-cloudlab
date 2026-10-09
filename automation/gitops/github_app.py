@@ -11,7 +11,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from dotenv import dotenv_values
 
-from github_setup import GitHub, repository
+try:
+    from .github_setup import GitHub, repository
+except ImportError:
+    from github_setup import GitHub, repository
 
 ROOT = Path(__file__).resolve().parents[2]
 ITEM = 'github-argocd'

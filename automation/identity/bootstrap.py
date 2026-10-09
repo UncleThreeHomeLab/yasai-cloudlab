@@ -53,13 +53,22 @@ def discover():
         raise RuntimeError('Private TLS domain contract changed')
     domain = names[0][11:]
     proxies = []
+    nodes = {node['metadata']['name']: node for node in get('nodes')['items']}
     for namespace in ('cloudlab-gateway-public', 'cloudlab-gateway-private'):
         for pod in get('pods', namespace=namespace)['items']:
             if pod['metadata'].get('labels', {}).get('gateway.networking.k8s.io/gateway-name') == 'cloudlab':
                 value = pod.get('status', {}).get('podIP')
                 if value:
                     address = ipaddress.ip_address(value)
-                    proxies.append(str(address) + ('/32' if address.version == 4 else '/128'))
+                    ranges = nodes[pod['spec']['nodeName']]['spec'].get('podCIDRs') or [nodes[pod['spec']['nodeName']]['spec']['podCIDR']]
+                    matching = [ipaddress.ip_network(cidr, strict=True) for cidr in ranges
+                                if ipaddress.ip_network(cidr, strict=True).version == address.version
+                                and address in ipaddress.ip_network(cidr, strict=True)]
+                    if len(matching) != 1 or pod['spec'].get('hostNetwork'):
+                        raise RuntimeError('Gateway proxy source must belong to its verified node Pod range')
+                    # Gateway-only NetworkPolicy selects the peers; node Pod ranges
+                    # retain forwarding trust when the sole gateway owner replaces Pods.
+                    proxies.append(str(matching[0]))
     if not proxies:
         raise RuntimeError('Verified gateway proxy peers are unavailable')
     cluster = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', 'cloudlab-data')
@@ -101,8 +110,8 @@ def application(payload, phase):
         raise ValueError('Proxy trust must contain a bounded exact peer inventory')
     for value in values['trustedProxyAddresses']:
         network = ipaddress.ip_network(value, strict=True)
-        if network.prefixlen != network.max_prefixlen or not network.network_address.is_private:
-            raise ValueError('Proxy trust must use exact private gateway pod addresses')
+        if network.prefixlen < (24 if network.version == 4 else 64) or not network.network_address.is_private:
+            raise ValueError('Proxy trust must use bounded verified private gateway Pod ranges')
     desired = dict(values, enabled=True, operatorEnabled=False, serverEnabled=True,
                    maintenance=False, reconciliationEnabled=phase != 'server', bootstrapMode=phase == 'bootstrap',
                    privateStateEnabled=phase != 'server', bootstrapAdminEnabled=True)
@@ -137,6 +146,31 @@ def prerequisites(payload):
     if (not database.get('status', {}).get('applied') or
             database.get('status', {}).get('observedGeneration') != database.get('metadata', {}).get('generation')):
         raise RuntimeError('Dedicated identity database is not ready')
+
+
+def private_inputs(payload):
+    import base64
+    app = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd') or {}
+    revision = app.get('status', {}).get('sync', {}).get('revision')
+    if (app.get('spec', {}).get('source', {}).get('repoURL') != payload['private_repository'] or
+            not revision or not application_ready('cloudlab-identity-private', revision)):
+        raise RuntimeError('Required private identity source is unavailable or not converged; no realm imports allowed')
+    private = get('configmap', 'identity-private-state', NAMESPACE)
+    secrets = get('secret', 'keycloak-client-secrets', NAMESPACE)
+    if not private or not secrets:
+        raise RuntimeError('Ready private inventory and vault client credentials are required')
+    if not private['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-identity-private:'):
+        raise RuntimeError('Private inventory must belong to its designated Argo source')
+    external = get('externalsecret.external-secrets.io', 'keycloak-client-secrets', NAMESPACE)
+    if not condition(external, 'Ready') or not any(ref.get('uid') == external['metadata']['uid']
+            for ref in secrets['metadata'].get('ownerReferences', [])):
+        raise RuntimeError('Client credentials must be owned by ready ESO')
+    source = json.loads(private['data']['desired_state'])
+    revoked = json.loads(private['data']['revocations'])
+    credentials = json.loads(base64.b64decode(secrets['data']['client_secrets'], validate=True))
+    for realm in ('platform', 'applications'):
+        compile_state(realm, payload['values']['loginHost'], source, credentials, revoked)
+    return source, revoked, revision
 
 
 def run(payload, phase):
@@ -180,26 +214,7 @@ def run(payload, phase):
                 kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=resource)
             private_uids[kind] = get(kind, name, 'argocd')['metadata']['uid']
         if phase != 'server':
-            private_app = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd') or {}
-            private_revision = private_app.get('status', {}).get('sync', {}).get('revision')
-            if not private_revision or not application_ready('cloudlab-identity-private', private_revision):
-                raise RuntimeError('Required private identity source is unavailable or not converged; no realm imports allowed')
-            private = get('configmap', 'identity-private-state', NAMESPACE)
-            secrets = get('secret', 'keycloak-client-secrets', NAMESPACE)
-            if not private or not secrets:
-                raise RuntimeError('Ready private inventory and vault client credentials are required')
-            if not private['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-identity-private:'):
-                raise RuntimeError('Private inventory must belong to its designated Argo source')
-            external = get('externalsecret.external-secrets.io', 'keycloak-client-secrets', NAMESPACE)
-            if not condition(external, 'Ready') or not any(ref.get('uid') == external['metadata']['uid']
-                    for ref in secrets['metadata'].get('ownerReferences', [])):
-                raise RuntimeError('Client credentials must be owned by ready ESO')
-            import base64
-            source = json.loads(private['data']['desired_state'])
-            revoked = json.loads(private['data']['revocations'])
-            credentials = json.loads(base64.b64decode(secrets['data']['client_secrets'], validate=True))
-            for realm in ('platform', 'applications'):
-                compile_state(realm, payload['values']['loginHost'], source, credentials, revoked)
+            private_inputs(payload)
         changed = not current or not contains(current, desired)
         if changed:
             kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
@@ -214,7 +229,12 @@ def run(payload, phase):
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(discover() if sys.argv[1:] == ['inputs'] else run(json.load(sys.stdin), sys.argv[1])))
+        if sys.argv[1:] == ['argo']:
+            from automation.identity.argo import run as native_argo
+            result = native_argo(json.load(sys.stdin))
+        else:
+            result = discover() if sys.argv[1:] == ['inputs'] else run(json.load(sys.stdin), sys.argv[1])
+        print(json.dumps(result))
     except Exception as error:
         raise SystemExit(str(error) if isinstance(error, (RuntimeError, ValueError)) else
                          'Identity bootstrap failed; private diagnostics withheld') from None

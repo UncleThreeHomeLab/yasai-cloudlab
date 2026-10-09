@@ -8,6 +8,7 @@ from pathlib import Path
 import socket
 import sys
 import time
+from functools import partial
 from urllib.parse import urlsplit
 
 import yaml
@@ -20,10 +21,13 @@ from verify_access import ssh
 from automation.credentials.vault import fields
 from automation.connectivity.contract import host_rules, private_names
 from automation.connectivity.dns_wire import absent_answer, private_answer, query
-from automation.connectivity.traffic import denied, https, success
+from automation.connectivity.traffic import denied, https as request_https, success
+from automation.connectivity.cluster_fixture import PROOF_PATH
 from automation.connectivity.tailnet_probe import verify as denied_tailnet
 from automation.connectivity.human import retained as human_evidence
 from automation.connectivity.checkpoint import transaction
+
+https = partial(request_https, path=PROOF_PATH)
 
 
 def remote(action, **payload):
@@ -110,6 +114,11 @@ def _run(*, failures=True, keep=False):
     reconcile_external()
     runtime = remote('runtime')
     rules = host_rules(json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS']), runtime['zone'])
+    protocol = 'login.' + runtime['zone']
+    if os.environ.get('LAB_IDENTITY_ENABLED') == '1':
+        if not any(rule == {'hostname': protocol, 'access': 'public'} for rule in rules):
+            raise RuntimeError('Identity protocol host must remain public without circular Access')
+        rules = [rule for rule in rules if rule['hostname'] != protocol]
     private = private_names(json.loads(os.environ['PRIVATE_ACCESS_HOSTS']))
     categories = {kind: [r['hostname'] for r in rules if r['access'] == kind] for kind in ('public', 'human', 'machine')}
     if any(not names for names in categories.values()):
@@ -124,11 +133,19 @@ def _run(*, failures=True, keep=False):
         nameservers.append(ssh(prefix, os.environ[prefix + '_HOST'], 'tailscale ip -4').strip())
     machine = fields('cloudflare-access-machine', ('CLIENT_ID', 'CLIENT_SECRET'))
     headers = {'CF-Access-Client-Id': machine['CLIENT_ID'], 'CF-Access-Client-Secret': machine['CLIENT_SECRET']}
-    payload = {'public': json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS']), 'private': private,
+    public = json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS'])
+    if os.environ.get('LAB_IDENTITY_ENABLED') == '1':
+        public = [rule for rule in public if rule['name'] != 'login']
+    payload = {'public': public, 'private': private,
                'smoke_image': yaml.safe_load((ROOT / 'ansible/group_vars/all/verification.yml').read_text())['smoke_image']}
     output = {}
     try:
         remote('prepare', **payload)
+        if runtime.get('identity_server_present'):
+            from automation.identity.health import check, proxy_privacy
+            output['identity_protocols'] = {realm: check('https://' + protocol + '/realms/' + realm)
+                                             for realm in ('platform', 'applications')}
+            output['identity_gateway'] = proxy_privacy(protocol)
         remote('snapshot')
         identities = remote('identities')
         with transaction() as receipts:

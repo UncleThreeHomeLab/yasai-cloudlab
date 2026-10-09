@@ -6,6 +6,7 @@
   ],
   "writer": "keycloak-config-cli; no RealmImport or preview client controllers",
   "runtime_application_requirement": "Bounded bootstrap owner preserves Lease /spec with ignoreDifferences and RespectIgnoreDifferences=true; server/bootstrap/scoped phases preserve bootstrap access until separately verified retirement",
+  "proxy_trust": "Forwarded headers are stripped and canonical HTTPS headers set by explicit gateway routes. Operator NetworkPolicy allows HTTPS only from the named public/private gateway namespace and gateway Pod selectors. Trusted addresses use verified private node Pod ranges with bounded prefixes; replacements retain trust without trusting unrelated reachable peers. Public management/master/client registration paths remain denied at the gateway.",
   "private_inputs": [
     "desired_state",
     "revocations",
@@ -168,18 +169,21 @@
     "runtime_phases": [
       "identity-server",
       "identity-bootstrap",
-      "identity-scoped"
+      "identity-scoped",
+      "identity-argo"
     ],
-    "limitations": "Real enrollment/recovery, bootstrap retirement, credential rotation and integrated session deadlines still incomplete"
+    "limitations": "Real enrollment/recovery, bootstrap retirement, credential rotation and integrated session deadlines still incomplete",
+    "native_argo": "Read-only GitHub App verifies the exact private producer overlay at an immutable commit and its active exact-callback public client. Current private state and HTTPS discovery/token reachability gate binding. Existing bounded GitOps owner stops its sole controller during the root values handoff and resumes it in finally. Interrupted controller repair through GitOps bootstrap never contacts Keycloak. Both routes reconcile from the consumer ConfigMap interface; browser/RBAC/session checks remain required."
   },
   "credential_operations": {
     "command": "lab identity-client-credential",
     "inputs": [
       "action: provision or rotate",
       "realm",
-      "client_id"
+      "client_id",
+      "client: exact active confidential contract, initial provision only"
     ],
-    "scope": "One inventoried active confidential client in keycloak-client-secrets; public and retired clients rejected",
+    "scope": "One active confidential client in keycloak-client-secrets; initial provision may precede private publication using the exact validated client contract. Rotation requires published inventory. Public and retired clients are rejected.",
     "provision": "Create missing secret; preserve existing value; verify read-only vault retrieval. Does not claim realm convergence.",
     "rotate": "Persist private checkpoint; compare aggregate before mutation; retain unrelated values; ESO/serialized CLI reconcile; prove new credential authenticated and old credential rejected using invalid authorization code without creating sessions.",
     "status": "implemented; live vault-to-realm rotation unverified"

@@ -20,6 +20,7 @@ from automation.connectivity.provider_http import open_request
 from automation.connectivity.reconcile import matches
 from automation.connectivity.traffic import denied, https, success
 from automation.connectivity.checkpoint import transaction
+from automation.connectivity.cluster_fixture import PROOF_PATH
 
 RECEIPT = Path('/state/connectivity/human-proof.json')
 
@@ -75,10 +76,10 @@ def record(token):
             or claims.get('exp', 0) <= now or claims.get('nbf', 0) > now):
         raise RuntimeError('Human Access JWT identity, audience or validity did not match')
     headers = {'Cookie': 'CF_Authorization=' + token}
-    if not success(https(applications[0]['hostname'], headers=headers)):
+    if not success(https(applications[0]['hostname'], headers=headers, path=PROOF_PATH)):
         raise RuntimeError('Verified human session did not reach the protected backend')
     for rule in rules:
-        if rule['access'] == 'machine' and not denied(https(rule['hostname'], headers=headers)):
+        if rule['access'] == 'machine' and not denied(https(rule['hostname'], headers=headers, path=PROOF_PATH)):
             raise RuntimeError('Human session crossed the machine-only Access boundary')
     RECEIPT.parent.mkdir(mode=0o700, exist_ok=True)
     temporary = RECEIPT.with_suffix('.tmp')
