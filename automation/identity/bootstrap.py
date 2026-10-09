@@ -32,6 +32,17 @@ def reconciled(revision, uid):
     return contains(compared, app['spec']['source']) and application_ready(APP, revision)
 
 
+def check_private_owner(kind, actual, saved):
+    metadata = actual.get('metadata', {}) if actual else {}
+    finalizers = metadata.get('finalizers') or []
+    expected = ['externalsecrets.external-secrets.io/externalsecret-cleanup'] if kind == 'ExternalSecret' else []
+    if (saved and (not actual or metadata.get('uid') != saved)) or (actual and (
+            metadata.get('labels', {}).get('cloudlab.io/owner') != OWNER or
+            (finalizers and finalizers != expected) or metadata.get('ownerReferences') or
+            metadata.get('deletionTimestamp'))):
+        raise RuntimeError('Private identity source owner conflicts or changed identity')
+
+
 def private_resources(payload):
     name = 'cloudlab-identity-private'
     metadata = lambda: {'name': name, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}}
@@ -226,10 +237,7 @@ def run(payload, phase):
             kind, name = resource['kind'], resource['metadata']['name']
             actual = get(kind, name, 'argocd')
             saved = private_uids.get(kind)
-            if (saved and (not actual or actual['metadata']['uid'] != saved)) or (actual and (
-                    actual['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
-                    actual['metadata'].get('finalizers') or actual['metadata'].get('ownerReferences'))):
-                raise RuntimeError('Private identity source owner conflicts or changed identity')
+            check_private_owner(kind, actual, saved)
             if not actual or not contains(actual, resource):
                 kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=resource)
             private_uids[kind] = get(kind, name, 'argocd')['metadata']['uid']
