@@ -15,6 +15,18 @@
   changed_when: access_cutover_result.rc == 0 and (access_cutover_result.stdout | from_json).changed
   no_log: true
 
+- name: Read the existing host identity for standalone repair
+  ansible.builtin.setup:
+    gather_subset: ['!all']
+    filter: ansible_nodename
+  when: lab_node_name is not defined
+
+- name: Export the existing host identity through its owner
+  ansible.builtin.include_role:
+    name: host
+    tasks_from: identity
+  when: lab_node_name is not defined
+
 - name: Disable unused ServiceLB only after its controller removes the legacy Service finalizer
   ansible.builtin.include_role:
     name: k3s
