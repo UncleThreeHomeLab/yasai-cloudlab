@@ -32,6 +32,51 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_live_protocol_check_redacts_audit_and_requires_public_token_and_denied_admin(self):
+        from automation.identity import verify
+        values = {'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid'}
+        expiry = [300]
+        responses = []
+        def request(url, **kwargs):
+            responses.append((url, kwargs))
+            if url.endswith('/token'):
+                return {'access_token': 'private-token', 'token_type': 'Bearer', 'expires_in': expiry[0]}
+            if '/users?' in url:
+                self.assertEqual(kwargs['accepted_statuses'], (403,))
+                return {'error': 'Forbidden'}
+            return [{'time': 1, 'type': 'LOGIN', 'operationType': 'UPDATE',
+                     'username': 'private-user', 'ipAddress': 'private-address', 'representation': 'private'}]
+        with patch.object(verify, 'check', return_value={'discovery': True, 'jwks': True}), \
+                patch.object(verify, 'private_request', side_effect=request), \
+                patch.object(verify, 'proxy_privacy', return_value={'public_management_paths_denied': 10}):
+            result = verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
+            self.assertTrue(result['realms']['platform']['public_client_credentials_token'])
+            for sensitive in ('private-user', 'private-address', 'private-token', 'representation'):
+                self.assertNotIn(sensitive, json.dumps(result))
+            self.assertEqual(result['realms']['platform']['audit']['login'], [{'time': 1, 'type': 'LOGIN'}])
+            token_urls = [url for url, _ in responses if url.endswith('/token')]
+            self.assertTrue(all(url.startswith('https://login.example.invalid/') for url in token_urls))
+            expiry[0] = 301
+            with self.assertRaisesRegex(RuntimeError, 'bounded credential contract'):
+                verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
+
+    def test_live_audit_credentials_reject_replaced_eso_and_unready_sources(self):
+        from automation.identity import verify
+        external = {'metadata': {'uid': 'owner', 'generation': 1},
+                    'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        secret = {'metadata': {'ownerReferences': [{'kind': 'ExternalSecret', 'uid': 'owner'}]},
+                  'data': {realm + '_client_secret': base64.b64encode(b'x' * 32).decode()
+                           for realm in ('platform', 'applications')}}
+        with patch.object(verify, 'get', side_effect=lambda kind, *args: external if kind.startswith('externalsecret') else secret):
+            self.assertEqual(verify.credentials(), dict(platform='x' * 32, applications='x' * 32))
+            secret['metadata']['ownerReferences'][0]['uid'] = 'foreign'
+            with self.assertRaisesRegex(RuntimeError, 'ready ESO-owned'):
+                verify.credentials()
+            secret['metadata']['ownerReferences'][0]['uid'] = 'owner'
+            external['status']['conditions'][0]['status'] = 'False'
+            with self.assertRaisesRegex(RuntimeError, 'ready ESO-owned'):
+                verify.credentials()
+
     def test_identity_http_clients_identify_themselves_without_browser_impersonation(self):
         from unittest.mock import MagicMock
         from automation.identity.health import json_get

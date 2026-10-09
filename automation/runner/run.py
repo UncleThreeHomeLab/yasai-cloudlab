@@ -35,7 +35,7 @@ def gitops_preflight():
 
 def main():
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-primary': 'primary', 'identity-scoped': 'scoped', 'identity-argo': 'argo', 'identity-recover-startup': 'recover-startup'}.get(action)
+    identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-primary': 'primary', 'identity-scoped': 'scoped', 'identity-health': 'health', 'identity-argo': 'argo', 'identity-recover-startup': 'recover-startup'}.get(action)
     if identity_phase:
         os.environ['LAB_IDENTITY_PHASE'] = identity_phase
         action = 'inspect'
