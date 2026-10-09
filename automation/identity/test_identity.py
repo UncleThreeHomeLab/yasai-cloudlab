@@ -40,6 +40,7 @@ class IdentityTests(unittest.TestCase):
                             (private_request, 'CloudLab-Identity-Reconciler/1.0')):
             opener = MagicMock()
             opener.open.return_value.status = 200
+            opener.open.return_value.read.return_value = b'{"ok":true}'
             response = opener.open.return_value.__enter__.return_value
             response.status = 200
             response.geturl.return_value = 'https://login.example.invalid/probe'
