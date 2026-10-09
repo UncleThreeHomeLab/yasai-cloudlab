@@ -363,6 +363,10 @@ live operations remain unverified. Runtime phases
 `identity-server`, `identity-bootstrap` and `identity-scoped` require published,
 explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
 They preserve bootstrap access; retirement and live cutovers remain incomplete.
+`lab identity-recover-startup` repairs an owned server-only installation whose
+failed Pod still uses an older template. It stops and resumes the server through
+Argo's existing maintenance field, preserves the database, and resumes safely
+from a private checkpoint. It never applies to an already bootstrapped realm.
 After publishing the Argo client and private values together, `lab identity-argo`
 reads them with the existing read-only GitHub App, validates the exact overlay at
 an immutable commit, and binds it through the public root owner. Run `lab apply`

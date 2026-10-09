@@ -1,7 +1,7 @@
 ---
 - name: Require a bounded identity phase
   ansible.builtin.assert:
-    that: identity_phase in ['server', 'bootstrap', 'scoped', 'argo']
+    that: identity_phase in ['server', 'bootstrap', 'scoped', 'argo', 'recover-startup']
     fail_msg: Select an explicitly supported identity bootstrap phase.
 
 - name: Create private identity automation directories

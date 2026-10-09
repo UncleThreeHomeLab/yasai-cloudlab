@@ -15,7 +15,7 @@ from automation.identity.lease import available, previous_writer_done
 from automation.identity.operations import change, private_files
 from automation.identity.health import redact, proxy_privacy
 from automation.identity.tokens import access_token, identity_token
-from automation.identity.maintenance import set_maintenance
+from automation.identity.maintenance import set_maintenance, recover_startup
 from automation.identity.recovery import verify_restored, signature_state, restore_configuration
 from automation.identity.integrations import argo, access
 from automation.identity.isolated_restore import policies, pod, client_inventory, run as restore_issuer
@@ -30,6 +30,59 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_failed_initial_server_recovery_resumes_and_refuses_foreign_maintenance(self):
+        from automation.identity import maintenance
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'ownership.json').write_text(json.dumps({'phase': 'server', 'uid': 'owned'}))
+            app = {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': maintenance.OWNER}},
+                   'spec': {'source': {'helm': {'valuesObject': {
+                       'enabled': True, 'serverEnabled': True, 'reconciliationEnabled': False}}}}}
+            server = {'metadata': {'uid': 'server'}, 'status': {'conditions': []}}
+            stateful = {'metadata': {'uid': 'set', 'ownerReferences': [{'uid': 'server'}]},
+                        'status': {'updateRevision': 'corrected'}}
+            failed = {'metadata': {'ownerReferences': [{'uid': 'set'}], 'labels': {'controller-revision-hash': 'failed'}},
+                      'status': {'containerStatuses': [{'state': {'waiting': {'reason': 'CrashLoopBackOff'}}}]}}
+            objects = {'application.argoproj.io': app, 'keycloak.k8s.keycloak.org': server,
+                       'statefulset': stateful, 'pod': failed}
+            values = app['spec']['source']['helm']['valuesObject']
+            with patch.object(maintenance, 'BASE', base), \
+                    patch.object(maintenance, 'get', side_effect=lambda kind, *args: objects[kind]), \
+                    patch.object(maintenance, '_set_maintenance') as cycle:
+                values['maintenance'] = True
+                with self.assertRaisesRegex(RuntimeError, 'Another maintenance boundary'):
+                    recover_startup()
+                cycle.assert_not_called()
+                values['maintenance'] = False
+                cycle.side_effect = [True, RuntimeError('interrupted resume')]
+                with self.assertRaisesRegex(RuntimeError, 'interrupted resume'):
+                    recover_startup()
+                self.assertEqual(json.loads((base / 'startup-recovery.json').read_text())['phase'], 'starting')
+                cycle.reset_mock(side_effect=True)
+                self.assertTrue(recover_startup()['changed'])
+                cycle.assert_called_once_with(False, {'application_uid': 'owned', 'keycloak_uid': 'server'})
+                server['status']['conditions'] = [{'type': 'Ready', 'status': 'True'}]
+                self.assertFalse(recover_startup()['changed'])
+                (base / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned'}))
+                with self.assertRaisesRegex(RuntimeError, 'server-only identity owner'):
+                    recover_startup()
+
+    def test_startup_maintenance_refuses_replaced_resources_before_mutation(self):
+        from automation.identity import maintenance
+        identities = {'application_uid': 'owned', 'keycloak_uid': 'server'}
+        app = {'metadata': {'uid': 'replaced', 'labels': {'cloudlab.io/owner': maintenance.OWNER}}}
+        with patch.object(maintenance, 'get', return_value=app), patch.object(maintenance, 'kube') as writer:
+            with self.assertRaisesRegex(RuntimeError, 'resource identity changed'):
+                maintenance._set_maintenance(True, identities)
+            writer.assert_not_called()
+        app['metadata']['uid'] = 'owned'
+        app['spec'] = {'source': {'helm': {'valuesObject': {'enabled': True, 'maintenance': False}}}}
+        with patch.object(maintenance, 'get', side_effect=[app, {'metadata': {'uid': 'replaced'}}]), \
+                patch.object(maintenance, 'wait', side_effect=lambda check, *args, **kwargs: check()), \
+                patch.object(maintenance, 'kube') as writer:
+            with self.assertRaisesRegex(RuntimeError, 'resource identity changed'):
+                maintenance._set_maintenance(False, identities)
+            writer.assert_not_called()
     def test_proxy_privacy_rejects_spoofed_issuers_redirects_and_reachable_management(self):
         import urllib.error
         from unittest.mock import MagicMock

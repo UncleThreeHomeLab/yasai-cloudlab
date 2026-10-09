@@ -192,6 +192,9 @@ def run(payload, phase):
         if state and not current:
             raise RuntimeError('Identity Application identity was lost; automatic recreation refused')
         previous = state['phase'] if state else None
+        recovery = BASE / 'startup-recovery.json'
+        if recovery.exists() and json.loads(recovery.read_text()).get('phase') != 'accepted':
+            raise RuntimeError('Complete the pending initial server recovery before advancing identity')
         if (previous is None and phase != 'server') or (previous is not None and
                 PHASES.index(phase) not in (PHASES.index(previous), PHASES.index(previous) + 1)):
             raise RuntimeError('Identity bootstrap phase transition is not permitted')
@@ -235,6 +238,10 @@ if __name__ == '__main__':
         if sys.argv[1:] == ['argo']:
             from automation.identity.argo import run as native_argo
             result = native_argo(json.load(sys.stdin))
+        elif sys.argv[1:] == ['recover-startup']:
+            from automation.identity.maintenance import recover_startup
+            json.load(sys.stdin)
+            result = recover_startup()
         else:
             result = discover() if sys.argv[1:] == ['inputs'] else run(json.load(sys.stdin), sys.argv[1])
         print(json.dumps(result))
