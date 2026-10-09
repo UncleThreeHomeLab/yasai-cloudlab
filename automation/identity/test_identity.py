@@ -18,6 +18,7 @@ from automation.identity.tokens import access_token, identity_token
 from automation.identity.maintenance import set_maintenance, recover_startup
 from automation.identity.recovery import verify_restored, signature_state, restore_configuration
 from automation.identity.integrations import argo, access
+from automation.identity.access_provider import prepare as prepare_access_provider
 from automation.identity.isolated_restore import policies, pod, client_inventory, run as restore_issuer
 from automation.identity.access_inputs import names
 from automation.gitops.source_revision import matches_revision
@@ -30,6 +31,60 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_access_provider_repeat_drift_rotation_preserve_prior_and_hide_secrets(self):
+        from automation.connectivity.test_reconcile import Provider
+        api, state = Provider(), {}
+        account, previous = 'a' * 32, 'prior-provider'
+        path = 'accounts/' + account + '/access/identity_providers'
+        prior = {'id': previous, 'name': 'Prior provider', 'type': 'onetimepin', 'config': {}}
+        api.objects[path + '/' + previous] = copy.deepcopy(prior)
+        contract = access('https://login.example.invalid/realms/platform', 'fixture', 'x' * 64)
+        saved = []
+        def run():
+            return prepare_access_provider(api, account, previous, contract, state, lambda value: saved.append(copy.deepcopy(value)))
+        self.assertTrue(run()['changed'])
+        self.assertEqual(api.objects[path + '/' + previous], prior)
+        identifier = state['identity_provider']['id']
+        api.objects[path + '/' + identifier]['config']['client_secret'] = '********'
+        api.writes.clear()
+        self.assertFalse(run()['changed'])
+        self.assertEqual(api.writes, [])
+        api.objects[path + '/' + identifier]['config']['pkce_enabled'] = False
+        self.assertTrue(run()['changed'])
+        api.writes.clear()
+        contract = access('https://login.example.invalid/realms/platform', 'fixture', 'y' * 64)
+        self.assertTrue(run()['changed'])
+        self.assertEqual(api.writes, [('PUT', path + '/' + identifier)])
+        self.assertEqual(api.objects[path + '/' + previous], prior)
+        self.assertNotIn('x' * 64, json.dumps(saved))
+        self.assertNotIn('y' * 64, json.dumps(saved))
+        self.assertFalse(run()['browser_and_credential_acceptance'])
+
+    def test_access_provider_refuses_foreign_lost_and_ambiguous_creation(self):
+        from automation.connectivity.test_reconcile import Provider
+        api, state = Provider(), {}
+        account, previous = 'a' * 32, 'prior-provider'
+        path = 'accounts/' + account + '/access/identity_providers'
+        api.objects[path + '/' + previous] = {'id': previous, 'name': 'Prior provider', 'type': 'onetimepin'}
+        contract = access('https://login.example.invalid/realms/platform', 'fixture', 'x' * 64)
+        api.interrupt_create = True
+        with self.assertRaisesRegex(RuntimeError, 'connection lost'):
+            prepare_access_provider(api, account, previous, contract, state, lambda value: None)
+        api.writes.clear()
+        with self.assertRaisesRegex(RuntimeError, 'explicit identity recovery'):
+            prepare_access_provider(api, account, previous, contract, state, lambda value: None)
+        self.assertEqual(api.writes, [])
+        with self.assertRaisesRegex(RuntimeError, 'without an owner'):
+            prepare_access_provider(api, account, previous, contract, {}, lambda value: None)
+        state['identity_provider']['id'] = 'lost'
+        with self.assertRaisesRegex(RuntimeError, 'recreation refused'):
+            prepare_access_provider(api, account, previous, contract, state, lambda value: None)
+        unsafe = copy.deepcopy(contract)
+        unsafe['provider']['config']['pkce_enabled'] = False
+        with self.assertRaises(ValueError):
+            prepare_access_provider(api, account, previous, unsafe, {}, lambda value: None)
+        self.assertEqual(api.writes, [])
+
     def test_failed_initial_server_recovery_resumes_and_refuses_foreign_maintenance(self):
         from automation.identity import maintenance
         with tempfile.TemporaryDirectory() as directory:

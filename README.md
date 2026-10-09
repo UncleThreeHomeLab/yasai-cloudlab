@@ -373,6 +373,12 @@ an immutable commit, and binds it through the public root owner. Run `lab apply`
 afterward to reconcile both Argo routes from its ConfigMap interface. Browser,
 RBAC and measured session checks remain required before Access cutover. A killed
 root handoff can be repaired with `lab gitops-bootstrap` independently of Keycloak.
+After native Argo convergence, `lab identity-access-prepare` creates or reconciles
+the dedicated OIDC provider using the client secret delivered through ESO. Its
+host-backed receipt preserves provider identity and tracks credential rotation
+without storing the secret. Existing providers and application policies remain
+unchanged. Masked provider secrets require browser verification; preparation does
+not claim cutover acceptance. An ambiguous interrupted creation fails closed.
 
 Identity shares the existing monthly-only Longhorn backup boundary. Capture hooks
 quiesce identity before CNPG shutdown; restore hooks check signing-state hashes
