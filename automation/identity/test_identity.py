@@ -575,6 +575,21 @@ class IdentityTests(unittest.TestCase):
         application(payload, 'server')
         payload['values']['adminHost'] = 'admin.other.invalid'
         with self.assertRaises(ValueError): application(payload, 'server')
+    def test_parent_health_cannot_advance_an_unready_identity_server(self):
+        from automation.identity import bootstrap
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'ownership.json').write_text(json.dumps({'phase': 'server', 'uid': 'owned'}))
+            app = {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}},
+                   'spec': {'source': {'helm': {'valuesObject': {}}}}}
+            server = {'metadata': {'generation': 1}, 'status': {'conditions': [{'type': 'Ready', 'status': 'False'}]}}
+            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'application', return_value={}), \
+                    patch.object(bootstrap, 'prerequisites'), patch.object(bootstrap, 'application_ready', return_value=True), \
+                    patch.object(bootstrap, 'get', side_effect=lambda kind, *args: app if kind.startswith('application.') else server), \
+                    patch.object(bootstrap, 'kube') as writes:
+                with self.assertRaisesRegex(RuntimeError, 'Previous identity phase must converge'):
+                    bootstrap.run({'revision': 'public'}, 'bootstrap')
+                writes.assert_not_called()
     def test_oidc_integration_contracts_reject_unsafe_issuers_and_unscoped_rbac(self):
         value = argo('https://login.example.invalid/realms/platform', 'https://argo.example.invalid',
                      ['https://cd.internal.example.invalid'])

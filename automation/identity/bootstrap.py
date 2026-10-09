@@ -24,7 +24,7 @@ def private_resources(payload):
             'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE}],
             'clusterResourceWhitelist': [], 'namespaceResourceWhitelist': [{'group': '', 'kind': 'ConfigMap'}]}}
     credential = {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'metadata': metadata(),
-        'spec': {'refreshInterval': '5m', 'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
+        'spec': {'refreshInterval': '1h', 'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
             'target': {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain',
                 'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace',
                     'metadata': {'labels': {'argocd.argoproj.io/secret-type': 'repository'}},
@@ -195,7 +195,8 @@ def run(payload, phase):
         if (previous is None and phase != 'server') or (previous is not None and
                 PHASES.index(phase) not in (PHASES.index(previous), PHASES.index(previous) + 1)):
             raise RuntimeError('Identity bootstrap phase transition is not permitted')
-        if previous is not None and previous != phase and not application_ready(APP, payload['revision']):
+        if previous is not None and previous != phase and (not application_ready(APP, payload['revision']) or
+                not condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready')):
             raise RuntimeError('Previous identity phase must converge before advancing')
         if current and current['spec']['source']['helm']['valuesObject'].get('operation'):
             raise RuntimeError('Complete the pending identity lifecycle operation before bootstrap')
@@ -222,7 +223,9 @@ def run(payload, phase):
         # Save identity before waiting so interrupted convergence can resume safely.
         atomic(receipt, {'uid': current['metadata']['uid'], 'phase': phase, 'revision': payload['revision'],
                          'private_uids': private_uids})
-        wait(lambda: application_ready(APP, payload['revision']), 'identity Application convergence', timeout=900)
+        wait(lambda: application_ready(APP, payload['revision']) and
+             condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready'),
+             'identity Application and server readiness convergence', timeout=900)
         return {'changed': changed, 'phase': phase, 'bootstrap_admin_retired': False,
                 'real_clients_ready': False, 'owner': 'argocd'}
 

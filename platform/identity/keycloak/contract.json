@@ -186,7 +186,8 @@
     "scope": "One active confidential client in keycloak-client-secrets; initial provision may precede private publication using the exact validated client contract. Rotation requires published inventory. Public and retired clients are rejected.",
     "provision": "Create missing secret; preserve existing value; verify read-only vault retrieval. Does not claim realm convergence.",
     "rotate": "Persist private checkpoint; compare aggregate before mutation; retain unrelated values; ESO/serialized CLI reconcile; prove new credential authenticated and old credential rejected using invalid authorization code without creating sessions.",
-    "status": "implemented; live vault-to-realm rotation unverified"
+    "status": "implemented; live vault-to-realm rotation unverified",
+    "refresh": "Hourly routine ESO reads; an explicit rotation requests one force-sync and waits for serialized five-minute CLI convergence. Quota exhaustion blocks delivery until reset; existing retained secrets and independent repair remain available."
   },
   "master_emergency_proof": {
     "environment": "Isolated Compose fixture; no production custody or vault retirement claim",
@@ -208,5 +209,6 @@
       "Clean only the named disposable project after verification"
     ],
     "limits": "Offline creation is the official bootstrap recovery boundary, not an additional normal realm writer. Retirement and emergency-client disable use config-cli. Real custody, credential retirement and live recovery remain required."
-  }
+  },
+  "database_transport": "Keycloak verify-server maps to PostgreSQL server identity verification; use the CNPG CA from the explicit Operator-mounted truststore file. Live TLS proof remains required."
 }

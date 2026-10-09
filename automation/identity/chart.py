@@ -53,6 +53,10 @@ def check():
     server = next(o for o in objects if o['kind'] == 'Keycloak')['spec']
     if server['instances'] != 1 or server['ingress']['enabled'] or not server['resources']['limits']:
         raise ValueError('Identity topology, privacy or resources changed')
+    if not any(option == {'name': 'db-tls-mode', 'value': 'verify-server'} for option in server['additionalOptions']):
+        raise ValueError('Identity database TLS must use the supported server identity verification mode')
+    if any(o['kind'] == 'ExternalSecret' and o['spec']['refreshInterval'] != '1h' for o in objects):
+        raise ValueError('Routine identity vault reads must stay within the existing subscription budget')
     for image in lock['images'].values():
         if not re.search(r'@sha256:[a-f0-9]{64}$', image):
             raise ValueError('Unpinned identity image')

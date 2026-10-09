@@ -68,7 +68,7 @@ VM creation, provider firewalls, the B2 bucket/key, and the 1Password vault/serv
 Private GitOps inputs are optional and stay in `.env`; their App key stays in
 1Password. Full-cluster recovery remains outside the verified scope.
 
-Private repository credentials refresh every five minutes using one item
+Private repository credentials refresh hourly using one item
 extraction. Only the rendered Argo fields enter the generated Secret. Provider
 rate limits can delay rotation; wait for the service-account quota to reset
 instead of forcing repeated synchronization. The credential failure check uses
@@ -349,6 +349,10 @@ initial provisioning can also include the exact confidential `client` contract
 before its private publication. Current complete private inputs must be available;
 public or retired contracts are rejected. Publish the client after the vault
 secret exists, then verify ESO and scoped reconciliation before using it.
+Identity credentials refresh hourly to fit the existing 1Password subscription.
+Explicit rotation forces one ESO refresh; realm reconciliation still runs every
+five minutes. Quota exhaustion blocks credential delivery until reset and never
+justifies weaker vault permissions or another subscription.
 Provisioning preserves existing secrets. Rotation uses a resumable vault checkpoint
 and verifies new credentials accepted and old credentials denied after ESO/CLI
 reconciliation. Public or retired clients are rejected. `lab identity-client-remove`
