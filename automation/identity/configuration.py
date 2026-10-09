@@ -265,7 +265,9 @@ def bootstrap_retirement(username):
             'clients': [{'clientId': 'admin-cli', 'directAccessGrantsEnabled': False}]}
 
 
-def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, health_directory=None):
+def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, health_directory=None, primary=False):
+    if primary and (private_directory is None or bootstrap_directory is None):
+        raise ValueError('Primary initialization requires complete private bootstrap inputs')
     source = credentials = revocations = None
     if private_directory is not None:
         # Missing/unreadable optional source is an error, never an empty import.
@@ -276,6 +278,10 @@ def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, 
     documents = {realm: restrict_password_grants(compile_state(realm, rp_id, source, credentials, revocations))
                  for realm in REALMS}
     if bootstrap_directory is not None:
+        if not primary:
+            # Initialize machine access first; private people get creation-only
+            # credentials in the explicit primary phase, before scoped imports.
+            documents = {realm: restrict_password_grants(baseline(realm, rp_id)) for realm in REALMS}
         documents = {realm: bootstrap_writer(value, Path(bootstrap_directory).joinpath(realm + '_client_secret').read_text())
                      for realm, value in documents.items()}
         documents = {realm: bootstrap_health(value, Path(health_directory or bootstrap_directory).joinpath(realm + '_health_secret').read_text())

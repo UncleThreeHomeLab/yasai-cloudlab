@@ -32,7 +32,7 @@ initContainers:
         {{- if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
         {{- else }}
-        prepare('/imports', {{ .Values.loginHost | quote }}, {{ ternary "'/private'" "None" .Values.privateStateEnabled }}, {{ ternary "'/credentials'" "None" .Values.bootstrapMode }}, {{ ternary "'/health-credentials'" "None" .Values.bootstrapMode }});
+        prepare('/imports', {{ .Values.loginHost | quote }}, {{ ternary "'/private'" "None" .Values.privateStateEnabled }}, {{ ternary "'/credentials'" "None" .Values.bootstrapMode }}, {{ ternary "'/health-credentials'" "None" .Values.bootstrapMode }}, primary={{ ternary "True" "False" .Values.primaryAdminEnabled }});
         {{- if .Values.bootstrapMode }}
         prepare_master('/imports', {{ .Values.adminHost | quote }}, '/bootstrap');
         {{- if .Values.primaryAdminEnabled }}
@@ -96,7 +96,7 @@ containers:
         # Changing master's frontend URL invalidates its cached bootstrap token.
         # One fresh CLI process completes the identical scoped input after that transition.
         for attempt in 1 2; do
-          if java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties >/tmp/result 2>&1; then break; fi
+          if java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties {{ if .Values.primaryAdminEnabled }}--import.remote-state.enabled=false{{ end }} >/tmp/result 2>&1; then break; fi
           if test "$attempt" = 2; then echo 'Private master bootstrap failed; diagnostics withheld'; exit 1; fi
           echo 'Retrying private master bootstrap with a fresh token'
         done
@@ -108,7 +108,7 @@ containers:
           export KEYCLOAK_CLIENTSECRET="$(cat /credentials/${realm}_client_secret)"
           {{- end }}
           export IMPORT_FILES_LOCATIONS="/imports/$realm.json"
-          java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties >/tmp/result 2>&1 || { echo 'Scoped identity reconciliation failed; private diagnostics withheld'; exit 1; }
+          java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties {{ if .Values.primaryAdminEnabled }}--import.remote-state.enabled=false{{ end }} >/tmp/result 2>&1 || { echo 'Scoped identity reconciliation failed; private diagnostics withheld'; exit 1; }
         done
         echo 'Scoped identity reconciliation completed'
         {{- end }}

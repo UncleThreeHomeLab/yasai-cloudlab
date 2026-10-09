@@ -102,6 +102,9 @@ def check():
     primary = render(dict(values, bootstrapMode=True, primaryAdminEnabled=True))
     if not any(o['kind'] == 'ExternalSecret' and o['metadata']['name'] == 'keycloak-primary-admin' for o in primary):
         raise ValueError('Primary initialization requires ESO-owned credentials')
+    primary_job = next(o for o in primary if o['kind'] == 'Job')['spec']['template']['spec']
+    if '--import.remote-state.enabled=false' not in primary_job['containers'][0]['args'][0]:
+        raise ValueError('Creation-only credentials must not enter normal realm state tracking')
     try:
         render(dict(values, primaryAdminEnabled=True))
     except ValueError:

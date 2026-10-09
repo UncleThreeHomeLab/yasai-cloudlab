@@ -31,6 +31,24 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_machine_bootstrap_validates_private_source_without_creating_people_early(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = {'format': 1, 'realms': {'platform': {'memberships': [
+                {'username': 'operator-fixture', 'groups': ['platform-admin']}]}}}
+            for field, value in {'desired_state': source, 'revocations': {'format': 1, 'realms': {}},
+                                 'client_secrets': {'platform': {}, 'applications': {}}}.items():
+                (base / field).write_text(json.dumps(value))
+            for realm in ('platform', 'applications'):
+                (base / (realm + '_client_secret')).write_text('x' * 64)
+                (base / (realm + '_health_secret')).write_text('y' * 64)
+            docs = prepare(base / 'out', 'login.example.invalid', base, base)
+            self.assertTrue(all(user['username'].startswith('service-account-') for user in docs['platform']['users']))
+            primary = prepare(base / 'out', 'login.example.invalid', base, base, primary=True)
+            self.assertTrue(any(user['username'] == 'operator-fixture' for user in primary['platform']['users']))
+            (base / 'desired_state').unlink()
+            with self.assertRaises(FileNotFoundError): prepare(base / 'out', 'login.example.invalid', base, base)
+
     def test_primary_preparation_validates_both_realms_before_writing_creation_inputs(self):
         from automation.identity.configuration import prepare_primary
         values = {'master_username': 'master-fixture', 'platform_username': 'operator-fixture',

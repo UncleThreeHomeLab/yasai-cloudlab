@@ -374,6 +374,10 @@ Declare the platform username's `platform-admin` membership in the private sourc
 then run `lab identity-primary`. Initial login requires verified WebAuthn enrollment;
 repeat never resets existing credentials or re-enables a disabled account. Enroll
 the actual passkeys in your personal vault before retiring bootstrap access.
+Machine bootstrap validates the complete private source but creates no people;
+private overlays apply in the primary/scoped phases. Creation-only credentials
+do not enter normal CLI state tracking. Scheduled scoped reconciliation retains
+remote state and disables checksum caching for drift repair.
 After publishing the Argo client and private values together, `lab identity-argo`
 reads them with the existing read-only GitHub App, validates the exact overlay at
 an immutable commit, and binds it through the public root owner. Run `lab apply`
