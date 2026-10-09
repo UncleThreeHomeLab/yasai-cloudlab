@@ -31,6 +31,21 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_private_owner_accepts_only_eso_cleanup_on_unchanged_resource(self):
+        from automation.identity.bootstrap import check_private_owner, OWNER
+        metadata = {'uid': 'owned', 'labels': {'cloudlab.io/owner': OWNER},
+                    'finalizers': ['externalsecrets.external-secrets.io/externalsecret-cleanup']}
+        check_private_owner('ExternalSecret', {'metadata': metadata}, 'owned')
+        for kind, changes, saved in (
+                ('Application', {}, 'owned'), ('ExternalSecret', {}, 'replacement'),
+                ('ExternalSecret', {'finalizers': metadata['finalizers'] + ['foreign']}, 'owned'),
+                ('ExternalSecret', {'deletionTimestamp': 'pending'}, 'owned'),
+                ('ExternalSecret', {'ownerReferences': [{'uid': 'foreign'}]}, 'owned'),
+                ('ExternalSecret', {'labels': {}}, 'owned')):
+            with self.subTest(kind=kind, changes=changes), self.assertRaisesRegex(RuntimeError, 'owner conflicts'):
+                check_private_owner(kind, {'metadata': dict(metadata, **changes)}, saved)
+        with self.assertRaises(RuntimeError): check_private_owner('ExternalSecret', None, 'owned')
+
     def test_phase_wait_rejects_stale_source_and_busy_writer(self):
         from automation.identity.bootstrap import reconciled, writer_idle
         app = {'metadata': {'uid': 'owned'}, 'spec': {'source': {'helm': {'valuesObject': {'primary': True}}}},
