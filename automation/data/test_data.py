@@ -12,6 +12,21 @@ from automation.data import backup, capture, chart, control, credentials, remote
 
 
 class DataTests(unittest.TestCase):
+    def test_physical_restore_repairs_permissions_only_on_fixture_claim(self):
+        from automation.data import physical
+        with patch.object(physical, 'get', side_effect=[
+                {'data': {'ca.crt': 'fixture', 'ca.key': 'fixture'}},
+                {'spec': {'postgresql': {'pg_hba': ['host all all all reject']}}}]), \
+                patch.object(physical, 'wait'), patch.object(physical, 'kube') as kube:
+            physical.postgres({})
+        deployment = next(c.kwargs['document'] for c in kube.call_args_list
+                          if c.kwargs.get('document', {}).get('kind') == 'Deployment')
+        spec = deployment['spec']['template']['spec']
+        self.assertEqual(deployment['metadata']['namespace'], physical.NAMESPACE)
+        self.assertEqual(spec['volumes'][0]['persistentVolumeClaim']['claimName'], 'data-restore-1')
+        self.assertEqual(spec['initContainers'][0]['command'], ['chmod', '0700', '/var/lib/postgresql/data/pgdata'])
+        self.assertEqual(spec['securityContext']['runAsUser'], 26)
+
     def test_cold_boundary_accepts_an_empty_kubectl_inventory(self):
         from automation.data import volumes
         cluster = {'metadata': {'generation': 1}, 'status': {'conditions': [
