@@ -86,17 +86,27 @@ class IdentityTests(unittest.TestCase):
             (base / 'platform.json').write_text(json.dumps(platform))
             with patch('automation.identity.configuration.private_request', side_effect=[
                     {'access_token': 'fixture'}, [{'realm': 'master'}, {'realm': 'platform'}], [], {'attributes': []}, {},
-                    [{'username': 'operator-fixture', 'attributes': {}}]]):
+                    [{'username': 'operator-fixture', 'attributes': {}}], {'attributes': []}, {}]):
                 with self.assertRaisesRegex(ValueError, 'unrelated existing account'):
                     prepare_primary(base, base, base, 'identity-admin.internal.example.invalid')
             self.assertEqual(json.loads((base / 'master-bootstrap.json').read_text()), master)
             self.assertEqual(json.loads((base / 'platform.json').read_text()), platform)
+            with patch('automation.identity.configuration.private_request', side_effect=[
+                    {'access_token': 'fixture'}, [{'realm': 'master'}, {'realm': 'platform'}],
+                    [], {'attributes': []}, {}, [], {'attributes': []}, {}]):
+                prepare_primary(base, base, base, 'identity-admin.internal.example.invalid')
+            for filename in ('master-bootstrap', 'platform'):
+                created = json.loads((base / (filename + '.json')).read_text())
+                steady = json.loads((base / (filename + '.steady.json')).read_text())
+                self.assertIn('credentials', created['users'][0])
+                self.assertTrue(all('credentials' not in user and 'enabled' not in user for user in steady.get('users', [])))
 
     def test_primary_profile_keeps_unmanaged_fields_and_marker_admin_only(self):
         from automation.identity.configuration import primary_profile
         profile = {'attributes': [{'name': 'username', 'permissions': {'edit': ['user', 'admin']}}],
                    'groups': [{'name': 'unrelated'}], 'unmanagedAttributePolicy': 'ADMIN_VIEW'}
-        state = primary_profile({'realm': 'platform'}, profile, {'unrelated': 'preserved'})
+        state = primary_profile({'realm': 'platform'}, profile, {'unrelated': 'preserved',
+            'de.adorsys.keycloak.config.import-checksum-primary': 'old-output'})
         self.assertEqual(state['userProfile']['attributes'][:-1], profile['attributes'])
         self.assertEqual(state['userProfile']['groups'], profile['groups'])
         self.assertEqual(state['userProfile']['unmanagedAttributePolicy'], 'ADMIN_VIEW')

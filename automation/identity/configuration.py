@@ -391,6 +391,9 @@ def primary_profile(state, profile, attributes):
     result = copy.deepcopy(state)
     result['attributes'] = dict(attributes)
     result['attributes'].update(state.get('attributes', {}))
+    # Never feed the CLI's output checksum back into its next input checksum.
+    result['attributes'] = {key: value for key, value in result['attributes'].items()
+                            if not key.startswith('de.adorsys.keycloak.config.import-checksum-')}
     result['attributes']['userProfileEnabled'] = 'true'
     result['userProfile'] = copy.deepcopy(profile)
     owned = {'name': 'cloudlab-primary-owner', 'multivalued': False,
@@ -427,10 +430,12 @@ def prepare_primary(directory, credentials_directory, bootstrap_directory, admin
             'username': values[realm + '_username'], 'exact': 'true', 'max': 2}), token=token) if any(
                 row.get('realm') == realm for row in realms) else []
         path = Path(directory) / filename
-        state = initialize_primary(json.loads(path.read_text()), current, values)
-        documents[path] = primary_profile(state,
+        state = primary_profile(json.loads(path.read_text()),
             private_request(origin + '/admin/realms/' + realm + '/users/profile', token=token),
             private_request(origin + '/admin/realms/' + realm, token=token).get('attributes', {}))
+        documents[path] = initialize_primary(state, current, values)
+        # Finish creation with credential-free canonical input, within the same Lease.
+        documents[path.with_name(path.stem + '.steady.json')] = state
     # Validate both realms before writing either creation-only input.
     for path, document in documents.items():
         path.write_text(json.dumps(document, sort_keys=True))

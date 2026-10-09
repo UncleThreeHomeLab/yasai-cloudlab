@@ -325,10 +325,13 @@ def main():
         reconcile(configured, creation_only=True)
         root = '/admin/realms/' + realm
         current = request(root + '/users?username=' + primary[realm + '_username'] + '&exact=true', token=administrator())
+        steady = initialize_primary(state, current, primary)
+        reconcile(steady, creation_only=True)
         def snapshot():
             token = administrator()
             return {'realm': request(root, token=token), 'users': request(root + '/users', token=token),
                     'credentials': request(root + '/users/' + current[0]['id'] + '/credentials', token=token),
+                    'profile': request(root + '/users/profile', token=token),
                     'signing': request('/realms/' + realm + '/protocol/openid-connect/certs')}
         before = snapshot()
         reconcile(initialize_primary(state, current, primary), creation_only=True)
