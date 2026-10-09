@@ -84,6 +84,31 @@ def wait_application(name, revision, timeout=600):
     raise RuntimeError('Public GitOps convergence timed out; retained checkpoint and resources')
 
 
+def identity_project_rules(project):
+    spec = project.get('spec', {})
+    baseline = [{'group': 'argoproj.io', 'kind': kind} for kind in ('Application', 'AppProject')]
+    desired = baseline + [{'group': 'external-secrets.io', 'kind': 'ExternalSecret'}]
+    if (spec.get('destinations') != [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}]
+            or spec.get('clusterResourceWhitelist') != [{'group': '', 'kind': 'Namespace'}]
+            or spec.get('namespaceResourceWhitelist') not in (baseline, desired)
+            or spec.get('namespaceResourceBlacklist')):
+        raise RuntimeError('Identity source grant requires the exact bounded root project')
+    return desired
+
+
+def grant_identity_source(project):
+    desired = identity_project_rules(project)
+    if project['spec']['namespaceResourceWhitelist'] == desired:
+        return False
+    metadata = project['metadata']
+    kube('patch', 'appproject.argoproj.io', 'cloudlab-root', '-n', 'argocd', '--type=json',
+         '-p', json.dumps([
+             {'op': 'test', 'path': '/metadata/uid', 'value': metadata['uid']},
+             {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']},
+             {'op': 'add', 'path': '/spec/namespaceResourceWhitelist', 'value': desired}]))
+    return True
+
+
 def resume_identity_binding():
     """Repair an interrupted bounded root handoff without contacting the IdP."""
     path = BASE / 'identity-values-binding.json'
@@ -103,6 +128,29 @@ def resume_identity_binding():
     controller = objects['controller_uid']
     if controller['spec']['replicas'] not in (0, 1):
         raise RuntimeError('Interrupted identity root handoff has an unexpected topology')
+    if state['phase'] in ('source-updated', 'resumed'):
+        root, project = objects['root_uid'], objects['project_uid']
+        source = root['spec']['source']
+        if (source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo') != state.get('target')
+                or not state.get('target') or project['spec'].get('sourceRepos') != [source['repoURL']]):
+            raise RuntimeError('Interrupted identity root handoff source changed')
+        if project['spec'].get('namespaceResourceWhitelist') != identity_project_rules(project):
+            try:
+                try:
+                    from .source_transition import pause
+                except ImportError:
+                    from source_transition import pause
+                pause()
+                latest = get('appproject.argoproj.io', 'cloudlab-root')
+                current = get('application.argoproj.io', 'cloudlab-public-root')
+                if (not latest or latest['metadata']['uid'] != state['project_uid'] or latest['spec'] != project['spec']
+                        or not current or current['metadata']['uid'] != state['root_uid']
+                        or current['spec']['source'] != source):
+                    raise RuntimeError('Identity source grant changed during controller handoff')
+                grant_identity_source(latest)
+            finally:
+                kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
+            return True
     if controller['spec']['replicas'] == 0:
         kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
         return True

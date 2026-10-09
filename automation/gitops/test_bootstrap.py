@@ -4,11 +4,63 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import copy
 from unittest.mock import patch
 import bootstrap
 
 
 class BootstrapTests(unittest.TestCase):
+    def identity_project(self):
+        return {'metadata': {'uid': 'project', 'resourceVersion': '7'}, 'spec': {
+            'sourceRepos': ['public'], 'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],
+            'clusterResourceWhitelist': [{'group': '', 'kind': 'Namespace'}],
+            'namespaceResourceWhitelist': [{'group': 'argoproj.io', 'kind': kind} for kind in ('Application', 'AppProject')]}}
+
+    def test_identity_source_grant_is_scoped_and_uses_uid_and_resource_version(self):
+        project = self.identity_project()
+        with patch.object(bootstrap, 'kube') as write:
+            self.assertTrue(bootstrap.grant_identity_source(project))
+            body = json.loads(write.call_args.args[-1])
+            self.assertEqual(body[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'project'},
+                                       {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '7'}])
+            self.assertEqual(body[2]['value'][-1], {'group': 'external-secrets.io', 'kind': 'ExternalSecret'})
+            project['spec']['namespaceResourceWhitelist'] = body[2]['value']
+            self.assertFalse(bootstrap.grant_identity_source(project))
+            self.assertEqual(write.call_count, 1)
+        for field, value in (('destinations', [{'namespace': '*', 'server': '*'}]),
+                             ('clusterResourceWhitelist', [{'group': '*', 'kind': '*'}]),
+                             ('namespaceResourceWhitelist', [{'group': '', 'kind': 'Secret'}])):
+            foreign = copy.deepcopy(project)
+            foreign['spec'][field] = value
+            with patch.object(bootstrap, 'kube') as write:
+                with self.assertRaisesRegex(RuntimeError, 'exact bounded root project'):
+                    bootstrap.grant_identity_source(foreign)
+                write.assert_not_called()
+
+    def test_pending_identity_source_grant_repairs_with_controller_stopped_and_source_unchanged(self):
+        import source_transition
+        with tempfile.TemporaryDirectory() as folder:
+            target = {'valuesRepository': 'private', 'valuesRevision': 'a' * 40}
+            base = Path(folder)
+            (base / 'identity-values-binding.json').write_text(json.dumps({
+                'phase': 'resumed', 'root_uid': 'root', 'controller_uid': 'controller',
+                'project_uid': 'project', 'target': target}))
+            objects = {'application.argoproj.io': {'metadata': {'uid': 'root'}, 'spec': {'source': {
+                'repoURL': 'public', 'helm': {'valuesObject': {'identity': {'argo': target}}}}}},
+                'statefulset': {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 1}},
+                'appproject.argoproj.io': self.identity_project()}
+            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda kind, name: objects[kind]), \
+                    patch.object(source_transition, 'pause') as pause, patch.object(bootstrap, 'kube') as write:
+                self.assertTrue(bootstrap.resume_identity_binding())
+                pause.assert_called_once()
+                self.assertEqual(write.call_args_list[0].args[:2], ('patch', 'appproject.argoproj.io'))
+                self.assertEqual(write.call_args.args[-1], '--replicas=1')
+                write.reset_mock()
+                objects['application.argoproj.io']['spec']['source']['helm']['valuesObject']['identity']['argo'] = {}
+                with self.assertRaisesRegex(RuntimeError, 'source changed'):
+                    bootstrap.resume_identity_binding()
+                write.assert_not_called()
+
     def test_interrupted_identity_binding_repairs_controller_without_idp_or_replacement(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
