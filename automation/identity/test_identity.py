@@ -6,7 +6,8 @@ import base64
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
+from urllib.error import HTTPError
 
 from automation.identity.configuration import exact_url, baseline, bootstrap_writer, bootstrap_health, client, compile_state, prepare, prepare_master, prepare_removal, restrict_password_grants, bootstrap_retirement, initialize_primary
 from automation.identity.rotation import replacement, inventory, request_scope
@@ -31,6 +32,34 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_runtime_lease_create_and_competing_creator_preserve_owner(self):
+        from automation.identity.lease import owned_lease, OWNER
+        endpoint = 'https://kubernetes.default.svc/apis/coordination.k8s.io/v1/namespaces/cloudlab-identity/leases/identity-writer'
+        row = {'metadata': {'name': 'identity-writer', 'namespace': 'cloudlab-identity',
+               'uid': 'owned', 'resourceVersion': '9', 'labels': {'cloudlab.io/owner': OWNER}}, 'spec': {}}
+        for responses in ([HTTPError(endpoint, 404, 'missing', None, None), row],
+                          [HTTPError(endpoint, 404, 'missing', None, None),
+                           HTTPError(endpoint, 409, 'competing creator', None, None), row]):
+            request = Mock(side_effect=responses)
+            self.assertEqual(owned_lease(request, 'cloudlab-identity', endpoint), row)
+            created = request.call_args_list[1]
+            self.assertEqual(created.args[0], 'POST')
+            self.assertEqual(created.kwargs['url'], endpoint.rsplit('/', 1)[0])
+            self.assertNotIn('ownerReferences', created.args[1]['metadata'])
+        for changes in ({'labels': {}}, {'uid': ''}, {'deletionTimestamp': 'pending'},
+                        {'finalizers': ['foreign']}, {'namespace': 'foreign'}):
+            request = Mock(return_value=dict(row, metadata=dict(row['metadata'], **changes)))
+            with self.assertRaisesRegex(RuntimeError, 'conflicting ownership'):
+                owned_lease(request, 'cloudlab-identity', endpoint)
+            request.assert_called_once_with('GET')
+
+    def test_runtime_lease_does_not_create_on_forbidden_or_failed_api(self):
+        from automation.identity.lease import owned_lease
+        for status in (401, 403, 500):
+            request = Mock(side_effect=HTTPError('https://kubernetes.default.svc', status, 'denied', None, None))
+            with self.assertRaises(HTTPError): owned_lease(request, 'cloudlab-identity', 'https://kubernetes.default.svc/leases/identity-writer')
+            request.assert_called_once_with('GET')
+
     def test_private_owner_accepts_only_eso_cleanup_on_unchanged_resource(self):
         from automation.identity.bootstrap import check_private_owner, OWNER
         metadata = {'uid': 'owned', 'labels': {'cloudlab.io/owner': OWNER},
@@ -55,6 +84,9 @@ class IdentityTests(unittest.TestCase):
             self.assertFalse(reconciled('same-revision', 'owned'))
             app['status']['sync']['comparedTo']['source'] = copy.deepcopy(app['spec']['source'])
             self.assertTrue(reconciled('same-revision', 'owned'))
+            app['status']['operationState'] = {'phase': 'Failed', 'syncResult': {'revision': 'same-revision'}}
+            with self.assertRaisesRegex(RuntimeError, 'preserve the phase checkpoint'):
+                reconciled('same-revision', 'owned')
             with self.assertRaisesRegex(RuntimeError, 'identity changed'):
                 reconciled('same-revision', 'replacement')
         lease = {'spec': {'holderIdentity': 'prior', 'renewTime': '1970-01-01T00:00:00Z', 'leaseDurationSeconds': 240}}
@@ -770,11 +802,13 @@ class IdentityTests(unittest.TestCase):
             Path(directory, 'username').write_text('fixture')
             Path(directory, 'password').write_text('fixture')
             with patch('automation.identity.configuration.private_request', side_effect=[
-                    {'access_token': 'fixture-token'}, {'attributes': {'unrelated': 'preserve'}}]):
+                    {'access_token': 'fixture-token'}, {'attributes': {'unrelated': 'preserve',
+                        'de.adorsys.keycloak.config.import-checksum-default': 'old-output'}}]):
                 prepare_master(directory, 'identity-admin.internal.example.invalid', directory)
             value = json.loads(Path(directory, 'master-bootstrap.json').read_text())
         self.assertEqual(value['attributes']['unrelated'], 'preserve')
         self.assertEqual(value['attributes']['frontendUrl'], 'https://identity-admin.internal.example.invalid')
+        self.assertNotIn('de.adorsys.keycloak.config.import-checksum-default', value['attributes'])
 
     def test_master_browser_origin_is_private_and_never_imports_users_or_keys(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -804,7 +838,7 @@ class IdentityTests(unittest.TestCase):
             'databaseCA': 'fixture-ca', 'trustedProxyAddresses': ['10.42.0.10/32']}}
         for phase in ('server', 'bootstrap', 'primary', 'scoped'):
             spec = application(payload, phase)['spec']
-            self.assertEqual(spec['ignoreDifferences'][0]['jsonPointers'], ['/spec'])
+            self.assertNotIn('ignoreDifferences', spec)
             self.assertIn('RespectIgnoreDifferences=true', spec['syncPolicy']['syncOptions'])
             self.assertFalse(spec['syncPolicy']['automated']['prune'])
             self.assertFalse(spec['source']['helm']['valuesObject']['operatorEnabled'])
