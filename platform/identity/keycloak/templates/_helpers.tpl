@@ -28,13 +28,16 @@ initContainers:
     args:
       - >-
         import sys; sys.path.insert(0,'/code');
-        from lease import acquire; from configuration import prepare, prepare_master, prepare_removal, removal_inventory;
+        from lease import acquire; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory;
         {{- if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
         {{- else }}
         prepare('/imports', {{ .Values.loginHost | quote }}, {{ ternary "'/private'" "None" .Values.privateStateEnabled }}, {{ ternary "'/credentials'" "None" .Values.bootstrapMode }}, {{ ternary "'/health-credentials'" "None" .Values.bootstrapMode }});
         {{- if .Values.bootstrapMode }}
         prepare_master('/imports', {{ .Values.adminHost | quote }}, '/bootstrap');
+        {{- if .Values.primaryAdminEnabled }}
+        prepare_primary('/imports', '/primary', '/bootstrap', {{ .Values.adminHost | quote }});
+        {{- end }}
         {{- end }}
         {{- end }}
         acquire();
@@ -57,6 +60,9 @@ initContainers:
       {{- if .Values.bootstrapMode }}
       - {name: health-credentials, mountPath: /health-credentials, readOnly: true}
       - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+      {{- if .Values.primaryAdminEnabled }}
+      - {name: primary, mountPath: /primary, readOnly: true}
+      {{- end }}
       {{- end }}
       {{- if .Values.privateStateEnabled }}
       - {name: private, mountPath: /private, readOnly: true}
@@ -136,6 +142,9 @@ volumes:
       items:
         - {key: platform_client_secret, path: platform_health_secret}
         - {key: applications_client_secret, path: applications_health_secret}
+  {{- end }}
+  {{- if .Values.primaryAdminEnabled }}
+  - {name: primary, secret: {secretName: keycloak-primary-admin, defaultMode: 0440}}
   {{- end }}
   {{- if .Values.privateStateEnabled }}
   - name: private

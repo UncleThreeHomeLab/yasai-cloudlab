@@ -24,6 +24,10 @@
       "username",
       "password"
     ],
+    "keycloak-primary-admin": [
+      "master_username", "platform_username", "master_password", "platform_password",
+      "ownership_id", "email", "email_verified"
+    ],
     "keycloak-realm-writers": [
       "platform_client_secret",
       "applications_client_secret"
@@ -49,7 +53,7 @@
       "Omitted clients"
     ],
     "removal": "Explicit retire then remove-client plan and published persistent tombstone. Old source containing removed clients fails closed; missing private inputs never become empty imports. Scoped runtime operation verifies disabled client, waits 600 seconds for declared Keycloak/client sessions and JWTs, runs serialized Argo seed/removal job and restores normal reconciliation. Unrelated clients and users are preserved. Live operation unverified; application sessions require their own measured contracts.",
-    "master": "Separate bootstrap-only private frontend URL, MFA flow and audit settings; never private membership/user/client/key imports; no normal writer access to master",
+    "master": "Separate bootstrap-only private frontend URL, MFA flow and audit settings. Generic private overlays cannot target master. An explicit primary phase initializes one vault-bound master administrator and one privately inventoried platform administrator; passwords, enabled state, verified email and WebAuthn enrollment actions are creation-only. Existing unrelated users cannot be adopted. Normal writers have no master access; real enrollment and emergency custody must precede bootstrap retirement.",
     "groups": "Generic platform-admin/developer/viewer realm roles. Private role_groups maps declared client roles to those approved groups through client-owned /client-<id>/<role> subgroups. Only explicitly inventoried memberships receive derived client groups; shared groups are never assigned a complete clientRoles map. Omitted group/subgroup objects are not automatically deleted."
   },
   "sessions": {
@@ -171,6 +175,7 @@
     "runtime_phases": [
       "identity-server",
       "identity-bootstrap",
+      "identity-primary",
       "identity-scoped",
       "identity-argo"
     ],

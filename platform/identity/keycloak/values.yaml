@@ -6,6 +6,7 @@ reconciliationEnabled: false
 bootstrapMode: false
 maintenance: false
 bootstrapAdminEnabled: true
+primaryAdminEnabled: false
 privateStateEnabled: false
 loginHost: login.example.invalid
 adminHost: identity-admin.internal.example.invalid

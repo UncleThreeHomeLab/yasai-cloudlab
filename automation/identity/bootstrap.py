@@ -13,7 +13,7 @@ from automation.identity.maintenance import APP, NAMESPACE, OWNER, BASE
 from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
 from automation.gitops.private_sources import PEM_TEMPLATE
 
-PHASES = ('server', 'bootstrap', 'scoped')
+PHASES = ('server', 'bootstrap', 'primary', 'scoped')
 
 
 def private_resources(payload):
@@ -113,8 +113,8 @@ def application(payload, phase):
         if network.prefixlen < (24 if network.version == 4 else 64) or not network.network_address.is_private:
             raise ValueError('Proxy trust must use bounded verified private gateway Pod ranges')
     desired = dict(values, enabled=True, operatorEnabled=False, serverEnabled=True,
-                   maintenance=False, reconciliationEnabled=phase != 'server', bootstrapMode=phase == 'bootstrap',
-                   privateStateEnabled=phase != 'server', bootstrapAdminEnabled=True)
+                   maintenance=False, reconciliationEnabled=phase != 'server', bootstrapMode=phase in ('bootstrap', 'primary'),
+                   primaryAdminEnabled=phase == 'primary', privateStateEnabled=phase != 'server', bootstrapAdminEnabled=True)
     return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
         'metadata': {'name': APP, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
         'spec': {'project': APP, 'source': {'repoURL': payload['repository'], 'targetRevision': payload['branch'],

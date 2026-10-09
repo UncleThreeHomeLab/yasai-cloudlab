@@ -360,13 +360,20 @@ accepts `{realm, client_id}` only after the private retirement/removal tombstone
 published and the client is disabled. It waits the declared session/token bound,
 runs the serialized Argo removal job and restores normal reconciliation. These
 live operations remain unverified. Runtime phases
-`identity-server`, `identity-bootstrap` and `identity-scoped` require published,
+`identity-server`, `identity-bootstrap`, `identity-primary` and `identity-scoped` require published,
 explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
 They preserve bootstrap access; retirement and live cutovers remain incomplete.
 `lab identity-recover-startup` repairs an owned server-only installation whose
 failed Pod still uses an older template. It stops and resumes the server through
 Argo's existing maintenance field, preserves the database, and resumes safely
 from a private checkpoint. It never applies to an already bootstrapped realm.
+`lab identity-primary-credentials` provisions separate master/platform passwords
+and opaque usernames after checking the existing signed human Access proof.
+The `keycloak-primary-admin` vault schema is versioned with the identity contract.
+Declare the platform username's `platform-admin` membership in the private source,
+then run `lab identity-primary`. Initial login requires verified WebAuthn enrollment;
+repeat never resets existing credentials or re-enables a disabled account. Enroll
+the actual passkeys in your personal vault before retiring bootstrap access.
 After publishing the Argo client and private values together, `lab identity-argo`
 reads them with the existing read-only GitHub App, validates the exact overlay at
 an immutable commit, and binds it through the public root owner. Run `lab apply`

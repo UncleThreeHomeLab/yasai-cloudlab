@@ -35,7 +35,7 @@ def gitops_preflight():
 
 def main():
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-scoped': 'scoped', 'identity-argo': 'argo', 'identity-recover-startup': 'recover-startup'}.get(action)
+    identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-primary': 'primary', 'identity-scoped': 'scoped', 'identity-argo': 'argo', 'identity-recover-startup': 'recover-startup'}.get(action)
     if identity_phase:
         os.environ['LAB_IDENTITY_PHASE'] = identity_phase
         action = 'inspect'
@@ -49,6 +49,9 @@ def main():
         return
     if action == 'identity-access-prepare':
         subprocess.run([sys.executable, '-m', 'automation.identity.access_provider'], cwd='/workspace', check=True)
+        return
+    if action == 'identity-primary-credentials':
+        subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--primary'], cwd='/workspace', check=True)
         return
     if action in ('identity-credentials', 'identity-operation', 'identity-client-credential', 'identity-client-remove'):
         module = {'identity-credentials': 'credentials', 'identity-operation': 'operations', 'identity-client-credential': 'rotation', 'identity-client-remove': 'lifecycle'}[action]

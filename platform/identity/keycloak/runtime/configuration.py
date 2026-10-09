@@ -347,6 +347,63 @@ def prepare_master(directory, admin_host, bootstrap_directory=None):
     path.chmod(0o600)
 
 
+def initialize_primary(state, current, values):
+    """Credentials are creation-only; existing people must never be adopted."""
+    realm = state['realm']
+    if realm not in ('master', 'platform'):
+        raise ValueError('Primary initialization requires master or platform')
+    username = name(values[realm + '_username'])
+    password, marker, email = values[realm + '_password'], values['ownership_id'], values['email']
+    if (not isinstance(password, str) or len(password) < 32 or not re.fullmatch('[a-f0-9]{32}', marker) or
+            not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or values.get('email_verified') != 'true'):
+        raise ValueError('Primary initialization requires complete verified private vault inputs')
+    if not isinstance(current, list) or len(current) > 1 or any(row.get('username') != username for row in current):
+        raise ValueError('Primary account lookup is ambiguous')
+    result = copy.deepcopy(state)
+    member = next((user for user in result.get('users', []) if user['username'] == username), None)
+    if realm == 'platform' and (not member or '/platform-admin' not in member.get('groups', []) or member.get('enabled') is False):
+        raise ValueError('Primary platform membership must be active and explicitly declared in the private source')
+    if current:
+        if current[0].get('attributes', {}).get('cloudlab-primary-owner') != [marker]:
+            raise ValueError('Primary initialization cannot adopt an unrelated existing account')
+        return result
+    if member is None:
+        member = {'username': username, 'realmRoles': ['admin']}
+        result.setdefault('users', []).append(member)
+    member.update(enabled=True, email=email, emailVerified=True,
+                  requiredActions=['webauthn-register'], attributes={'cloudlab-primary-owner': [marker]},
+                  credentials=[{'type': 'password', 'value': password, 'temporary': False}])
+    return result
+
+
+def prepare_primary(directory, credentials_directory, bootstrap_directory, admin_host):
+    from urllib.parse import urlencode
+    credentials = Path(credentials_directory)
+    fields = ('master_username', 'platform_username', 'master_password', 'platform_password',
+              'ownership_id', 'email', 'email_verified')
+    values = {field: credentials.joinpath(field).read_text() for field in fields}
+    bootstrap = Path(bootstrap_directory)
+    origin = exact_url('https://' + admin_host + '/')[:-1]
+    token = private_request(origin + '/realms/master/protocol/openid-connect/token', form={
+        'grant_type': 'password', 'client_id': 'admin-cli',
+        'username': bootstrap.joinpath('username').read_text(),
+        'password': bootstrap.joinpath('password').read_text()})['access_token']
+    realms = private_request(origin + '/admin/realms', token=token)
+    if not isinstance(realms, list) or len(realms) > 1000:
+        raise ValueError('Primary realm inventory is unavailable or exceeds its bound')
+    documents = {}
+    for realm, filename in (('master', 'master-bootstrap.json'), ('platform', 'platform.json')):
+        current = private_request(origin + '/admin/realms/' + realm + '/users?' + urlencode({
+            'username': values[realm + '_username'], 'exact': 'true', 'max': 2}), token=token) if any(
+                row.get('realm') == realm for row in realms) else []
+        path = Path(directory) / filename
+        documents[path] = initialize_primary(json.loads(path.read_text()), current, values)
+    # Validate both realms before writing either creation-only input.
+    for path, document in documents.items():
+        path.write_text(json.dumps(document, sort_keys=True))
+        path.chmod(0o600)
+
+
 def prepare_removal(directory, realm, identifier, private_directory):
     if realm not in REALMS:
         raise ValueError('Removal requires a managed realm')
