@@ -54,7 +54,7 @@ def resources(entry, store_name):
                     ('apps', 'Deployment'), ('apps', 'StatefulSet'), ('batch', 'Job'), ('batch', 'CronJob'),
                     ('networking.k8s.io', 'NetworkPolicy'), ('policy', 'PodDisruptionBudget'))]}}
     credential = {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'metadata': metadata(name),
-        'spec': {'refreshInterval': '5m', 'secretStoreRef': {'name': store_name, 'kind': 'ClusterSecretStore'},
+        'spec': {'refreshInterval': '1h', 'secretStoreRef': {'name': store_name, 'kind': 'ClusterSecretStore'},
             'target': {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain',
                 'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace', 'metadata': {
                     'labels': {'argocd.argoproj.io/secret-type': 'repository', LABEL: OWNER}},

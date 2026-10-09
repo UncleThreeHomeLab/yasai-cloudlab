@@ -155,7 +155,8 @@ def run(manifest, sql):
                        'emergency_secret': emergency_secret}})
     ca_volume = {'name': 'trust', 'secret': {'secretName': 'data-restore-ca'}}
     ca_mount = {'name': 'trust', 'mountPath': '/trust', 'readOnly': True}
-    env = [{'name': 'KC_DB', 'value': 'postgres'}, {'name': 'KC_DB_TLS_MODE', 'value': 'verify-full'},
+    env = [{'name': 'KC_DB', 'value': 'postgres'}, {'name': 'KC_DB_TLS_MODE', 'value': 'verify-server'},
+           {'name': 'KC_DB_TLS_TRUST_STORE_FILE', 'value': '/trust/ca.crt'},
            {'name': 'KC_DB_URL', 'value': 'jdbc:postgresql://data-restore-rw.' + NAMESPACE + '.svc:5432/' + identity['database']},
            {'name': 'KC_TRUSTSTORE_PATHS', 'value': '/trust'},
            *[{'name': 'KC_DB_' + field.upper(), 'valueFrom': {'secretKeyRef': {

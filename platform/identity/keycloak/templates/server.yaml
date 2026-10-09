@@ -43,7 +43,8 @@ spec:
   additionalOptions:
     - {name: health-enabled, value: 'true'}
     - {name: metrics-enabled, value: 'false'}
-    - {name: db-tls-mode, value: verify-full}
+    - {name: db-tls-mode, value: verify-server}
+    - {name: db-tls-trust-store-file, value: /opt/keycloak/conf/truststores/configmap-keycloak-database-ca/ca.crt}
     - {name: proxy-trusted-addresses, value: {{ join "," .Values.trustedProxyAddresses | quote }}}
     - {name: log-level, value: WARN}
     - {name: http-management-scheme, value: http}
