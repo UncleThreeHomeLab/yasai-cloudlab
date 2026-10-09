@@ -73,7 +73,9 @@ services:
               export KEYCLOAK_GRANTTYPE=client_credentials KEYCLOAK_LOGINREALM=master KEYCLOAK_CLIENTID="$$(cat /fixture/emergency-client)" KEYCLOAK_SKIPSERVERINFO=true
               export KEYCLOAK_CLIENTSECRET="$$(cat /fixture/emergency-secret)"
             fi
-            java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.cache.key="$$scope" --import.managed.client="$$managed" --logging.level.root=ERROR >/fixture/private-result 2>&1 && echo 0 >/fixture/result || echo 1 >/fixture/result
+            remote=true
+            if test -f /fixture/creation-only; then remote=false; fi
+            java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.cache.key="$$scope" --import.managed.client="$$managed" --import.remote-state.enabled="$$remote" --logging.level.root=ERROR >/fixture/private-result 2>&1 && echo 0 >/fixture/result || echo 1 >/fixture/result
           fi
           sleep 1
         done

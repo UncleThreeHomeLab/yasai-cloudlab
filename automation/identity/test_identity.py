@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from automation.identity.configuration import exact_url, baseline, bootstrap_writer, bootstrap_health, client, compile_state, prepare, prepare_master, prepare_removal, restrict_password_grants, bootstrap_retirement
+from automation.identity.configuration import exact_url, baseline, bootstrap_writer, bootstrap_health, client, compile_state, prepare, prepare_master, prepare_removal, restrict_password_grants, bootstrap_retirement, initialize_primary
 from automation.identity.rotation import replacement, inventory, request_scope
 from automation.identity.lifecycle import remove
 from automation.identity.lease import available, previous_writer_done
@@ -24,13 +24,131 @@ from automation.identity.access_inputs import names
 from automation.gitops.source_revision import matches_revision
 from automation.gitops.private_sources import PEM_TEMPLATE
 from automation.identity.bootstrap import application, private_resources, discover
-from automation.identity.private_source import publish, argo_values
+from automation.identity.private_source import publish, argo_values, decode_contents
 from automation.identity.argo import validate as validate_native_argo
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_phase_wait_rejects_stale_source_and_busy_writer(self):
+        from automation.identity.bootstrap import reconciled, writer_idle
+        app = {'metadata': {'uid': 'owned'}, 'spec': {'source': {'helm': {'valuesObject': {'primary': True}}}},
+               'status': {'sync': {'comparedTo': {'source': {'helm': {'valuesObject': {'primary': False}}}}}}}
+        with patch('automation.identity.bootstrap.get', return_value=app), \
+                patch('automation.identity.bootstrap.application_ready', return_value=True):
+            self.assertFalse(reconciled('same-revision', 'owned'))
+            app['status']['sync']['comparedTo']['source'] = copy.deepcopy(app['spec']['source'])
+            self.assertTrue(reconciled('same-revision', 'owned'))
+            with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                reconciled('same-revision', 'replacement')
+        lease = {'spec': {'holderIdentity': 'prior', 'renewTime': '1970-01-01T00:00:00Z', 'leaseDurationSeconds': 240}}
+        pods = {'items': [{'metadata': {'uid': 'prior'}, 'status': {'phase': 'Running'}}]}
+        with patch('automation.identity.bootstrap.get', side_effect=lambda kind, *a, **kw: lease if kind == 'lease' else pods), \
+                patch('automation.identity.bootstrap.time.time', return_value=300):
+            self.assertFalse(writer_idle())
+            pods['items'][0]['status']['phase'] = 'Succeeded'
+            self.assertTrue(writer_idle())
+        with patch('automation.identity.bootstrap.get', return_value={'spec': lease['spec']}), \
+                patch('automation.identity.bootstrap.time.time', return_value=239):
+            self.assertFalse(writer_idle())
+
+    def test_machine_bootstrap_validates_private_source_without_creating_people_early(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = {'format': 1, 'realms': {'platform': {'memberships': [
+                {'username': 'operator-fixture', 'groups': ['platform-admin']}]}}}
+            for field, value in {'desired_state': source, 'revocations': {'format': 1, 'realms': {}},
+                                 'client_secrets': {'platform': {}, 'applications': {}}}.items():
+                (base / field).write_text(json.dumps(value))
+            for realm in ('platform', 'applications'):
+                (base / (realm + '_client_secret')).write_text('x' * 64)
+                (base / (realm + '_health_secret')).write_text('y' * 64)
+            docs = prepare(base / 'out', 'login.example.invalid', base, base)
+            self.assertTrue(all(user['username'].startswith('service-account-') for user in docs['platform']['users']))
+            primary = prepare(base / 'out', 'login.example.invalid', base, base, primary=True)
+            self.assertTrue(any(user['username'] == 'operator-fixture' for user in primary['platform']['users']))
+            (base / 'desired_state').unlink()
+            with self.assertRaises(FileNotFoundError): prepare(base / 'out', 'login.example.invalid', base, base)
+
+    def test_primary_preparation_validates_both_realms_before_writing_creation_inputs(self):
+        from automation.identity.configuration import prepare_primary
+        values = {'master_username': 'master-fixture', 'platform_username': 'operator-fixture',
+                  'master_password': 'x' * 64, 'platform_password': 'y' * 64,
+                  'ownership_id': 'a' * 32, 'email': 'fixture@example.invalid', 'email_verified': 'true'}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            for key, value in dict(values, username='bootstrap', password='z' * 64).items():
+                (base / key).write_text(value)
+            master = {'realm': 'master'}
+            platform = {'realm': 'platform', 'users': [{'username': 'operator-fixture', 'groups': ['/platform-admin']}]}
+            (base / 'master-bootstrap.json').write_text(json.dumps(master))
+            (base / 'platform.json').write_text(json.dumps(platform))
+            with patch('automation.identity.configuration.private_request', side_effect=[
+                    {'access_token': 'fixture'}, [{'realm': 'master'}, {'realm': 'platform'}], [], {'attributes': []}, {},
+                    [{'username': 'operator-fixture', 'attributes': {}}], {'attributes': []}, {}]):
+                with self.assertRaisesRegex(ValueError, 'unrelated existing account'):
+                    prepare_primary(base, base, base, 'identity-admin.internal.example.invalid')
+            self.assertEqual(json.loads((base / 'master-bootstrap.json').read_text()), master)
+            self.assertEqual(json.loads((base / 'platform.json').read_text()), platform)
+            with patch('automation.identity.configuration.private_request', side_effect=[
+                    {'access_token': 'fixture'}, [{'realm': 'master'}, {'realm': 'platform'}],
+                    [], {'attributes': []}, {}, [], {'attributes': []}, {}]):
+                prepare_primary(base, base, base, 'identity-admin.internal.example.invalid')
+            for filename in ('master-bootstrap', 'platform'):
+                created = json.loads((base / (filename + '.json')).read_text())
+                steady = json.loads((base / (filename + '.steady.json')).read_text())
+                self.assertIn('credentials', created['users'][0])
+                self.assertTrue(all('credentials' not in user and 'enabled' not in user for user in steady.get('users', [])))
+
+    def test_primary_profile_keeps_unmanaged_fields_and_marker_admin_only(self):
+        from automation.identity.configuration import primary_profile
+        profile = {'attributes': [{'name': 'username', 'permissions': {'edit': ['user', 'admin']}}],
+                   'groups': [{'name': 'unrelated'}], 'unmanagedAttributePolicy': 'ADMIN_VIEW'}
+        state = primary_profile({'realm': 'platform'}, profile, {'unrelated': 'preserved',
+            'de.adorsys.keycloak.config.import-checksum-primary': 'old-output'})
+        self.assertEqual(state['userProfile']['attributes'][:-1], profile['attributes'])
+        self.assertEqual(state['userProfile']['groups'], profile['groups'])
+        self.assertEqual(state['userProfile']['unmanagedAttributePolicy'], 'ADMIN_VIEW')
+        self.assertEqual(state['userProfile']['attributes'][-1]['permissions'], {'view': ['admin'], 'edit': ['admin']})
+        self.assertEqual(state['attributes'], {'unrelated': 'preserved', 'userProfileEnabled': 'true'})
+        self.assertEqual(primary_profile(state, state['userProfile'], state['attributes']), state)
+        self.assertEqual(len(profile['attributes']), 1)
+        for unsafe in ({}, {'attributes': [{'name': 'duplicate'}, {'name': 'duplicate'}]}):
+            with self.assertRaises(ValueError): primary_profile({'realm': 'master'}, unsafe, {})
+
+    def test_private_github_contents_accept_line_wrapping_but_reject_garbage(self):
+        encoded = base64.b64encode(b'complete-private-source').decode()
+        self.assertEqual(decode_contents({'content': encoded[:8] + '\r\n' + encoded[8:] + '\n'}), b'complete-private-source')
+        for invalid in (encoded + '$', encoded[:8] + ' ' + encoded[8:]):
+            with self.assertRaises(ValueError): decode_contents({'content': invalid})
+        with self.assertRaises(RuntimeError): decode_contents({'content': 'A' * (2 * 1024 * 1024 + 1)})
+
+    def test_primary_initialization_is_private_creation_only_and_preserves_offboarding(self):
+        values = {'master_username': 'master-fixture', 'platform_username': 'operator-fixture',
+                  'master_password': 'x' * 64, 'platform_password': 'y' * 64,
+                  'ownership_id': 'a' * 32, 'email': 'fixture@example.invalid', 'email_verified': 'true'}
+        state = {'realm': 'platform', 'users': [{'username': 'operator-fixture', 'groups': ['/platform-admin']}]}
+        initialized = initialize_primary(state, [], values)
+        user = initialized['users'][0]
+        self.assertEqual(user['requiredActions'], ['webauthn-register'])
+        self.assertEqual(user['credentials'][0]['value'], values['platform_password'])
+        existing = dict(user, enabled=False, credentials=[{'type': 'webauthn'}])
+        self.assertEqual(initialize_primary(state, [existing], values), state)
+        self.assertNotIn('enabled', state['users'][0])
+        master = initialize_primary({'realm': 'master'}, [], values)
+        self.assertEqual(master['users'][0]['realmRoles'], ['admin'])
+        self.assertEqual(initialize_primary({'realm': 'master'}, master['users'], values), {'realm': 'master'})
+        with self.assertRaisesRegex(ValueError, 'unrelated existing account'):
+            initialize_primary(state, [{'username': 'operator-fixture', 'attributes': {}}], values)
+        for unsafe in ({'email_verified': 'false'}, {'platform_password': 'short'}, {'ownership_id': 'wrong'}):
+            with self.assertRaises(ValueError): initialize_primary(state, [], dict(values, **unsafe))
+        with self.assertRaisesRegex(ValueError, 'private source'):
+            initialize_primary({'realm': 'platform'}, [], values)
+        state['users'][0]['enabled'] = False
+        with self.assertRaisesRegex(ValueError, 'private source'):
+            initialize_primary(state, [], values)
+
     def test_access_provider_repeat_drift_rotation_preserve_prior_and_hide_secrets(self):
         from automation.connectivity.test_reconcile import Provider
         api, state = Provider(), {}
@@ -669,13 +787,14 @@ class IdentityTests(unittest.TestCase):
             'database': 'keycloak', 'databaseRole': 'keycloak',
             'databaseHost': 'cloudlab-postgres-rw.cloudlab-data.svc.cluster.local', 'databasePort': 5432,
             'databaseCA': 'fixture-ca', 'trustedProxyAddresses': ['10.42.0.10/32']}}
-        for phase in ('server', 'bootstrap', 'scoped'):
+        for phase in ('server', 'bootstrap', 'primary', 'scoped'):
             spec = application(payload, phase)['spec']
             self.assertEqual(spec['ignoreDifferences'][0]['jsonPointers'], ['/spec'])
             self.assertIn('RespectIgnoreDifferences=true', spec['syncPolicy']['syncOptions'])
             self.assertFalse(spec['syncPolicy']['automated']['prune'])
             self.assertFalse(spec['source']['helm']['valuesObject']['operatorEnabled'])
-            self.assertEqual(spec['source']['helm']['valuesObject']['bootstrapMode'], phase == 'bootstrap')
+            self.assertEqual(spec['source']['helm']['valuesObject']['bootstrapMode'], phase in ('bootstrap', 'primary'))
+            self.assertEqual(spec['source']['helm']['valuesObject']['primaryAdminEnabled'], phase == 'primary')
         for unsafe in ('10.0.0.0/8', '0.0.0.0/0', '203.0.114.0/24'):
             payload['values']['trustedProxyAddresses'] = [unsafe]
             with self.assertRaises(ValueError): application(payload, 'server')

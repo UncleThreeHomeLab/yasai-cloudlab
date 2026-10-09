@@ -44,6 +44,11 @@ def check():
               'trustedProxyAddresses': ['10.43.0.10/32', '10.43.0.11/32'],
               'databaseCA': 'fixture-ca'}
     objects = render(values)
+    initial = render(dict(values, reconciliationEnabled=False, privateStateEnabled=False))
+    initial_secrets = {o['metadata']['name'] for o in initial if o['kind'] == 'ExternalSecret'}
+    if initial_secrets != {'keycloak-database', 'keycloak-bootstrap-admin', 'keycloak-realm-writers',
+                           'keycloak-realm-health', 'keycloak-client-secrets'}:
+        raise ValueError('Server phase must declare required ESO inputs before bootstrap validation')
     crds = [o['metadata']['name'] for o in objects if o['kind'] == 'CustomResourceDefinition']
     if set(crds) != ({'keycloaks.k8s.keycloak.org', 'keycloakrealmimports.k8s.keycloak.org'}
                      if lock['operator_install_verified'] else set()):
@@ -94,6 +99,18 @@ def check():
     bootstrap = render(dict(values, bootstrapMode=True))
     if any(o['kind'] == 'CronJob' for o in bootstrap):
         raise ValueError('Bootstrap credentials must never enter scheduled reconciliation')
+    primary = render(dict(values, bootstrapMode=True, primaryAdminEnabled=True))
+    if not any(o['kind'] == 'ExternalSecret' and o['metadata']['name'] == 'keycloak-primary-admin' for o in primary):
+        raise ValueError('Primary initialization requires ESO-owned credentials')
+    primary_job = next(o for o in primary if o['kind'] == 'Job')['spec']['template']['spec']
+    if '--import.remote-state.enabled=false' not in primary_job['containers'][0]['args'][0]:
+        raise ValueError('Creation-only credentials must not enter normal realm state tracking')
+    try:
+        render(dict(values, primaryAdminEnabled=True))
+    except ValueError:
+        pass
+    else:
+        raise ValueError('Normal reconciliation must never mount primary passwords')
     maintenance = render(dict(values, maintenance=True))
     if next(o for o in maintenance if o['kind'] == 'Keycloak')['spec']['instances'] != 0:
         raise ValueError('Monthly capture must quiesce the identity server')

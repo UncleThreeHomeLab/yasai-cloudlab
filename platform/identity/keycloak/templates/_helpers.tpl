@@ -28,13 +28,16 @@ initContainers:
     args:
       - >-
         import sys; sys.path.insert(0,'/code');
-        from lease import acquire; from configuration import prepare, prepare_master, prepare_removal, removal_inventory;
+        from lease import acquire; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory;
         {{- if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
         {{- else }}
-        prepare('/imports', {{ .Values.loginHost | quote }}, {{ ternary "'/private'" "None" .Values.privateStateEnabled }}, {{ ternary "'/credentials'" "None" .Values.bootstrapMode }}, {{ ternary "'/health-credentials'" "None" .Values.bootstrapMode }});
+        prepare('/imports', {{ .Values.loginHost | quote }}, {{ ternary "'/private'" "None" .Values.privateStateEnabled }}, {{ ternary "'/credentials'" "None" .Values.bootstrapMode }}, {{ ternary "'/health-credentials'" "None" .Values.bootstrapMode }}, primary={{ ternary "True" "False" .Values.primaryAdminEnabled }});
         {{- if .Values.bootstrapMode }}
         prepare_master('/imports', {{ .Values.adminHost | quote }}, '/bootstrap');
+        {{- if .Values.primaryAdminEnabled }}
+        prepare_primary('/imports', '/primary', '/bootstrap', {{ .Values.adminHost | quote }});
+        {{- end }}
         {{- end }}
         {{- end }}
         acquire();
@@ -57,6 +60,9 @@ initContainers:
       {{- if .Values.bootstrapMode }}
       - {name: health-credentials, mountPath: /health-credentials, readOnly: true}
       - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+      {{- if .Values.primaryAdminEnabled }}
+      - {name: primary, mountPath: /primary, readOnly: true}
+      {{- end }}
       {{- end }}
       {{- if .Values.privateStateEnabled }}
       - {name: private, mountPath: /private, readOnly: true}
@@ -90,10 +96,14 @@ containers:
         # Changing master's frontend URL invalidates its cached bootstrap token.
         # One fresh CLI process completes the identical scoped input after that transition.
         for attempt in 1 2; do
-          if java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties >/tmp/result 2>&1; then break; fi
+          if java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties {{ if .Values.primaryAdminEnabled }}--import.remote-state.enabled=false --import.cache.key=primary{{ end }} >/tmp/result 2>&1; then break; fi
           if test "$attempt" = 2; then echo 'Private master bootstrap failed; diagnostics withheld'; exit 1; fi
           echo 'Retrying private master bootstrap with a fresh token'
         done
+        {{- if .Values.primaryAdminEnabled }}
+        export IMPORT_FILES_LOCATIONS=/imports/master-bootstrap.steady.json
+        java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.remote-state.enabled=false --import.cache.key=primary >/tmp/result 2>&1 || { echo 'Private master canonical reconciliation failed; diagnostics withheld'; exit 1; }
+        {{- end }}
         {{- end }}
         for realm in platform applications; do
           {{- if not .Values.bootstrapMode }}
@@ -102,7 +112,13 @@ containers:
           export KEYCLOAK_CLIENTSECRET="$(cat /credentials/${realm}_client_secret)"
           {{- end }}
           export IMPORT_FILES_LOCATIONS="/imports/$realm.json"
-          java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties >/tmp/result 2>&1 || { echo 'Scoped identity reconciliation failed; private diagnostics withheld'; exit 1; }
+          java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties {{ if .Values.primaryAdminEnabled }}--import.remote-state.enabled=false --import.cache.key=primary{{ end }} >/tmp/result 2>&1 || { echo 'Scoped identity reconciliation failed; private diagnostics withheld'; exit 1; }
+          {{- if .Values.primaryAdminEnabled }}
+          if test "$realm" = platform; then
+            export IMPORT_FILES_LOCATIONS=/imports/platform.steady.json
+            java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.remote-state.enabled=false --import.cache.key=primary >/tmp/result 2>&1 || { echo 'Primary canonical reconciliation failed; diagnostics withheld'; exit 1; }
+          fi
+          {{- end }}
         done
         echo 'Scoped identity reconciliation completed'
         {{- end }}
@@ -136,6 +152,9 @@ volumes:
       items:
         - {key: platform_client_secret, path: platform_health_secret}
         - {key: applications_client_secret, path: applications_health_secret}
+  {{- end }}
+  {{- if .Values.primaryAdminEnabled }}
+  - {name: primary, secret: {secretName: keycloak-primary-admin, defaultMode: 0440}}
   {{- end }}
   {{- if .Values.privateStateEnabled }}
   - name: private

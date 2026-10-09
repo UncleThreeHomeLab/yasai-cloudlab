@@ -11,6 +11,17 @@ from automation.gitops.github_setup import inspect, repository
 from automation.identity.integrations import argo
 
 
+def decode_contents(document):
+    encoded = document.get('content')
+    if not isinstance(encoded, str) or len(encoded) > 2 * 1024 * 1024:
+        raise RuntimeError('Private identity source exceeds its bounded content contract')
+    # GitHub's Contents API wraps base64 with line endings; other garbage fails.
+    raw = base64.b64decode(encoded.replace('\r', '').replace('\n', ''), validate=True)
+    if len(raw) > 1024 * 1024:
+        raise RuntimeError('Private identity source exceeds its bounded content contract')
+    return raw
+
+
 def argo_values(api, values, revision, identity_issuer, origin, additional_origins):
     """Accept only the native client producer's exact immutable private overlay."""
     if not re.fullmatch('[a-f0-9]{40}', revision or ''):
@@ -24,7 +35,7 @@ def argo_values(api, values, revision, identity_issuer, origin, additional_origi
         obj = api.request('GET', 'repos/' + repo + '/contents/identity/' + filename + '?ref=' + revision)
         if obj.get('type') != 'file' or obj.get('encoding') != 'base64' or obj.get('size', 1048577) > 1048576:
             raise RuntimeError('Private Argo source must be a bounded regular file')
-        raw = base64.b64decode(obj['content'], validate=True)
+        raw = decode_contents(obj)
         if len(raw) > 1048576:
             raise RuntimeError('Private Argo source exceeds its limit')
         documents[filename] = yaml.safe_load(raw)
@@ -67,7 +78,7 @@ def publish(api, values, files):
     changed = {}
     for path, content in files.items():
         current = api.request('GET', prefix + '/contents/' + path + '?ref=' + base, missing=True)
-        if not current or base64.b64decode(current['content'], validate=True) != content.encode():
+        if not current or decode_contents(current) != content.encode():
             changed[path] = content
     if not changed:
         return {'private_source_changed': False, 'private_revision': base}
@@ -87,7 +98,7 @@ def publish(api, values, files):
             raise RuntimeError('Existing private identity branch exceeds its scoped change')
         for path, content in files.items():
             current = api.request('GET', prefix + '/contents/' + path + '?ref=' + existing['object']['sha'])
-            if base64.b64decode(current['content'], validate=True) != content.encode():
+            if decode_contents(current) != content.encode():
                 raise RuntimeError('Existing private identity branch differs; overwrite refused')
     else:
         parent = api.request('GET', prefix + '/git/commits/' + base)

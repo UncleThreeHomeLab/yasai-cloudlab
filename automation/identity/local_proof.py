@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from automation.identity.configuration import baseline, bootstrap_writer, bootstrap_health, client, compile_state, restrict_password_grants, prepare_master
+from automation.identity.configuration import baseline, bootstrap_writer, bootstrap_health, client, compile_state, restrict_password_grants, prepare_master, initialize_primary, primary_profile
 from automation.identity.tokens import access_token, identity_token
 
 SERVER = 'https://localhost:8443'
@@ -41,7 +41,7 @@ def administrator():
         'password': 'fixture-only-isolated-admin'}, form=True)['access_token']
 
 
-def reconcile(value, scope='main', remove=False, writer_secret=None):
+def reconcile(value, scope='main', remove=False, writer_secret=None, creation_only=False):
     FIXTURE.joinpath('result').unlink(missing_ok=True)
     if scope == 'main' and value.get('realm') in ('platform', 'applications'):
         value = restrict_password_grants(value)
@@ -58,6 +58,9 @@ def reconcile(value, scope='main', remove=False, writer_secret=None):
         target.write_text(writer_secret)
         os.chown(target, 1000, 1000)
         target.chmod(0o600)
+    FIXTURE.joinpath('creation-only').unlink(missing_ok=True)
+    if creation_only:
+        FIXTURE.joinpath('creation-only').touch()
     FIXTURE.joinpath('request').touch()
     deadline = time.monotonic() + 120
     while not FIXTURE.joinpath('result').exists():
@@ -305,14 +308,35 @@ def main():
                                   'callbacks': ['https://localhost/callback']}, {})]
     platform['roles']['client'] = {'reference-ui': [{'name': 'reader'}]}
     platform['users'] = [{'username': 'fixture-privileged', 'firstName': 'Fixture', 'lastName': 'Privileged',
-        'email': 'privileged@example.invalid', 'emailVerified': True, 'enabled': True,
-        'requiredActions': ['webauthn-register'], 'clientRoles': {'reference-ui': ['reader']},
-        'credentials': [{'type': 'password', 'value': browser_password, 'temporary': False}]}]
-    reconcile(platform)
+                         'groups': ['/platform-admin'], 'clientRoles': {'reference-ui': ['reader']}}]
     master_password = secrets.token_urlsafe(32)
-    reconcile({'realm': 'master', 'users': [{'username': 'fixture-master', 'firstName': 'Fixture', 'lastName': 'Master',
-        'email': 'master@example.invalid', 'emailVerified': True, 'enabled': True, 'realmRoles': ['admin'],
-        'requiredActions': ['webauthn-register'], 'credentials': [{'type': 'password', 'value': master_password, 'temporary': False}]}]})
+    primary = {'master_username': 'fixture-master', 'platform_username': 'fixture-privileged',
+               'master_password': master_password, 'platform_password': browser_password,
+               'ownership_id': secrets.token_hex(16), 'email': 'privileged@example.invalid', 'email_verified': 'true'}
+    reconcile(baseline('platform', 'localhost'))
+    for state in (platform, {'realm': 'master'}):
+        realm = state['realm']
+        root = '/admin/realms/' + realm
+        state = primary_profile(state, request(root + '/users/profile', token=administrator()),
+                                request(root, token=administrator()).get('attributes', {}))
+        configured = initialize_primary(state, [], primary)
+        if realm == 'master':
+            configured['users'][0].update(firstName='Fixture', lastName='Master')
+        reconcile(configured, creation_only=True)
+        root = '/admin/realms/' + realm
+        current = request(root + '/users?username=' + primary[realm + '_username'] + '&exact=true', token=administrator())
+        steady = initialize_primary(state, current, primary)
+        reconcile(steady, creation_only=True)
+        def snapshot():
+            token = administrator()
+            return {'realm': request(root, token=token), 'users': request(root + '/users', token=token),
+                    'credentials': request(root + '/users/' + current[0]['id'] + '/credentials', token=token),
+                    'profile': request(root + '/users/profile', token=token),
+                    'signing': request('/realms/' + realm + '/protocol/openid-connect/certs')}
+        before = snapshot()
+        reconcile(initialize_primary(state, current, primary), creation_only=True)
+        if snapshot() != before:
+            raise RuntimeError('Creation-only primary repeat changed realm, users, credentials or signing state')
     target = FIXTURE / 'browser-input'
     offboard = compile_state('platform', 'localhost', {'format': 1, 'realms': {'platform': {
         'memberships': [{'username': 'fixture-privileged', 'groups': ['platform-admin']}]}}},
@@ -330,6 +354,7 @@ def main():
     os.chown(recovery_secret, 1000, 1000)
     recovery_secret.chmod(0o600)
     print(json.dumps({'server': '26.8.0', 'config_cli': '6.5.1-26.5.5', 'repeat_unchanged': True,
+        'primary_creation_repeat_unchanged': True,
         'unchanged_input_drift_repaired': True, 'unrelated_user_preserved': True,
         'existing_user_preserved': True, 'code_pkce_s256_state_nonce': True,
         'access_jwt_signature_issuer_audience_expiry_role': True, 'scoped_group_role_grant': True, 'built_in_password_grant_denied': True, 'client_disable': True,
