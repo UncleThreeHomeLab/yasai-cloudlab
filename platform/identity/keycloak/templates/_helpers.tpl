@@ -1,3 +1,15 @@
+{{- define "identity.protocol-paths" -}}
+{{- range $realm := list "platform" "applications" }}
+- {{ printf "/realms/%s/.well-known/openid-configuration" $realm | quote }}
+{{- range $endpoint := list "auth" "token" "certs" "userinfo" "logout" "logout/logout-confirm" "revoke" "introspect" "login-status-iframe.html" "login-status-iframe.html/init" "3p-cookies/step1.html" "3p-cookies/step2.html" }}
+- {{ printf "/realms/%s/protocol/openid-connect/%s" $realm $endpoint | quote }}
+{{- end }}
+{{- range $action := list "authenticate" "required-action" "registration" "reset-credentials" "restart" "action-token" }}
+- {{ printf "/realms/%s/login-actions/%s" $realm $action | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "identity.pod" }}
 serviceAccountName: identity-writer
 restartPolicy: Never

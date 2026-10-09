@@ -8,6 +8,7 @@ from kube import condition, get, kube, wait
 
 OWNER = 'cloudlab-access-verify'
 NAMES = ['cloudlab-access-proof-public', 'cloudlab-access-proof-private']
+PROOF_PATH = '/__cloudlab_access_proof'
 
 
 def owned(namespace):
@@ -51,7 +52,9 @@ def prepare(payload):
         labels = [rule['name'] for rule in payload['public']] if exposure == 'public' else payload['private']
         for label in labels:
             hostname = label + ('.internal.' if exposure == 'private' else '.') + zone
-            objects.append(fixtures.route(namespace, label, exposure, hostname))
+            route = fixtures.route(namespace, label, exposure, hostname)
+            route['spec']['rules'][0]['matches'] = [{'path': {'type': 'Exact', 'value': PROOF_PATH}}]
+            objects.append(route)
         kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=fixtures.document(objects))
         kube('rollout', 'status', 'deployment/backend', '-n', namespace, '--timeout=180s', timeout=210)
         for label in labels:
@@ -114,8 +117,10 @@ def runtime():
     group = get('proxygroup', 'cloudlab-api')
     if not condition(group, 'ProxyGroupReady'):
         raise RuntimeError('API proxy group is not ready')
+    identity = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', 'cloudlab-identity') if get(
+        'customresourcedefinition', 'keycloaks.k8s.keycloak.org') else None
     return {'private': private, 'zone': private['zone'].removeprefix('internal.'),
-            'api_url': group['status']['url']}
+            'api_url': group['status']['url'], 'identity_server_present': bool(identity)}
 
 
 def dns_proof(payload):

@@ -16,10 +16,17 @@ TITLE = 'keycloak-client-secrets'
 
 
 def request_scope(request):
-    if (set(request) != {'action', 'realm', 'client_id'} or
+    if (set(request) not in ({'action', 'realm', 'client_id'}, {'action', 'realm', 'client_id', 'client'}) or
             request['action'] not in ('provision', 'rotate') or request['realm'] not in REALMS):
         raise ValueError('Credential operation requires provision/rotate, realm and client_id')
     name(request['client_id'])
+    if 'client' in request:
+        proposed = request['client']
+        if (request['action'] != 'provision' or not isinstance(proposed, dict) or
+                proposed.get('id') != request['client_id'] or proposed.get('public') is not False or
+                proposed.get('enabled', True) is not True):
+            raise ValueError('Initial credential provisioning requires its active confidential client contract')
+        client(proposed, {request['client_id']: 'validation-only-' + 'x' * 48})
     return request
 
 
@@ -53,6 +60,7 @@ def replacement(document, request, value):
 def inventory(request):
     from automation.identity.maintenance import APP, NAMESPACE, OWNER
     from automation.mesh.kube import get
+    from automation.identity.bootstrap import private_inputs
     request_scope(request)
     app = get('application.argoproj.io', APP, 'argocd') or {}
     if app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER:
@@ -60,17 +68,20 @@ def inventory(request):
     values = app['spec']['source']['helm']['valuesObject']
     if values.get('maintenance'):
         raise RuntimeError('Resume identity maintenance before credential operations')
-    private = get('configmap', 'identity-private-state', NAMESPACE) or {}
-    if not private.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-identity-private:'):
-        raise RuntimeError('Complete private client inventory is unavailable')
-    source, revoked = [json.loads(private['data'][key]) for key in ('desired_state', 'revocations')]
-    if source.get('format') != 1 or revoked.get('format') != 1:
-        raise ValueError('Unsupported private identity inventory')
+    private_app = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd') or {}
+    source, revoked, _ = private_inputs({'values': values,
+        'private_repository': private_app.get('spec', {}).get('source', {}).get('repoURL')})
     realm, identifier = request['realm'], request['client_id']
     matches = [row for row in source['realms'].get(realm, {}).get('clients', []) if row.get('id') == identifier]
+    if 'client' in request:
+        if matches and matches != [request['client']]:
+            raise ValueError('Initial credential contract differs from existing private inventory')
+        if not matches:
+            matches = [request['client']]
     if (len(matches) != 1 or matches[0].get('public') is not False or
             matches[0].get('enabled', True) is not True or
-            identifier in revoked['realms'].get(realm, {}).get('clients', [])):
+            identifier in revoked['realms'].get(realm, {}).get('clients', []) or
+            identifier in revoked['realms'].get(realm, {}).get('removed_clients', [])):
         raise ValueError('Credential operation requires one active private confidential client')
     client(matches[0], {identifier: 'validation-only-' + 'x' * 48})
     return {'admin_host': values['adminHost'], 'callback': matches[0]['callbacks'][0]}

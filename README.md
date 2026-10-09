@@ -345,7 +345,11 @@ GitHub Free does not enforce private branch protection. Private PR review and
 compiler validation are procedural safeguards; public implementation PRs remain
 protected. Argo values must use a validated immutable private revision.
 `lab identity-client-credential` accepts private `{action, realm, client_id}` JSON;
-provisioning preserves existing secrets, rotation uses a resumable vault checkpoint
+initial provisioning can also include the exact confidential `client` contract
+before its private publication. Current complete private inputs must be available;
+public or retired contracts are rejected. Publish the client after the vault
+secret exists, then verify ESO and scoped reconciliation before using it.
+Provisioning preserves existing secrets. Rotation uses a resumable vault checkpoint
 and verifies new credentials accepted and old credentials denied after ESO/CLI
 reconciliation. Public or retired clients are rejected. `lab identity-client-remove`
 accepts `{realm, client_id}` only after the private retirement/removal tombstone is
@@ -355,6 +359,12 @@ live operations remain unverified. Runtime phases
 `identity-server`, `identity-bootstrap` and `identity-scoped` require published,
 explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
 They preserve bootstrap access; retirement and live cutovers remain incomplete.
+After publishing the Argo client and private values together, `lab identity-argo`
+reads them with the existing read-only GitHub App, validates the exact overlay at
+an immutable commit, and binds it through the public root owner. Run `lab apply`
+afterward to reconcile both Argo routes from its ConfigMap interface. Browser,
+RBAC and measured session checks remain required before Access cutover. A killed
+root handoff can be repaired with `lab gitops-bootstrap` independently of Keycloak.
 
 Identity shares the existing monthly-only Longhorn backup boundary. Capture hooks
 quiesce identity before CNPG shutdown; restore hooks check signing-state hashes

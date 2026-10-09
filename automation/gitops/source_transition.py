@@ -5,7 +5,10 @@ import os
 import sys
 import time
 
-from bootstrap import BASE, get, kube, wait_application
+try:
+    from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding
+except ImportError:
+    from bootstrap import BASE, get, kube, wait_application, resume_identity_binding
 
 ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
@@ -52,6 +55,73 @@ def validate(root, project, controller, target):
     if root.get('operation') or root.get('status', {}).get('operationState', {}).get('phase') == 'Running':
         raise RuntimeError('Wait for the current Argo root operation before source migration')
     return source['repoURL'] != target
+
+
+def bind_identity(payload, target):
+    """Bind prevalidated immutable OIDC values while the sole reconciler is stopped."""
+    import copy
+    import re
+    if (set(target) != {'valuesRepository', 'valuesRevision'} or
+            target['valuesRepository'] != payload['private_repository'] or
+            not re.fullmatch('[a-f0-9]{40}', target['valuesRevision'])):
+        raise ValueError('Identity binding requires its designated immutable private source')
+    state = json.loads((BASE / 'checkpoint.json').read_text())
+    if state.get('phase') != 'accepted':
+        raise RuntimeError('Native identity binding requires accepted independent GitOps ownership')
+    with (BASE / 'lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        resume_identity_binding()
+        root = get('application.argoproj.io', ROOT_APP)
+        controller = get('statefulset', CONTROLLER)
+        project = get('appproject.argoproj.io', 'cloudlab-root')
+        if not all((root, controller, project)):
+            raise RuntimeError('Native identity binding requires existing GitOps resources')
+        if validate(root, project, controller, payload['repository']):
+            raise RuntimeError('Native identity binding cannot migrate the public source')
+        if root['spec']['source']['targetRevision'] != payload['branch']:
+            raise RuntimeError('Native identity binding cannot change the public revision contract')
+        values = copy.deepcopy(root['spec']['source'].get('helm', {}).get('valuesObject', {}))
+        path = BASE / 'identity-values-binding.json'
+        checkpoint = json.loads(path.read_text()) if path.exists() else None
+        identities = {'root_uid': root['metadata']['uid'], 'controller_uid': controller['metadata']['uid'],
+                      'project_uid': project['metadata']['uid']}
+        if checkpoint and any(checkpoint[key] != value for key, value in identities.items()):
+            raise RuntimeError('Native identity binding resource identity changed')
+        if checkpoint and checkpoint['phase'] != 'accepted' and checkpoint['target'] != target:
+            raise RuntimeError('Complete the pending native identity binding before another change')
+        if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] == 'accepted':
+            wait_application(ROOT_APP, payload['revision'])
+            wait_application('cloudlab-argocd', payload['revision'])
+            return {'changed': False, 'native_argo_values_bound': True}
+        values.setdefault('identity', {}).update(enabled=True, argo=target)
+        checkpoint = dict(identities, target=target, phase='prepared')
+        record(path, checkpoint)
+        try:
+            pause()
+            checkpoint['phase'] = 'paused'
+            record(path, checkpoint)
+            latest = get('application.argoproj.io', ROOT_APP)
+            if (not latest or latest['metadata']['uid'] != root['metadata']['uid'] or
+                    latest['spec']['source'] != root['spec']['source']):
+                raise RuntimeError('Public root source changed during native identity handoff')
+            annotations = dict(latest['metadata'].get('annotations', {}), **{'argocd.argoproj.io/refresh': 'hard'})
+            kube('patch', 'application.argoproj.io', ROOT_APP, '-n', 'argocd', '--type=json', '-p', json.dumps([
+                {'op': 'test', 'path': '/metadata/uid', 'value': root['metadata']['uid']},
+                {'op': 'test', 'path': '/metadata/resourceVersion', 'value': latest['metadata']['resourceVersion']},
+                {'op': 'add', 'path': '/spec/source/helm/valuesObject', 'value': values},
+                {'op': 'add', 'path': '/metadata/annotations', 'value': annotations}]))
+            checkpoint['phase'] = 'source-updated'
+            record(path, checkpoint)
+        finally:
+            kube('scale', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--replicas=1')
+        checkpoint['phase'] = 'resumed'
+        record(path, checkpoint)
+        kube('rollout', 'status', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--timeout=300s')
+        wait_application(ROOT_APP, payload['revision'])
+        wait_application('cloudlab-argocd', payload['revision'])
+        checkpoint['phase'] = 'accepted'
+        record(path, checkpoint)
+        return {'changed': True, 'native_argo_values_bound': True}
 
 
 def run(payload):

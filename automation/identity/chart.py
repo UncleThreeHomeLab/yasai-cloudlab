@@ -61,6 +61,22 @@ def check():
         raise ValueError('Drift repair and safe state tracking are required')
     if any(line.startswith('import.managed.') and not line.endswith('=no-delete') for line in properties.splitlines()):
         raise ValueError('Automatic identity deletion is forbidden')
+    route = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'identity-protocols')
+    paths = [match['path'] for rule in route['spec']['rules'] for match in rule['matches']]
+    exact = {path['value'] for path in paths if path['type'] == 'Exact'}
+    if ([path for path in paths if path['type'] != 'Exact'] != [{'type': 'PathPrefix', 'value': '/resources'}]
+            or any('admin' in path or 'clients-registrations' in path or '..' in path or '%' in path for path in exact)):
+        raise ValueError('Public identity must allow exact protocol paths and static resources only')
+    denied = next(o for o in objects if o['kind'] == 'AuthorizationPolicy')['spec']['rules'][0]['to'][0]['operation']['notPaths']
+    if set(denied) != exact | {'/resources', '/resources/*'}:
+        raise ValueError('Gateway policy and protocol route allowlists differ')
+    for realm in ('platform', 'applications'):
+        required = {'/realms/' + realm + '/.well-known/openid-configuration',
+                    '/realms/' + realm + '/login-actions/required-action'}
+        required.update('/realms/' + realm + '/protocol/openid-connect/' + endpoint
+                        for endpoint in ('auth', 'token', 'certs', 'userinfo', 'logout'))
+        if not required <= exact:
+            raise ValueError('Required OIDC and MFA browser paths are missing')
     for obj in objects:
         if obj['kind'] not in ('Job', 'CronJob'):
             continue
