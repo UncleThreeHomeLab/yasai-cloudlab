@@ -39,6 +39,7 @@ class IdentityTests(unittest.TestCase):
         for read, agent in ((json_get, 'CloudLab-Identity-Health/1.0'),
                             (private_request, 'CloudLab-Identity-Reconciler/1.0')):
             opener = MagicMock()
+            opener.open.return_value.status = 200
             response = opener.open.return_value.__enter__.return_value
             response.status = 200
             response.geturl.return_value = 'https://login.example.invalid/probe'
