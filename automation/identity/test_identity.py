@@ -32,6 +32,21 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_identity_http_clients_identify_themselves_without_browser_impersonation(self):
+        from unittest.mock import MagicMock
+        from automation.identity.health import json_get
+        from automation.identity.configuration import private_request
+        for read, agent in ((json_get, 'CloudLab-Identity-Health/1.0'),
+                            (private_request, 'CloudLab-Identity-Reconciler/1.0')):
+            opener = MagicMock()
+            response = opener.open.return_value.__enter__.return_value
+            response.status = 200
+            response.geturl.return_value = 'https://login.example.invalid/probe'
+            response.read.return_value = b'{"ok":true}'
+            with patch('urllib.request.build_opener', return_value=opener):
+                self.assertEqual(read('https://login.example.invalid/probe'), {'ok': True})
+            self.assertEqual(opener.open.call_args.args[0].get_header('User-agent'), agent)
+
     def test_runtime_lease_create_and_competing_creator_preserve_owner(self):
         from automation.identity.lease import owned_lease, OWNER
         endpoint = 'https://kubernetes.default.svc/apis/coordination.k8s.io/v1/namespaces/cloudlab-identity/leases/identity-writer'

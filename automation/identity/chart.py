@@ -110,6 +110,16 @@ def check():
     if not any(o['kind'] == 'ExternalSecret' and o['metadata']['name'] == 'keycloak-primary-admin' for o in primary):
         raise ValueError('Primary initialization requires ESO-owned credentials')
     primary_job = next(o for o in primary if o['kind'] == 'Job')['spec']['template']['spec']
+    scoped_secrets = {o['metadata']['name'] for o in objects if o['kind'] == 'ExternalSecret'}
+    if 'keycloak-primary-admin' not in scoped_secrets:
+        raise ValueError('Scoped reconciliation must retain the primary ESO owner after initialization')
+    for obj in objects:
+        if obj['kind'] not in ('Job', 'CronJob'):
+            continue
+        job = obj['spec']['jobTemplate']['spec'] if obj['kind'] == 'CronJob' else obj['spec']
+        if any(volume.get('secret', {}).get('secretName') == 'keycloak-primary-admin'
+               for volume in job['template']['spec'].get('volumes', [])):
+            raise ValueError('Normal writers must never mount primary credentials')
     if '--import.remote-state.enabled=false' not in primary_job['containers'][0]['args'][0]:
         raise ValueError('Creation-only credentials must not enter normal realm state tracking')
     try:

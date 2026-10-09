@@ -303,7 +303,7 @@ def private_request(url, token=None, form=None, accepted_statuses=(200,)):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
-    headers = {'Accept': 'application/json'}
+    headers = {'Accept': 'application/json', 'User-Agent': 'CloudLab-Identity-Reconciler/1.0'}
     data = None
     if token: headers['Authorization'] = 'Bearer ' + token
     if form is not None:
