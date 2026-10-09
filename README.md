@@ -380,6 +380,9 @@ Machine bootstrap validates the complete private source but creates no people;
 private overlays apply in the primary/scoped phases. Creation-only credentials
 do not enter normal CLI state tracking. Scheduled scoped reconciliation retains
 remote state and disables checksum caching for drift repair.
+Scheduled runs skip an occupied valid writer lock and try at the next five-minute
+schedule. Sync runs fail and retry across lease expiry; foreign locks and API errors
+never count as a successful skip.
 Primary creation adds an admin-only ownership field to the current user profile;
 other profile fields and realm attributes remain intact. Creation finishes with
 credential-free canonical inputs in the same serialized job, using a separate

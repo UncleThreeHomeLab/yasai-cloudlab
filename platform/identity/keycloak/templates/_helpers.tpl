@@ -27,7 +27,7 @@ initContainers:
     command: [python, -c]
     args:
       - >-
-        import sys; sys.path.insert(0,'/code');
+        import sys; from pathlib import Path; sys.path.insert(0,'/code');
         from lease import acquire; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory;
         {{- if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
@@ -40,7 +40,7 @@ initContainers:
         {{- end }}
         {{- end }}
         {{- end }}
-        acquire();
+        acquire(skip_busy={{ ternary "True" "False" (.skipBusy | default false) }}) or Path('/imports/skip').touch(mode=0o600);
         {{- if .Values.operation }}
         removal_inventory('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, {{ .Values.adminHost | quote }})
         {{- end }}
@@ -73,8 +73,8 @@ containers:
     command: [/bin/sh, -ec]
     args:
       - |
+        if test -f /imports/skip; then echo 'Serialized operation skipped; no realm changes'; exit 0; fi
         {{- if .Values.operation }}
-        if test -f /imports/skip; then echo 'Retired client already absent; no realm changes'; exit 0; fi
         export KEYCLOAK_LOGINREALM={{ .Values.operation.realm | quote }}
         export KEYCLOAK_CLIENTID=realm-writer
         export KEYCLOAK_CLIENTSECRET="$(cat /credentials/${KEYCLOAK_LOGINREALM}_client_secret)"

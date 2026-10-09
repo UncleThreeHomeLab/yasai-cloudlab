@@ -71,7 +71,7 @@ spec:
         metadata:
           labels: {cloudlab.io/identity-writer: 'true'}
         spec:
-{{ include "identity.pod" . | indent 10 }}
+{{ include "identity.pod" (dict "Values" .Values "Files" .Files "skipBusy" true) | indent 10 }}
 {{- end }}
 {{- if not .Values.maintenance }}
 ---
