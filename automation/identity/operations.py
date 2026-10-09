@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import sys
+import yaml
 
 from automation.identity.configuration import compile_state, name, REALMS
 from automation.identity.integrations import argo, access
@@ -63,6 +64,21 @@ def change(source, revocations, operation):
     return source, revocations
 
 
+
+def private_files(source, revocations, client_secrets, rp_id, integration=None):
+    """Return only changed private inputs; omission never removes an overlay."""
+    for realm in REALMS:
+        compile_state(realm, rp_id, source, client_secrets, revocations)
+    manifest = {'apiVersion': 'v1', 'kind': 'ConfigMap',
+                'metadata': {'name': 'identity-private-state', 'namespace': 'cloudlab-identity'},
+                'data': {'desired_state': json.dumps(source, sort_keys=True),
+                         'revocations': json.dumps(revocations, sort_keys=True)}}
+    files = {'identity/configmap.yaml': yaml.safe_dump(manifest, sort_keys=True)}
+    if integration and 'helm' in integration:
+        files['identity/argo-values.yaml'] = yaml.safe_dump(integration['helm'], sort_keys=True)
+    return files
+
+
 def main():
     request = json.load(sys.stdin)
     if set(request) != {'source', 'revocations', 'operation', 'client_secrets', 'rp_id'}:
@@ -70,9 +86,9 @@ def main():
     operation = request['operation']
     integration = None
     if operation.get('action') == 'provision-argo':
-        if set(operation) != {'action', 'issuer', 'origin'}:
-            raise ValueError('Argo requires its exact issuer and origin')
-        integration = argo(operation['issuer'], operation['origin'])
+        if set(operation) != {'action', 'issuer', 'origin', 'additional_origins'}:
+            raise ValueError('Argo requires its exact issuer and both origins')
+        integration = argo(operation['issuer'], operation['origin'], operation.get('additional_origins'))
     elif operation.get('action') == 'provision-access':
         if set(operation) != {'action', 'issuer', 'team'}:
             raise ValueError('Access requires its exact issuer and team')
@@ -83,15 +99,26 @@ def main():
         integration['credential_delivery'] = 'Resolve the platform/cloudflare-access value from keycloak-client-secrets through ESO at apply time'
     if integration:
         operation = {'action': 'provision-client', 'realm': 'platform', 'client': integration['client']}
-    source, revocations = change(request['source'], request['revocations'], operation)
+    if operation == {'action': 'initialize-state'}:
+        source, revocations = request['source'], request['revocations']
+    else:
+        source, revocations = change(request['source'], request['revocations'], operation)
     for realm in REALMS:
         compile_state(realm, request['rp_id'], source, request['client_secrets'], revocations)
+    if sys.argv[1:] == ['--publish']:
+        from automation.identity.private_source import publish
+        from automation.gitops.github_setup import inputs
+        values, api = inputs()
+        print(json.dumps(publish(api, values, private_files(source, revocations,
+            request['client_secrets'], request['rp_id'], integration)), sort_keys=True))
+        return
     target = Path('/recovery/identity-private-change.json')
     if target.exists():
         raise RuntimeError('Previous identity change requires review before generating another')
     with target.open('x') as stream:
         target.chmod(0o600)
-        result = {'desired_state': source, 'revocations': revocations}
+        result = {'desired_state': source, 'revocations': revocations,
+                  'private_files': private_files(source, revocations, request['client_secrets'], request['rp_id'], integration)}
         if operation['action'] == 'remove-client':
             realm, identifier = operation['realm'], operation['client_id']
             result['removal'] = {

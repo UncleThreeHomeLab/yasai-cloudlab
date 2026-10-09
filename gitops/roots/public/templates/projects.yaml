@@ -55,6 +55,11 @@ spec:
     - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
   namespaceResourceWhitelist:
     - {group: '', kind: ConfigMap}
+    {{- if .Values.identity.argo }}
+    - {group: cert-manager.io, kind: Certificate}
+    - {group: gateway.networking.k8s.io, kind: ReferenceGrant}
+    - {group: gateway.networking.k8s.io, kind: BackendTLSPolicy}
+    {{- end }}
     - {group: '', kind: Secret}
     - {group: '', kind: Service}
     - {group: '', kind: ServiceAccount}

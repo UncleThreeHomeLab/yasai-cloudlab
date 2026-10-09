@@ -13,16 +13,24 @@ def issuer(value):
     return value
 
 
-def argo(identity_issuer, origin):
+def argo(identity_issuer, origin, additional_origins=None):
     issuer(identity_issuer)
-    if urlsplit(exact_url(origin + '/auth/callback')).path != '/auth/callback':
-        raise ValueError('Argo origin must contain no path')
+    additional_origins = [] if additional_origins is None else additional_origins
+    if (not isinstance(origin, str) or not isinstance(additional_origins, list) or
+            len(additional_origins) != 1 or any(not isinstance(address, str) for address in additional_origins)):
+        raise ValueError('Argo requires distinct bounded public/private origins')
+    origins = [origin] + additional_origins
+    if len(set(origins)) != len(origins):
+        raise ValueError('Argo requires distinct bounded public/private origins')
+    for address in origins:
+        if urlsplit(exact_url(address + '/auth/callback')).path != '/auth/callback':
+            raise ValueError('Argo origin must contain no path')
     return {
         'client': {'id': 'argocd', 'public': True, 'audience': 'argocd',
-                   'callbacks': [origin + '/auth/callback', origin + '/pkce/verify'],
+                   'callbacks': [address + callback for address in origins for callback in ('/auth/callback', '/pkce/verify')],
                    'scopes': ['profile', 'email']},
         'helm': {'argo-cd': {'configs': {
-            'cm': {'url': origin, 'users.session.duration': '10m', 'oidc.config': yaml.safe_dump({
+            'cm': {'url': origin, 'additionalUrls': yaml.safe_dump(origins[1:], sort_keys=True), 'users.session.duration': '10m', 'oidc.config': yaml.safe_dump({
                 'name': 'Keycloak', 'issuer': identity_issuer, 'clientID': 'argocd',
                 'enablePKCEAuthentication': True, 'refreshTokenThreshold': '2m',
                 'requestedScopes': ['openid', 'profile', 'email']}, sort_keys=True)},

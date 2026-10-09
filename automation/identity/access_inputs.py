@@ -9,8 +9,9 @@ def names(public, private):
         raise ValueError('Identity login must be a dedicated public protocol hostname without Access authentication')
     if not existing:
         public.append({'name': 'login', 'access': 'public'})
-    if 'identity-admin' not in private:
-        private.append('identity-admin')
+    for name in ('identity-admin', 'cd'):
+        if name not in private:
+            private.append(name)
     if any(rule.get('name') == 'identity-admin' for rule in public):
         raise ValueError('Identity administration must remain outside public tunnel routing')
     return public, private

@@ -14,6 +14,20 @@
     },
     "proxyImage": {
       "const": "docker.io/istio/proxyv2:1.31.1@sha256:d86cba0dd1eb15c00b6901c69ce5ae3d2d5f8427a47751098cf8c3ab2a4a62e9"
+    },
+    "argo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "public": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]+$"
+        },
+        "private": {
+          "type": "string",
+          "pattern": "^cd[.]internal[.][a-z0-9][a-z0-9.-]+$"
+        }
+      }
     }
   }
 }

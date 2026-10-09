@@ -334,6 +334,16 @@ existing values. `lab identity-operation` accepts complete private JSON on stand
 input and writes a reviewable source change to the private recovery volume.
 It supports provisioning, retirement, removal plans, offboarding and Argo/Access
 client plans. It sends no invitations and makes no realm changes.
+The output includes `identity/configmap.yaml` and, for Argo, a private values file.
+Argo provisioning requires exact public and private origins (`additional_origins`
+contains the second origin). `lab identity-private-publish` accepts the same complete
+input and creates a reviewable PR in the designated private configuration repository;
+`initialize-state` publishes the initial complete inventory. Existing files outside
+that bundle and omitted overlays are retained. It requires the local GitHub
+provisioning credential and never merges or modifies realms.
+GitHub Free does not enforce private branch protection. Private PR review and
+compiler validation are procedural safeguards; public implementation PRs remain
+protected. Argo values must use a validated immutable private revision.
 `lab identity-client-credential` accepts private `{action, realm, client_id}` JSON;
 provisioning preserves existing secrets, rotation uses a resumable vault checkpoint
 and verifies new credentials accepted and old credentials denied after ESO/CLI
@@ -350,4 +360,7 @@ Identity shares the existing monthly-only Longhorn backup boundary. Capture hook
 quiesce identity before CNPG shutdown; restore hooks check signing-state hashes
 and invalidate sessions in the isolated database. Full identity recovery also needs
 current private inputs and membership/revocation review before issuer reopening.
+The isolated restore replays current vault credentials and private tombstones,
+then verifies a signed JWT under a different internal issuer. No restored gateway
+route is created. This implementation still needs live identity restore acceptance.
 No daily generations or additional cloud schedule are introduced.

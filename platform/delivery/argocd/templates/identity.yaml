@@ -1,0 +1,64 @@
+{{- $cm := (index .Values "argo-cd").configs.cm }}
+{{- if index $cm "oidc.config" }}
+{{- $origins := concat (list $cm.url) ($cm.additionalUrls | fromYamlArray) }}
+{{- if ne (len $origins) 2 }}
+{{- fail "Native Argo identity requires both independent HTTPS origins" }}
+{{- end }}
+{{- $hosts := list }}
+{{- range $origin := $origins }}
+{{- $parsed := urlParse $origin }}
+{{- if or (ne $parsed.scheme "https") (not (regexMatch "^[a-z0-9]+([.-][a-z0-9]+)*$" $parsed.host)) $parsed.path $parsed.query $parsed.fragment $parsed.userinfo }}
+{{- fail "Native Argo identity requires exact HTTPS origins" }}
+{{- end }}
+{{- $hosts = append $hosts $parsed.host }}
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-native-identity
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  secretName: argocd-server-tls
+  revisionHistoryLimit: 2
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  issuerRef: {name: cloudlab-acme-production, kind: ClusterIssuer}
+  dnsNames:
+{{ toYaml $hosts | indent 4 }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: argocd-native-identity
+spec:
+  targetRefs: [{group: '', kind: Service, name: argocd-server}]
+  validation:
+    hostname: {{ first $hosts | quote }}
+    wellKnownCACertificates: System
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: argocd-native-identity
+spec:
+  from:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: cloudlab-gateway-public}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: cloudlab-gateway-private}
+  to: [{group: '', kind: Service, name: argocd-server}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-native-identity
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/component: server, app.kubernetes.io/part-of: argocd}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-public}}
+          podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: cloudlab}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}}
+          podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: cloudlab}}
+      ports: [{protocol: TCP, port: 8080}]
+{{- end }}
