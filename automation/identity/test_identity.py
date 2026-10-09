@@ -84,6 +84,9 @@ class IdentityTests(unittest.TestCase):
             self.assertFalse(reconciled('same-revision', 'owned'))
             app['status']['sync']['comparedTo']['source'] = copy.deepcopy(app['spec']['source'])
             self.assertTrue(reconciled('same-revision', 'owned'))
+            app['status']['operationState'] = {'phase': 'Failed', 'syncResult': {'revision': 'same-revision'}}
+            with self.assertRaisesRegex(RuntimeError, 'preserve the phase checkpoint'):
+                reconciled('same-revision', 'owned')
             with self.assertRaisesRegex(RuntimeError, 'identity changed'):
                 reconciled('same-revision', 'replacement')
         lease = {'spec': {'holderIdentity': 'prior', 'renewTime': '1970-01-01T00:00:00Z', 'leaseDurationSeconds': 240}}

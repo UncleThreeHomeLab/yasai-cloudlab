@@ -29,6 +29,10 @@ def reconciled(revision, uid):
     if app.get('metadata', {}).get('uid') != uid:
         raise RuntimeError('Identity Application identity changed during convergence')
     compared = app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {})
+    operation = app.get('status', {}).get('operationState', {})
+    if (contains(compared, app['spec']['source']) and operation.get('phase') in ('Failed', 'Error') and
+            operation.get('syncResult', {}).get('revision') == revision and not app.get('operation')):
+        raise RuntimeError('Identity reconciliation failed at the requested revision; preserve the phase checkpoint')
     return contains(compared, app['spec']['source']) and application_ready(APP, revision)
 
 
