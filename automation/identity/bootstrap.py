@@ -147,8 +147,6 @@ def application(payload, phase):
         'spec': {'project': APP, 'source': {'repoURL': payload['repository'], 'targetRevision': payload['branch'],
             'path': 'platform/identity/keycloak', 'helm': {'releaseName': APP, 'valuesObject': desired}},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE},
-            'ignoreDifferences': [{'group': 'coordination.k8s.io', 'kind': 'Lease',
-                                   'name': 'identity-writer', 'namespace': NAMESPACE, 'jsonPointers': ['/spec']}],
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                 'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true',
                                 'RespectIgnoreDifferences=true'],

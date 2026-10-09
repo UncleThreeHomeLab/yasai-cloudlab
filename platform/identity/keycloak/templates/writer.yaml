@@ -10,14 +10,6 @@ kind: ServiceAccount
 metadata:
   name: identity-writer
 ---
-apiVersion: coordination.k8s.io/v1
-kind: Lease
-metadata:
-  name: identity-writer
-  annotations:
-    argocd.argoproj.io/sync-options: Prune=false,Delete=false
-spec: {}
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -27,6 +19,11 @@ rules:
     resources: [leases]
     resourceNames: [identity-writer]
     verbs: [get, update]
+  # Kubernetes cannot restrict collection POST by resourceNames. Only this
+  # namespace's Argo writer can initialize its runtime-owned operational lock.
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
   - apiGroups: ['']
     resources: [pods]
     verbs: [list]

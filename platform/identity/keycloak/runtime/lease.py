@@ -8,6 +8,31 @@ import urllib.error
 import urllib.request
 
 DURATION = 240
+OWNER = 'cloudlab-identity-writer'
+
+
+def owned_lease(request, namespace, endpoint):
+    try:
+        current = request('GET')
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        value = {'apiVersion': 'coordination.k8s.io/v1', 'kind': 'Lease',
+                 'metadata': {'name': 'identity-writer', 'namespace': namespace,
+                              'labels': {'cloudlab.io/owner': OWNER}}, 'spec': {}}
+        try:
+            current = request('POST', value, url=endpoint.rsplit('/', 1)[0])
+        except urllib.error.HTTPError as conflict:
+            if conflict.code != 409:
+                raise
+            current = request('GET')
+    metadata = current.get('metadata', {})
+    if (metadata.get('name') != 'identity-writer' or metadata.get('namespace') != namespace or
+            metadata.get('labels', {}).get('cloudlab.io/owner') != OWNER or
+            not metadata.get('uid') or not metadata.get('resourceVersion') or
+            metadata.get('ownerReferences') or metadata.get('deletionTimestamp') or metadata.get('finalizers')):
+        raise RuntimeError('Identity writer lease has conflicting ownership')
+    return current
 
 
 def available(spec, now):
@@ -40,7 +65,8 @@ def acquire():
         with urllib.request.urlopen(req, context=context, timeout=10) as response:
             return json.load(response)
 
-    current = request('GET')
+    # Argo CD always excludes Leases. The Argo job owns this operational lock.
+    current = owned_lease(request, namespace, endpoint)
     now = datetime.now(timezone.utc)
     if not available(current.get('spec', {}), now.timestamp()):
         raise RuntimeError('Another identity writer holds the lease')

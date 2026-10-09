@@ -97,6 +97,13 @@ def check():
         if job['activeDeadlineSeconds'] + job['template']['spec']['terminationGracePeriodSeconds'] >= 240:
             raise ValueError('Realm job can outlive its exclusive lease')
     bootstrap = render(dict(values, bootstrapMode=True))
+    if any(o['kind'] == 'Lease' for o in objects + bootstrap):
+        raise ValueError('Argo always excludes Leases; the job must initialize its operational lock')
+    writer_role = next(o for o in objects if o['kind'] == 'Role' and o['metadata']['name'] == 'identity-writer')
+    lease_rules = [r for r in writer_role['rules'] if r.get('resources') == ['leases']]
+    if lease_rules != [dict(apiGroups=['coordination.k8s.io'], resources=['leases'], resourceNames=['identity-writer'], verbs=['get', 'update']),
+                       dict(apiGroups=['coordination.k8s.io'], resources=['leases'], verbs=['create'])]:
+        raise ValueError('Only the named writer may read/update its lock; creation is namespace-scoped')
     if any(o['kind'] == 'CronJob' for o in bootstrap):
         raise ValueError('Bootstrap credentials must never enter scheduled reconciliation')
     primary = render(dict(values, bootstrapMode=True, primaryAdminEnabled=True))
