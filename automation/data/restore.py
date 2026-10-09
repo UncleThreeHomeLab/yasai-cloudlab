@@ -123,7 +123,7 @@ def cleanup():
     if namespace and namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture']:
         raise RuntimeError('Restore namespace is not owned by this fixture')
     # Retain-class PVs outlive PVC deletion. Record only this fixture's exact UIDs.
-    claims = get('pvc', namespace=NAMESPACE)['items'] if namespace else []
+    claims = (get('pvc', namespace=NAMESPACE) or {}).get('items', []) if namespace else []
     targets = json.loads(checkpoint.read_text()) if checkpoint.exists() else []
     for claim in claims:
         name = claim['spec'].get('volumeName')
