@@ -270,6 +270,9 @@ if __name__ == '__main__':
             from automation.identity.maintenance import recover_startup
             json.load(sys.stdin)
             result = recover_startup()
+        elif sys.argv[1:] == ['health']:
+            from automation.identity.verify import run as verify_live
+            result = verify_live(json.load(sys.stdin))
         else:
             result = discover() if sys.argv[1:] == ['inputs'] else run(json.load(sys.stdin), sys.argv[1])
         print(json.dumps(result))

@@ -387,6 +387,9 @@ primary checksum key. CLI checksum output never feeds back into those inputs.
 Phase changes wait for
 the previous writer to stop and its lease to expire. Readiness requires Argo to
 have compared the current inputs, including changes at the same Git revision.
+`lab identity-health` checks live public discovery/JWKS/token access, canonical proxy
+headers, denied management paths and private audit permissions using ready ESO inputs.
+Probes identify themselves as CloudLab clients; they never impersonate a browser.
 After publishing the Argo client and private values together, `lab identity-argo`
 reads them with the existing read-only GitHub App, validates the exact overlay at
 an immutable commit, and binds it through the public root owner. Run `lab apply`

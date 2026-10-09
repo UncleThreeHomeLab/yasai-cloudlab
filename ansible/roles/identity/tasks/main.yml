@@ -1,7 +1,7 @@
 ---
 - name: Require a bounded identity phase
   ansible.builtin.assert:
-    that: identity_phase in ['server', 'bootstrap', 'primary', 'scoped', 'argo', 'recover-startup']
+    that: identity_phase in ['server', 'bootstrap', 'primary', 'scoped', 'health', 'argo', 'recover-startup']
     fail_msg: Select an explicitly supported identity bootstrap phase.
 
 - name: Create private identity automation directories
@@ -22,7 +22,7 @@
     src: '{{ playbook_dir }}/../automation/identity/{{ item }}'
     dest: '/opt/cloudlab/automation/identity/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, configuration.py, maintenance.py, recovery.py, rotation.py, lifecycle.py, lease.py, argo.py, health.py, integrations.py, access_provider.py]
+  loop: [bootstrap.py, configuration.py, maintenance.py, recovery.py, rotation.py, lifecycle.py, lease.py, argo.py, health.py, integrations.py, access_provider.py, verify.py]
 
 - name: Install the bounded public root handoff from its GitOps owner
   ansible.builtin.copy:
