@@ -6,6 +6,10 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+try:
+    from automation.gitops.source_revision import matches_revision
+except ModuleNotFoundError:
+    from source_revision import matches_revision
 
 BASE = Path('/var/lib/cloudlab/gitops')
 MANAGER = 'cloudlab-bootstrap'
@@ -72,10 +76,10 @@ def wait_application(name, revision, timeout=600):
         if any(c['type'] == 'InvalidSpecError' for c in status.get('conditions', [])):
             raise RuntimeError('Public GitOps application violates its declared project')
         if (status.get('sync', {}).get('status') == 'Synced' and
-                status.get('sync', {}).get('revision') == revision and
+                matches_revision(app, revision) and
                 status.get('health', {}).get('status') == 'Healthy' and
                 status.get('operationState', {}).get('phase') == 'Succeeded'):
-            return status['sync'].get('revision')
+            return revision
         time.sleep(5)
     raise RuntimeError('Public GitOps convergence timed out; retained checkpoint and resources')
 

@@ -1,3 +1,9 @@
+{{- $oidc := .Values.identity.argo | default dict }}
+{{- if $oidc }}
+{{- if or (not .Values.identity.enabled) (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" $oidc.valuesRepository)) (eq $oidc.valuesRepository .Values.repository) (not (regexMatch "^[a-f0-9]{40}$" $oidc.valuesRevision)) }}
+{{- fail "Argo OIDC requires enabled identity and its distinct designated private values source" }}
+{{- end }}
+{{- end }}
 {{- range $name, $entry := dict "cloudlab-public-root" (dict "project" "cloudlab-root" "path" "gitops/roots/public") "cloudlab-argocd" (dict "project" "cloudlab-platform" "path" "platform/delivery/argocd") }}
 ---
 apiVersion: argoproj.io/v1alpha1
@@ -7,12 +13,30 @@ metadata:
   namespace: {{ $.Values.namespace }}
 spec:
   project: {{ $entry.project }}
+  {{- if and (eq $name "cloudlab-argocd") $oidc }}
+  sources:
+    - repoURL: {{ $.Values.repository | quote }}
+      targetRevision: {{ $.Values.revision | quote }}
+      path: {{ $entry.path }}
+      helm:
+        releaseName: argocd
+        valueFiles: [$identity/identity/argo-values.yaml]
+    - repoURL: {{ $oidc.valuesRepository | quote }}
+      targetRevision: {{ $oidc.valuesRevision | quote }}
+      ref: identity
+  {{- else }}
   source:
     repoURL: {{ $.Values.repository | quote }}
     targetRevision: {{ $.Values.revision | quote }}
     path: {{ $entry.path }}
     helm:
       releaseName: {{ if eq $name "cloudlab-argocd" }}argocd{{ else }}cloudlab-public-root{{ end }}
+      {{- if and (eq $name "cloudlab-public-root") $oidc }}
+      valuesObject:
+        identity:
+{{ toYaml $.Values.identity | indent 10 }}
+      {{- end }}
+  {{- end }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $.Values.namespace }}

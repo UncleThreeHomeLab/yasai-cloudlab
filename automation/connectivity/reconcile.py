@@ -81,17 +81,28 @@ class Reconciler:
             raise RuntimeError('External access resource did not converge')
         return actual
 
-    def run(self, *, account, zone_id, zone, tunnel, rules, team, human_email, identity_provider, service_token_id):
+    def run(self, *, account, zone_id, zone, tunnel, rules, team, human_email, identity_provider, service_token_id, add_identity_protocol=False):
         # Validate all declarations before the first mutation.
         rules = host_rules(rules, zone)
         binding = digest({'account': account, 'zone': zone_id, 'tunnel': tunnel, 'rules': rules})
+        extension = False
         if self.state and self.state.get('binding') != binding:
-            raise RuntimeError('Access identity or hostname classification changed; explicit migration required')
+            protocol = {'hostname': 'login.' + zone, 'access': 'public'}
+            previous = [rule for rule in rules if rule != protocol]
+            previous_binding = digest({'account': account, 'zone': zone_id, 'tunnel': tunnel, 'rules': previous})
+            if not add_identity_protocol or protocol not in rules or previous_binding != self.state.get('binding'):
+                raise RuntimeError('Access identity or hostname classification changed; explicit migration required')
+            # The only permitted extension is the new identity protocol hostname.
+            # Existing identities, classification and managed objects stay unchanged.
+            extension = True
         applications = {rule['hostname']: access_application(rule, human_email=human_email,
                             identity_provider=identity_provider, service_token_id=service_token_id)
                         for rule in rules if rule['access'] != 'public'}
         if applications and not team:
             raise ValueError('Access organization is required before publication')
+        if extension:
+            self.state.update(binding=binding, phase='preparing')
+            self.checkpoint()
         config_path = 'accounts/' + account + '/cfd_tunnel/' + tunnel + '/configurations'
         current = self.admin.request('GET', config_path)
         if not self.state:

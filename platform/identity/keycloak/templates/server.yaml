@@ -1,0 +1,86 @@
+{{- if and .Values.enabled .Values.serverEnabled }}
+{{- if not .Values.trustedProxyAddresses }}{{ fail "Resolve explicit gateway proxy addresses before enabling identity" }}{{- end }}
+{{- if not .Values.databaseCA }}{{ fail "Resolve current CNPG public CA before enabling identity" }}{{- end }}
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson }}
+apiVersion: k8s.keycloak.org/v2beta1
+kind: Keycloak
+metadata:
+  name: cloudlab-keycloak
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: {{ ternary 0 1 .Values.maintenance }}
+  image: {{ $lock.images.server | quote }}
+  startOptimized: false
+  ingress: {enabled: false}
+  resources:
+    requests: {cpu: 200m, memory: 768Mi}
+    limits: {cpu: 500m, memory: 1Gi}
+  startupProbe: {periodSeconds: 5, failureThreshold: 60}
+  readinessProbe: {periodSeconds: 5, failureThreshold: 3}
+  livenessProbe: {periodSeconds: 10, failureThreshold: 3}
+  db:
+    vendor: postgres
+    host: {{ .Values.databaseHost | quote }}
+    port: {{ .Values.databasePort }}
+    database: {{ .Values.database | quote }}
+    poolMinSize: 2
+    poolInitialSize: 2
+    poolMaxSize: 10
+    usernameSecret: {name: keycloak-database, key: username}
+    passwordSecret: {name: keycloak-database, key: password}
+  http: {tlsSecret: keycloak-tls}
+  hostname:
+    hostname: {{ printf "https://%s" .Values.loginHost | quote }}
+    admin: {{ printf "https://%s" .Values.adminHost | quote }}
+    strict: true
+    backchannelDynamic: false
+  proxy: {headers: xforwarded}
+  {{- if .Values.bootstrapAdminEnabled }}
+  bootstrapAdmin:
+    user: {secret: keycloak-bootstrap-admin}
+  {{- end }}
+  additionalOptions:
+    - {name: health-enabled, value: 'true'}
+    - {name: metrics-enabled, value: 'false'}
+    - {name: db-tls-mode, value: verify-full}
+    - {name: proxy-trusted-addresses, value: {{ join "," .Values.trustedProxyAddresses | quote }}}
+    - {name: log-level, value: WARN}
+    - {name: http-management-scheme, value: http}
+  truststores:
+    database: {configMap: {name: keycloak-database-ca}}
+  networkPolicy:
+    enabled: true
+    https:
+      - namespaceSelector:
+          matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-public}
+        podSelector:
+          matchLabels: {gateway.networking.k8s.io/gateway-name: cloudlab}
+      - namespaceSelector:
+          matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}
+        podSelector:
+          matchLabels: {gateway.networking.k8s.io/gateway-name: cloudlab}
+    http:
+      - podSelector: {matchLabels: {cloudlab.io/never: allowed}}
+    management:
+      - podSelector: {matchLabels: {cloudlab.io/identity-health: 'true'}}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keycloak
+spec:
+  secretName: keycloak-tls
+  revisionHistoryLimit: 2
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  issuerRef: {name: cloudlab-acme-production, kind: ClusterIssuer}
+  dnsNames: [{{ .Values.loginHost | quote }}, {{ .Values.adminHost | quote }}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-database-ca
+data:
+  ca.crt: |
+{{ .Values.databaseCA | indent 4 }}
+{{- end }}

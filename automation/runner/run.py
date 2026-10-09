@@ -35,6 +35,19 @@ def gitops_preflight():
 
 def main():
     action = sys.argv[1] if len(sys.argv) == 2 else ''
+    identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-scoped': 'scoped'}.get(action)
+    if identity_phase:
+        os.environ['LAB_IDENTITY_PHASE'] = identity_phase
+        action = 'inspect'
+    if action == 'identity-check':
+        subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
+        subprocess.run([sys.executable, '-m', 'unittest', 'automation.identity.test_identity'],
+                       cwd='/workspace', check=True)
+        return
+    if action in ('identity-credentials', 'identity-operation', 'identity-client-credential', 'identity-client-remove'):
+        module = {'identity-credentials': 'credentials', 'identity-operation': 'operations', 'identity-client-credential': 'rotation', 'identity-client-remove': 'lifecycle'}[action]
+        subprocess.run([sys.executable, '-m', 'automation.identity.' + module], cwd='/workspace', check=True)
+        return
     data_actions = {'data-monthly': 'monthly',
                     'data-acceptance-export': 'acceptance-export',
                     'data-restore': 'restore-offsite', 'data-freshness': 'freshness', 'data-resume': 'resume',
@@ -74,6 +87,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/connectivity/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/connectivity/dns_check.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/data/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
@@ -101,6 +115,7 @@ def main():
         for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml', 'access-cutover.yml'):
             playbook(name, syntax=True)
         playbook('data.yml', syntax=True)
+        playbook('identity.yml', syntax=True)
         return
 
     # No interpolation: passwords containing ${...} must remain literal.
@@ -114,6 +129,16 @@ def main():
     for name in ('CLOUDFLARE_ACCESS_HOSTS', 'PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
+    import yaml
+    public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
+    os.environ['LAB_IDENTITY_ENABLED'] = '1' if public_settings.get('identity', {}).get('enabled') else '0'
+    if os.environ['LAB_IDENTITY_ENABLED'] == '1':
+        sys.path.insert(0, '/workspace')
+        from automation.identity.access_inputs import names
+        public, private = names(json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS'] or '[]'),
+                                json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]'))
+        os.environ['CLOUDFLARE_ACCESS_HOSTS'] = json.dumps(public)
+        os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(private)
     os.environ['CLOUDFLARE_HUMAN_EMAIL'] = os.environ['CLOUDFLARE_HUMAN_EMAIL'] or os.environ['TAILSCALE_ADMIN_LOGIN']
     if action in {'recovery-retrieve', 'recovery-preflight'}:
         subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', action.removeprefix('recovery-')], check=True)
@@ -154,7 +179,10 @@ def main():
     if os.environ['VM_PUBLIC_IP'] == os.environ['VM2_PUBLIC_IP']:
         raise SystemExit('Both VM hosts resolve to the same IPv4 address.')
 
-    if selected_data_action:
+    if identity_phase:
+        gitops_preflight()
+        playbook('identity.yml')
+    elif selected_data_action:
         if selected_data_action in ('data-bootstrap', 'data-check'):
             gitops_preflight()
         playbook('data.yml')

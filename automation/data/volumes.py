@@ -60,11 +60,15 @@ def resume():
         kube('rollout', 'status', kind + '/cloudlab-seaweedfs-' + component, '-n', control.NAMESPACE,
              '--timeout=600s', timeout=630)
     control.maintenance(False)
+    from automation.identity.maintenance import set_maintenance
+    set_maintenance(False)
     (control.BASE / 'cold-maintenance.json').unlink(missing_ok=True)
 
 
 def stop():
     control.atomic(control.BASE / 'cold-maintenance.json', {'started_at': time.time()})
+    from automation.identity.maintenance import set_maintenance
+    set_maintenance(True)
     # Stop S3 first, then filer, volume and master, allowing each to flush cleanly.
     for component in ('s3', 'filer', 'volume', 'master'):
         patch_values('cloudlab-seaweedfs', {'seaweedfs': {component: {'replicas': 0}}})

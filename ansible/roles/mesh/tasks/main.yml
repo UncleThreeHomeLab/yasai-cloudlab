@@ -21,6 +21,12 @@
     mode: '0600'
   loop: [configuration.py, kube.py, verify.py, fixtures.py]
 
+- name: Install the public source convergence helper from its GitOps owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/gitops/source_revision.py'
+    dest: /var/lib/cloudlab/mesh/source_revision.py
+    mode: '0600'
+
 - name: Configure internal gateways after certificate and mesh convergence
   ansible.builtin.command:
     argv: [python3, /var/lib/cloudlab/mesh/configuration.py]

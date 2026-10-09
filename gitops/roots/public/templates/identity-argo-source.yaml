@@ -1,0 +1,31 @@
+{{- if .Values.identity.argo }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudlab-argocd-identity-source
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  refreshInterval: 5m
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-argocd-identity-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository}
+      data:
+        type: git
+        url: {{ .Values.identity.argo.valuesRepository | quote }}
+        project: cloudlab-platform
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+{{- end }}

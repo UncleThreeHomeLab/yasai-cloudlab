@@ -23,3 +23,5 @@ access:
 data:
   # Enable only with reviewed credentials, artifacts and recovery automation.
   enabled: true
+identity:
+  enabled: false

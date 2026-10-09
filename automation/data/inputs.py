@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import sys
+import yaml
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,10 @@ def payload():
                         'applicationRole': app['username'], 'migrationRole': migration['username'],
                         'backupRole': backup['username'], 'bucket': s3['BUCKET'], 'maintenance': False,
                         'hibernated': False}
+    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    if public.get('identity', {}).get('enabled'):
+        keycloak = fields('cnpg-keycloak', ('username', 'database'))
+        result['values']['identity'] = {'enabled': True, 'database': keycloak['database'], 'role': keycloak['username']}
     render('configuration', result['values'])
     return {key: result[key] for key in ('repository', 'branch', 'revision', 'values')}
 

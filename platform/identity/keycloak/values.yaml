@@ -1,0 +1,21 @@
+# Inactive until prerequisite, source publication and human recovery gates pass.
+enabled: false
+operatorEnabled: true
+serverEnabled: true
+reconciliationEnabled: false
+bootstrapMode: false
+maintenance: false
+bootstrapAdminEnabled: true
+privateStateEnabled: false
+loginHost: login.example.invalid
+adminHost: identity-admin.internal.example.invalid
+database: keycloak
+databaseRole: keycloak
+databaseHost: cloudlab-postgres-rw.cloudlab-data.svc.cluster.local
+databasePort: 5432
+databaseCA: ''
+# Actual gateway pod source addresses; Service virtual IPs are not proxy peers.
+trustedProxyAddresses: []
+schedule: '*/5 * * * *'
+# Explicit private runtime operation; never inferred from omitted inventory.
+operation: {}

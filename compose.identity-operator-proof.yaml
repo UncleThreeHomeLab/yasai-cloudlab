@@ -1,0 +1,17 @@
+# Isolated Kubernetes fixture. No production kubeconfig, ports, issuers or data.
+services:
+  cluster:
+    image: rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb
+    privileged: true
+    command: [server, '--disable=traefik,servicelb,local-storage,metrics-server', --tls-san=cluster,
+              --write-kubeconfig=/fixture/kubeconfig, --write-kubeconfig-mode=600]
+    tmpfs: [/run, /var/lib/rancher/k3s]
+    volumes: [operator_fixture:/fixture]
+  proof:
+    build: ./automation/runner
+    entrypoint: [python, /workspace/automation/identity/operator_proof.py]
+    working_dir: /workspace
+    volumes: [".:/workspace:ro", "operator_fixture:/fixture:ro"]
+    depends_on: [cluster]
+volumes:
+  operator_fixture:

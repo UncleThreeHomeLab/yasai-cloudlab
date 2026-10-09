@@ -1,6 +1,10 @@
 # Private identifiers enter only the administrator-owned runtime Application.
 s3Host: s3.internal.example.invalid
 database: notes
+identity:
+  enabled: false
+  database: keycloak
+  role: keycloak
 applicationRole: notes_app
 migrationRole: notes_migration
 backupRole: cloudlab_backup

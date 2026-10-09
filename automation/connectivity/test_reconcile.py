@@ -86,6 +86,34 @@ class ReconcileTests(unittest.TestCase):
             self.run_apply()
         self.assertEqual(self.api.writes, [])
 
+    def test_identity_protocol_addition_preserves_existing_protection_and_ids(self):
+        self.run_apply()
+        before = copy.deepcopy(self.state['objects'])
+        self.inputs['rules'].append({'name': 'login', 'access': 'public'})
+        with self.assertRaisesRegex(RuntimeError, 'migration'): self.run_apply()
+        self.inputs['add_identity_protocol'] = True
+        self.assertTrue(self.run_apply()['configured'])
+        self.assertEqual({key: self.state['objects'][key] for key in before}, before)
+        self.assertEqual(len(self.state['objects']), len(before) + 1)
+        protocol = next(rule for rule in self.api.config['config']['ingress'] if rule.get('hostname') == 'login.example.invalid')
+        self.assertNotIn('access', protocol['originRequest'])
+        self.api.writes.clear()
+        self.assertFalse(self.run_apply()['changed'])
+        self.assertEqual(self.api.writes, [])
+
+    def test_identity_extension_cannot_change_existing_host_or_external_identity(self):
+        self.run_apply()
+        self.inputs['rules'].append({'name': 'login', 'access': 'public'})
+        self.inputs['add_identity_protocol'] = True
+        self.inputs['rules'][0]['access'] = 'public'
+        self.api.writes.clear()
+        with self.assertRaisesRegex(RuntimeError, 'migration'): self.run_apply()
+        self.assertEqual(self.api.writes, [])
+        self.inputs['rules'][0]['access'] = 'human'
+        self.inputs['tunnel'] = 'different'
+        with self.assertRaisesRegex(RuntimeError, 'migration'): self.run_apply()
+        self.assertEqual(self.api.writes, [])
+
     def test_classification_change_does_not_remove_protection(self):
         self.run_apply()
         self.inputs['rules'][0]['access'] = 'public'

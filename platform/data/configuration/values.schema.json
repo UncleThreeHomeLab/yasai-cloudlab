@@ -4,6 +4,11 @@
   "additionalProperties": false,
   "required": ["s3Host", "database", "applicationRole", "migrationRole", "backupRole", "bucket", "maintenance", "postgresImage"],
   "properties": {
+    "identity": {"type": "object", "additionalProperties": false, "required": ["enabled", "database", "role"], "properties": {
+      "enabled": {"type": "boolean"},
+      "database": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
+      "role": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"}
+    }},
     "s3Host": {"type": "string", "pattern": "^s3\\.internal\\.[a-z0-9.-]+$", "maxLength": 253},
     "database": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
     "applicationRole": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},

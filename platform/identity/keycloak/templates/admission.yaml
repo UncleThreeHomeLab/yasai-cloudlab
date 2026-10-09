@@ -1,0 +1,52 @@
+{{- if and .Values.enabled .Values.operatorEnabled }}
+# Admission owns Pod security defaults; the official Operator owns its children.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: cloudlab-keycloak-security
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+spec:
+  failurePolicy: Fail
+  reinvocationPolicy: IfNeeded
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: cloudlab-identity}
+    objectSelector:
+      matchLabels: {app: keycloak}
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  matchConditions:
+    - name: pinned-server
+      expression: >-
+        object.spec.containers.size() > 0 && object.spec.containers[0].name == 'keycloak' &&
+          object.spec.containers[0].image == {{ (.Files.Get "artifact.lock.json" | fromJson).images.server | quote }}
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: >-
+          [
+            JSONPatch{op: 'add', path: '/spec/securityContext',
+              value: has(object.spec.securityContext) ? object.spec.securityContext : Object.spec.securityContext{}},
+            JSONPatch{op: 'add', path: '/spec/securityContext/runAsNonRoot', value: true},
+            JSONPatch{op: 'add', path: '/spec/securityContext/seccompProfile',
+              value: Object.spec.securityContext.seccompProfile{type: 'RuntimeDefault'}},
+            JSONPatch{op: 'add', path: '/spec/containers/0/securityContext',
+              value: has(object.spec.containers[0].securityContext) ? object.spec.containers[0].securityContext : Object.spec.containers.securityContext{}},
+            JSONPatch{op: 'add', path: '/spec/containers/0/securityContext/allowPrivilegeEscalation', value: false},
+            JSONPatch{op: 'add', path: '/spec/containers/0/securityContext/capabilities',
+              value: Object.spec.containers.securityContext.capabilities{drop: ['ALL']}}
+          ]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-keycloak-security
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  policyName: cloudlab-keycloak-security
+{{- end }}
