@@ -9,7 +9,7 @@
 
 - name: Install the host parser used for isolated chart restores
   ansible.builtin.apt:
-    name: python3-yaml
+    name: [python3-yaml, python3-cryptography]
     state: present
 
 - name: Create private data automation directories
@@ -37,7 +37,7 @@
     src: '{{ playbook_dir }}/../automation/identity/{{ item }}'
     dest: '/opt/cloudlab/automation/identity/{{ item }}'
     mode: '0600'
-  loop: [maintenance.py, recovery.py, configuration.py]
+  loop: [maintenance.py, recovery.py, configuration.py, isolated_restore.py, tokens.py]
 
 - name: Install the public convergence helper from its GitOps owner
   ansible.builtin.copy:
@@ -58,6 +58,19 @@
     mode: '0600'
     directory_mode: '0700'
   loop: [cnpg, seaweedfs]
+
+- name: Create the identity restore artifact directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/platform/identity/keycloak
+    state: directory
+    mode: '0700'
+
+- name: Install the pinned identity restore artifacts from their owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../platform/identity/keycloak/{{ item }}'
+    dest: '/opt/cloudlab/platform/identity/keycloak/{{ item }}'
+    mode: '0600'
+  loop: [artifact.lock.json, config-cli.properties]
 
 - name: Install the single application data policy
   ansible.builtin.copy:

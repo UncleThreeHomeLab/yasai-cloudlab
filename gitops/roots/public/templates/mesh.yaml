@@ -287,5 +287,9 @@ spec:
     kind: ConfigMap
   - group: gateway.networking.k8s.io
     kind: Gateway
+  {{- if .Values.identity.argo }}
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+  {{- end }}
 
 {{- end }}

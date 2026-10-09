@@ -1,0 +1,20 @@
+{{- if .Values.argo }}
+{{- if or (not .Values.argo.public) (ne .Values.argo.private (printf "cd.internal.%s" .Values.zone)) (not (hasSuffix (printf ".%s" .Values.zone) .Values.argo.public)) }}
+{{- fail "Argo routes require complete scoped public/private origins" }}
+{{- end }}
+{{- range $exposure, $host := .Values.argo }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd
+  namespace: cloudlab-gateway-{{ $exposure }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  parentRefs: [{name: cloudlab, sectionName: https}]
+  hostnames: [{{ $host | quote }}]
+  rules:
+    - backendRefs: [{name: argocd-server, namespace: argocd, port: 443}]
+{{- end }}
+{{- end }}

@@ -11,6 +11,29 @@ import verify
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_argo_routes_preserve_both_origins_and_refuse_missing_or_foreign_source(self):
+        current = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-argocd:/ConfigMap:argocd/argocd-cm'}},
+            'data': {'oidc.config': 'issuer: https://login.example.invalid/realms/platform\nclientID: argocd',
+                     'url': 'https://console.example.invalid', 'additionalUrls': '[https://cd.internal.example.invalid]'}}
+        with patch.object(configuration, 'get', return_value=current):
+            self.assertEqual(configuration.argo_routes('example.invalid'), {
+                'public': 'console.example.invalid', 'private': 'cd.internal.example.invalid'})
+            for origin in ('https://foreign.invalid', 'https://console.example.invalid/path',
+                           'https://@console.example.invalid', 'https://console.example.invalid\t', None):
+                current['data']['url'] = origin
+                with self.assertRaises((RuntimeError, ValueError)):
+                    configuration.argo_routes('example.invalid')
+            current['data']['url'] = 'https://console.example.invalid'
+            current['metadata']['annotations'] = {}
+            with self.assertRaisesRegex(RuntimeError, 'owner'):
+                configuration.argo_routes('example.invalid')
+        previous = configuration.application({'repository': 'public', 'branch': 'main'}, 'example.invalid',
+                                             {'public': 'console.example.invalid', 'private': 'cd.internal.example.invalid'})
+        with patch.object(configuration, 'get', return_value=None):
+            self.assertEqual(configuration.argo_routes('example.invalid'), {})
+            with self.assertRaisesRegex(RuntimeError, 'available'):
+                configuration.argo_routes('example.invalid', previous)
+
     def test_crd_ownership_requires_argo_ssa_not_a_copied_tracking_annotation(self):
         obj = {'kind': 'CustomResourceDefinition'}
         actual = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-istio-base:copied'}}}

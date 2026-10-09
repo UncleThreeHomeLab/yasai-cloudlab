@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 
 from kube import application_ready, condition, contains, get, kube, wait
 
@@ -60,16 +61,60 @@ def selected_zone():
     return zone
 
 
-def application(payload, zone):
+def application(payload, zone, argo=None):
+    values = {'zone': zone}
+    if argo:
+        values['argo'] = argo
     return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
         'metadata': {'name': APP, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
         'spec': {'project': APP, 'source': {'repoURL': payload['repository'],
             'targetRevision': payload['branch'], 'path': 'platform/connectivity/gateways',
-            'helm': {'releaseName': APP, 'valueFiles': ['values.json'], 'valuesObject': {'zone': zone}}},
+            'helm': {'releaseName': APP, 'valueFiles': ['values.json'], 'valuesObject': values}},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-gateway-public'},
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                 'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true'],
                 'retry': {'limit': 5, 'backoff': {'duration': '5s', 'factor': 2, 'maxDuration': '1m'}}}}}
+
+
+
+def argo_routes(zone, previous=None):
+    """Use the consumer's verified ConfigMap interface; never infer an empty removal."""
+    current = get('configmap', 'argocd-cm', 'argocd') or {}
+    data = current.get('data', {})
+    expected = (previous or {}).get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {}).get('argo')
+    if not data.get('oidc.config'):
+        if expected:
+            raise RuntimeError('Existing Argo routes require their available OIDC configuration')
+        return {}
+    if not current.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-argocd:'):
+        raise RuntimeError('Argo OIDC routing requires the existing consumer owner')
+    import yaml
+    oidc = yaml.safe_load(data['oidc.config'])
+    if not isinstance(oidc, dict) or oidc.get('issuer') != 'https://login.' + zone + '/realms/platform' or oidc.get('clientID') != 'argocd':
+        raise RuntimeError('Argo routing requires the scoped platform identity client')
+    additional = yaml.safe_load(data.get('additionalUrls', '[]'))
+    if not isinstance(additional, list) or len(additional) != 1:
+        raise RuntimeError('Argo requires exact public and private origins')
+    hosts = {}
+    for origin in [data.get('url'), *additional]:
+        if not isinstance(origin, str) or any(char.isspace() or ord(char) < 32 for char in origin):
+            raise RuntimeError('Argo origin must be an exact HTTPS authority')
+        parsed = urlsplit(origin)
+        if parsed.scheme != 'https' or parsed.port not in (None, 443) or parsed.path or parsed.query or parsed.fragment or parsed.username is not None:
+            raise RuntimeError('Argo origin must be an exact HTTPS authority')
+        host = parsed.hostname or ''
+        if host == 'cd.internal.' + zone:
+            exposure = 'private'
+        elif host.endswith('.' + zone) and len(host.split('.')) == len(zone.split('.')) + 1 and host.split('.')[0] != 'internal':
+            exposure = 'public'
+        else:
+            raise RuntimeError('Argo origin must stay within its approved gateway zone')
+        if exposure in hosts:
+            raise RuntimeError('Argo origins require distinct public/private exposures')
+        hosts[exposure] = host
+    if set(hosts) != {'public', 'private'}:
+        raise RuntimeError('Argo requires both independent gateway origins')
+    return hosts
 
 
 def argo_owned(obj, actual, app):
@@ -134,7 +179,7 @@ def run(payload):
         if 'components' not in state or 'workload_ca' not in state:
             state.update(components=components, workload_ca=ca_identity)
             record(state)
-        desired = application(payload, zone)
+        desired = application(payload, zone, argo_routes(zone, before))
         if state.get('application_uid') and not before:
             raise RuntimeError('Gateway Application missing; retain checkpoint and review recovery')
         if before and (before['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER

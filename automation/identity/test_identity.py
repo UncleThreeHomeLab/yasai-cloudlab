@@ -12,21 +12,176 @@ from automation.identity.configuration import exact_url, baseline, bootstrap_wri
 from automation.identity.rotation import replacement, inventory
 from automation.identity.lifecycle import remove
 from automation.identity.lease import available, previous_writer_done
-from automation.identity.operations import change
+from automation.identity.operations import change, private_files
 from automation.identity.health import redact
 from automation.identity.tokens import access_token, identity_token
 from automation.identity.maintenance import set_maintenance
 from automation.identity.recovery import verify_restored, signature_state, restore_configuration
 from automation.identity.integrations import argo, access
+from automation.identity.isolated_restore import policies, pod, client_inventory, run as restore_issuer
 from automation.identity.access_inputs import names
 from automation.gitops.source_revision import matches_revision
 from automation.gitops.private_sources import PEM_TEMPLATE
 from automation.identity.bootstrap import application, private_resources
+from automation.identity.private_source import publish
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_private_retry_rejects_unrelated_branch_changes_before_pull_request_creation(self):
+        from unittest.mock import Mock
+        api = Mock()
+        api.request.side_effect = [
+            {'full_name': 'example/private', 'private': True, 'description': 'Managed by CloudLab repository setup: private-config'},
+            {'object': {'sha': 'a' * 40}}, None, {'object': {'sha': 'b' * 40}},
+            {'parents': [{'sha': 'a' * 40}]}, {'total_commits': 1, 'files': [
+                {'filename': 'identity/configmap.yaml', 'status': 'added'},
+                {'filename': 'unrelated.yaml', 'status': 'modified'}]}]
+        with self.assertRaisesRegex(RuntimeError, 'scoped change'):
+            publish(api, {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'},
+                    {'identity/configmap.yaml': 'private inputs'})
+        self.assertTrue(all(call.args[0] == 'GET' for call in api.request.call_args_list))
+
+    def test_empty_private_repository_seed_contains_no_identity_data(self):
+        from unittest.mock import Mock
+        api = Mock()
+        content = 'private inputs'
+        api.request.side_effect = [
+            {'full_name': 'example/private', 'private': True, 'size': 0, 'description': 'Managed by CloudLab repository setup: private-config'},
+            RuntimeError('GitHub repository operation failed: HTTP 409'), {}, {'object': {'sha': 'a' * 40}},
+            {'content': base64.b64encode(content.encode()).decode()}]
+        self.assertFalse(publish(api, {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'},
+                                 {'identity/configmap.yaml': content})['private_source_changed'])
+        writes = [call for call in api.request.call_args_list if call.args[0] != 'GET']
+        self.assertEqual(len(writes), 1)
+        self.assertTrue(writes[0].args[1].endswith('/contents/.gitkeep'))
+        self.assertEqual(writes[0].args[2]['content'], '')
+
+    def test_private_publication_repeat_does_not_write_or_remove_an_omitted_overlay(self):
+        from unittest.mock import Mock
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        api = Mock()
+        content = 'complete private input'
+        api.request.side_effect = [
+            {'full_name': 'example/private', 'private': True, 'description': 'Managed by CloudLab repository setup: private-config'},
+            {'object': {'sha': 'a' * 40}}, {'content': base64.b64encode(content.encode()).decode()}]
+        result = publish(api, values, {'identity/configmap.yaml': content})
+        self.assertFalse(result['private_source_changed'])
+        self.assertTrue(all(call.args[0] == 'GET' for call in api.request.call_args_list))
+        self.assertFalse(any('argo-values' in call.args[1] for call in api.request.call_args_list))
+
+    def test_private_publication_rejects_a_public_target_and_unbounded_file_changes(self):
+        from unittest.mock import Mock
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        api = Mock()
+        api.request.return_value = {'full_name': 'example/private', 'private': False,
+            'description': 'Managed by CloudLab repository setup: private-config'}
+        with self.assertRaises(RuntimeError): publish(api, values, {'identity/configmap.yaml': 'inputs'})
+        api.request.return_value['private'] = True
+        with self.assertRaises(ValueError): publish(api, values, {'identity/configmap.yaml': 'inputs', 'other.yaml': 'workload'})
+        self.assertTrue(all(call.args[0] == 'GET' for call in api.request.call_args_list))
+
+    def test_native_argo_routes_require_tls_and_only_gateway_network_access(self):
+        root = Path(__file__).resolve().parents[2]
+        overlay = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
+                       ['https://cd.internal.example.invalid'])['helm']
+        result = subprocess.run(['helm', 'template', 'argocd', str(root / 'platform/delivery/argocd'),
+            '--namespace', 'argocd', '-f', '-'], input=json.dumps(overlay), text=True, capture_output=True, check=True)
+        objects = {(obj['kind'], obj['metadata']['name']): obj for obj in yaml.safe_load_all(result.stdout) if obj}
+        certificate = objects['Certificate', 'argocd-native-identity']['spec']
+        self.assertEqual(certificate['dnsNames'], ['console.example.invalid', 'cd.internal.example.invalid'])
+        self.assertEqual(certificate['secretName'], 'argocd-server-tls')
+        tls = objects['BackendTLSPolicy', 'argocd-native-identity']['spec']['validation']
+        self.assertEqual(tls, {'hostname': 'console.example.invalid', 'wellKnownCACertificates': 'System'})
+        ingress = objects['NetworkPolicy', 'argocd-native-identity']['spec']['ingress']
+        self.assertEqual({peer['namespaceSelector']['matchLabels']['kubernetes.io/metadata.name']
+                          for rule in ingress for peer in rule['from']},
+                         {'cloudlab-gateway-public', 'cloudlab-gateway-private'})
+        self.assertEqual({port['port'] for rule in ingress for port in rule['ports']}, {8080})
+        values = {'zone': 'example.invalid', 'argo': {'public': 'console.example.invalid', 'private': 'cd.internal.example.invalid'}}
+        result = subprocess.run(['helm', 'template', 'gateways', str(root / 'platform/connectivity/gateways'),
+            '-f', str(root / 'platform/connectivity/gateways/values.json'), '-f', '-'],
+            input=json.dumps(values), text=True, capture_output=True, check=True)
+        routes = [obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'HTTPRoute']
+        self.assertEqual({obj['metadata']['namespace'] for obj in routes},
+                         {'cloudlab-gateway-public', 'cloudlab-gateway-private'})
+        self.assertTrue(all(obj['spec']['rules'][0]['backendRefs'] == [
+            {'name': 'argocd-server', 'namespace': 'argocd', 'port': 443}] for obj in routes))
+
+    def test_argo_public_and_private_origins_have_exact_registered_callbacks(self):
+        import yaml
+        state = argo('https://login.example.invalid/realms/platform', 'https://cd.example.invalid',
+                     ['https://cd.internal.example.invalid'])
+        self.assertEqual(state['client']['callbacks'], ['https://cd.example.invalid/auth/callback',
+            'https://cd.example.invalid/pkce/verify', 'https://cd.internal.example.invalid/auth/callback',
+            'https://cd.internal.example.invalid/pkce/verify'])
+        self.assertEqual(yaml.safe_load(state['helm']['argo-cd']['configs']['cm']['additionalUrls']),
+                         ['https://cd.internal.example.invalid'])
+        for additional in (['https://cd.example.invalid'], ['https://other.invalid', 'https://extra.invalid'],
+                           ['https://unsafe.invalid/path'], 'https://unsafe.invalid', None, [], {}, False):
+            with self.assertRaises((ValueError, TypeError)):
+                argo('https://login.example.invalid/realms/platform', 'https://cd.example.invalid', additional)
+
+    def test_restore_inventory_reads_all_pages_and_rejects_duplicate_results(self):
+        first = [{'clientId': 'client-' + str(i)} for i in range(100)]
+        last = [{'clientId': 'retired'}]
+        with patch('automation.identity.isolated_restore.request', side_effect=[first, last]) as read:
+            self.assertEqual(client_inventory('applications', 'private-token'), first + last)
+            self.assertIn('first=100&max=100', read.call_args.args[0])
+        with patch('automation.identity.isolated_restore.request', side_effect=[first, first]), \
+             self.assertRaisesRegex(RuntimeError, 'ambiguous'):
+            client_inventory('applications', 'private-token')
+
+    def test_isolated_restore_allows_no_gateway_or_external_identity_peers(self):
+        documents = policies()
+        self.assertEqual({d['metadata']['namespace'] for d in documents}, {'cloudlab-data-restore'})
+        ingress = documents[0]['spec']['ingress']
+        self.assertTrue(all('podSelector' in peer and 'namespaceSelector' not in peer
+                            for rule in ingress for peer in rule['from']))
+        self.assertEqual({p['port'] for rule in ingress for p in rule['ports']}, {8443})
+        self.assertNotIn('ipBlock', json.dumps(documents))
+        self.assertNotIn('gateway', json.dumps(documents))
+        egress = documents[0]['spec']['egress']
+        self.assertEqual({p['port'] for rule in egress for p in rule['ports']}, {53, 5432, 8443})
+        fixture = pod('test', 'probe', 'python@sha256:' + 'a' * 64, ['python'], memory='64Mi')
+        self.assertFalse(fixture['spec']['automountServiceAccountToken'])
+        self.assertTrue(fixture['spec']['securityContext']['runAsNonRoot'])
+        self.assertEqual(fixture['spec']['containers'][0]['securityContext']['capabilities'], {'drop': ['ALL']})
+
+    def test_isolated_restore_missing_source_or_foreign_target_prevents_all_writes(self):
+        with patch('automation.identity.isolated_restore.kube') as mutate:
+            self.assertFalse(restore_issuer({}, lambda *args: '')['identity_issuer_restore_proven'])
+            with patch('automation.identity.isolated_restore.get', return_value={'metadata': {'labels': {}}}), \
+                 self.assertRaises(RuntimeError):
+                restore_issuer({'identity': {}}, lambda *args: '')
+            def objects(kind, name, namespace=None):
+                if kind == 'namespace': return {'metadata': {'labels': {'cloudlab.io/fixture': 'application-data-restore'}}}
+                if name == 'cloudlab-identity-private': return {'status': {'sync': {'revision': 'a' * 40}}}
+                return None
+            with patch('automation.identity.isolated_restore.get', side_effect=objects), \
+                 patch('automation.identity.isolated_restore.application_ready', return_value=False), \
+                 self.assertRaisesRegex(RuntimeError, 'source is unavailable'):
+                restore_issuer({'identity': {}}, lambda *args: '')
+            mutate.assert_not_called()
+
+    def test_private_bundle_contains_no_secret_and_never_removes_an_omitted_overlay(self):
+        source = self.source()
+        source['realms']['applications']['clients'][0]['public'] = False
+        credentials = {'applications': {'reference': 'private-client-secret-' + 'x' * 32}}
+        revoked = {'format': 1, 'realms': {}}
+        files = private_files(source, revoked, credentials, 'login.example.invalid')
+        self.assertEqual(set(files), {'identity/configmap.yaml'})
+        self.assertNotIn(credentials['applications']['reference'], files['identity/configmap.yaml'])
+        import yaml
+        manifest = yaml.safe_load(files['identity/configmap.yaml'])
+        self.assertEqual(json.loads(manifest['data']['desired_state']), source)
+        self.assertEqual(json.loads(manifest['data']['revocations']), revoked)
+        overlay = argo('https://login.example.invalid/realms/platform', 'https://cd.example.invalid',
+                       ['https://cd.internal.example.invalid'])
+        files = private_files(source, revoked, credentials, 'login.example.invalid', overlay)
+        self.assertEqual(yaml.safe_load(files['identity/argo-values.yaml']), overlay['helm'])
+
     def test_monthly_maintenance_cannot_overlap_another_identity_operation(self):
         import fcntl
         with tempfile.TemporaryDirectory() as folder:
@@ -99,6 +254,11 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(secret['target']['deletionPolicy'], 'Retain')
         self.assertEqual(secret['target']['template']['data']['project'], 'cloudlab-platform')
         self.assertEqual(secret['target']['template']['data']['githubAppPrivateKey'], PEM_TEMPLATE)
+        self.assertEqual(indexed['Namespace', 'cloudlab-identity']['metadata']['labels']['cloudlab.io/gateway'], 'public')
+        self.assertEqual(indexed['Namespace', 'cloudlab-identity-admin']['metadata']['labels']['cloudlab.io/gateway'], 'private')
+        operator = subprocess.run(['helm', 'template', 'operator', str(chart.parents[2] / 'platform/identity/keycloak'),
+            '--set', 'enabled=true', '--set', 'serverEnabled=false'], text=True, capture_output=True, check=True)
+        self.assertFalse(any(obj['kind'] == 'Namespace' for obj in yaml.safe_load_all(operator.stdout) if obj))
         inputs['identity']['argo']['valuesRevision'] = 'main'
         rejected = subprocess.run(['helm', 'template', 'root', str(chart), '-f', '-'], input=json.dumps(inputs), text=True, capture_output=True)
         self.assertNotEqual(rejected.returncode, 0)
@@ -297,7 +457,8 @@ class IdentityTests(unittest.TestCase):
         payload['values']['adminHost'] = 'admin.other.invalid'
         with self.assertRaises(ValueError): application(payload, 'server')
     def test_oidc_integration_contracts_reject_unsafe_issuers_and_unscoped_rbac(self):
-        value = argo('https://login.example.invalid/realms/platform', 'https://argo.internal.example.invalid')
+        value = argo('https://login.example.invalid/realms/platform', 'https://argo.example.invalid',
+                     ['https://cd.internal.example.invalid'])
         self.assertTrue(value['client']['public'])
         cm = value['helm']['argo-cd']['configs']['cm']
         oidc = yaml.safe_load(cm['oidc.config'])

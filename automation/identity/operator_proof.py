@@ -66,6 +66,8 @@ def main():
                 with urllib.request.urlopen(req, context=context, timeout=20) as response:
                     return json.load(response)
             except urllib.error.HTTPError as error:
+                if error.code == 503:
+                    raise OSError('Operator fixture API is temporarily unavailable') from None
                 raise RuntimeError('Operator fixture API rejected operation: HTTP ' + str(error.code)) from None
 
         wait(lambda: api('/api/v1/nodes')['items'], 'cluster ready')
@@ -90,6 +92,12 @@ def main():
                    '--set', 'enabled=true', '--set', 'serverEnabled=false']
         rendered = subprocess.run(command, capture_output=True, text=True, check=True)
         objects = [o for o in yaml.safe_load_all(rendered.stdout) if o]
+        namespaces = subprocess.run(['helm', 'template', 'fixture-root',
+            str(ROOT / 'gitops/roots/public'), '--set', 'identity.enabled=true'],
+            capture_output=True, text=True, check=True)
+        for obj in yaml.safe_load_all(namespaces.stdout):
+            if obj and obj['kind'] == 'Namespace' and obj['metadata']['name'] in (NAMESPACE, NAMESPACE + '-admin'):
+                apply(obj)
         for obj in objects:
             apply(obj)
         crds = api('/apis/apiextensions.k8s.io/v1/customresourcedefinitions')['items']

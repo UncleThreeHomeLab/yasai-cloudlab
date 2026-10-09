@@ -279,6 +279,9 @@ def run(manifest, offsite=False):
         authenticated_sql(manifest)
         from automation.identity.recovery import verify_restored
         identity_evidence = verify_restored(manifest, sql)
+        if 'identity' in manifest:
+            from automation.identity.isolated_restore import run as restore_identity
+            identity_evidence.update(restore_identity(manifest, sql))
         return {**identity_evidence, 'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),
                 'same_existing_hosts': True, 'physical_restore': True, 'offsite_reads': offsite, 'fixture_restarts': True,

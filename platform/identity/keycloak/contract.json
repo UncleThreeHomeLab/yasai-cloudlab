@@ -84,7 +84,7 @@
         "developer",
         "viewer"
       ],
-      "status": "not integrated; preserve independent local repair admin"
+      "status": "not integrated; preserve independent SSH, Tailscale and Kubernetes repair. Existing Argo local admin remains disabled. Exact public/private origins use native OIDC and trusted backend TLS."
     },
     "access": {
       "realm": "platform",
