@@ -370,6 +370,8 @@ from a private checkpoint. It never applies to an already bootstrapped realm.
 `lab identity-primary-credentials` provisions separate master/platform passwords
 and opaque usernames after checking the existing signed human Access proof.
 The `keycloak-primary-admin` vault schema is versioned with the identity contract.
+Its ESO resource remains declared after initialization; normal writers never mount
+primary passwords. This preserves credential ownership without an orphan blocking CD.
 Declare the platform username's `platform-admin` membership in the private source,
 then run `lab identity-primary`. Initial login requires verified WebAuthn enrollment;
 repeat never resets existing credentials or re-enables a disabled account. Enroll

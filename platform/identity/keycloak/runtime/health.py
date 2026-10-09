@@ -34,7 +34,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def json_get(url, token=None, form=None, headers=None):
-    headers = dict(headers or {}, Accept='application/json')
+    headers = dict(headers or {}, Accept='application/json', **{'User-Agent': 'CloudLab-Identity-Health/1.0'})
     if token:
         headers['Authorization'] = 'Bearer ' + token
     data = None
@@ -76,7 +76,8 @@ def proxy_privacy(login_host):
     if not re.fullmatch('[a-z0-9.-]+', login_host):
         raise ValueError('Identity privacy requires its exact login hostname')
     origin = 'https://' + login_host
-    spoof = {'Forwarded': 'for=198.51.100.23;proto=http;host=forbidden.invalid',
+    spoof = {'User-Agent': 'CloudLab-Identity-Health/1.0',
+             'Forwarded': 'for=198.51.100.23;proto=http;host=forbidden.invalid',
              'X-Forwarded-Host': 'forbidden.invalid', 'X-Forwarded-Proto': 'http', 'X-Forwarded-Port': '80'}
     for realm in ('platform', 'applications'):
         issuer = origin + '/realms/' + realm
