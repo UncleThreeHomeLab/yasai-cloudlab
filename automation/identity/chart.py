@@ -97,6 +97,11 @@ def check():
         if job['activeDeadlineSeconds'] + job['template']['spec']['terminationGracePeriodSeconds'] >= 240:
             raise ValueError('Realm job can outlive its exclusive lease')
     bootstrap = render(dict(values, bootstrapMode=True))
+    scheduled = next(o for o in objects if o['kind'] == 'CronJob' and o['metadata']['name'] == 'identity-reconcile')
+    sync = next(o for o in objects if o['kind'] == 'Job' and o['metadata']['name'] == 'identity-reconcile-sync')
+    if ('acquire(skip_busy=True)' not in scheduled['spec']['jobTemplate']['spec']['template']['spec']['initContainers'][0]['args'][0]
+            or 'acquire(skip_busy=False)' not in sync['spec']['template']['spec']['initContainers'][0]['args'][0]):
+        raise ValueError('Only scheduled runs may skip a busy valid writer lock; sync must retry')
     if any(o['kind'] == 'Lease' for o in objects + bootstrap):
         raise ValueError('Argo always excludes Leases; the job must initialize its operational lock')
     writer_role = next(o for o in objects if o['kind'] == 'Role' and o['metadata']['name'] == 'identity-writer')

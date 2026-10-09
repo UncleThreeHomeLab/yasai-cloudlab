@@ -51,7 +51,7 @@ def previous_writer_done(spec, pods):
                    not in ('Succeeded', 'Failed') for pod in pods)
 
 
-def acquire():
+def acquire(skip_busy=False):
     account = Path('/var/run/secrets/kubernetes.io/serviceaccount')
     namespace = account.joinpath('namespace').read_text().strip()
     endpoint = 'https://kubernetes.default.svc/apis/coordination.k8s.io/v1/namespaces/' + namespace + '/leases/identity-writer'
@@ -69,18 +69,28 @@ def acquire():
     current = owned_lease(request, namespace, endpoint)
     now = datetime.now(timezone.utc)
     if not available(current.get('spec', {}), now.timestamp()):
+        if skip_busy:
+            return False
         raise RuntimeError('Another identity writer holds the lease')
     if current.get('spec', {}).get('holderIdentity'):
         pods = request('GET', url='https://kubernetes.default.svc/api/v1/namespaces/' + namespace +
                        '/pods')['items']
         if not previous_writer_done(current['spec'], pods):
+            if skip_busy:
+                return False
             raise RuntimeError('Previous writer has not stopped; expired lease cannot authorize overlap')
     stamp = now.isoformat().replace('+00:00', 'Z')
     current['spec'] = {'holderIdentity': os.environ['POD_UID'], 'leaseDurationSeconds': DURATION,
                        'acquireTime': stamp, 'renewTime': stamp,
                        'leaseTransitions': current.get('spec', {}).get('leaseTransitions', 0) + 1}
     # PUT retains resourceVersion; a competing acquisition returns HTTP 409.
-    request('PUT', current)
+    try:
+        request('PUT', current)
+    except urllib.error.HTTPError as error:
+        if skip_busy and error.code == 409:
+            return False
+        raise
+    return True
 
 
 if __name__ == '__main__':

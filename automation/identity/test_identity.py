@@ -32,6 +32,38 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_only_scheduled_writers_skip_busy_valid_leases(self):
+        from automation.identity import lease
+        from unittest.mock import MagicMock
+        current = {'spec': {'holderIdentity': 'other'}}
+        with patch.object(lease, 'Path') as paths, patch.object(lease.ssl, 'create_default_context'), \
+                patch.object(lease, 'owned_lease', return_value=current), \
+                patch.object(lease, 'available', return_value=False), \
+                patch.object(lease.urllib.request, 'urlopen') as request:
+            paths.return_value.joinpath.return_value.read_text.return_value = 'private'
+            self.assertFalse(lease.acquire(skip_busy=True))
+            with self.assertRaisesRegex(RuntimeError, 'holds the lease'):
+                lease.acquire()
+            request.assert_not_called()
+        with patch.object(lease, 'Path') as paths, patch.object(lease.ssl, 'create_default_context'), \
+                patch.object(lease, 'owned_lease', side_effect=RuntimeError('conflicting ownership')):
+            paths.return_value.joinpath.return_value.read_text.return_value = 'private'
+            with self.assertRaisesRegex(RuntimeError, 'conflicting ownership'):
+                lease.acquire(skip_busy=True)
+        with patch.object(lease, 'Path') as paths, patch.object(lease.ssl, 'create_default_context'), \
+                patch.object(lease, 'owned_lease', return_value={'spec': {}}), \
+                patch.object(lease, 'available', return_value=True), \
+                patch.dict('os.environ', {'POD_UID': 'current'}), \
+                patch.object(lease.urllib.request, 'urlopen') as request:
+            paths.return_value.joinpath.return_value.read_text.return_value = 'private'
+            for status in (409, 403, 500):
+                request.side_effect = HTTPError('https://kubernetes.default.svc', status, 'failed', None, None)
+                if status == 409:
+                    self.assertFalse(lease.acquire(skip_busy=True))
+                else:
+                    with self.assertRaises(HTTPError): lease.acquire(skip_busy=True)
+                with self.assertRaises(HTTPError): lease.acquire()
+
     def test_live_protocol_check_redacts_audit_and_requires_public_token_and_denied_admin(self):
         from automation.identity import verify
         values = {'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid'}

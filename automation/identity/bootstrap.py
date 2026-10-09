@@ -154,7 +154,7 @@ def application(payload, phase):
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                 'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true',
                                 'RespectIgnoreDifferences=true'],
-                'retry': {'limit': 5, 'backoff': {'duration': '5s', 'factor': 2, 'maxDuration': '1m'}}}}}
+                'retry': {'limit': 5, 'backoff': {'duration': '30s', 'factor': 2, 'maxDuration': '2m'}}}}}
 
 
 def prerequisites(payload):
