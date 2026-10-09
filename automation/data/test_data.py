@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
-import gzip
+from lz4.frame import compress
 import json
 from pathlib import Path
 import tempfile
@@ -176,18 +176,24 @@ class DataTests(unittest.TestCase):
         manifest = self.generation()
         payload = b'committed fixture'
         checksum = hashlib.sha512(payload).hexdigest()[:64]
-        compressed = gzip.compress(payload)
+        compressed = compress(payload)
         for row in manifest['volumes'].values():
             row['url'] = 's3://example-bucket@us-west-004/' + remote.storage_policy()['prefix'] + '?backup=' + row['snapshot'] + '&volume=' + row['volume']
         def request(method, key, **kwargs):
             if key.endswith('.cfg'):
                 row = next(row for row in manifest['volumes'].values() if row['snapshot'] in key)
                 return {'data': json.dumps({'VolumeName': row['volume'], 'SnapshotName': row['snapshot'],
-                                           'CompressionMethod': 'gzip', 'Blocks': [{'BlockChecksum': checksum}]}).encode()}
+                                           'CompressionMethod': 'lz4', 'Blocks': [{'BlockChecksum': checksum}]}).encode()}
             return {'data': compressed, 'bytes': len(compressed)}
         with patch.object(repository, 'request', side_effect=request):
             self.assertEqual(repository.read_blocks(manifest)['verified_blocks'], 4)
-            compressed = gzip.compress(b'corrupted')
+            compressed = compress(payload)[:-1]
+            with self.assertRaisesRegex(RuntimeError, 'checksum'):
+                repository.read_blocks(manifest)
+            compressed = compress(b'x' * (17 * 1024**2))
+            with self.assertRaisesRegex(RuntimeError, 'checksum'):
+                repository.read_blocks(manifest)
+            compressed = compress(b'corrupted')
             with self.assertRaisesRegex(RuntimeError, 'checksum'):
                 repository.read_blocks(manifest)
 

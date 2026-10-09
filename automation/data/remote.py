@@ -1,8 +1,6 @@
 """Monthly Longhorn exports and scoped B2 metadata/retention; no restic data copy."""
 from datetime import datetime, timezone
-import gzip
 import hashlib
-import io
 import json
 from pathlib import Path
 import re
@@ -109,6 +107,7 @@ class Repository:
     def read_blocks(self, manifest):
         # This independent reader uses only B2 and the pinned Longhorn format.
         # Restore verification separately boots all four downloaded volumes.
+        from lz4.frame import LZ4FrameDecompressor
         verify(manifest)
         count, stored = 0, 0
         for row in manifest['volumes'].values():
@@ -117,8 +116,8 @@ class Repository:
             config = json.loads(self.request('GET', prefix + 'backups/backup_' + row['snapshot'] + '.cfg')['data'])
             if config.get('VolumeName') != row['volume'] or config.get('SnapshotName') != row['snapshot']:
                 raise RuntimeError('Longhorn backup metadata differs from the coordinated generation')
-            if config.get('CompressionMethod') != 'gzip':
-                raise RuntimeError('Independent reader requires the declared gzip Longhorn backup format')
+            if config.get('CompressionMethod') != 'lz4':
+                raise RuntimeError('Independent reader requires the existing LZ4 Longhorn backup format')
             blocks = config.get('Blocks', [])
             if not blocks or len(blocks) > 32768:
                 raise RuntimeError('Unexpected Longhorn backup block inventory')
@@ -132,9 +131,10 @@ class Repository:
                 seen.add(checksum)
                 key = prefix + 'blocks/' + checksum[:2] + '/' + checksum[2:4] + '/' + checksum + '.blk'
                 response = self.request('GET', key, limit=32 * 1024**2)
-                with gzip.GzipFile(fileobj=io.BytesIO(response['data'])) as stream:
-                    data = stream.read(17 * 1024**2)
-                    if len(data) > 16 * 1024**2 or hashlib.sha512(data).hexdigest()[:64] != checksum:
+                with LZ4FrameDecompressor() as stream:
+                    data = stream.decompress(response['data'], max_length=17 * 1024**2)
+                    if (len(data) > 16 * 1024**2 or not stream.eof or stream.unused_data
+                            or hashlib.sha512(data).hexdigest()[:64] != checksum):
                         raise RuntimeError('Longhorn backup block checksum differs')
                 count += 1
                 stored += response['bytes']
