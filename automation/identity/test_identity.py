@@ -799,11 +799,13 @@ class IdentityTests(unittest.TestCase):
             Path(directory, 'username').write_text('fixture')
             Path(directory, 'password').write_text('fixture')
             with patch('automation.identity.configuration.private_request', side_effect=[
-                    {'access_token': 'fixture-token'}, {'attributes': {'unrelated': 'preserve'}}]):
+                    {'access_token': 'fixture-token'}, {'attributes': {'unrelated': 'preserve',
+                        'de.adorsys.keycloak.config.import-checksum-default': 'old-output'}}]):
                 prepare_master(directory, 'identity-admin.internal.example.invalid', directory)
             value = json.loads(Path(directory, 'master-bootstrap.json').read_text())
         self.assertEqual(value['attributes']['unrelated'], 'preserve')
         self.assertEqual(value['attributes']['frontendUrl'], 'https://identity-admin.internal.example.invalid')
+        self.assertNotIn('de.adorsys.keycloak.config.import-checksum-default', value['attributes'])
 
     def test_master_browser_origin_is_private_and_never_imports_users_or_keys(self):
         with tempfile.TemporaryDirectory() as directory:

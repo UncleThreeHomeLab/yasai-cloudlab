@@ -326,6 +326,11 @@ def private_request(url, token=None, form=None, accepted_statuses=(200,)):
         raise RuntimeError('Private identity request failed; diagnostics withheld') from None
 
 
+def _without_checksums(attributes):
+    return {key: value for key, value in attributes.items()
+            if not key.startswith('de.adorsys.keycloak.config.import-checksum-')}
+
+
 def prepare_master(directory, admin_host, bootstrap_directory=None):
     # A separate bootstrap-only contract; private membership input cannot target master.
     private_origin = exact_url('https://' + admin_host + '/')[:-1]
@@ -339,6 +344,7 @@ def prepare_master(directory, admin_host, bootstrap_directory=None):
             'password': credentials.joinpath('password').read_text()})['access_token']
         attributes = private_request(private_origin + '/admin/realms/master', token=token).get('attributes', {})
         if not isinstance(attributes, dict): raise ValueError('Master attributes must be a mapping')
+    attributes = _without_checksums(attributes)
     value = {'realm': 'master', 'sslRequired': 'all', 'registrationAllowed': False,
              'resetPasswordAllowed': False, 'attributes': dict(attributes, frontendUrl=private_origin),
              'accessTokenLifespan': 300, 'ssoSessionIdleTimeout': 600, 'ssoSessionMaxLifespan': 600,
@@ -392,8 +398,7 @@ def primary_profile(state, profile, attributes):
     result['attributes'] = dict(attributes)
     result['attributes'].update(state.get('attributes', {}))
     # Never feed the CLI's output checksum back into its next input checksum.
-    result['attributes'] = {key: value for key, value in result['attributes'].items()
-                            if not key.startswith('de.adorsys.keycloak.config.import-checksum-')}
+    result['attributes'] = _without_checksums(result['attributes'])
     result['attributes']['userProfileEnabled'] = 'true'
     result['userProfile'] = copy.deepcopy(profile)
     owned = {'name': 'cloudlab-primary-owner', 'multivalued': False,
