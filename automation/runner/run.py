@@ -47,6 +47,9 @@ def main():
     if action == 'identity-private-publish':
         subprocess.run([sys.executable, '-m', 'automation.identity.operations', '--publish'], cwd='/workspace', check=True)
         return
+    if action == 'identity-access-prepare':
+        subprocess.run([sys.executable, '-m', 'automation.identity.access_provider'], cwd='/workspace', check=True)
+        return
     if action in ('identity-credentials', 'identity-operation', 'identity-client-credential', 'identity-client-remove'):
         module = {'identity-credentials': 'credentials', 'identity-operation': 'operations', 'identity-client-credential': 'rotation', 'identity-client-remove': 'lifecycle'}[action]
         subprocess.run([sys.executable, '-m', 'automation.identity.' + module], cwd='/workspace', check=True)

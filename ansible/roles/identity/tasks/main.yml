@@ -22,7 +22,7 @@
     src: '{{ playbook_dir }}/../automation/identity/{{ item }}'
     dest: '/opt/cloudlab/automation/identity/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, configuration.py, maintenance.py, recovery.py, rotation.py, lifecycle.py, lease.py, argo.py, health.py, integrations.py]
+  loop: [bootstrap.py, configuration.py, maintenance.py, recovery.py, rotation.py, lifecycle.py, lease.py, argo.py, health.py, integrations.py, access_provider.py]
 
 - name: Install the bounded public root handoff from its GitOps owner
   ansible.builtin.copy:
