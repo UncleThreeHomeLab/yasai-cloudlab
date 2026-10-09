@@ -12,6 +12,15 @@ from automation.data import backup, capture, chart, control, credentials, remote
 
 
 class DataTests(unittest.TestCase):
+    def test_cold_boundary_accepts_an_empty_kubectl_inventory(self):
+        from automation.data import volumes
+        cluster = {'metadata': {'generation': 1}, 'status': {'conditions': [
+            {'type': 'cnpg.io/hibernation', 'status': 'True'}]}}
+        with patch.object(control, 'atomic'), patch.object(volumes, 'patch_values'), \
+                patch.object(volumes, 'get', side_effect=lambda kind, *args, **kwargs: None if kind == 'pods' else cluster), \
+                patch.object(volumes, 'wait', side_effect=lambda predicate, *args, **kwargs: self.assertTrue(predicate())):
+            volumes.stop()
+
     def test_interrupted_capture_cannot_keep_successful_attempt_status(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
                 patch.object(control, 'settings', return_value={'maintenance': False}), \

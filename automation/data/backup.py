@@ -78,7 +78,7 @@ def run(action):
             return {**proof, 'explicit_restore_exception': True,
                     'network': repository.client.counters()}
         pending = control.BASE / 'pending-volume.json'
-        if action == 'check-local' and pending.exists():
+        if action == 'check-local' and pending.exists() and json.loads(pending.read_text()).get('captured'):
             raise RuntimeError('Pending monthly candidate must finish before local restore proof')
         receipt = control.BASE / RECEIPT
         if monthly and receipt.exists() and not pending.exists():

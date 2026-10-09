@@ -68,13 +68,13 @@ def stop():
     # Stop S3 first, then filer, volume and master, allowing each to flush cleanly.
     for component in ('s3', 'filer', 'volume', 'master'):
         patch_values('cloudlab-seaweedfs', {'seaweedfs': {component: {'replicas': 0}}})
-        wait(lambda: not [p for p in get('pods', namespace=control.NAMESPACE)['items']
+        wait(lambda: not [p for p in (get('pods', namespace=control.NAMESPACE) or {}).get('items', [])
                           if p['metadata'].get('labels', {}).get('app.kubernetes.io/component') == component],
              'stop ' + component + ' writers', timeout=600)
     patch_values(control.APP, {'hibernated': True})
     wait(lambda: condition(get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE), 'cnpg.io/hibernation'),
          'clean PostgreSQL shutdown', timeout=600)
-    if get('pods', namespace=control.NAMESPACE)['items']:
+    if (get('pods', namespace=control.NAMESPACE) or {}).get('items', []):
         raise RuntimeError('Application pods remain during cold snapshot boundary')
 
 
