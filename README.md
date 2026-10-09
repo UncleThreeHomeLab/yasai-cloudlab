@@ -378,6 +378,10 @@ Machine bootstrap validates the complete private source but creates no people;
 private overlays apply in the primary/scoped phases. Creation-only credentials
 do not enter normal CLI state tracking. Scheduled scoped reconciliation retains
 remote state and disables checksum caching for drift repair.
+Primary creation adds an admin-only ownership field to the current user profile;
+other profile fields and realm attributes remain intact. Phase changes wait for
+the previous writer to stop and its lease to expire. Readiness requires Argo to
+have compared the current inputs, including changes at the same Git revision.
 After publishing the Argo client and private values together, `lab identity-argo`
 reads them with the existing read-only GitHub App, validates the exact overlay at
 an immutable commit, and binds it through the public root owner. Run `lab apply`

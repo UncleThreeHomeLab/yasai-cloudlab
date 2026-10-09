@@ -382,6 +382,30 @@ def initialize_primary(state, current, values):
     return result
 
 
+def primary_profile(state, profile, attributes):
+    if (not isinstance(profile, dict) or not isinstance(profile.get('attributes'), list) or
+            not isinstance(attributes, dict) or len(profile['attributes']) > 1000 or
+            any(not isinstance(row, dict) or not isinstance(row.get('name'), str) for row in profile['attributes']) or
+            len({row['name'] for row in profile['attributes']}) != len(profile['attributes'])):
+        raise ValueError('Complete unambiguous primary user profile is required')
+    result = copy.deepcopy(state)
+    result['attributes'] = dict(attributes)
+    result['attributes'].update(state.get('attributes', {}))
+    result['attributes']['userProfileEnabled'] = 'true'
+    result['userProfile'] = copy.deepcopy(profile)
+    owned = {'name': 'cloudlab-primary-owner', 'multivalued': False,
+             'permissions': {'view': ['admin'], 'edit': ['admin']},
+             'validations': {'pattern': {'pattern': '[a-f0-9]{32}'}}}
+    rows = result['userProfile']['attributes']
+    for index, row in enumerate(rows):
+        if row['name'] == owned['name']:
+            rows[index] = owned
+            break
+    else:
+        rows.append(owned)
+    return result
+
+
 def prepare_primary(directory, credentials_directory, bootstrap_directory, admin_host):
     from urllib.parse import urlencode
     credentials = Path(credentials_directory)
@@ -403,7 +427,10 @@ def prepare_primary(directory, credentials_directory, bootstrap_directory, admin
             'username': values[realm + '_username'], 'exact': 'true', 'max': 2}), token=token) if any(
                 row.get('realm') == realm for row in realms) else []
         path = Path(directory) / filename
-        documents[path] = initialize_primary(json.loads(path.read_text()), current, values)
+        state = initialize_primary(json.loads(path.read_text()), current, values)
+        documents[path] = primary_profile(state,
+            private_request(origin + '/admin/realms/' + realm + '/users/profile', token=token),
+            private_request(origin + '/admin/realms/' + realm, token=token).get('attributes', {}))
     # Validate both realms before writing either creation-only input.
     for path, document in documents.items():
         path.write_text(json.dumps(document, sort_keys=True))

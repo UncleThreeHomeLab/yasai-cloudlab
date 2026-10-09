@@ -31,6 +31,28 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_phase_wait_rejects_stale_source_and_busy_writer(self):
+        from automation.identity.bootstrap import reconciled, writer_idle
+        app = {'metadata': {'uid': 'owned'}, 'spec': {'source': {'helm': {'valuesObject': {'primary': True}}}},
+               'status': {'sync': {'comparedTo': {'source': {'helm': {'valuesObject': {'primary': False}}}}}}}
+        with patch('automation.identity.bootstrap.get', return_value=app), \
+                patch('automation.identity.bootstrap.application_ready', return_value=True):
+            self.assertFalse(reconciled('same-revision', 'owned'))
+            app['status']['sync']['comparedTo']['source'] = copy.deepcopy(app['spec']['source'])
+            self.assertTrue(reconciled('same-revision', 'owned'))
+            with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                reconciled('same-revision', 'replacement')
+        lease = {'spec': {'holderIdentity': 'prior', 'renewTime': '1970-01-01T00:00:00Z', 'leaseDurationSeconds': 240}}
+        pods = {'items': [{'metadata': {'uid': 'prior'}, 'status': {'phase': 'Running'}}]}
+        with patch('automation.identity.bootstrap.get', side_effect=lambda kind, *a, **kw: lease if kind == 'lease' else pods), \
+                patch('automation.identity.bootstrap.time.time', return_value=300):
+            self.assertFalse(writer_idle())
+            pods['items'][0]['status']['phase'] = 'Succeeded'
+            self.assertTrue(writer_idle())
+        with patch('automation.identity.bootstrap.get', return_value={'spec': lease['spec']}), \
+                patch('automation.identity.bootstrap.time.time', return_value=239):
+            self.assertFalse(writer_idle())
+
     def test_machine_bootstrap_validates_private_source_without_creating_people_early(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -63,12 +85,27 @@ class IdentityTests(unittest.TestCase):
             (base / 'master-bootstrap.json').write_text(json.dumps(master))
             (base / 'platform.json').write_text(json.dumps(platform))
             with patch('automation.identity.configuration.private_request', side_effect=[
-                    {'access_token': 'fixture'}, [{'realm': 'master'}, {'realm': 'platform'}], [],
+                    {'access_token': 'fixture'}, [{'realm': 'master'}, {'realm': 'platform'}], [], {'attributes': []}, {},
                     [{'username': 'operator-fixture', 'attributes': {}}]]):
                 with self.assertRaisesRegex(ValueError, 'unrelated existing account'):
                     prepare_primary(base, base, base, 'identity-admin.internal.example.invalid')
             self.assertEqual(json.loads((base / 'master-bootstrap.json').read_text()), master)
             self.assertEqual(json.loads((base / 'platform.json').read_text()), platform)
+
+    def test_primary_profile_keeps_unmanaged_fields_and_marker_admin_only(self):
+        from automation.identity.configuration import primary_profile
+        profile = {'attributes': [{'name': 'username', 'permissions': {'edit': ['user', 'admin']}}],
+                   'groups': [{'name': 'unrelated'}], 'unmanagedAttributePolicy': 'ADMIN_VIEW'}
+        state = primary_profile({'realm': 'platform'}, profile, {'unrelated': 'preserved'})
+        self.assertEqual(state['userProfile']['attributes'][:-1], profile['attributes'])
+        self.assertEqual(state['userProfile']['groups'], profile['groups'])
+        self.assertEqual(state['userProfile']['unmanagedAttributePolicy'], 'ADMIN_VIEW')
+        self.assertEqual(state['userProfile']['attributes'][-1]['permissions'], {'view': ['admin'], 'edit': ['admin']})
+        self.assertEqual(state['attributes'], {'unrelated': 'preserved', 'userProfileEnabled': 'true'})
+        self.assertEqual(primary_profile(state, state['userProfile'], state['attributes']), state)
+        self.assertEqual(len(profile['attributes']), 1)
+        for unsafe in ({}, {'attributes': [{'name': 'duplicate'}, {'name': 'duplicate'}]}):
+            with self.assertRaises(ValueError): primary_profile({'realm': 'master'}, unsafe, {})
 
     def test_private_github_contents_accept_line_wrapping_but_reject_garbage(self):
         encoded = base64.b64encode(b'complete-private-source').decode()

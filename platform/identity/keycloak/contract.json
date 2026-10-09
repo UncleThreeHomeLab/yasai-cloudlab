@@ -25,8 +25,13 @@
       "password"
     ],
     "keycloak-primary-admin": [
-      "master_username", "platform_username", "master_password", "platform_password",
-      "ownership_id", "email", "email_verified"
+      "master_username",
+      "platform_username",
+      "master_password",
+      "platform_password",
+      "ownership_id",
+      "email",
+      "email_verified"
     ],
     "keycloak-realm-writers": [
       "platform_client_secret",
@@ -54,7 +59,8 @@
     ],
     "removal": "Explicit retire then remove-client plan and published persistent tombstone. Old source containing removed clients fails closed; missing private inputs never become empty imports. Scoped runtime operation verifies disabled client, waits 600 seconds for declared Keycloak/client sessions and JWTs, runs serialized Argo seed/removal job and restores normal reconciliation. Unrelated clients and users are preserved. Live operation unverified; application sessions require their own measured contracts.",
     "master": "Separate bootstrap-only private frontend URL, MFA flow and audit settings. Generic private overlays cannot target master. An explicit primary phase initializes one vault-bound master administrator and one privately inventoried platform administrator; passwords, enabled state, verified email and WebAuthn enrollment actions are creation-only. Existing unrelated users cannot be adopted. Normal writers have no master access; real enrollment and emergency custody must precede bootstrap retirement.",
-    "groups": "Generic platform-admin/developer/viewer realm roles. Private role_groups maps declared client roles to those approved groups through client-owned /client-<id>/<role> subgroups. Only explicitly inventoried memberships receive derived client groups; shared groups are never assigned a complete clientRoles map. Omitted group/subgroup objects are not automatically deleted."
+    "groups": "Generic platform-admin/developer/viewer realm roles. Private role_groups maps declared client roles to those approved groups through client-owned /client-<id>/<role> subgroups. Only explicitly inventoried memberships receive derived client groups; shared groups are never assigned a complete clientRoles map. Omitted group/subgroup objects are not automatically deleted.",
+    "primary_profile": "Primary creation merges the current user profile and realm attributes before config-cli import. Only cloudlab-primary-owner is added or repaired with admin-only read/edit permissions and a 32-hex validator; unrelated fields, groups and unmanaged-attribute policy are preserved. Normal scoped imports do not replace user profiles."
   },
   "sessions": {
     "access_token_seconds": 300,

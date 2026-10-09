@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -12,8 +13,23 @@ from automation.identity.configuration import compile_state, exact_url
 from automation.identity.maintenance import APP, NAMESPACE, OWNER, BASE
 from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
 from automation.gitops.private_sources import PEM_TEMPLATE
+from automation.identity.lease import available, previous_writer_done
 
 PHASES = ('server', 'bootstrap', 'primary', 'scoped')
+
+
+def writer_idle():
+    lease = get('lease', 'identity-writer', NAMESPACE)
+    return bool(lease) and available(lease.get('spec', {}), time.time()) and previous_writer_done(
+        lease.get('spec', {}), get('pods', namespace=NAMESPACE)['items'])
+
+
+def reconciled(revision, uid):
+    app = get('application.argoproj.io', APP, 'argocd') or {}
+    if app.get('metadata', {}).get('uid') != uid:
+        raise RuntimeError('Identity Application identity changed during convergence')
+    compared = app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {})
+    return contains(compared, app['spec']['source']) and application_ready(APP, revision)
 
 
 def private_resources(payload):
@@ -221,12 +237,14 @@ def run(payload, phase):
             private_inputs(payload)
         changed = not current or not contains(current, desired)
         if changed:
+            if current and current['spec']['source']['helm']['valuesObject'].get('reconciliationEnabled'):
+                wait(writer_idle, 'previous identity writer completion and lease expiry', timeout=300)
             kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
         current = get('application.argoproj.io', APP, 'argocd')
         # Save identity before waiting so interrupted convergence can resume safely.
         atomic(receipt, {'uid': current['metadata']['uid'], 'phase': phase, 'revision': payload['revision'],
                          'private_uids': private_uids})
-        wait(lambda: application_ready(APP, payload['revision']) and
+        wait(lambda: reconciled(payload['revision'], current['metadata']['uid']) and
              condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready'),
              'identity Application and server readiness convergence', timeout=900)
         return {'changed': changed, 'phase': phase, 'bootstrap_admin_retired': False,
