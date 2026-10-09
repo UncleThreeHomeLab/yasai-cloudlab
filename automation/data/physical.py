@@ -79,6 +79,14 @@ def postgres(manifest):
                     'spec': {'automountServiceAccountToken': False,
                        'securityContext': {'runAsNonRoot': True, 'runAsUser': 26, 'runAsGroup': 26, 'fsGroup': 26,
                                            'seccompProfile': {'type': 'RuntimeDefault'}},
+                       # Kubelet fsGroup handling adds group write to restored
+                       # directories. PostgreSQL requires its own data dir 0700.
+                       'initContainers': [{'name': 'restore-permissions', 'image': pin,
+                         'securityContext': security,
+                         'command': ['chmod', '0700', '/var/lib/postgresql/data/pgdata'],
+                         'resources': {'requests': {'cpu': '10m', 'memory': '16Mi'},
+                                       'limits': {'cpu': '100m', 'memory': '64Mi'}},
+                         'volumeMounts': [{'name': 'data', 'mountPath': '/var/lib/postgresql/data'}]}],
                        'containers': [{'name': 'postgres', 'image': pin, 'securityContext': security,
                          'command': ['postgres', '-D', '/var/lib/postgresql/data/pgdata', '-c', 'config_file=/restore/postgresql.conf'],
                          'env': [{'name': 'PGHOST', 'value': '/tmp'}],
