@@ -396,6 +396,23 @@ private CD website stored on its item and select Keycloak login. For master, ope
 the private admin console website. Run this creation command only when
 preparing CloudLab items, not after moving them. The original machine-owned
 `keycloak-primary-admin` item remains the ESO source during initialization.
+After both real browser logins and recovery custody are complete, run
+`lab identity-retire-bootstrap` with JSON
+`{"recovery_custody_confirmed": true}` on standard input. This operation verifies
+owned WebAuthn credentials, required user verification, current private membership
+and recent master/Argo browser events before stopping the server. It creates one
+temporary `keycloak-emergency-<nonce>` CloudLab item with `client_id` and
+`client_secret`, delivered only through ESO. An Argo job exercises the official
+offline service bootstrap; serialized config-cli jobs disable the exact bootstrap
+user, password grant and temporary service. The operation checks unrelated users,
+credentials and signing state, then measures or conservatively bounds old admin
+JWT expiry to 300 seconds. A private checkpoint resumes interrupted operations;
+pending retirement blocks ordinary bootstrap and backup maintenance. Keep the
+public revision fixed until retirement finishes. Retired ESO resources and vault
+items remain declared without being mounted by the server or normal writer.
+Repeat checks active scoped reconciliation and cannot re-enable bootstrap access.
+Production retirement is not accepted until this operation passes with real
+passkeys and confirmed recovery custody.
 Machine bootstrap validates the complete private source but creates no people;
 private overlays apply in the primary/scoped phases. Creation-only credentials
 do not enter normal CLI state tracking. Scheduled scoped reconciliation retains

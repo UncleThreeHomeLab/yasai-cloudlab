@@ -4,11 +4,28 @@ import json
 import os
 from pathlib import Path
 import ssl
+import time
 import urllib.error
 import urllib.request
 
 DURATION = 240
 OWNER = 'cloudlab-identity-writer'
+
+
+class WriterBusy(RuntimeError):
+    pass
+
+
+def acquire_sync():
+    """Wait inside the bounded sync job so scheduled leases cannot starve it."""
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            return acquire()
+        except WriterBusy:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(5)
 
 
 def owned_lease(request, namespace, endpoint):
@@ -51,19 +68,32 @@ def previous_writer_done(spec, pods):
                    not in ('Succeeded', 'Failed') for pod in pods)
 
 
-def acquire(skip_busy=False):
+def api_request(method, url, value=None):
     account = Path('/var/run/secrets/kubernetes.io/serviceaccount')
-    namespace = account.joinpath('namespace').read_text().strip()
-    endpoint = 'https://kubernetes.default.svc/apis/coordination.k8s.io/v1/namespaces/' + namespace + '/leases/identity-writer'
     context = ssl.create_default_context(cafile=str(account / 'ca.crt'))
     headers = {'Authorization': 'Bearer ' + account.joinpath('token').read_text().strip(),
                'Content-Type': 'application/json'}
+    req = urllib.request.Request(url, data=json.dumps(value).encode() if value else None,
+                                 method=method, headers=headers)
+    with urllib.request.urlopen(req, context=context, timeout=10) as response:
+        return json.load(response)
 
-    def request(method, value=None, url=endpoint):
-        req = urllib.request.Request(url, data=json.dumps(value).encode() if value else None,
-                                     method=method, headers=headers)
-        with urllib.request.urlopen(req, context=context, timeout=10) as response:
-            return json.load(response)
+
+def offline_guard(uid):
+    namespace = Path('/var/run/secrets/kubernetes.io/serviceaccount').joinpath('namespace').read_text().strip()
+    origin = 'https://kubernetes.default.svc'
+    server = api_request('GET', origin + '/apis/k8s.keycloak.org/v2beta1/namespaces/' + namespace + '/keycloaks/cloudlab-keycloak')
+    pods = api_request('GET', origin + '/api/v1/namespaces/' + namespace + '/pods')['items']
+    if (server['metadata']['uid'] != uid or server['spec']['instances'] != 0 or any(
+            pod['metadata'].get('labels', {}).get('app') == 'keycloak' and
+            pod.get('status', {}).get('phase') not in ('Succeeded', 'Failed') for pod in pods)):
+        raise RuntimeError('Offline recovery requires the unchanged stopped server and no active server Pods')
+
+
+def acquire(skip_busy=False):
+    namespace = Path('/var/run/secrets/kubernetes.io/serviceaccount').joinpath('namespace').read_text().strip()
+    endpoint = 'https://kubernetes.default.svc/apis/coordination.k8s.io/v1/namespaces/' + namespace + '/leases/identity-writer'
+    request = lambda method, value=None, url=endpoint: api_request(method, url, value)
 
     # Argo CD always excludes Leases. The Argo job owns this operational lock.
     current = owned_lease(request, namespace, endpoint)
@@ -71,7 +101,7 @@ def acquire(skip_busy=False):
     if not available(current.get('spec', {}), now.timestamp()):
         if skip_busy:
             return False
-        raise RuntimeError('Another identity writer holds the lease')
+        raise WriterBusy('Another identity writer holds the lease')
     if current.get('spec', {}).get('holderIdentity'):
         pods = request('GET', url='https://kubernetes.default.svc/api/v1/namespaces/' + namespace +
                        '/pods')['items']

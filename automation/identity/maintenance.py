@@ -62,6 +62,9 @@ def set_maintenance(enabled):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('Another identity operation owns the maintenance boundary') from None
+        retirement = BASE / 'retirement.json'
+        if retirement.exists() and json.loads(retirement.read_text()).get('phase') != 'accepted':
+            raise RuntimeError('Resume the pending emergency owner before backup maintenance')
         return _set_maintenance(enabled)
 
 

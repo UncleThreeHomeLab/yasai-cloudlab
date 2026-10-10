@@ -1,7 +1,14 @@
 {{- if and .Values.enabled .Values.reconciliationEnabled }}
 {{- if .Values.operation }}
+{{- if has .Values.operation.action (list "prepare-emergency" "seed-emergency" "retire-bootstrap" "retire-emergency") }}
+{{- if or .Values.bootstrapMode (not .Values.privateStateEnabled) (ne (len .Values.operation) 6) (not (regexMatch "^emergency-[a-f0-9]{32}$" .Values.operation.client)) (ne .Values.operation.item (printf "keycloak-%s" .Values.operation.client)) (not (regexMatch "^[a-z][a-z0-9-]{0,62}$" .Values.operation.bootstrapUsername)) (not (regexMatch "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$" .Values.operation.bootstrapUserId)) (not (regexMatch "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$" .Values.operation.keycloakUID)) }}
+{{- fail "Emergency retirement requires the exact private owner and temporary service inventory" }}
+{{- end }}
+{{- if ne .Values.maintenance (has .Values.operation.action (list "prepare-emergency" "seed-emergency")) }}{{ fail "Offline recovery and retirement maintenance boundaries differ" }}{{ end }}
+{{- else }}
 {{- if or .Values.bootstrapMode (not .Values.privateStateEnabled) (ne .Values.operation.action "remove-client") (not (has .Values.operation.realm (list "platform" "applications"))) (not (regexMatch "^[a-z][a-z0-9-]{0,62}$" .Values.operation.client)) }}
 {{- fail "Removal requires a bounded managed realm/client and ready private inputs" }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- $lock := .Files.Get "artifact.lock.json" | fromJson }}
@@ -27,6 +34,10 @@ rules:
   - apiGroups: ['']
     resources: [pods]
     verbs: [list]
+  - apiGroups: [k8s.keycloak.org]
+    resources: [keycloaks]
+    resourceNames: [cloudlab-keycloak]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -73,7 +84,7 @@ spec:
         spec:
 {{ include "identity.pod" (dict "Values" .Values "Files" .Files "skipBusy" true) | indent 10 }}
 {{- end }}
-{{- if not .Values.maintenance }}
+{{- if and (not .Values.maintenance) (or (empty .Values.operation) (eq .Values.operation.action "remove-client")) }}
 ---
 apiVersion: batch/v1
 kind: Job

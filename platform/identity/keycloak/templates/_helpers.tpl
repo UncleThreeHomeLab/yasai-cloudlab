@@ -28,7 +28,7 @@ initContainers:
     args:
       - >-
         import sys; from pathlib import Path; sys.path.insert(0,'/code');
-        from lease import acquire; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory;
+        from lease import acquire, acquire_sync; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory;
         {{- if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
         {{- else }}
@@ -40,7 +40,11 @@ initContainers:
         {{- end }}
         {{- end }}
         {{- end }}
-        acquire(skip_busy={{ ternary "True" "False" (.skipBusy | default false) }}) or Path('/imports/skip').touch(mode=0o600);
+        {{- if .skipBusy | default false }}
+        acquire(skip_busy=True) or Path('/imports/skip').touch(mode=0o600);
+        {{- else }}
+        acquire_sync();
+        {{- end }}
         {{- if .Values.operation }}
         removal_inventory('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, {{ .Values.adminHost | quote }})
         {{- end }}

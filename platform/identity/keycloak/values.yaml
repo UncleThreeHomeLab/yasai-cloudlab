@@ -20,3 +20,5 @@ trustedProxyAddresses: []
 schedule: '*/5 * * * *'
 # Explicit private runtime operation; never inferred from omitted inventory.
 operation: {}
+# Retain ESO ownership of retired material without mounting it on normal writers.
+retiredEmergencyItem: ''
