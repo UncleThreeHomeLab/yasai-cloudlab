@@ -86,6 +86,13 @@ def check():
     if {path['value'] for path in private_paths if path['type'] == 'PathPrefix'} != {
             '/resources', '/realms/platform/account', '/realms/applications/account'}:
         raise ValueError('Private canonical-host route must not expose realm administration')
+    administration = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'identity-administration')['spec']
+    for realm in ('platform', 'applications'):
+        redirects = [rule for rule in administration['rules'] if rule.get('matches') == [
+            {'path': {'type': 'PathPrefix', 'value': '/realms/' + realm + '/account'}}]]
+        if len(redirects) != 1 or redirects[0]['filters'] != [{'type': 'RequestRedirect',
+                'requestRedirect': {'hostname': account['hostnames'][0], 'statusCode': 302}}]:
+            raise ValueError('Saved private account links must retain their path at the canonical origin')
     for realm in ('platform', 'applications'):
         required = {'/realms/' + realm + '/.well-known/openid-configuration',
                     '/realms/' + realm + '/login-actions/required-action'}

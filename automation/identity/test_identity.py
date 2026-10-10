@@ -270,6 +270,8 @@ class IdentityTests(unittest.TestCase):
             return [{'time': 1, 'type': 'LOGIN', 'operationType': 'UPDATE',
                      'username': 'private-user', 'ipAddress': 'private-address', 'representation': 'private'}]
         def direct(url, address, headers):
+            if url.startswith('https://identity-admin.') and url.endswith('/account/'):
+                return 302, b''
             if url.endswith('/credentials'):
                 self.assertEqual(headers.get('Accept'), 'application/json')
                 return 401, b''
