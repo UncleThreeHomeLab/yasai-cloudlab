@@ -54,7 +54,7 @@ def run():
     with (state_dir / 'external.lock').open('a') as lock, transaction() as receipts:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = receipts.load('external') or {}
-        from automation.identity.access_cutover import selection
+        from automation.identity.access_cutover import approved_email, selection
         selected_provider, identity_group = selection(state, os.environ['CLOUDFLARE_IDP_ID'])
 
         def save(value):
@@ -74,7 +74,7 @@ def run():
         result = Reconciler(admin, dns, state, save).run(
             account=admin_values['ACCOUNT_ID'], zone_id=dns_values['ZONE_ID'], zone=zone,
             tunnel=runtime['TUNNEL_ID'], rules=json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS']),
-            team=domain.removesuffix('.cloudflareaccess.com'), human_email=os.environ['CLOUDFLARE_HUMAN_EMAIL'],
+            team=domain.removesuffix('.cloudflareaccess.com'), human_email=approved_email(state, os.environ['CLOUDFLARE_HUMAN_EMAIL']),
             identity_provider=selected_provider, identity_group=identity_group, service_token_id=machine['SERVICE_TOKEN_ID'],
             add_identity_protocol=os.environ.get('LAB_IDENTITY_ENABLED') == '1')
     print(json.dumps(result, sort_keys=True))

@@ -26,7 +26,7 @@ RECEIPT = Path('/state/connectivity/human-proof.json')
 
 
 def selected():
-    from automation.identity.access_cutover import selection
+    from automation.identity.access_cutover import approved_email, selection
     with transaction() as receipts:
         state = receipts.load('external') or {}
     identity_provider, identity_group = selection(state, os.environ['CLOUDFLARE_IDP_ID'])
@@ -51,7 +51,7 @@ def selected():
         if len(found) != 1:
             raise RuntimeError('Human Access application identity is ambiguous')
         app = admin.request('GET', 'accounts/' + admin_values['ACCOUNT_ID'] + '/access/apps/' + found[0]['id'])
-        desired = access_application(rule, human_email=os.environ['CLOUDFLARE_HUMAN_EMAIL'],
+        desired = access_application(rule, human_email=approved_email(state, os.environ['CLOUDFLARE_HUMAN_EMAIL']),
                                      identity_provider=identity_provider, identity_group=identity_group)
         if not matches(app, desired):
             raise RuntimeError('Human Access policy differs from its declared identity rule')
@@ -105,7 +105,9 @@ def record(token):
         since = captured['identity_provider']['credential_ready_at']
         from automation.identity.access_cutover import browser_gate
         browser_gate(organization.removesuffix('.cloudflareaccess.com'), since)
-    now = verify_token(token, applications[0]['aud'], organization, os.environ['CLOUDFLARE_HUMAN_EMAIL'], issued_after=since)
+    from automation.identity.access_cutover import approved_email
+    now = verify_token(token, applications[0]['aud'], organization,
+                       approved_email(captured, os.environ['CLOUDFLARE_HUMAN_EMAIL']), issued_after=since)
     headers = {'Cookie': 'CF_Authorization=' + token}
     if not success(https(applications[0]['hostname'], headers=headers, path=PROOF_PATH)):
         raise RuntimeError('Verified human session did not reach the protected backend')

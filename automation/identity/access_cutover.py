@@ -24,9 +24,18 @@ def selection(state, previous):
             cutover.get('provider') != owner.get('id') or
             not re.fullmatch('[A-Za-z0-9-]{1,64}', cutover.get('provider') or '') or
             owner.get('phase') not in ('prepared', 'configured', 'accepted') or
+            not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', cutover.get('human_email') or '') or
             cutover.get('group') != '/platform-admin'):
         raise RuntimeError('Central Access receipt changed; no fallback or provider mutation permitted')
     return cutover['provider'], cutover['group']
+
+
+def approved_email(state, previous_email):
+    cutover = state.get('identity_cutover')
+    if cutover is None:
+        return previous_email
+    selection(state, cutover.get('previous'))
+    return cutover['human_email']
 
 
 def gate(team, since=None):
@@ -59,7 +68,7 @@ def gate(team, since=None):
             cm.get('users.session.duration') != '10m'):
         raise RuntimeError('Central Access requires current exact native Argo OIDC and group mapping')
     primary = vault_secret('keycloak-primary-admin')
-    current_private(values, primary)
+    email = current_private(values, primary)
     writer = vault_secret('keycloak-realm-writers')
     origin = 'https://' + values['loginHost']
     bearer = private_request(origin + '/realms/platform/protocol/openid-connect/token', form={
@@ -68,7 +77,7 @@ def gate(team, since=None):
     admin = 'https://' + values['adminHost'] + '/admin/realms/platform'
     rows = private_request(admin + '/users?' + urlencode({'username': primary['platform_username'], 'exact': 'true'}), token=bearer)
     if (len(rows) != 1 or rows[0].get('enabled') is not True or rows[0].get('emailVerified') is not True or
-            rows[0].get('email', '').lower() != primary['email'].lower() or
+            rows[0].get('email', '').lower() != email.lower() or
             rows[0].get('attributes', {}).get('cloudlab-primary-owner') != [primary['ownership_id']] or
             'webauthn-register' in rows[0].get('requiredActions', [])):
         raise RuntimeError('Central Access requires the current active enrolled primary operator')
@@ -89,7 +98,7 @@ def gate(team, since=None):
                    type(row.get('time')) is int and row['time'] > since * 1000 and
                    0 <= time.time() * 1000 - row['time'] <= 900000 for row in events):
             raise RuntimeError('Fresh dedicated-client code exchange required; cached Access SSO is insufficient')
-    return snapshot(team)
+    return dict(snapshot(team), human_email=email)
 
 
 def browser_gate(team, since):
@@ -118,14 +127,15 @@ def validate_provider(state, previous, contract):
 def prepare(state, previous, contract):
     owner = validate_provider(state, previous, contract)
     wanted = {'phase': 'prepared', 'binding': state['binding'], 'provider': owner['id'],
-              'previous': previous, 'group': '/platform-admin'}
+              'previous': previous, 'group': '/platform-admin', 'human_email': contract['human_email']}
     if state.get('identity_cutover'):
         selection(state, previous)
         if any(state['identity_cutover'].get(key) != value for key, value in wanted.items() if key != 'phase'):
             raise RuntimeError('Central Access cutover inputs advanced; retain the checkpoint')
         return False
-    from automation.identity.access_canary import verified
-    if not verified(state):
+    from automation.identity.access_canary import desired, verified
+    if (not verified(state) or state['identity_canary'].get('desired') !=
+            desired(state['identity_canary']['hostname'], contract['human_email'], owner['id'])):
         raise RuntimeError('Central Access requires a recent signed dedicated-provider canary login before policy cutover')
     state['identity_cutover'] = wanted
     selection(state, previous)

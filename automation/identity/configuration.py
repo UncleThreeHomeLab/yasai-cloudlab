@@ -17,6 +17,15 @@ WRITER_ROLES = ['manage-realm', 'manage-users', 'manage-clients', 'view-realm',
                 'view-users', 'view-clients', 'view-events', 'view-identity-providers']
 
 
+def email_profile(profile):
+    if (not isinstance(profile, dict) or set(profile) != {'email', 'verified'} or
+            not isinstance(profile['email'], str) or
+            not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', profile['email']) or
+            type(profile['verified']) is not bool):
+        raise ValueError('Email profile requires an explicit address and operator verification assertion')
+    return {'email': profile['email'], 'emailVerified': profile['verified']}
+
+
 def bootstrap_writer(state, secret):
     if state.get('realm') not in REALMS or not isinstance(secret, str) or len(secret) < 32:
         raise ValueError('Bootstrap writer requires a managed realm and vault secret')
@@ -221,8 +230,9 @@ def compile_state(realm, rp_id, source=None, credentials=None, revocations=None)
             existing['enabled'] = False
     users = []
     for member in desired.get('memberships', []):
-        if set(member) != {'username', 'groups'} or not isinstance(member['username'], str) or not member['username']:
-            raise ValueError('Memberships accept username and groups only')
+        if (not {'username', 'groups'} <= set(member) or set(member) - {'username', 'groups', 'profile'} or
+                not isinstance(member['username'], str) or not member['username']):
+            raise ValueError('Memberships accept username, groups and an optional explicit email profile')
         if member['username'].startswith('service-account-'):
             raise ValueError('Human membership inputs cannot manage machine service accounts')
         if not isinstance(member['groups'], list) or set(member['groups']) - set(GROUPS):
@@ -234,7 +244,10 @@ def compile_state(realm, rp_id, source=None, credentials=None, revocations=None)
                 groups.extend('/client-' + configured['id'] + '/' + role
                     for role, permitted in configured.get('role_groups', {}).items()
                     if set(permitted) & set(member['groups']))
-        users.append({'username': member['username'], 'groups': groups})
+        user = {'username': member['username'], 'groups': groups}
+        if 'profile' in member:
+            user.update(email_profile(member['profile']))
+        users.append(user)
     if len({u['username'] for u in users}) != len(users):
         raise ValueError('Duplicate private membership')
     for username in denied.get('users', []):
@@ -408,6 +421,8 @@ def initialize_primary(state, current, values):
     member = next((user for user in result.get('users', []) if user['username'] == username), None)
     if realm == 'platform' and (not member or '/platform-admin' not in member.get('groups', []) or member.get('enabled') is False):
         raise ValueError('Primary platform membership must be active and explicitly declared in the private source')
+    if member is not None and 'email' in member:
+        email = member['email']
     if current:
         if current[0].get('attributes', {}).get('cloudlab-primary-owner') != [marker]:
             raise ValueError('Primary initialization cannot adopt an unrelated existing account')
@@ -415,7 +430,7 @@ def initialize_primary(state, current, values):
     if member is None:
         member = {'username': username, 'realmRoles': ['admin']}
         result.setdefault('users', []).append(member)
-    member.update(enabled=True, email=email, emailVerified=True,
+    member.update(enabled=True, email=email, emailVerified=member.get('emailVerified', True),
                   requiredActions=['webauthn-register'], attributes={'cloudlab-primary-owner': [marker]},
                   credentials=[{'type': 'password', 'value': password, 'temporary': False}])
     return result

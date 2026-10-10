@@ -48,7 +48,7 @@
   "managed_fields": {
     "realm": "Fields emitted by configuration.baseline; master excluded",
     "client": "Fields emitted by configuration.client; only explicit private inventory",
-    "membership": "Complete group list for explicitly inventoried users; never enabled:true or credentials",
+    "membership": "Complete group list for explicitly inventoried users; optional exact profile {email, verified} manages email/emailVerified through scoped config-cli. Verification is an explicit operator ownership assertion, not SMTP proof. Omitted profiles remain unmanaged; never enabled:true or credentials.",
     "revocations": "Persistent private tombstones override desired clients and memberships",
     "unmanaged": [
       "Other users",
@@ -193,6 +193,7 @@
       "retire-client",
       "remove-client",
       "offboard-user",
+      "set-user-email",
       "provision-argo",
       "provision-access"
     ],
@@ -220,6 +221,7 @@
     "status": "Live vault-to-ESO-to-serialized-CLI rotation passed: new credential authenticated, old credential denied with HTTP 401, no sessions created. An interrupted proof resumed the same pending secret without a second rotation.",
     "refresh": "Hourly routine ESO reads; an explicit rotation requests one force-sync and waits for serialized five-minute CLI convergence. Quota exhaustion blocks delivery until reset; existing retained secrets and independent repair remain available.",
     "browser_login_items": "Explicit identity-primary-login-items creates two CloudLab Login copies of existing primary credentials and private websites. Never changes existing items, passkeys or Keycloak credentials. Human browser enrollment and a move to the personal vault remain required; original primary-admin item stays the ESO source during initialization.",
+    "login_guide": "identity-login-guide maintains a separate owned CloudLab Secure Note with private master and Argo login links, separate account selection and generated username instructions. Preserves notes outside the managed section and never edits Login items or passkeys. Public issuer root/account paths are denied; platform has application roles, not realm-management privileges.",
     "denial": "New credential must return HTTP 400 invalid_grant for a deliberately invalid authorization code. Old credential must return HTTP 401 invalid_client or unauthorized_client. Other codes/statuses do not complete rotation."
   },
   "master_emergency_proof": {
@@ -266,7 +268,7 @@
       "lab identity-access-canary-remove"
     ],
     "gate": "Completed production retirement with real MFA/custody, exact resource owners, current native Argo CM/RBAC, active private primary membership and enrolled WebAuthn, and authenticated exact dedicated OIDC client.",
-    "policy": "Only owned human applications; approved email AND exact /platform-admin OIDC group AND dedicated login method. Previous provider remains present; machine applications retain their independent service-token policy.",
+    "policy": "Only owned human applications; current verified platform email from private membership profile (legacy vault email when omitted) AND exact /platform-admin OIDC group AND dedicated login method. Canary must prove that exact email before cutover; durable receipt preserves it independently of Keycloak. Previous provider and its pre-cutover email remain present; Cloudflare account email and machine service-token policies stay independent.",
     "writer": "Existing external Reconciler; durable prepared/configured/accepted host receipt. Normal selection is pure and never contacts Keycloak; inconsistent receipts fail closed without provider fallback.",
     "canary": "Before initial policy cutover, a disposable path-specific Access application on the already owned public smoke hostname requires the dedicated provider, approved email and exact /platform-admin group. A real signed session, exact audience, backend response and independent machine denial must pass within 900 seconds of cutover. No production application policies change during this proof. Separate named fixture namespaces and exact ownership checks permit cleanup without contacting Keycloak.",
     "browser_proof": "Existing access-human-proof verifies a real signed Access JWT, exact issuer/audience/email/expiry, protected backend and machine denial. Current central policy/provider and unchanged credential receipt are required. It records acceptance without persisting the session.",

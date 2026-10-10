@@ -61,7 +61,10 @@ class HumanTests(unittest.TestCase):
     def test_central_acceptance_requires_signed_browser_proof_and_unchanged_provider_inputs(self):
         for drift in (False, True):
             with self.subTest(drift=drift):
-                state = {'identity_cutover': {'phase': 'configured'}, 'identity_provider': {
+                state = {'binding': 'owned', 'identity_cutover': {'phase': 'configured',
+                    'binding': 'owned', 'provider': 'dedicated', 'previous': 'previous',
+                    'group': '/platform-admin', 'human_email': 'admin@example.invalid'}, 'identity_provider': {
+                    'id': 'dedicated', 'binding': {'previous': 'previous'},
                     'phase': 'configured', 'credential_hash': 'original', 'credential_ready_at': int(time.time()) - 10}}
                 saved = {}
                 def response(*args, **kwargs):

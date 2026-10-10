@@ -32,6 +32,32 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_login_guide_repeat_preserves_human_notes_and_never_edits_login_items(self):
+        from automation.identity.credentials import login_guide
+        item = None
+        writes = []
+        def command(arguments, token, document=None):
+            nonlocal item
+            if arguments[:2] == ['item', 'list']:
+                return [{'id': 'guide', 'title': 'keycloak-login-guide'}] if item else []
+            if arguments[:2] == ['item', 'get']:
+                return copy.deepcopy(item)
+            self.assertIn(arguments[1], ('create', 'edit'))
+            self.assertEqual(document['category'], 'SECURE_NOTE')
+            item = dict(copy.deepcopy(document), id='guide')
+            writes.append(arguments[1])
+            return copy.deepcopy(item)
+        hosts = {'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid'}
+        with patch('automation.identity.credentials.command', side_effect=command):
+            self.assertTrue(login_guide('private-token', hosts)['changed'])
+            item['fields'][0]['value'] = 'Human notes\n' + item['fields'][0]['value'] + '\nRecovery reminder'
+            self.assertFalse(login_guide('private-token', hosts)['changed'])
+            self.assertTrue(item['fields'][0]['value'].startswith('Human notes\n'))
+            self.assertTrue(item['fields'][0]['value'].endswith('\nRecovery reminder'))
+            item['category'] = 'LOGIN'
+            with self.assertRaises(RuntimeError): login_guide('private-token', hosts)
+            self.assertEqual(writes, ['create'])
+
     def test_sync_waits_only_for_busy_owned_lease_and_keeps_deadline(self):
         from automation.identity import lease
         with patch.object(lease, 'acquire', side_effect=[lease.WriterBusy('busy'), True]) as acquire, \
@@ -427,6 +453,12 @@ class IdentityTests(unittest.TestCase):
         self.assertNotIn('enabled', state['users'][0])
         master = initialize_primary({'realm': 'master'}, [], values)
         self.assertEqual(master['users'][0]['realmRoles'], ['admin'])
+        profiled = copy.deepcopy(state)
+        profiled['users'][0].update(email='platform@example.invalid', emailVerified=False)
+        created = initialize_primary(profiled, [], values)['users'][0]
+        self.assertEqual(created['email'], 'platform@example.invalid')
+        self.assertIs(created['emailVerified'], False)
+        self.assertEqual(master['users'][0]['email'], values['email'])
         self.assertEqual(initialize_primary({'realm': 'master'}, master['users'], values), {'realm': 'master'})
         with self.assertRaisesRegex(ValueError, 'unrelated existing account'):
             initialize_primary(state, [{'username': 'operator-fixture', 'attributes': {}}], values)
@@ -1214,6 +1246,38 @@ class IdentityTests(unittest.TestCase):
             {'id': 'reference', 'public': True, 'audience': 'reference-api',
              'callbacks': ['https://reference.example.invalid/callback'], 'roles': ['reader']}],
             'memberships': [{'username': 'fixture-person', 'groups': ['viewer']}]}}}
+
+    def test_scoped_email_migration_preserves_credentials_and_offboarding(self):
+        source = self.source()
+        registry = {'format': 1, 'realms': {}}
+        operation = {'action': 'set-user-email', 'realm': 'applications', 'username': 'fixture-person',
+                     'email': 'operator@example.invalid', 'verified': True}
+        changed, unchanged = change(source, registry, operation)
+        self.assertEqual((changed, unchanged), change(changed, unchanged, operation))
+        self.assertNotIn('profile', source['realms']['applications']['memberships'][0])
+        self.assertEqual(registry, {'format': 1, 'realms': {}})
+        self.assertEqual(unchanged['realms']['applications'], {'users': [], 'clients': []})
+        state = compile_state('applications', 'login.example.invalid', changed)
+        self.assertEqual(state['users'][0], {'username': 'fixture-person', 'groups': ['/viewer'],
+                         'email': 'operator@example.invalid', 'emailVerified': True})
+        self.assertNotIn('enabled', state['users'][0])
+        self.assertNotIn('credentials', state['users'][0])
+        denied = {'format': 1, 'realms': {'applications': {'users': ['fixture-person']}}}
+        self.assertFalse(compile_state('applications', 'login.example.invalid', changed, revocations=denied)['users'][0]['enabled'])
+        for modification in ({'username': 'unrelated'}, {'realm': 'master'}, {'email': 'unsafe'},
+                             {'verified': 'true'}, {'credentials': []}):
+            with self.subTest(modification=modification), self.assertRaises(ValueError):
+                change(source, registry, dict(operation, **modification))
+        with self.assertRaises(ValueError): change(source, denied, operation)
+
+    def test_omitted_email_profile_is_unmanaged_and_rejects_extra_fields(self):
+        source = self.source()
+        user = compile_state('applications', 'login.example.invalid', source)['users'][0]
+        self.assertNotIn('email', user)
+        self.assertNotIn('emailVerified', user)
+        source['realms']['applications']['memberships'][0]['profile'] = {
+            'email': 'operator@example.invalid', 'verified': True, 'credentials': []}
+        with self.assertRaises(ValueError): compile_state('applications', 'login.example.invalid', source)
 
     def test_nested_role_group_cannot_match_platform_admin_rbac(self):
         source = self.source()
