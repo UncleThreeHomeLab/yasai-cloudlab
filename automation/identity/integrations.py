@@ -36,9 +36,9 @@ def argo(identity_issuer, origin, additional_origins=None):
                 'requestedScopes': ['openid', 'profile', 'email']}, sort_keys=True)},
             'rbac': {'policy.default': 'role:no-access', 'scopes': '[groups]',
                      'policy.csv': '\n'.join([
-                         'g, platform-admin, role:admin',
-                         'g, developer, role:developer',
-                         'g, viewer, role:viewer',
+                         'g, /platform-admin, role:admin',
+                         'g, /developer, role:developer',
+                         'g, /viewer, role:viewer',
                          'p, role:developer, applications, get, cloudlab-public/*, allow',
                          'p, role:developer, applications, sync, cloudlab-public/*, allow',
                          'p, role:developer, logs, get, cloudlab-public/*, allow',

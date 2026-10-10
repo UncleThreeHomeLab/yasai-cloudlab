@@ -59,7 +59,7 @@
     ],
     "removal": "Explicit retire then remove-client plan and published persistent tombstone. Old source containing removed clients fails closed; missing private inputs never become empty imports. Scoped runtime operation verifies disabled client, waits 600 seconds for declared Keycloak/client sessions and JWTs, runs serialized Argo seed/removal job and restores normal reconciliation. Unrelated clients and users are preserved. Live operation unverified; application sessions require their own measured contracts.",
     "master": "Separate bootstrap-only private frontend URL, MFA flow and audit settings. Generic private overlays cannot target master. An explicit primary phase initializes one vault-bound master administrator and one privately inventoried platform administrator; passwords, enabled state, verified email and WebAuthn enrollment actions are creation-only. Existing unrelated users cannot be adopted. Normal writers have no master access; real enrollment and emergency custody must precede bootstrap retirement.",
-    "groups": "Generic platform-admin/developer/viewer realm roles. Private role_groups maps declared client roles to those approved groups through client-owned /client-<id>/<role> subgroups. Only explicitly inventoried memberships receive derived client groups; shared groups are never assigned a complete clientRoles map. Omitted group/subgroup objects are not automatically deleted.",
+    "groups": "Generic platform-admin/developer/viewer realm roles. Private role_groups maps declared client roles to those approved groups through client-owned /client-<id>/<role> subgroups. Only explicitly inventoried memberships receive derived client groups; shared groups are never assigned a complete clientRoles map. Omitted group/subgroup objects are not automatically deleted. Group claims contain full paths; consumers match only /platform-admin, /developer and /viewer. Nested client groups must never match a shared privileged group by basename.",
     "primary_profile": "Primary creation merges the current user profile and realm attributes before config-cli import. Only cloudlab-primary-owner is added or repaired with admin-only read/edit permissions and a 32-hex validator; unrelated fields, groups and unmanaged-attribute policy are preserved. Normal scoped imports do not replace user profiles."
   },
   "sessions": {
@@ -93,9 +93,9 @@
         "/pkce/verify"
       ],
       "groups": [
-        "platform-admin",
-        "developer",
-        "viewer"
+        "/platform-admin",
+        "/developer",
+        "/viewer"
       ],
       "status": "not integrated; preserve independent SSH, Tailscale and Kubernetes repair. Existing Argo local admin remains disabled. Exact public/private origins use native OIDC and trusted backend TLS."
     },
@@ -108,16 +108,21 @@
         "email"
       ],
       "groups_claim": "groups",
-      "status": "not integrated; preserve existing provider until acceptance"
+      "status": "not integrated; preserve existing provider until acceptance",
+      "groups_claim_values": [
+        "/platform-admin",
+        "/developer",
+        "/viewer"
+      ]
     },
     "grafana_05": {
       "realm": "platform",
       "callback_path": "/login/generic_oauth",
       "flow": "Code + PKCE S256",
       "roles": {
-        "platform-admin": "Admin",
-        "developer": "Editor",
-        "viewer": "Viewer"
+        "/platform-admin": "Admin",
+        "/developer": "Editor",
+        "/viewer": "Viewer"
       },
       "requirements": [
         "Community Generic OAuth",
@@ -200,7 +205,8 @@
     "provision": "Create missing secret; preserve existing value; verify read-only vault retrieval. Does not claim realm convergence.",
     "rotate": "Persist private checkpoint; compare aggregate before mutation; retain unrelated values; ESO/serialized CLI reconcile; prove new credential authenticated and old credential rejected using invalid authorization code without creating sessions.",
     "status": "implemented; live vault-to-realm rotation unverified",
-    "refresh": "Hourly routine ESO reads; an explicit rotation requests one force-sync and waits for serialized five-minute CLI convergence. Quota exhaustion blocks delivery until reset; existing retained secrets and independent repair remain available."
+    "refresh": "Hourly routine ESO reads; an explicit rotation requests one force-sync and waits for serialized five-minute CLI convergence. Quota exhaustion blocks delivery until reset; existing retained secrets and independent repair remain available.",
+    "browser_login_items": "Explicit identity-primary-login-items creates two CloudLab Login copies of existing primary credentials and private websites. Never changes existing items, passkeys or Keycloak credentials. Human browser enrollment and a move to the personal vault remain required; original primary-admin item stays the ESO source during initialization."
   },
   "master_emergency_proof": {
     "environment": "Isolated Compose fixture; no production custody or vault retirement claim",
