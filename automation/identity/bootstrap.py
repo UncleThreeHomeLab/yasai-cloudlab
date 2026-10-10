@@ -3,6 +3,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import time
 
@@ -227,6 +228,29 @@ def branch_handoff_patches(current, desired, retirement):
          'value': desired['spec']['source']['targetRevision']}]
 
 
+def enrollment_handoff(current, state, directory):
+    """Only a completed nonce-owned enrollment may release its source pin."""
+    revision = current['spec']['source']['targetRevision']
+    if not state or revision != state.get('revision'):
+        return None
+    accepted = []
+    for path in directory.glob('proof-*.json'):
+        record = json.loads(path.read_text())
+        nonce = record.get('nonce')
+        if (not isinstance(nonce, str) or not re.fullmatch('[a-f0-9]{32}', nonce) or
+                path.name != 'proof-'+nonce+'.json'):
+            raise RuntimeError('Disposable source checkpoint identity is malformed')
+        if record.get('revision') == revision and record.get('phase') in ('prepared', 'created'):
+            raise RuntimeError('Complete pending disposable enrollment before source handoff')
+        if record.get('phase') == 'enrolled' and record.get('revision') == revision:
+            if record.get('application_uid') != state['uid'] or not record.get('user_id'):
+                raise RuntimeError('Disposable source checkpoint resource identity changed')
+            accepted.append(record)
+    if not accepted:
+        return None
+    return {'phase':'accepted','revision':revision,'application_uid':state['uid']}
+
+
 def run(payload, phase):
     os.umask(0o077)
     BASE.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -285,7 +309,8 @@ def run(payload, phase):
                 wait(writer_idle, 'previous identity writer completion and lease expiry', timeout=300)
             if current:
                 current = get('application.argoproj.io', APP, 'argocd')
-                patches = branch_handoff_patches(current, desired, retirement)
+                receipt = enrollment_handoff(current, state, BASE) or retirement
+                patches = branch_handoff_patches(current, desired, receipt)
                 if patches:
                     kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
                          '--field-manager=' + OWNER, '-p', json.dumps(patches))
