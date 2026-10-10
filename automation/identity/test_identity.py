@@ -270,7 +270,9 @@ class IdentityTests(unittest.TestCase):
             return [{'time': 1, 'type': 'LOGIN', 'operationType': 'UPDATE',
                      'username': 'private-user', 'ipAddress': 'private-address', 'representation': 'private'}]
         def direct(url, address, headers):
-            if url.endswith('/credentials'): return 401, b''
+            if url.endswith('/credentials'):
+                self.assertEqual(headers.get('Accept'), 'application/json')
+                return 401, b''
             if url.endswith('/admin/realms'): return 404, b''
             return 200, b'{"serverBaseUrl": "https://login.example.invalid"}'
         with patch.object(verify, 'check', return_value={'discovery': True, 'jwks': True}), \
