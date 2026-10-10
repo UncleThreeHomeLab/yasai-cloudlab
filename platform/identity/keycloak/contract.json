@@ -256,6 +256,7 @@
     "writer": "Official offline service bootstrap with all identity clients stopped; serialized Argo config-cli jobs are the only realm configuration writer.",
     "credentials": "Create missing keycloak-emergency-<32 hex nonce> in CloudLab with client_id and client_secret; ESO delivery only. Never overwrite or delete existing vault values.",
     "resume": "Private exact-owner checkpoint; unknown phases or pending public revision changes fail closed. Pending retirement blocks ordinary bootstrap and backup maintenance.",
+    "phase_sync": "Each phase requests a full Argo hook sync with pruning disabled, pins the Application to its checkpoint commit and refuses to overwrite an active operation. Hook-only changes must not depend on automatic OutOfSync detection. After accepted retirement, run lab identity-scoped to return to the configured source branch and verify current convergence.",
     "retention": "Keep retired bootstrap/emergency ESO resources declared; normal server/writer never mount retired credentials. Temporary bootstrap user and service client are disabled, not deleted.",
     "token_limit_seconds": 300,
     "evidence": "Existing emergency JWT rejection is measured when retained in memory. Interrupted runs wait a fresh full lifetime and explicitly record a conservative bound instead.",

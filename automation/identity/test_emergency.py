@@ -13,6 +13,20 @@ from automation.identity.chart import render
 
 
 class EmergencyTests(unittest.TestCase):
+    def test_phase_sync_runs_hooks_without_pruning_at_frozen_revision(self):
+        revision = 'a' * 40
+        patches = emergency.phase_sync_patches({}, revision)
+        self.assertEqual(patches[0]['value'], revision)
+        sync = patches[1]['value']['sync']
+        self.assertEqual(sync['revision'], revision)
+        self.assertFalse(sync['prune'])
+        self.assertEqual(sync['syncStrategy'], {'hook': {}})
+        self.assertNotIn('resources', sync)
+        for invalid in ('main', '', 'A' * 40, 'a' * 39):
+            with self.assertRaises(RuntimeError): emergency.phase_sync_patches({}, invalid)
+        with self.assertRaises(RuntimeError):
+            emergency.phase_sync_patches({'operation': {'sync': {}}}, revision)
+
     def test_current_private_email_preserves_legacy_master_input_and_revocation_gate(self):
         primary = {'platform_username': 'operator-fixture', 'email': 'master@example.invalid'}
         member = {'username': 'operator-fixture', 'groups': ['platform-admin']}
@@ -219,12 +233,12 @@ class EmergencyTests(unittest.TestCase):
 
     def test_finishing_resume_preserves_retired_inputs_and_checkpoints_only_after_convergence(self):
         saved = {'phase': 'finishing', 'nonce': 'a' * 32, 'application_uid': 'owned',
-                 'keycloak_uid': 'server', 'revision': 'current', 'bootstrap_username': 'temporary',
+                 'keycloak_uid': 'server', 'revision': 'b' * 40, 'bootstrap_username': 'temporary',
                  'bootstrap_user_id': 'user', 'temporary_token_denial_measured': True}
         app = {'metadata': {'uid': 'owned', 'resourceVersion': '1'}, 'spec': {'source': {'helm': {
             'valuesObject': {'adminHost': 'admin.example.invalid'}}}}}
         with tempfile.TemporaryDirectory() as directory, patch.object(emergency, 'BASE', Path(directory)), \
-                patch.object(emergency, 'owner', return_value=({'uid': 'owned', 'revision': 'current'}, app, {'metadata': {'uid': 'server'}})), \
+                patch.object(emergency, 'owner', return_value=({'uid': 'owned', 'revision': 'b' * 40}, app, {'metadata': {'uid': 'server'}})), \
                 patch.object(emergency, 'get', return_value=app), patch.object(emergency, 'kube') as writes, \
                 patch.object(emergency, 'wait', side_effect=lambda check, *args, **kwargs: self.assertTrue(check())), \
                 patch.object(emergency, 'writer_idle', return_value=True), patch.object(emergency, 'reconciled', return_value=True):
@@ -233,20 +247,21 @@ class EmergencyTests(unittest.TestCase):
             self.assertTrue(emergency.run('a' * 32)['bootstrap_admin_retired'])
             self.assertEqual(json.loads(path.read_text())['phase'], 'accepted')
             patches = json.loads(writes.call_args.args[-1])
-            changes = {row['path'].split('/')[-1]: row['value'] for row in patches if row['op'] == 'add'}
+            changes = {row['path'].split('/')[-1]: row['value'] for row in patches
+                       if row['op'] == 'add' and row['path'].startswith('/spec/source/helm/valuesObject/')}
             self.assertEqual(changes, {'operation': None, 'maintenance': False,
                 'bootstrapAdminEnabled': False, 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32})
 
     def test_self_disable_hook_failure_requires_exact_disabled_state_and_authentication_denial(self):
         saved = {'phase': 'retiring-service', 'nonce': 'a' * 32, 'application_uid': 'owned',
-                 'keycloak_uid': 'server', 'revision': 'current', 'bootstrap_username': 'temporary', 'bootstrap_user_id': 'user'}
+                 'keycloak_uid': 'server', 'revision': 'b' * 40, 'bootstrap_username': 'temporary', 'bootstrap_user_id': 'user'}
         app = {'metadata': {'uid': 'owned', 'resourceVersion': '1'}, 'spec': {'source': {'helm': {
             'valuesObject': {'adminHost': 'admin.example.invalid', 'database': 'keycloak'}}}}}
         failure = 'Identity reconciliation failed at the requested revision; preserve the phase checkpoint'
         for enabled, error, passes in (('f', failure, True), ('t', failure, False), ('f', 'foreign owner', False)):
             with self.subTest(enabled=enabled, error=error), tempfile.TemporaryDirectory() as directory, \
                     patch.object(emergency, 'BASE', Path(directory)), \
-                    patch.object(emergency, 'owner', return_value=({'uid': 'owned', 'revision': 'current'}, app, {'metadata': {'uid': 'server'}})), \
+                    patch.object(emergency, 'owner', return_value=({'uid': 'owned', 'revision': 'b' * 40}, app, {'metadata': {'uid': 'server'}})), \
                     patch.object(emergency, 'get', return_value=app), patch.object(emergency, 'kube'), \
                     patch.object(emergency, 'wait', side_effect=lambda check, *args, **kwargs: self.assertTrue(check())), \
                     patch.object(emergency, 'writer_idle', return_value=True), \
