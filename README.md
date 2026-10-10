@@ -414,7 +414,8 @@ preparing CloudLab items, not after moving them. The original machine-owned
 notes outside its managed section and never edits Login items or enrolled passkeys.
 Use generated usernames: email login is disabled. The platform account signs into
 applications; the separate master account administers the private master console.
-Public issuer root and account paths are denied by the gateway.
+The public issuer root opens authenticated platform self-service. Platform account
+paths work on both gateways; master, admin/API and management paths remain private.
 After both real browser logins and recovery custody are complete, run
 `lab identity-retire-bootstrap` with JSON
 `{"recovery_custody_confirmed": true}` on standard input. This operation verifies
