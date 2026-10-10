@@ -69,6 +69,13 @@ def main():
     if action == 'identity-offboard':
         subprocess.run([sys.executable, '-m', 'automation.identity.lifecycle', '--offboard'], cwd='/workspace', check=True)
         return
+    if action in ('identity-proof-credentials', 'identity-proof-enroll'):
+        mode = 'provision' if action == 'identity-proof-credentials' else 'local'
+        subprocess.run([sys.executable, '-m', 'automation.identity.session_fixture', mode], cwd='/workspace', check=True)
+        return
+    if action == 'identity-client-refresh':
+        subprocess.run([sys.executable, '-m', 'automation.identity.rotation', '--refresh'], cwd='/workspace', check=True)
+        return
     if action == 'identity-retire-bootstrap':
         subprocess.run([sys.executable, '-m', 'automation.identity.emergency'], cwd='/workspace', check=True)
         return
