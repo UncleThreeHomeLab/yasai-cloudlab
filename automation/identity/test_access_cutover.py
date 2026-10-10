@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from automation.identity.access_cutover import approved_email, prepare, selection, gate
+from automation.identity.access_cutover import approved_email, prepare, selection, gate, native_argo_contract
 from automation.identity import maintenance, emergency
 from automation.identity.access_provider import public_provider
 from automation.identity.access_provider import prepare as prepare_provider
@@ -16,6 +16,25 @@ from automation.connectivity.cloudflare import access_application
 
 
 class AccessCutoverTests(unittest.TestCase):
+    def test_native_contract_uses_declared_hostname_and_rejects_unsafe_or_revoked_clients(self):
+        client = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
+                      ['https://cd.internal.example.invalid'])['client']
+        source = {'realms': {'platform': {'clients': [client]}}}
+        revoked = {'realms': {'platform': {}}}
+        self.assertEqual(native_argo_contract(source, revoked, 'login.example.invalid')['cm']['url'],
+                         'https://console.example.invalid')
+        for callback in ('https://console.foreign.invalid/auth/callback', 'https://nested.console.example.invalid/auth/callback',
+                         'https://console.example.invalid/unsafe', 'https://console.example.invalid/auth/callback?extra=1'):
+            changed = copy.deepcopy(source); changed['realms']['platform']['clients'][0]['callbacks'][0] = callback
+            with self.subTest(callback=callback), self.assertRaises(RuntimeError):
+                native_argo_contract(changed, revoked, 'login.example.invalid')
+        for key in ('clients', 'removed_clients'):
+            with self.subTest(revocation=key), self.assertRaises(RuntimeError):
+                native_argo_contract(source, {'realms': {'platform': {key: ['argocd']}}}, 'login.example.invalid')
+        for clients in ([], [client, client], [dict(client, public=False)], [dict(client, callbacks=client['callbacks'][:2])]):
+            with self.subTest(clients=clients), self.assertRaises(RuntimeError):
+                native_argo_contract({'realms': {'platform': {'clients': clients}}}, revoked, 'login.example.invalid')
+
     def test_unchanged_provider_preserves_acceptance_rotation_requires_new_proof(self):
         from automation.connectivity.test_reconcile import Provider
         api = Provider(); state = {'phase': 'configured', 'binding': 'owned'}
@@ -41,13 +60,15 @@ class AccessCutoverTests(unittest.TestCase):
         values = {'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid',
                   'bootstrapAdminEnabled': False, 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32}
         app = {'metadata': {'uid': 'owned'}, 'spec': {'source': {'helm': {'valuesObject': values}}}}
-        expected = argo('https://login.example.invalid/realms/platform', 'https://cd.example.invalid',
-                        ['https://cd.internal.example.invalid'])['helm']['argo-cd']['configs']
+        contract = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
+                        ['https://cd.internal.example.invalid'])
+        expected = contract['helm']['argo-cd']['configs']
         retired = {'phase': 'accepted', 'application_uid': 'owned', 'keycloak_uid': 'server', 'nonce': 'a' * 32}
         changes = {}
         def get(kind, name, namespace):
             if kind == 'keycloak.k8s.keycloak.org': return {'metadata': {'uid': 'server'}}
-            if kind == 'application.argoproj.io': return app
+            if kind == 'application.argoproj.io':
+                return {'spec': {'source': {'repoURL': 'private'}}} if name == 'cloudlab-identity-private' else app
             return {'data': dict(expected['rbac'] if name == 'argocd-rbac-cm' else expected['cm'], **changes.get('cm', {}))}
         def request(url, **kwargs):
             if url.endswith('/token'): return {'access_token': 'private-token'}
@@ -58,6 +79,8 @@ class AccessCutoverTests(unittest.TestCase):
             return changes.get('groups', [{'path': '/platform-admin'}])
         with tempfile.TemporaryDirectory() as directory, patch.object(maintenance, 'BASE', Path(directory)), \
                 patch('automation.mesh.kube.get', side_effect=get), \
+                patch('automation.identity.bootstrap.private_inputs', return_value=(
+                    {'realms': {'platform': {'clients': [contract['client']]}}}, {'realms': {'platform': {}}}, 'immutable')) as inputs, \
                 patch.object(emergency, 'current_private', return_value='fixture@example.invalid') as private, \
                 patch.object(emergency, 'vault_secret', side_effect=lambda name: {'platform_username': 'fixture', 'ownership_id': 'owner', 'email': 'fixture@example.invalid'}
                     if name == 'keycloak-primary-admin' else {'platform_client_secret': 'private-secret'}), \
@@ -75,7 +98,8 @@ class AccessCutoverTests(unittest.TestCase):
             changes['events'] = [event]
             self.assertEqual(gate('fixture', since=now - 1000), {'contract': 'fixture', 'human_email': 'fixture@example.invalid'})
             for change in ({'user': {'enabled': False}}, {'user': {'email': 'other@example.invalid'}}, {'credentials': []}, {'groups': [{'path': '/nested/platform-admin'}]},
-                           {'cm': {'users.session.duration': '1h'}}, {'cm': {'url': 'https://other.example.invalid'}}):
+                           {'cm': {'users.session.duration': '1h'}}, {'cm': {'url': 'https://other.example.invalid'}},
+                           {'cm': {'additionalUrls': '["https://foreign.invalid"]'}}):
                 changes.clear(); changes.update(change); snapshot.reset_mock()
                 with self.subTest(change=change), self.assertRaises(RuntimeError): gate('fixture')
                 snapshot.assert_not_called()
@@ -83,6 +107,10 @@ class AccessCutoverTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): gate('fixture')
             snapshot.assert_not_called()
             retired['phase'] = 'accepted'; path.write_text(json.dumps(retired))
+            inputs.side_effect = RuntimeError('Required private source unavailable')
+            with self.assertRaises(RuntimeError): gate('fixture')
+            snapshot.assert_not_called()
+            inputs.side_effect = None
             private.side_effect = RuntimeError('Current private membership is revoked')
             with self.assertRaises(RuntimeError): gate('fixture')
             snapshot.assert_not_called()
