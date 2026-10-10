@@ -25,6 +25,18 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def phase_sync_patches(current, revision):
+    if not re.fullmatch('[a-f0-9]{40}', revision) or current.get('operation'):
+        raise RuntimeError('Emergency phase requires an immutable revision and no active Argo operation')
+    # Hook-only changes do not make an Application OutOfSync. Request a full,
+    # unpruned hook sync at the checkpoint revision, including after interruption.
+    return [
+        {'op': 'add', 'path': '/spec/source/targetRevision', 'value': revision},
+        {'op': 'add', 'path': '/operation', 'value': {
+            'initiatedBy': {'username': OWNER},
+            'sync': {'revision': revision, 'prune': False, 'syncStrategy': {'hook': {}}}}}]
+
+
 def vault_secret(name):
     external = get('externalsecret.external-secrets.io', name, NAMESPACE)
     secret = get('secret', name, NAMESPACE)
@@ -195,6 +207,8 @@ def run(nonce):
             saved['phase'] = phase
             atomic(path, saved)
         def declare(action, maintenance):
+            wait(lambda: not get('application.argoproj.io', APP, 'argocd').get('operation'),
+                 'previous Argo operation completion', timeout=900)
             current = get('application.argoproj.io', APP, 'argocd')
             if current['metadata']['uid'] != saved['application_uid']:
                 raise RuntimeError('Retirement Application identity changed')
@@ -207,6 +221,7 @@ def run(nonce):
                     {'op': 'add', 'path': '/spec/source/helm/valuesObject/bootstrapAdminEnabled', 'value': action not in ('retire-emergency', None)}]
             if action is None:
                 patches.append({'op': 'add', 'path': '/spec/source/helm/valuesObject/retiredEmergencyItem', 'value': operation['item']})
+            patches.extend(phase_sync_patches(current, receipt['revision']))
             kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json', '--field-manager=' + OWNER, '-p', json.dumps(patches))
         if saved['phase'] == 'guarded':
             bootstrap = vault_secret('keycloak-bootstrap-admin')
