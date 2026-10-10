@@ -76,9 +76,14 @@ try {
   const argoCookie = (await context.cookies(argo)).find(c => c.name==='argocd.token');
   if (!argoCookie) throw new Error('Missing native Argo session');
   const argoHeaders = {Cookie:'argocd.token='+argoCookie.value};
+  const userResponse = await context.request.get(argo+'/api/v1/session/userinfo',{headers:argoHeaders});
+  const userInfo = await userResponse.json();
+  if (userResponse.status()!==200 || userInfo.loggedIn!==true || userInfo.iss!==issuer ||
+      !userInfo.groups?.includes('/viewer') || userInfo.groups.includes('/platform-admin') ||
+      userInfo.groups.includes('/developer')) throw new Error('Unexpected native Argo identity');
   const read = await context.request.get(argo+'/api/v1/applications?projects=cloudlab-public', {headers:argoHeaders});
   if (read.status()!==200) throw new Error('Viewer read denied');
-  if ((await context.request.get(argo+'/api/v1/clusters',{headers:argoHeaders})).status()!==403)
+  if ((await context.request.get(argo+'/api/v1/applications/cloudlab-identity-private',{headers:argoHeaders})).status()!==403)
     throw new Error('Viewer administrative role allowed');
   stage = 'Access SSO';
   await page.goto(input.access_url);
@@ -88,13 +93,21 @@ try {
   const accessHeaders = {Cookie:'CF_Authorization='+accessCookie.value};
   if (claims.exp <= Date.now()/1000) throw new Error('Initial access token expired before baseline');
   report({ready:true,synthetic_webauthn_on_disposable_user:true,native_argo_sso:true,
-    viewer_read_allowed:true,viewer_administration_denied:true,access_sso:true,sessions_persisted:false});
+    native_argo_identity_verified:true,viewer_collection_access_allowed:true,
+    viewer_private_application_denied:true,access_sso:true,sessions_persisted:false});
   const command = JSON.parse((await lines.next()).value);
   if (JSON.stringify(command)!=='{"action":"observe-offboarding"}') throw new Error('Invalid observation command');
   const started = Date.now(), measured = {};
   while (Date.now()-started < 660000) {
     stage = 'offboarding observation';
     const elapsed = () => Math.round((Date.now()-started)/100)/10;
+    if (measured.keycloak_access_token_denied_seconds === undefined) {
+      const result = await context.request.get(profile.url(),{
+        headers:{Authorization:authorization,Accept:'application/json'}});
+      if ([401,403].includes(result.status())) measured.keycloak_access_token_denied_seconds=elapsed();
+      else if (result.status()!==200 || (await result.json()).username!==input.username)
+        throw new Error('Unexpected original account-token response');
+    }
     if (measured.keycloak_refresh_denied_seconds === undefined) {
       const result = await context.request.post(issuer+'/protocol/openid-connect/token', {
         form:{grant_type:'refresh_token',client_id:'account-console',refresh_token:refresh}});
@@ -117,16 +130,34 @@ try {
       else if (result.status()!==200 || (await result.text()).trim()!=='mesh-ok')
         throw new Error('Unexpected Access response');
     }
-    if (Date.now()/1000 >= claims.exp) measured.original_access_jwt_expired_seconds=elapsed();
-    if (Object.keys(measured).length===4) {
+    if (measured.original_access_jwt_expiry_bound_seconds === undefined && Date.now()/1000 >= claims.exp)
+      measured.original_access_jwt_expiry_bound_seconds=elapsed();
+    if (Object.keys(measured).length===5) {
       if (measured.keycloak_refresh_denied_seconds>300 || measured.argo_session_denied_seconds>600 ||
-          measured.access_session_denied_seconds>600) throw new Error('Coordinated offboarding deadline exceeded');
-      report({...measured,logout_is_not_instant_jwt_revocation:true,sessions_persisted:false});
+          measured.keycloak_access_token_denied_seconds>300 || measured.access_session_denied_seconds>600)
+        throw new Error('Coordinated offboarding deadline exceeded');
       break;
     }
     await new Promise(resolve=>setTimeout(resolve,2000));
   }
-  if (Object.keys(measured).length!==4) throw new Error('Offboarding observation timed out');
+  if (Object.keys(measured).length!==5) throw new Error('Offboarding observation timed out');
+  stage = 'offboarded fresh Argo and Access login';
+  for (const url of [argo+'/auth/login?return_url='+encodeURIComponent(argo),input.access_url]) {
+    const fresh = await browser.newContext();
+    fresh.setDefaultTimeout(60000);
+    try {
+      const login = await fresh.newPage();
+      await login.goto(url);
+      await login.getByLabel('Username',{exact:false}).fill(input.username);
+      await login.getByLabel('Password',{exact:true}).fill(input.password);
+      await login.getByRole('button',{name:'Sign In',exact:true}).click();
+      await login.getByText(/^(Invalid username or password\.|Account is disabled\.)$/).waitFor();
+      if ((await fresh.cookies()).some(cookie=>['argocd.token','CF_Authorization'].includes(cookie.name)))
+        throw new Error('Offboarded fresh login issued an application session');
+    } finally {await fresh.close();}
+  }
+  report({...measured,offboarded_new_argo_and_access_login_denied:true,
+    logout_is_not_instant_jwt_revocation:true,sessions_persisted:false});
 } catch (error) {
   console.error('Disposable session proof failed at '+stage+': '+error.name);
   process.exitCode=1;
