@@ -274,9 +274,9 @@
     "status": "Implementation under test; real cutover, negative browser paths and measured session/outage acceptance remain unverified."
   },
   "host_clock": {
-    "requirement": "Automatic host time synchronization on both VMs; apply and verification fail early when timedatectl reports unsynchronized. Upstream NTP reachability is an external prerequisite.",
+    "requirement": "Automatic host time synchronization on both VMs. Apply retries an already active systemd-timesyncd daemon once when unsynchronized, then waits at most one minute. Verification only reads synchronization state. Both fail before cluster operations unless timedatectl confirms synchronization. Upstream NTP reachability is an external prerequisite.",
     "token_validation": "Strict expiration, not-before and issued-at validation remains unchanged; rejection reasons contain no claims or tokens.",
     "latest_live_proof": "Both applies at 3f38a0c changed zero resources and independent Access disruptions passed. Final isolated restore token proof failed at lifetime validation; both hosts were unsynchronized with approximately six seconds of relative skew. Restore fixtures were cleaned. This run is not accepted recovery proof.",
-    "status": "NTP probes to two public providers timed out on both hosts; restore acceptance requires working automatic synchronization and a successful repeat proof."
+    "status": "After upstream firewall repair, both hosts receive valid replies from configured NTP servers and ICMP responses; fresh SSH works and managed host firewalls retain default input DROP. Last inspected clocks remain unsynchronized. Restore acceptance requires working automatic synchronization and a successful repeat proof."
   }
 }
