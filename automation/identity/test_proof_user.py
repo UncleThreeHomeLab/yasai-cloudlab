@@ -78,6 +78,10 @@ class ProofUserTests(unittest.TestCase):
         self.assertIn('/imports/proof.json', job['containers'][0]['args'][0])
         self.assertNotIn('prepare_removal(', init)
         self.assertTrue(next(o for o in objects if o['kind'] == 'CronJob' and o['metadata']['name'] == 'identity-reconcile')['spec']['suspend'])
+        staged = render(dict(values, operation=dict(values['operation'], action='prepare-proof')))
+        self.assertFalse(any(o['kind'] == 'Job' for o in staged))
+        self.assertEqual(next(o for o in staged if o['kind'] == 'Keycloak')['spec']['instances'], 1)
+        self.assertTrue(next(o for o in staged if o['kind'] == 'CronJob' and o['metadata']['name'] == 'identity-reconcile')['spec']['suspend'])
         for operation in (dict(values['operation'], realm='master'), dict(values['operation'], nonce='unsafe'),
                           dict(values['operation'], username='personal-admin')):
             with self.assertRaises(ValueError):
