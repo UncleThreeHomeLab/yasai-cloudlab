@@ -75,7 +75,7 @@ def check():
     exact = {path['value'] for path in paths if path['type'] == 'Exact'}
     if ([path for path in paths if path['type'] != 'Exact'] != [
             {'type': 'PathPrefix', 'value': '/resources'},
-            {'type': 'PathPrefix', 'value': '/realms/platform/account'}]
+            {'type': 'RegularExpression', 'value': '^/realms/platform/account(/[^%]*)?$'}]
             or any('admin' in path or 'clients-registrations' in path or '..' in path or '%' in path for path in exact)):
         raise ValueError('Public identity must allow only exact protocols, resources and platform self-service')
     if route['spec']['rules'][0] != {'matches': [{'path': {'type': 'Exact', 'value': '/'}}],

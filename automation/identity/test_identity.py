@@ -299,6 +299,10 @@ class IdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'bounded credential contract'):
                 verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
             expiry[0] = 300
+            for denied in (401, 403):
+                account_status[1] = denied
+                self.assertTrue(verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))[
+                    'audit_client_account_management_denied'])
             account_status[0] = 200
             with self.assertRaisesRegex(RuntimeError, 'Account API must require'):
                 verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
