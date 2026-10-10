@@ -9,11 +9,18 @@ spec:
     - {name: cloudlab, namespace: cloudlab-gateway-public, sectionName: https}
   hostnames: [{{ .Values.loginHost | quote }}]
   rules:
+    - matches: [{path: {type: Exact, value: /}}]
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path: {type: ReplaceFullPath, replaceFullPath: /realms/platform/account/}
+            statusCode: 302
     - matches:
         {{- range $protocolPaths }}
         - {path: {type: Exact, value: {{ . | quote }}}}
         {{- end }}
         - {path: {type: PathPrefix, value: /resources}}
+        - {path: {type: PathPrefix, value: /realms/platform/account}}
       filters:
         - type: RequestHeaderModifier
           requestHeaderModifier:
@@ -36,7 +43,7 @@ spec:
     - to:
         - operation:
             hosts: [{{ .Values.loginHost | quote }}, {{ printf "%s:*" .Values.loginHost | quote }}]
-            notPaths: {{ concat $protocolPaths (list "/resources" "/resources/*") | toJson }}
+            notPaths: {{ concat $protocolPaths (list "/" "/resources" "/resources/*" "/realms/platform/account" "/realms/platform/account/*") | toJson }}
     - to:
         - operation:
             hosts: [{{ .Values.adminHost | quote }}, {{ printf "%s:*" .Values.adminHost | quote }}]

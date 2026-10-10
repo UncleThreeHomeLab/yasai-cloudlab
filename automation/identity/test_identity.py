@@ -259,6 +259,7 @@ class IdentityTests(unittest.TestCase):
         from automation.identity import verify
         values = {'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid'}
         expiry = [300]
+        account_status = [401, 403]
         responses = []
         def request(url, **kwargs):
             responses.append((url, kwargs))
@@ -272,9 +273,9 @@ class IdentityTests(unittest.TestCase):
         def direct(url, address, headers):
             if url.startswith('https://identity-admin.') and url.endswith('/account/'):
                 return 302, b''
-            if url.endswith('/credentials'):
+            if url.endswith('/credentials') or 'userProfileMetadata=true' in url:
                 self.assertEqual(headers.get('Accept'), 'application/json')
-                return 401, b''
+                return account_status[1 if headers.get('Authorization') else 0], b''
             if url.endswith('/admin/realms'): return 404, b''
             return 200, b'{"serverBaseUrl": "https://login.example.invalid"}'
         with patch.object(verify, 'check', return_value={'discovery': True, 'jwks': True}), \
@@ -283,9 +284,12 @@ class IdentityTests(unittest.TestCase):
                 patch.object(verify, 'direct_https', side_effect=direct), \
                 patch.object(verify, 'json_get', side_effect=request), \
                 patch.object(verify, 'private_request', side_effect=request), \
-                patch.object(verify, 'proxy_privacy', return_value={'public_management_paths_denied': 14}):
+                patch.object(verify, 'proxy_privacy', return_value={'public_management_paths_denied': 16}):
             result = verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
             self.assertTrue(result['realms']['platform']['public_client_credentials_token'])
+            self.assertTrue(result['public_account_console'])
+            self.assertTrue(result['account_api_authentication_required'])
+            self.assertTrue(result['audit_client_account_management_denied'])
             for sensitive in ('private-user', 'private-address', 'private-token', 'representation'):
                 self.assertNotIn(sensitive, json.dumps(result))
             self.assertEqual(result['realms']['platform']['audit']['login'], [{'time': 1, 'type': 'LOGIN'}])
@@ -293,6 +297,13 @@ class IdentityTests(unittest.TestCase):
             self.assertTrue(all(url.startswith('https://login.example.invalid/') for url in token_urls))
             expiry[0] = 301
             with self.assertRaisesRegex(RuntimeError, 'bounded credential contract'):
+                verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
+            expiry[0] = 300
+            account_status[0] = 200
+            with self.assertRaisesRegex(RuntimeError, 'Account API must require'):
+                verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
+            account_status[:] = [401, 200]
+            with self.assertRaisesRegex(RuntimeError, 'Audit client must be denied user account'):
                 verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
 
     def test_live_audit_credentials_reject_replaced_eso_and_unready_sources(self):
@@ -619,7 +630,7 @@ class IdentityTests(unittest.TestCase):
                 patch('automation.identity.health.urllib.request.build_opener', return_value=opener):
             result = proxy_privacy('login.example.invalid')
             self.assertTrue(result['canonical_proxy_headers'])
-            self.assertEqual(result['public_management_paths_denied'], 14)
+            self.assertEqual(result['public_management_paths_denied'], 16)
             self.assertEqual(read.call_args.kwargs['headers']['X-Forwarded-Host'], 'forbidden.invalid')
             for status in (200, 302, 401, 500):
                 opener.open.side_effect = None

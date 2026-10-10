@@ -50,21 +50,27 @@ def protocols(values, secrets):
         denied = private_request(root + '/users?max=1', token=token['access_token'], accepted_statuses=(403,))
         if not isinstance(denied, dict) or 'error' not in denied:
             raise RuntimeError('Audit client must be denied user administration')
+        if realm == 'platform' and direct_https(origin + '/realms/platform/account/credentials', edge_address,
+                {'Accept': 'application/json', 'Authorization': 'Bearer ' + token['access_token']})[0] != 403:
+            raise RuntimeError('Audit client must be denied user account credential management')
         result[realm] = dict(status, public_client_credentials_token=True,
                              private_backchannel_discovery_jwks=True,
                              private_audit_read=True, user_administration_denied=True, audit=audit)
     private_address = get('service', 'cloudlab-istio', 'cloudlab-gateway-private')['spec']['clusterIP']
-    account_status, body = direct_https(origin + '/realms/platform/account/', private_address, {})
-    if account_status != 200 or ('"serverBaseUrl": "' + origin + '"').encode() not in body:
-        raise RuntimeError('Private account console must retain its canonical browser/API origin')
-    if direct_https(origin + '/realms/platform/account/credentials', private_address, {'Accept': 'application/json'})[0] != 401:
-        raise RuntimeError('Private account API must require a user access token')
+    for address in (private_address, edge_address):
+        account_status, body = direct_https(origin + '/realms/platform/account/', address, {})
+        if account_status != 200 or ('"serverBaseUrl": "' + origin + '"').encode() not in body:
+            raise RuntimeError('Account console must retain its canonical browser/API origin on both gateways')
+        for path in ('/realms/platform/account/?userProfileMetadata=true', '/realms/platform/account/credentials'):
+            if direct_https(origin + path, address, {'Accept': 'application/json'})[0] != 401:
+                raise RuntimeError('Account API must require a user access token on both gateways')
     if direct_https(origin + '/admin/realms', private_address, {})[0] not in (403, 404):
         raise RuntimeError('Private account listener must not route realm administration')
     for realm in ('platform', 'applications'):
         if direct_https(admin + '/realms/' + realm + '/account/', private_address, {})[0] != 302:
             raise RuntimeError('Saved private account links must redirect to the canonical origin')
-    return dict(realms=result, private_account_console=True,
+    return dict(realms=result, private_account_console=True, public_account_console=True,
+                account_api_authentication_required=True, audit_client_account_management_denied=True,
                 privacy=proxy_privacy(values['loginHost'], address=edge_address))
 
 
