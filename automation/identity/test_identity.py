@@ -32,6 +32,21 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_sync_waits_only_for_busy_owned_lease_and_keeps_deadline(self):
+        from automation.identity import lease
+        with patch.object(lease, 'acquire', side_effect=[lease.WriterBusy('busy'), True]) as acquire, \
+                patch.object(lease.time, 'monotonic', side_effect=[0, 5]), patch.object(lease.time, 'sleep') as sleep:
+            self.assertTrue(lease.acquire_sync())
+            self.assertEqual(acquire.call_count, 2)
+            sleep.assert_called_once_with(5)
+        with patch.object(lease, 'acquire', side_effect=lease.WriterBusy('busy')), \
+                patch.object(lease.time, 'monotonic', side_effect=[0, 120]), patch.object(lease.time, 'sleep') as sleep:
+            with self.assertRaises(lease.WriterBusy): lease.acquire_sync()
+            sleep.assert_not_called()
+        with patch.object(lease, 'acquire', side_effect=RuntimeError('foreign')), patch.object(lease.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'foreign'): lease.acquire_sync()
+            sleep.assert_not_called()
+
     def test_browser_login_copies_preserve_passkeys_and_reject_conflicting_items(self):
         from automation.identity.credentials import primary_login_items
         primary = {'master_username': 'master-fixture', 'platform_username': 'operator-fixture',

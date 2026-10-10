@@ -4,11 +4,28 @@ import json
 import os
 from pathlib import Path
 import ssl
+import time
 import urllib.error
 import urllib.request
 
 DURATION = 240
 OWNER = 'cloudlab-identity-writer'
+
+
+class WriterBusy(RuntimeError):
+    pass
+
+
+def acquire_sync():
+    """Wait inside the bounded sync job so scheduled leases cannot starve it."""
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            return acquire()
+        except WriterBusy:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(5)
 
 
 def owned_lease(request, namespace, endpoint):
@@ -84,7 +101,7 @@ def acquire(skip_busy=False):
     if not available(current.get('spec', {}), now.timestamp()):
         if skip_busy:
             return False
-        raise RuntimeError('Another identity writer holds the lease')
+        raise WriterBusy('Another identity writer holds the lease')
     if current.get('spec', {}).get('holderIdentity'):
         pods = request('GET', url='https://kubernetes.default.svc/api/v1/namespaces/' + namespace +
                        '/pods')['items']
