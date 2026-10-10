@@ -57,7 +57,7 @@ def protocols(values, secrets):
     account_status, body = direct_https(origin + '/realms/platform/account/', private_address, {})
     if account_status != 200 or ('"serverBaseUrl": "' + origin + '"').encode() not in body:
         raise RuntimeError('Private account console must retain its canonical browser/API origin')
-    if direct_https(origin + '/realms/platform/account/credentials', private_address, {})[0] != 401:
+    if direct_https(origin + '/realms/platform/account/credentials', private_address, {'Accept': 'application/json'})[0] != 401:
         raise RuntimeError('Private account API must require a user access token')
     if direct_https(origin + '/admin/realms', private_address, {})[0] not in (403, 404):
         raise RuntimeError('Private account listener must not route realm administration')
