@@ -38,9 +38,29 @@ def approved_email(state, previous_email):
     return cutover['human_email']
 
 
+def native_argo_contract(source, revoked, login_host):
+    """Derive exact consumer settings from the available scoped private client."""
+    from automation.identity.integrations import argo
+    clients = [row for row in source['realms'].get('platform', {}).get('clients', []) if row.get('id') == 'argocd']
+    denied = revoked['realms'].get('platform', {})
+    if (len(clients) != 1 or 'argocd' in denied.get('clients', []) or
+            'argocd' in denied.get('removed_clients', [])):
+        raise RuntimeError('Native Argo requires its active exact private client')
+    callbacks = clients[0].get('callbacks', [])
+    zone = login_host.removeprefix('login.')
+    if (not callbacks or not isinstance(callbacks[0], str) or
+            not re.fullmatch(r'https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.' + re.escape(zone) + r'/auth/callback', callbacks[0])):
+        raise RuntimeError('Native Argo requires its declared public gateway origin')
+    contract = argo('https://' + login_host + '/realms/platform', callbacks[0].removesuffix('/auth/callback'),
+                    ['https://cd.internal.' + zone])
+    if clients != [contract['client']]:
+        raise RuntimeError('Native Argo callbacks differ from the complete scoped contract')
+    return contract['helm']['argo-cd']['configs']
+
+
 def gate(team, since=None):
     import yaml
-    from automation.identity.integrations import argo
+    from automation.identity.bootstrap import private_inputs
     from automation.identity.access_provider import snapshot
     from automation.identity.maintenance import BASE, APP, NAMESPACE
     from automation.identity.emergency import current_private, vault_secret
@@ -60,9 +80,11 @@ def gate(team, since=None):
         raise RuntimeError('Central Access requires verified real enrollment, custody and completed recovery exercise')
     cm = (get('configmap', 'argocd-cm', 'argocd') or {}).get('data', {})
     rbac = (get('configmap', 'argocd-rbac-cm', 'argocd') or {}).get('data', {})
-    expected = argo('https://' + values['loginHost'] + '/realms/platform', 'https://cd.' + values['loginHost'][6:],
-                    ['https://cd.internal.' + values['loginHost'][6:]])['helm']['argo-cd']['configs']
+    private = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd')
+    source, revoked, _ = private_inputs({'values': values, 'private_repository': private['spec']['source']['repoURL']})
+    expected = native_argo_contract(source, revoked, values['loginHost'])
     if (cm.get('url') != expected['cm']['url'] or
+            yaml.safe_load(cm.get('additionalUrls', '[]')) != yaml.safe_load(expected['cm']['additionalUrls']) or
             any(rbac.get(key) != value for key, value in expected['rbac'].items()) or
             yaml.safe_load(cm.get('oidc.config', '')) != yaml.safe_load(expected['cm']['oidc.config']) or
             cm.get('users.session.duration') != '10m'):
