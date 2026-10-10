@@ -1,16 +1,24 @@
 import copy
 import json
+import io
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 from automation.identity import emergency, lease, maintenance, bootstrap
-from automation.identity.configuration import prepare_retirement
+from automation.identity.configuration import prepare_retirement, private_request
 from automation.identity.chart import render
 
 
 class EmergencyTests(unittest.TestCase):
+    def test_empty_admin_denial_is_measured_by_http_status_not_json_body(self):
+        for status in (401, 403):
+            with self.subTest(status=status), patch('urllib.request.build_opener') as opener:
+                opener.return_value.open.side_effect = HTTPError('https://admin.example.invalid', status, 'Denied', {}, io.BytesIO())
+                self.assertEqual(private_request('https://admin.example.invalid', token='private-token',
+                    accepted_statuses=(200, 401, 403), with_status=True), (status, None))
     def operation(self, action='seed-emergency'):
         return {'action': action, 'client': 'emergency-' + 'a' * 32,
                 'item': 'keycloak-emergency-' + 'a' * 32,
@@ -209,6 +217,35 @@ class EmergencyTests(unittest.TestCase):
             changes = {row['path'].split('/')[-1]: row['value'] for row in patches if row['op'] == 'add'}
             self.assertEqual(changes, {'operation': None, 'maintenance': False,
                 'bootstrapAdminEnabled': False, 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32})
+
+    def test_self_disable_hook_failure_requires_exact_disabled_state_and_authentication_denial(self):
+        saved = {'phase': 'retiring-service', 'nonce': 'a' * 32, 'application_uid': 'owned',
+                 'keycloak_uid': 'server', 'revision': 'current', 'bootstrap_username': 'temporary', 'bootstrap_user_id': 'user'}
+        app = {'metadata': {'uid': 'owned', 'resourceVersion': '1'}, 'spec': {'source': {'helm': {
+            'valuesObject': {'adminHost': 'admin.example.invalid', 'database': 'keycloak'}}}}}
+        failure = 'Identity reconciliation failed at the requested revision; preserve the phase checkpoint'
+        for enabled, error, passes in (('f', failure, True), ('t', failure, False), ('f', 'foreign owner', False)):
+            with self.subTest(enabled=enabled, error=error), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(emergency, 'BASE', Path(directory)), \
+                    patch.object(emergency, 'owner', return_value=({'uid': 'owned', 'revision': 'current'}, app, {'metadata': {'uid': 'server'}})), \
+                    patch.object(emergency, 'get', return_value=app), patch.object(emergency, 'kube'), \
+                    patch.object(emergency, 'wait', side_effect=lambda check, *args, **kwargs: self.assertTrue(check())), \
+                    patch.object(emergency, 'writer_idle', return_value=True), \
+                    patch.object(emergency, 'reconciled', side_effect=[RuntimeError(error), True]), \
+                    patch.object(emergency, 'sql', side_effect=['t', enabled]), \
+                    patch.object(emergency, 'token', return_value='private-token'), \
+                    patch.object(emergency, 'vault_secret', return_value={'client_id': 'emergency-' + 'a' * 32, 'client_secret': 'private-secret'}), \
+                    patch.object(emergency, 'private_request', side_effect=[{'error': 'invalid_client'}, (401, None)]) as requests:
+                path = Path(directory) / 'retirement.json'
+                path.write_text(json.dumps(saved))
+                if passes:
+                    self.assertTrue(emergency.run('a' * 32)['temporary_token_denial_measured'])
+                    self.assertEqual(json.loads(path.read_text())['phase'], 'accepted')
+                    self.assertTrue(requests.call_args.kwargs['with_status'])
+                else:
+                    with self.assertRaises(RuntimeError): emergency.run('a' * 32)
+                    self.assertEqual(json.loads(path.read_text())['phase'], 'retiring-service')
+                    requests.assert_not_called()
 
 
 if __name__ == '__main__':

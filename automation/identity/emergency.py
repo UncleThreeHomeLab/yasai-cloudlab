@@ -270,7 +270,17 @@ def run(nonce):
             if enabled == 't':
                 wait(writer_idle, 'retirement writer lease expiry', timeout=300)
                 declare('retire-emergency', False)
-                wait(lambda: reconciled(receipt['revision'], receipt['uid']), 'temporary service retirement', timeout=900)
+                def service_retired():
+                    try:
+                        return reconciled(receipt['revision'], receipt['uid'])
+                    except RuntimeError as error:
+                        # Disabling its own client can deny config-cli's final read.
+                        if str(error) != 'Identity reconciliation failed at the requested revision; preserve the phase checkpoint':
+                            raise
+                        if sql("SELECT enabled FROM client c JOIN realm r ON r.id=c.realm_id WHERE r.name='master' AND c.client_id='" + operation['client'] + "';", values['database']).strip() != 'f':
+                            raise
+                        return True
+                wait(service_retired, 'temporary service retirement', timeout=900)
             response = private_request(origin + '/realms/master/protocol/openid-connect/token', form={
                 'grant_type': 'client_credentials', 'client_id': credentials['client_id'], 'client_secret': credentials['client_secret']}, accepted_statuses=(400, 401))
             if response.get('error') not in ('invalid_client', 'unauthorized_client'):
@@ -278,8 +288,9 @@ def run(nonce):
             start = time.time()
             if bearer:
                 def denied():
-                    result = private_request(origin + '/admin/realms/master', token=bearer, accepted_statuses=(200, 401, 403))
-                    return 'error' in result and 'realm' not in result
+                    status, _ = private_request(origin + '/admin/realms/master', token=bearer,
+                        accepted_statuses=(200, 401, 403), with_status=True)
+                    return status in (401, 403)
                 wait(denied, 'existing temporary administration token expiry', timeout=330)
                 saved['temporary_token_denial_measured'] = True
             else:

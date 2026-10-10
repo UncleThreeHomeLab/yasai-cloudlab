@@ -327,7 +327,7 @@ def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, 
     return documents
 
 
-def private_request(url, token=None, form=None, accepted_statuses=(200,), *, method=None):
+def private_request(url, token=None, form=None, accepted_statuses=(200,), *, method=None, with_status=False):
     import ssl
     import urllib.request
     import urllib.parse
@@ -353,7 +353,8 @@ def private_request(url, token=None, form=None, accepted_statuses=(200,), *, met
             if response.status not in accepted_statuses: raise ValueError('Unexpected identity status')
             raw = response.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024: raise ValueError('Private identity response exceeds its limit')
-        return None if response.status == 204 and not raw else json.loads(raw)
+        value = None if not raw and (response.status == 204 or with_status) else json.loads(raw)
+        return (response.status, value) if with_status else value
     except Exception:
         raise RuntimeError('Private identity request failed; diagnostics withheld') from None
 
