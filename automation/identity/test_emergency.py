@@ -266,7 +266,7 @@ class EmergencyTests(unittest.TestCase):
                     patch.object(emergency, 'wait', side_effect=lambda check, *args, **kwargs: self.assertTrue(check())), \
                     patch.object(emergency, 'writer_idle', return_value=True), \
                     patch.object(emergency, 'reconciled', side_effect=[RuntimeError(error), True]), \
-                    patch.object(emergency, 'sql', side_effect=['t', enabled]), \
+                    patch.object(emergency, 'sql', side_effect=['t', enabled]) as queries, \
                     patch.object(emergency, 'token', return_value='private-token'), \
                     patch.object(emergency, 'vault_secret', return_value={'client_id': 'emergency-' + 'a' * 32, 'client_secret': 'private-secret'}), \
                     patch.object(emergency, 'private_request', side_effect=[{'error': 'invalid_client'}, (401, None)]) as requests:
@@ -280,6 +280,9 @@ class EmergencyTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError): emergency.run('a' * 32)
                     self.assertEqual(json.loads(path.read_text())['phase'], 'retiring-service')
                     requests.assert_not_called()
+                for query in queries.call_args_list:
+                    self.assertTrue(query.args[0].startswith('SELECT c.enabled FROM client c JOIN realm r'))
+                    self.assertEqual(query.args[1], 'keycloak')
 
 
 if __name__ == '__main__':

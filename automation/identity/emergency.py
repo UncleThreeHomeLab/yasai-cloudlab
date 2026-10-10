@@ -280,7 +280,7 @@ def run(nonce):
             checkpoint('retiring-service')
         if saved['phase'] == 'retiring-service':
             credentials = vault_secret('keycloak-emergency')
-            enabled = sql("SELECT enabled FROM client c JOIN realm r ON r.id=c.realm_id WHERE r.name='master' AND c.client_id='" + operation['client'] + "';", values['database']).strip()
+            enabled = sql("SELECT c.enabled FROM client c JOIN realm r ON r.id=c.realm_id WHERE r.name='master' AND c.client_id='" + operation['client'] + "';", values['database']).strip()
             if enabled not in ('t', 'f'):
                 raise RuntimeError('Temporary service inventory changed before retirement')
             bearer = token(origin, credentials, True) if enabled == 't' else None
@@ -294,7 +294,7 @@ def run(nonce):
                         # Disabling its own client can deny config-cli's final read.
                         if str(error) != 'Identity reconciliation failed at the requested revision; preserve the phase checkpoint':
                             raise
-                        if sql("SELECT enabled FROM client c JOIN realm r ON r.id=c.realm_id WHERE r.name='master' AND c.client_id='" + operation['client'] + "';", values['database']).strip() != 'f':
+                        if sql("SELECT c.enabled FROM client c JOIN realm r ON r.id=c.realm_id WHERE r.name='master' AND c.client_id='" + operation['client'] + "';", values['database']).strip() != 'f':
                             raise
                         return True
                 wait(service_retired, 'temporary service retirement', timeout=900)
