@@ -17,6 +17,7 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(helper['image'], lock['images']['cloudflared'])
         self.assertEqual(helper['profiles'], ['live-access'])
         self.assertTrue(helper['read_only'])
+        self.assertEqual(helper['logging'], {'driver': 'none'})
         self.assertNotIn('volumes', helper)
         self.assertEqual(helper['tmpfs'], ['/home/nonroot/.cloudflared:uid=65532,gid=65532,mode=0700'])
         self.assertEqual(helper['user'], '65532:65532')
