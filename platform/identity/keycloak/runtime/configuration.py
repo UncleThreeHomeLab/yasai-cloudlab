@@ -295,7 +295,7 @@ def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, 
     return documents
 
 
-def private_request(url, token=None, form=None, accepted_statuses=(200,)):
+def private_request(url, token=None, form=None, accepted_statuses=(200,), *, method=None):
     import ssl
     import urllib.request
     import urllib.parse
@@ -311,7 +311,7 @@ def private_request(url, token=None, form=None, accepted_statuses=(200,)):
         data = urllib.parse.urlencode(form).encode()
     try:
         opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
-        request = urllib.request.Request(url, data=data, headers=headers)
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             response = opener.open(request, timeout=20)
         except urllib.error.HTTPError as error:
@@ -321,7 +321,7 @@ def private_request(url, token=None, form=None, accepted_statuses=(200,)):
             if response.status not in accepted_statuses: raise ValueError('Unexpected identity status')
             raw = response.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024: raise ValueError('Private identity response exceeds its limit')
-        return json.loads(raw)
+        return None if response.status == 204 and not raw else json.loads(raw)
     except Exception:
         raise RuntimeError('Private identity request failed; diagnostics withheld') from None
 

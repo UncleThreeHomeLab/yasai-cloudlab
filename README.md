@@ -359,7 +359,18 @@ reconciliation. Public or retired clients are rejected. `lab identity-client-rem
 accepts `{realm, client_id}` only after the private retirement/removal tombstone is
 published and the client is disabled. It waits the declared session/token bound,
 runs the serialized Argo removal job and restores normal reconciliation. These
-live operations remain unverified. Runtime phases
+live operations remain unverified.
+`lab identity-offboard` accepts private JSON `{realm, username, user_id, email}` on stdin.
+First publish the persistent private user tombstone and let the sole config-cli writer
+disable the exact account. The operation refuses missing sources, enabled accounts,
+changed IDs, unverified email and machine identities, then invalidates Keycloak
+sessions while preserving credentials. Platform offboarding also requires accepted
+dedicated Access cutover with no prior provider allowed by managed human applications.
+It revokes Access tokens without changing devices or WARP sessions through the existing
+external owner. API acknowledgment does not prove browser denial: measure current
+Keycloak, Argo and Access sessions separately. Existing signed JWTs can remain valid
+until expiry, and unmanaged client lifetimes require separate review. These live
+offboarding and integrated deadline checks remain unverified. Runtime phases
 `identity-server`, `identity-bootstrap`, `identity-primary` and `identity-scoped` require published,
 explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
 They preserve bootstrap access; retirement and live cutovers remain incomplete.
