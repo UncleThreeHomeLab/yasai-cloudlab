@@ -10,6 +10,20 @@ from private_verify import healthy, credential_failure
 
 
 class PrivateConvergenceTests(unittest.TestCase):
+    def test_native_multiple_sources_require_every_pinned_values_revision(self):
+        app = {'spec': {'sources': [{'targetRevision': 'main'}, {'targetRevision': 'b' * 40}]},
+               'status': {'sync': {'status': 'Synced', 'revisions': ['a' * 40, 'b' * 40]},
+                          'health': {'status': 'Healthy'}, 'operationState': {'phase': 'Succeeded'}}}
+        with patch('private_verify.get', return_value=app):
+            self.assertTrue(healthy('cloudlab-argocd'))
+        for revisions, target in ((['a' * 40], 'b' * 40), (['a' * 40, 'c' * 40], 'b' * 40),
+                                  (['a' * 40, 'main'], 'main')):
+            changed = copy.deepcopy(app)
+            changed['status']['sync']['revisions'] = revisions
+            changed['spec']['sources'][1]['targetRevision'] = target
+            with self.subTest(revisions=revisions), patch('private_verify.get', return_value=changed):
+                self.assertFalse(healthy('cloudlab-argocd'))
+
     def probe(self, failure=None, foreign=False, interrupted=False):
         probe = 'cloudlab-private-credential-check'
         objects = {('secret', 'fixture'): {'data': {'githubAppPrivateKey': 'original-secret'}},
