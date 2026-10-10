@@ -21,7 +21,7 @@ from automation.identity.recovery import verify_restored, signature_state, resto
 from automation.identity.integrations import argo, access
 from automation.identity.access_provider import prepare as prepare_access_provider
 from automation.identity.isolated_restore import policies, pod, client_inventory, run as restore_issuer
-from automation.identity.access_inputs import names
+from automation.identity.access_inputs import names, runtime
 from automation.gitops.source_revision import matches_revision
 from automation.gitops.private_sources import PEM_TEMPLATE
 from automation.identity.bootstrap import application, private_resources, discover
@@ -969,6 +969,27 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(names(public, private), (public, private))
         with self.assertRaises(ValueError): names([{'name': 'login', 'access': 'human'}], ['argocd'])
         with self.assertRaises(ValueError): names([{'name': 'identity-admin', 'access': 'public'}], ['argocd'])
+
+    def test_access_runtime_preserves_classification_on_repeat_and_disabled_identity(self):
+        environment = {'CLOUDFLARE_ACCESS_HOSTS': json.dumps([{'name': 'fixture', 'access': 'human'}]),
+                       'PRIVATE_ACCESS_HOSTS': '["argocd"]', 'TAILSCALE_ADMIN_LOGIN': 'fixture@example.invalid'}
+        disabled = dict(environment)
+        runtime(disabled, {'identity': {'enabled': False}})
+        self.assertEqual(disabled['CLOUDFLARE_ACCESS_HOSTS'], environment['CLOUDFLARE_ACCESS_HOSTS'])
+        self.assertEqual(disabled['PRIVATE_ACCESS_HOSTS'], environment['PRIVATE_ACCESS_HOSTS'])
+        self.assertEqual(disabled['LAB_IDENTITY_ENABLED'], '0')
+        runtime(environment, {'identity': {'enabled': True}})
+        self.assertEqual(json.loads(environment['CLOUDFLARE_ACCESS_HOSTS']),
+                         [{'name': 'fixture', 'access': 'human'}, {'name': 'login', 'access': 'public'}])
+        self.assertEqual(json.loads(environment['PRIVATE_ACCESS_HOSTS']), ['argocd', 'identity-admin', 'cd'])
+        self.assertEqual(environment['LAB_IDENTITY_ENABLED'], '1')
+        self.assertEqual(environment['CLOUDFLARE_HUMAN_EMAIL'], 'fixture@example.invalid')
+        repeated = dict(environment)
+        runtime(environment, {'identity': {'enabled': True}})
+        self.assertEqual(environment, repeated)
+        environment['CLOUDFLARE_ACCESS_HOSTS'] = '[{"name":"login","access":"human"}]'
+        with self.assertRaises(ValueError):
+            runtime(environment, {'identity': {'enabled': True}})
 
     def test_password_grants_are_closed_without_master_or_unmanaged_client_changes(self):
         original = compile_state('applications', 'login.example.invalid', self.source())

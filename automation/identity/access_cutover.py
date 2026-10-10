@@ -165,6 +165,7 @@ def prepare(state, previous, contract):
 
 
 def local():
+    import yaml
     from dotenv import dotenv_values
     from automation.credentials.vault import fields
     from automation.connectivity.cloudflare import API
@@ -173,11 +174,13 @@ def local():
     from automation.connectivity.external import run
     from automation.identity.access_provider import public_provider
     from automation.connectivity.reconcile import matches
+    from automation.identity.access_inputs import runtime
     import shlex
     values = dotenv_values(ROOT / '.env', interpolate=False)
     for key, value in values.items():
         if value is not None and key not in ('OP_PROVISION_SERVICE_ACCOUNT_TOKEN', 'GITHUB_PROVISION_TOKEN'):
             os.environ[key] = value
+    runtime(os.environ, yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text()))
     management = fields('cloudflare-management', ('API_TOKEN', 'ACCOUNT_ID'))
     api = API(management['API_TOKEN'])
     path = 'accounts/' + management['ACCOUNT_ID'] + '/access/identity_providers/'
