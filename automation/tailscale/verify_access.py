@@ -19,7 +19,7 @@ from control import API, HOST_TAG, TEST_TAG, policy
 
 def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *, input=None, timeout=30):
     env = dict(os.environ, SSHPASS=os.environ[prefix + '_PASSWORD'])
-    result = subprocess.run(['sshpass', '-e', 'ssh', '-p', os.environ[prefix + '_PORT'],
+    result = subprocess.run(['sshpass', '-e', 'ssh', '-p', os.environ.get(prefix + '_PORT') or '22',
         '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-o', 'PreferredAuthentications=password',
         '-o', 'PubkeyAuthentication=no', '-o', 'StrictHostKeyChecking=' + strict,
         '-o', 'UserKnownHostsFile=' + known_hosts, os.environ[prefix + '_USER'] + '@' + host, command],
