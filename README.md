@@ -51,7 +51,7 @@ volume.
 
 ## Run it
 
-1. Prepare two reachable VMs and Docker Compose.
+1. Prepare two reachable VMs with synchronized clocks and Docker Compose. Automatic time synchronization must work on both hosts; permit outbound NTP traffic through upstream firewalls. Apply and verification stop early when a host is not synchronized.
 2. Fill in `.env` from [`.env.example`](.env.example), including the 1Password token. Create the B2 item in CloudLab. Keep secrets out of Git.
 3. Apply and verify:
 

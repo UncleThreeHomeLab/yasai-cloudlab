@@ -19,6 +19,9 @@
 - name: Derive the node identity
   ansible.builtin.import_tasks: identity.yml
 
+- name: Check the host clock prerequisite
+  ansible.builtin.import_tasks: clock.yml
+
 - name: Check supported host and minimum server resources
   ansible.builtin.assert:
     that:

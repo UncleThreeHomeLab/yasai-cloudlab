@@ -1,0 +1,16 @@
+---
+- name: Read host clock synchronization before identity or cluster operations
+  ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+  register: host_clock_sync
+  changed_when: false
+  failed_when: false
+
+- name: Require synchronized clocks for certificates and token validation
+  ansible.builtin.assert:
+    that:
+      - host_clock_sync.rc == 0
+      - host_clock_sync.stdout | trim == 'yes'
+    fail_msg: >-
+      Host clock is not synchronized. Restore automatic time synchronization
+      and upstream access to its NTP servers before retrying. VM creation and
+      upstream firewalls are external prerequisites; token validation remains strict.
