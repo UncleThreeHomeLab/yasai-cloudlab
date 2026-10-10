@@ -32,6 +32,109 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_session_offboarding_requires_applied_private_tombstone_and_exact_identity(self):
+        from automation.identity import lifecycle
+        request = {'realm': 'applications', 'username': 'fixture-person',
+                   'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid'}
+        user = dict(request, id=request['user_id'], enabled=False, emailVerified=True)
+        user.pop('realm'); user.pop('user_id')
+        private = {'format': 1, 'realms': {'applications': {'memberships': [{'username': request['username'], 'groups': []}]}}}
+        registry = {'format': 1, 'realms': {'applications': {'users': [request['username']]}}}
+        rows = [user]
+        writes = []
+        def api(url, **kwargs):
+            if url.endswith('/token'): return {'access_token': 'private-token'}
+            if '/users?' in url: return rows
+            if url.endswith('/credentials'): return [{'id': 'retained', 'type': 'webauthn'}]
+            if url.endswith('/sessions'): return []
+            writes.append((url, kwargs))
+            self.assertTrue(url.endswith('/logout'))
+            self.assertEqual(kwargs['method'], 'POST')
+            self.assertEqual(kwargs['accepted_statuses'], (204,))
+        resources = {
+            'cloudlab-identity': {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': 'cloudlab-identity-bootstrap'}},
+                  'spec': {'source': {'helm': {'valuesObject': {'adminHost': 'identity-admin.internal.example.invalid'}}}}},
+            'cloudlab-identity-private': {'spec': {'source': {'repoURL': 'private-source'}}},
+            'keycloak-realm-writers': {'metadata': {'ownerReferences': [{'uid': 'eso', 'kind': 'ExternalSecret'}]},
+                                      'data': {'applications_client_secret': base64.b64encode(b'x' * 48).decode()}},
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.object(lifecycle, 'BASE', Path(directory)), \
+                patch.object(lifecycle, 'get', side_effect=lambda kind, name, ns=None: {
+                    'metadata': {'uid': 'eso'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+                    if kind == 'externalsecret.external-secrets.io' else resources[name]), \
+                patch.object(lifecycle, 'application_ready', return_value=True), \
+                patch.object(lifecycle, 'private_request', side_effect=api), \
+                patch('automation.identity.bootstrap.private_inputs', side_effect=lambda payload: (private, registry, 'private-sha')):
+            (Path(directory) / 'ownership.json').write_text(json.dumps({'uid': 'owned', 'phase': 'scoped', 'revision': 'public-sha'}))
+            self.assertTrue(lifecycle.offboard(request)['keycloak_sessions_invalidated'])
+            self.assertEqual(len(writes), 1)
+            for changed in ({'id': '87654321-1234-1234-1234-123456789abc'}, {'enabled': True}, {'emailVerified': False}, {'email': 'other@example.invalid'}):
+                rows[:] = [dict(user, **changed)]
+                with self.assertRaises(RuntimeError): lifecycle.offboard(request)
+                self.assertEqual(len(writes), 1)
+            rows[:] = [user]
+            registry['realms']['applications']['users'] = []
+            with self.assertRaises(RuntimeError): lifecycle.offboard(request)
+            self.assertEqual(len(writes), 1)
+
+    def test_offboarding_rejects_machine_master_and_incomplete_identity_before_io(self):
+        from automation.identity.lifecycle import offboard_scope
+        request = {'realm': 'applications', 'username': 'fixture-person',
+                   'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid'}
+        for changed in ({'realm': 'master'}, {'username': 'service-account-realm-writer'}, {'user_id': 'x' * 36},
+                        {'email': 'fixture@\nexample.invalid'}, {'extra': True}):
+            with self.assertRaises(ValueError): offboard_scope(dict(request, **changed))
+
+    def test_platform_session_offboarding_refuses_prior_access_provider_before_remote_changes(self):
+        from automation.identity import lifecycle
+        from contextlib import contextmanager
+        @contextmanager
+        def transaction():
+            yield Mock(load=Mock(return_value={'identity_provider': {'phase': 'prepared', 'id': 'dedicated'}}))
+        request = {'realm': 'platform', 'username': 'fixture-person',
+                   'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid'}
+        with patch('dotenv.dotenv_values', return_value={}), \
+                patch('automation.connectivity.checkpoint.transaction', transaction), \
+                patch('automation.connectivity.preflight.ssh') as ssh:
+            with self.assertRaisesRegex(RuntimeError, 'accepted dedicated Access cutover'):
+                lifecycle.local_offboard(request)
+            ssh.assert_not_called()
+
+    def test_access_revocation_preserves_device_identity_and_does_not_claim_session_denial(self):
+        from automation.identity import lifecycle
+        from contextlib import contextmanager
+        account = 'a' * 32
+        state = {'identity_provider': {'phase': 'accepted', 'id': 'dedicated', 'binding': {'account': account}},
+                 'objects': {'app:fixture.example.invalid': {'id': 'application'}}}
+        @contextmanager
+        def transaction():
+            yield Mock(load=Mock(return_value=state))
+        request = {'realm': 'platform', 'username': 'fixture-person',
+                   'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid'}
+        api = Mock()
+        api.request.side_effect = [{'policies': [{'decision': 'allow'}], 'allowed_idps': ['dedicated']}, True]
+        with patch('dotenv.dotenv_values', return_value={'VM_HOST': 'fixture'}), \
+                patch('automation.connectivity.checkpoint.transaction', transaction), \
+                patch('automation.credentials.vault.fields', return_value={'API_TOKEN': 'private', 'ACCOUNT_ID': account}), \
+                patch('automation.connectivity.cloudflare.API', return_value=api), \
+                patch('automation.connectivity.preflight.ssh', return_value='{"keycloak_sessions_invalidated":true}'):
+            result = lifecycle.local_offboard(request)
+        self.assertFalse(result['access_session_denial_measured'])
+        self.assertEqual(api.request.call_args.args, ('POST', 'accounts/' + account + '/access/organizations/revoke_user',
+            {'email': 'fixture@example.invalid', 'devices': False, 'warp_session_reauth': False}))
+
+    def test_private_request_accepts_empty_204_for_session_logout(self):
+        from automation.identity.configuration import private_request
+        from unittest.mock import MagicMock
+        response = MagicMock(status=204)
+        response.read.return_value = b''
+        response.__enter__.return_value = response
+        with patch('urllib.request.build_opener') as opener:
+            opener.return_value.open.return_value = response
+            self.assertIsNone(private_request('https://identity.example.invalid/logout', token='private',
+                              method='POST', accepted_statuses=(204,)))
+            self.assertEqual(opener.return_value.open.call_args.args[0].get_method(), 'POST')
+
     def test_only_scheduled_writers_skip_busy_valid_leases(self):
         from automation.identity import lease
         from unittest.mock import MagicMock
