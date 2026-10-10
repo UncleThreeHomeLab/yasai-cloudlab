@@ -51,7 +51,7 @@ def protocols(values, secrets):
         if not isinstance(denied, dict) or 'error' not in denied:
             raise RuntimeError('Audit client must be denied user administration')
         if realm == 'platform' and direct_https(origin + '/realms/platform/account/credentials', edge_address,
-                {'Accept': 'application/json', 'Authorization': 'Bearer ' + token['access_token']})[0] != 403:
+                {'Accept': 'application/json', 'Authorization': 'Bearer ' + token['access_token']})[0] not in (401, 403):
             raise RuntimeError('Audit client must be denied user account credential management')
         result[realm] = dict(status, public_client_credentials_token=True,
                              private_backchannel_discovery_jwks=True,
