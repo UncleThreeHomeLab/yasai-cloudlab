@@ -77,6 +77,26 @@ def configuration(payload):
     health 127.0.0.1:18053
 }}
 '''
+    identity_host = payload.get('identity_host')
+    if identity_host is not None:
+        if identity_host != 'login.' + zone.removeprefix('internal.'):
+            raise ValueError('Private identity DNS must use the canonical issuer hostname')
+        for bind, sources, target in ((tailnet, '100.64.0.0/10', vip),
+                ('127.0.0.1 ' + host, '127.0.0.1/32 10.44.0.0/30 10.42.0.0/16', gateway)):
+            files['Corefile'] += f'''{identity_host}:53 {{
+    bind {bind}
+    acl {{
+        allow net {sources}
+        block
+    }}
+    hosts /dev/null {{
+        {target} {identity_host}
+        ttl 30
+        no_reverse
+        reload 0
+    }}
+}}
+'''
     return files
 
 

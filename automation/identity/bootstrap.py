@@ -80,7 +80,8 @@ def discover():
     if not condition(certificate, 'Ready'):
         raise RuntimeError('Independent private TLS must be ready before identity')
     names = certificate['spec']['dnsNames']
-    if len(names) != 1 or not names[0].startswith('*.internal.'):
+    if (len(names) != 2 or not names[0].startswith('*.internal.') or
+            names[1] != 'login.' + names[0][11:]):
         raise RuntimeError('Private TLS domain contract changed')
     domain = names[0][11:]
     proxies = []

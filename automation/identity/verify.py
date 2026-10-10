@@ -5,7 +5,8 @@ import json
 
 from automation.identity.bootstrap import private_inputs, reconciled
 from automation.identity.configuration import private_request
-from automation.identity.health import check, proxy_privacy, redact
+from automation.identity.health import check, proxy_privacy, redact, json_get, direct_https
+from automation.connectivity.dns_wire import public_address
 from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER
 from automation.mesh.kube import condition, get
 
@@ -27,11 +28,13 @@ def credentials():
 def protocols(values, secrets):
     origin = 'https://' + values['loginHost']
     admin = 'https://' + values['adminHost']
+    edge_address = public_address(values['loginHost'])
     result = {}
     for realm in ('platform', 'applications'):
         issuer = origin + '/realms/' + realm
-        status = check(issuer)
-        token = private_request(issuer + '/protocol/openid-connect/token', form={
+        status = check(issuer, address=edge_address)
+        check(issuer)
+        token = json_get(issuer + '/protocol/openid-connect/token', address=edge_address, form={
             'grant_type': 'client_credentials', 'client_id': 'realm-health',
             'client_secret': secrets[realm]})
         if (not isinstance(token.get('access_token'), str) or token.get('token_type', '').lower() != 'bearer'
@@ -48,8 +51,18 @@ def protocols(values, secrets):
         if not isinstance(denied, dict) or 'error' not in denied:
             raise RuntimeError('Audit client must be denied user administration')
         result[realm] = dict(status, public_client_credentials_token=True,
+                             private_backchannel_discovery_jwks=True,
                              private_audit_read=True, user_administration_denied=True, audit=audit)
-    return dict(realms=result, privacy=proxy_privacy(values['loginHost']))
+    private_address = get('service', 'cloudlab-istio', 'cloudlab-gateway-private')['spec']['clusterIP']
+    account_status, body = direct_https(origin + '/realms/platform/account/', private_address, {})
+    if account_status != 200 or ('"serverBaseUrl": "' + origin + '"').encode() not in body:
+        raise RuntimeError('Private account console must retain its canonical browser/API origin')
+    if direct_https(origin + '/realms/platform/account/credentials', private_address, {})[0] != 401:
+        raise RuntimeError('Private account API must require a user access token')
+    if direct_https(origin + '/admin/realms', private_address, {})[0] not in (403, 404):
+        raise RuntimeError('Private account listener must not route realm administration')
+    return dict(realms=result, private_account_console=True,
+                privacy=proxy_privacy(values['loginHost'], address=edge_address))
 
 
 def run(payload):

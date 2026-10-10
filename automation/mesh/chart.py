@@ -104,11 +104,17 @@ def gateways(zone='example.invalid'):
         else:
             exposure = obj['metadata']['namespace'].removeprefix('cloudlab-gateway-')
             listeners = obj['spec']['listeners']
-            if len(listeners) != 1 or listeners[0]['protocol'] != 'HTTPS' or listeners[0]['tls']['mode'] != 'Terminate':
-                raise ValueError('Gateway requires one terminating HTTPS listener')
-            if listeners[0]['allowedRoutes']['namespaces'] != {
-                    'from': 'Selector', 'selector': {'matchLabels': {'cloudlab.io/gateway': exposure}}}:
-                raise ValueError('Gateway route attachment must be restricted by exposure')
+            if len(listeners) != (2 if exposure == 'private' else 1):
+                raise ValueError('Gateway listener inventory changed')
+            for listener in listeners:
+                if listener['protocol'] != 'HTTPS' or listener['tls']['mode'] != 'Terminate':
+                    raise ValueError('Gateway requires terminating HTTPS listeners')
+                if listener['allowedRoutes']['namespaces'] != {
+                        'from': 'Selector', 'selector': {'matchLabels': {'cloudlab.io/gateway': exposure}}}:
+                    raise ValueError('Gateway route attachment must be restricted by exposure')
+            if exposure == 'private' and (listeners[1]['name'] != 'identity-account' or
+                    listeners[1]['hostname'] != 'login.' + zone):
+                raise ValueError('Private identity listener must use the exact canonical issuer hostname')
     return objects
 
 

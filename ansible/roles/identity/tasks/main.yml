@@ -9,7 +9,13 @@
     path: '{{ item }}'
     state: directory
     mode: '0700'
-  loop: [/opt/cloudlab/automation/identity, /opt/cloudlab/automation/gitops, /var/lib/cloudlab/identity]
+  loop: [/opt/cloudlab/automation/identity, /opt/cloudlab/automation/gitops, /opt/cloudlab/automation/connectivity, /var/lib/cloudlab/identity]
+
+- name: Install the independent public DNS probe from its connectivity owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/dns_wire.py'
+    dest: /opt/cloudlab/automation/connectivity/dns_wire.py
+    mode: '0600'
 
 - name: Install the shared private Git credential template from its owner
   ansible.builtin.copy:

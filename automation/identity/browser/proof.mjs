@@ -55,6 +55,24 @@ try {
   const credentials = await cdp.send('WebAuthn.getCredentials', {authenticatorId});
   if (!credentials.credentials.length) throw new Error('No WebAuthn credential enrolled');
   const authenticatedCookies = await context.cookies();
+  stage='platform account console with canonical issuer';
+  const profileResponse = page.waitForResponse(response =>
+    response.url().startsWith('https://localhost:8443/realms/platform/account/?') &&
+    new URL(response.url()).searchParams.get('userProfileMetadata') === 'true' && response.status() === 200);
+  await page.goto('https://localhost:8443/realms/platform/account/');
+  await page.getByRole('heading', {name:'Personal info',exact:true}).waitFor();
+  const profile = await profileResponse;
+  if ((await profile.json()).username !== input.username)
+    throw new Error('Account console returned a different user');
+  const authorization = (await profile.request().allHeaders()).authorization;
+  const accountClaims = JSON.parse(Buffer.from(authorization.split('.')[1], 'base64url'));
+  if (accountClaims.iss !== 'https://localhost:8443/realms/platform')
+    throw new Error('Account console changed the canonical issuer');
+  for (const realm of ['platform','master']) {
+    if ((await page.request.get('https://admin.fixture.test/admin/realms/'+realm+'/users',
+          {headers:{Authorization:authorization}})).status() !== 403)
+      throw new Error('Account console granted realm administration');
+  }
   // Real credential, wrong UV: password alone must not complete privileged login.
   await context.clearCookies();
   stage='unverified WebAuthn denial';
@@ -138,6 +156,8 @@ try {
   await masterPage.getByRole('link',{name:'Realm settings',exact:true}).waitFor({timeout:60000});
   await masterContext.close();
   console.log(JSON.stringify({browser_code_pkce_state_nonce:true,verified_webauthn:true,
+    platform_account_console_sso:true,account_issuer_unchanged:true,
+    account_denied_platform_and_master_administration:true,
     private_master_browser_mfa:true,master_console_without_public_issuer_loop:true,
     password_without_uv_denied:true,sso_without_loop:true,reference_api:true,
     wrong_state_denied:true,missing_access_token_denied:true,

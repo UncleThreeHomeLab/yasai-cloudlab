@@ -7,6 +7,7 @@ import yaml
 from automation.identity.bootstrap import prerequisites, private_inputs
 from automation.identity.configuration import private_request
 from automation.identity.health import check, proxy_privacy
+from automation.connectivity.dns_wire import public_address
 from automation.identity.integrations import argo
 from automation.identity.maintenance import APP, BASE, OWNER
 from automation.gitops.source_transition import bind_identity
@@ -46,7 +47,7 @@ def run(payload):
         origin = 'https://' + payload['values']['loginHost']
         for realm in ('platform', 'applications'):
             check(origin + '/realms/' + realm)
-        proxy_privacy(payload['values']['loginHost'])
+        proxy_privacy(payload['values']['loginHost'], address=public_address(payload['values']['loginHost']))
         response = private_request(origin + '/realms/platform/protocol/openid-connect/token',
             form={'grant_type': 'authorization_code', 'client_id': 'argocd', 'code': 'invalid-disposable-probe',
                   'redirect_uri': payload['argo']['client']['callbacks'][0], 'code_verifier': 'x' * 64},

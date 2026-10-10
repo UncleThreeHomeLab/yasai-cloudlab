@@ -20,7 +20,7 @@ from control import API
 from verify_access import ssh
 from automation.credentials.vault import fields
 from automation.connectivity.contract import host_rules, private_names
-from automation.connectivity.dns_wire import absent_answer, private_answer, query
+from automation.connectivity.dns_wire import absent_answer, private_answer, query, public_address
 from automation.connectivity.traffic import denied, https as request_https, success
 from automation.connectivity.cluster_fixture import PROOF_PATH
 from automation.connectivity.tailnet_probe import verify as denied_tailnet
@@ -143,9 +143,10 @@ def _run(*, failures=True, keep=False):
         remote('prepare', **payload)
         if runtime.get('identity_server_present'):
             from automation.identity.health import check, proxy_privacy
-            output['identity_protocols'] = {realm: check('https://' + protocol + '/realms/' + realm)
+            edge_address = public_address(protocol)
+            output['identity_protocols'] = {realm: check('https://' + protocol + '/realms/' + realm, address=edge_address)
                                              for realm in ('platform', 'applications')}
-            output['identity_gateway'] = proxy_privacy(protocol)
+            output['identity_gateway'] = proxy_privacy(protocol, address=edge_address)
         remote('snapshot')
         identities = remote('identities')
         with transaction() as receipts:
@@ -188,6 +189,7 @@ def _run(*, failures=True, keep=False):
         for server in nameservers:
             for tcp in (False, True):
                 private_answer(server, private_host, runtime['private']['tailnet_gateway'], tcp=tcp)
+                private_answer(server, runtime['private']['identity_host'], runtime['private']['tailnet_gateway'], tcp=tcp)
                 absent_answer(server, 'nonexistent-cloudlab-proof.' + runtime['private']['zone'], tcp=tcp)
         retry(lambda: success(https(private_host, address=runtime['private']['tailnet_gateway'])), 'tailnet private HTTPS')
         api = https(api_url.hostname, address=api_address, path='/api/v1/namespaces')

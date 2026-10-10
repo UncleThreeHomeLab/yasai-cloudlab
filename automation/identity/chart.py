@@ -79,6 +79,13 @@ def check():
     denied = next(o for o in objects if o['kind'] == 'AuthorizationPolicy')['spec']['rules'][0]['to'][0]['operation']['notPaths']
     if set(denied) != exact | {'/resources', '/resources/*'}:
         raise ValueError('Gateway policy and protocol route allowlists differ')
+    account = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'identity-private-account')['spec']
+    if account['parentRefs'] != [{'name': 'cloudlab', 'namespace': 'cloudlab-gateway-private', 'sectionName': 'identity-account'}]:
+        raise ValueError('Account self-service must attach only to the private canonical-host listener')
+    private_paths = [match['path'] for rule in account['rules'] for match in rule['matches']]
+    if {path['value'] for path in private_paths if path['type'] == 'PathPrefix'} != {
+            '/resources', '/realms/platform/account', '/realms/applications/account'}:
+        raise ValueError('Private canonical-host route must not expose realm administration')
     for realm in ('platform', 'applications'):
         required = {'/realms/' + realm + '/.well-known/openid-configuration',
                     '/realms/' + realm + '/login-actions/required-action'}

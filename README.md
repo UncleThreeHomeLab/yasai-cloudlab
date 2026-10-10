@@ -317,6 +317,12 @@ Operator/server/config-cli combination is verified in disposable fixtures; see
 `platform/identity/keycloak/contract.json` for inputs, lifecycle ownership,
 limitations and client contracts. No Grafana or Harbor installation is included.
 
+Connect to Tailscale and open `https://login.<zone>/realms/platform/account/`
+for platform account self-service. Exact split DNS sends this same issuer hostname
+to the private gateway, preserving browser SSO and the passkey origin. Its account
+paths remain denied publicly. The private Keycloak hostname root opens this page;
+the explicit master admin console uses its separate master account.
+
 Run `docker compose run --build --rm lab identity-check` for chart and input checks.
 Run `docker compose -p cloudlab-identity-proof -f compose.identity-proof.yaml run
 --build --rm browser` for the HTTPS reference app, virtual WebAuthn and measured

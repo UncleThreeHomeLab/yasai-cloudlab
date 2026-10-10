@@ -55,6 +55,13 @@ spec:
     - {name: cloudlab, namespace: cloudlab-gateway-private, sectionName: https}
   hostnames: [{{ .Values.adminHost | quote }}]
   rules:
+    - matches: [{path: {type: Exact, value: /}}]
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ .Values.loginHost | quote }}
+            path: {type: ReplaceFullPath, replaceFullPath: /realms/platform/account/}
+            statusCode: 302
     - filters:
         - type: RequestHeaderModifier
           requestHeaderModifier:
@@ -62,6 +69,39 @@ spec:
             set:
               - {name: X-Forwarded-Proto, value: https}
               - {name: X-Forwarded-Host, value: {{ .Values.adminHost | quote }}}
+              - {name: X-Forwarded-Port, value: '443'}
+      backendRefs: [{name: cloudlab-keycloak-service, namespace: cloudlab-identity, port: 8443}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: identity-private-account
+  namespace: cloudlab-identity-admin
+spec:
+  parentRefs:
+    - {name: cloudlab, namespace: cloudlab-gateway-private, sectionName: identity-account}
+  hostnames: [{{ .Values.loginHost | quote }}]
+  rules:
+    - matches: [{path: {type: Exact, value: /}}]
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path: {type: ReplaceFullPath, replaceFullPath: /realms/platform/account/}
+            statusCode: 302
+    - matches:
+        {{- range $protocolPaths }}
+        - {path: {type: Exact, value: {{ . | quote }}}}
+        {{- end }}
+        - {path: {type: PathPrefix, value: /resources}}
+        - {path: {type: PathPrefix, value: /realms/platform/account}}
+        - {path: {type: PathPrefix, value: /realms/applications/account}}
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: [Forwarded, X-Forwarded-For, X-Forwarded-Host, X-Forwarded-Port, X-Forwarded-Proto]
+            set:
+              - {name: X-Forwarded-Proto, value: https}
+              - {name: X-Forwarded-Host, value: {{ .Values.loginHost | quote }}}
               - {name: X-Forwarded-Port, value: '443'}
       backendRefs: [{name: cloudlab-keycloak-service, namespace: cloudlab-identity, port: 8443}]
 ---

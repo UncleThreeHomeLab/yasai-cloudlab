@@ -5,6 +5,50 @@ from automation.connectivity.dns_tailnet import dns_policy
 
 
 class DNSTests(unittest.TestCase):
+    def test_tailnet_alias_repeat_preserves_unrelated_dns_and_access_policy(self):
+        import copy
+        from unittest.mock import Mock, patch
+        from automation.connectivity import dns_tailnet
+        servers = ['100.64.0.1', '100.64.0.2']
+        dns = {'internal.example.invalid': servers, 'unrelated.invalid': ['1.1.1.1']}
+        policy = dns_policy({}, 'admin@example.invalid', servers)
+        writes = []
+        def request(method, path, data=None, *args):
+            if path.endswith('/dns/split-dns'):
+                if method == 'PATCH': dns.update(data); writes.append(copy.deepcopy(data))
+                return copy.deepcopy(dns), None
+            if path.endswith('/acl/validate'): return [], None
+            if path.endswith('/acl'):
+                self.assertEqual(method, 'GET')
+                return copy.deepcopy(policy), 'fixture-etag'
+            if path.endswith('/devices'): return {'devices': []}, None
+            raise AssertionError('Unexpected API operation')
+        payload = {'zone': 'internal.example.invalid', 'identity_host': 'login.example.invalid', 'nameservers': servers}
+        with patch.object(dns_tailnet, 'API', return_value=Mock(request=Mock(side_effect=request))), \
+                patch.dict('os.environ', {'TAILSCALE_ADMIN_LOGIN': 'admin@example.invalid'}), patch('builtins.print'):
+            dns_tailnet.run(payload)
+            dns_tailnet.run(payload)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(set(writes[0]), {'internal.example.invalid', 'login.example.invalid'})
+        self.assertEqual(dns['unrelated.invalid'], ['1.1.1.1'])
+
+    def test_public_peer_lookup_rejects_split_dns_and_uses_independent_resolvers(self):
+        from unittest.mock import patch
+        from automation.connectivity import dns_wire
+        with patch.object(dns_wire, 'query', return_value={'rcode': 0, 'addresses': ['10.43.0.10']}) as query:
+            with self.assertRaises(RuntimeError): dns_wire.public_address('login.example.invalid')
+            query.assert_called_once_with('1.1.1.1', 'login.example.invalid', tcp=True)
+        with patch.object(dns_wire, 'query', side_effect=[TimeoutError(), {'rcode': 0, 'addresses': ['1.1.1.1']}]):
+            self.assertEqual(dns_wire.public_address('login.example.invalid'), '1.1.1.1')
+
+    def test_identity_alias_is_exact_private_and_keeps_public_recursion_separate(self):
+        files = configuration(dict(self.payload, identity_host='login.example.invalid'))
+        self.assertIn('10.43.0.10 login.example.invalid', files['Corefile'])
+        self.assertIn('100.100.0.1 login.example.invalid', files['Corefile'])
+        self.assertEqual(files['Corefile'].count('login.example.invalid:53'), 2)
+        self.assertNotIn('fallthrough', files['Corefile'])
+        with self.assertRaises(ValueError): configuration(dict(self.payload, identity_host='other.example.invalid'))
+
     def setUp(self):
         self.payload = dict(zone='internal.example.invalid', names=['app'], tailnet_address='100.64.0.1',
                             host_address='10.44.0.1', cluster_gateway='10.43.0.10', tailnet_gateway='100.100.0.1',

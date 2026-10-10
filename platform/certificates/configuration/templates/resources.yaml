@@ -61,5 +61,8 @@ spec:
   issuerRef: {name: cloudlab-acme-production, kind: ClusterIssuer}
   dnsNames:
     - {{ if eq $type "public" }}{{ printf "*.%s" $.Values.zone | quote }}{{ else }}{{ printf "*.internal.%s" $.Values.zone | quote }}{{ end }}
+    {{- if eq $type "private" }}
+    - {{ printf "login.%s" $.Values.zone | quote }}
+    {{- end }}
 {{- end }}
 {{- end }}

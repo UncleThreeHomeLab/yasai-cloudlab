@@ -40,6 +40,10 @@ def run(payload):
     zone, servers = payload['zone'], payload['nameservers']
     before, _ = api.request('GET', 'tailnet/-/dns/split-dns')
     desired_dns = split_dns(before, zone, servers)
+    identity_host = payload['identity_host']
+    if identity_host != 'login.' + zone.removeprefix('internal.'):
+        raise ValueError('Identity split DNS must retain the canonical realm hostname')
+    desired_dns = split_dns(desired_dns, identity_host, servers)
     policy, etag = api.request('GET', 'tailnet/-/acl')
     devices, _ = api.request('GET', 'tailnet/-/devices')
     others = {d['user'] for d in devices.get('devices', []) if d.get('user')}
@@ -53,10 +57,11 @@ def run(payload):
     if api.request('GET', 'tailnet/-/acl')[0] != desired:
         raise RuntimeError('DNS grants did not converge')
     if before != desired_dns:
-        # PATCH changes only this domain; never overwrite unrelated split DNS.
-        api.request('PATCH', 'tailnet/-/dns/split-dns', {zone: desired_dns[zone]})
+        # PATCH changes only the two owned domains; retain unrelated split DNS.
+        api.request('PATCH', 'tailnet/-/dns/split-dns', {name: desired_dns[name] for name in (zone, identity_host)})
     actual, _ = api.request('GET', 'tailnet/-/dns/split-dns')
-    if actual.get(zone) != desired_dns[zone] or any(actual.get(k) != v for k, v in before.items() if k != zone):
+    if (any(actual.get(name) != desired_dns[name] for name in (zone, identity_host)) or
+            any(actual.get(k) != v for k, v in before.items() if k not in (zone, identity_host))):
         raise RuntimeError('Split DNS did not converge or unrelated configuration changed')
     print(json.dumps({'changed': desired != policy or desired_dns != before, 'split_dns_configured': True}))
 

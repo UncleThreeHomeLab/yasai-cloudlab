@@ -210,7 +210,8 @@ def configure(payload):
                 raise RuntimeError(name + ' ownership must be accepted before data services')
         wait(lambda: application_ready('cloudlab-cnpg', payload['revision']), 'CNPG operator convergence')
         private_cert = get('certificate.cert-manager.io', 'cloudlab-gateway', 'cloudlab-gateway-private')
-        if not condition(private_cert, 'Ready') or private_cert['spec']['dnsNames'] != ['*.' + payload['values']['s3Host'].split('.', 1)[1]]:
+        private_zone = payload['values']['s3Host'].split('.', 1)[1]
+        if not condition(private_cert, 'Ready') or private_cert['spec']['dnsNames'] != ['*.' + private_zone, 'login.' + private_zone.removeprefix('internal.')]:
             raise RuntimeError('Data endpoint must belong to the existing ready private certificate zone')
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else {'applications': {}}

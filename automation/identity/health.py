@@ -1,7 +1,9 @@
 """Bounded OIDC health and a strict redacted audit projection."""
 import json
+import http.client
 import re
 import ssl
+import socket
 import sys
 import time
 from pathlib import Path
@@ -33,7 +35,27 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def json_get(url, token=None, form=None, headers=None):
+def direct_https(url, address, headers, data=None):
+    """Keep HTTPS SNI/Host validation while selecting an explicit gateway peer."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != 'https' or parsed.port not in (None, 443):
+        raise ValueError('Explicit gateway health requires canonical HTTPS')
+    connection = http.client.HTTPSConnection(parsed.hostname, timeout=15)
+    try:
+        connection.sock = ssl.create_default_context().wrap_socket(
+            socket.create_connection((address, 443), timeout=15), server_hostname=parsed.hostname)
+        path = parsed.path + ('?' + parsed.query if parsed.query else '')
+        connection.request('POST' if data is not None else 'GET', path, body=data, headers=headers)
+        response = connection.getresponse()
+        raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise RuntimeError('Identity health response exceeded its limit')
+        return response.status, raw
+    finally:
+        connection.close()
+
+
+def json_get(url, token=None, form=None, headers=None, address=None):
     headers = dict(headers or {}, Accept='application/json', **{'User-Agent': 'CloudLab-Identity-Health/1.0'})
     if token:
         headers['Authorization'] = 'Bearer ' + token
@@ -41,6 +63,11 @@ def json_get(url, token=None, form=None, headers=None):
     if form is not None:
         headers['Content-Type'] = 'application/x-www-form-urlencoded'
         data = urllib.parse.urlencode(form).encode()
+    if address is not None:
+        status, raw = direct_https(url, address, headers, data)
+        if status != 200:
+            raise urllib.error.HTTPError(url, status, 'Identity health HTTP status rejected', {}, None)
+        return json.loads(raw)
     request = urllib.request.Request(url, headers=headers, data=data)
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     with opener.open(request, timeout=15) as response:
@@ -52,13 +79,13 @@ def json_get(url, token=None, form=None, headers=None):
     return json.loads(data)
 
 
-def check(issuer):
+def check(issuer, address=None):
     parsed = urllib.parse.urlsplit(issuer)
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
             or parsed.query or parsed.fragment or parsed.port not in (None, 443)
             or parsed.path not in ('/realms/platform', '/realms/applications')):
         raise ValueError('Health requires an exact managed HTTPS realm issuer')
-    document = json_get(issuer + '/.well-known/openid-configuration')
+    document = json_get(issuer + '/.well-known/openid-configuration', address=address)
     if document.get('issuer') != issuer:
         raise RuntimeError('Stable issuer health failed')
     suffixes = {'authorization_endpoint': '/auth', 'token_endpoint': '/token',
@@ -66,13 +93,13 @@ def check(issuer):
     for key, suffix in suffixes.items():
         if document.get(key) != issuer + '/protocol/openid-connect' + suffix:
             raise RuntimeError('OIDC discovery exposes an unexpected host or path')
-    jwks = json_get(document['jwks_uri'])
+    jwks = json_get(document['jwks_uri'], address=address)
     if not any(k.get('kty') == 'RSA' and k.get('alg') == 'RS256' and k.get('use') == 'sig' for k in jwks.get('keys', [])):
         raise RuntimeError('No supported realm signing key')
     return {'discovery': True, 'jwks': True, 'stable_https_issuer': True}
 
 
-def proxy_privacy(login_host):
+def proxy_privacy(login_host, address=None):
     if not re.fullmatch('[a-z0-9.-]+', login_host):
         raise ValueError('Identity privacy requires its exact login hostname')
     origin = 'https://' + login_host
@@ -81,10 +108,12 @@ def proxy_privacy(login_host):
              'X-Forwarded-Host': 'forbidden.invalid', 'X-Forwarded-Proto': 'http', 'X-Forwarded-Port': '80'}
     for realm in ('platform', 'applications'):
         issuer = origin + '/realms/' + realm
-        document = json_get(issuer + '/.well-known/openid-configuration', headers=spoof)
+        document = json_get(issuer + '/.well-known/openid-configuration', headers=spoof, address=address)
         if document.get('issuer') != issuer or document.get('token_endpoint') != issuer + '/protocol/openid-connect/token':
             raise RuntimeError('Gateway proxy headers changed the stable identity issuer')
     paths = ['/admin/realms', '/admin/master/console/', '/realms/master/.well-known/openid-configuration',
+             '/realms/platform/account/', '/realms/platform/account/credentials',
+             '/realms/applications/account/', '/realms/applications/account/credentials',
              '/health/ready', '/metrics', '/realms/platform/clients-registrations',
              '/realms/applications/clients-registrations', '/realms/platform/../../admin/realms',
              '/realms/platform/%2e%2e/%2e%2e/admin/realms',
@@ -92,8 +121,11 @@ def proxy_privacy(login_host):
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     for path in paths:
         try:
-            with opener.open(urllib.request.Request(origin + path, headers=spoof), timeout=15) as response:
-                status = response.status
+            if address is not None:
+                status, _ = direct_https(origin + path, address, spoof)
+            else:
+                with opener.open(urllib.request.Request(origin + path, headers=spoof), timeout=15) as response:
+                    status = response.status
         except urllib.error.HTTPError as error:
             status = error.code
             error.close()
