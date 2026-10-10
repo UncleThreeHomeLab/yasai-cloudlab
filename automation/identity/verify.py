@@ -61,6 +61,9 @@ def protocols(values, secrets):
         raise RuntimeError('Private account API must require a user access token')
     if direct_https(origin + '/admin/realms', private_address, {})[0] not in (403, 404):
         raise RuntimeError('Private account listener must not route realm administration')
+    for realm in ('platform', 'applications'):
+        if direct_https(admin + '/realms/' + realm + '/account/', private_address, {})[0] != 302:
+            raise RuntimeError('Saved private account links must redirect to the canonical origin')
     return dict(realms=result, private_account_console=True,
                 privacy=proxy_privacy(values['loginHost'], address=edge_address))
 
