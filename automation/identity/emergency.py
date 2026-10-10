@@ -216,9 +216,13 @@ def run(nonce):
             patches = [
                     {'op': 'test', 'path': '/metadata/uid', 'value': saved['application_uid']},
                     {'op': 'test', 'path': '/metadata/resourceVersion', 'value': current['metadata']['resourceVersion']},
-                    {'op': 'add', 'path': '/spec/source/helm/valuesObject/operation', 'value': desired},
                     {'op': 'add', 'path': '/spec/source/helm/valuesObject/maintenance', 'value': maintenance},
                     {'op': 'add', 'path': '/spec/source/helm/valuesObject/bootstrapAdminEnabled', 'value': action not in ('retire-emergency', None)}]
+            if desired is not None:
+                patches.append({'op': 'add', 'path': '/spec/source/helm/valuesObject/operation', 'value': desired})
+            elif 'operation' in current['spec']['source']['helm']['valuesObject']:
+                # Argo omits null Helm values from comparedTo; clear the field.
+                patches.append({'op': 'remove', 'path': '/spec/source/helm/valuesObject/operation'})
             if action is None:
                 patches.append({'op': 'add', 'path': '/spec/source/helm/valuesObject/retiredEmergencyItem', 'value': operation['item']})
             patches.extend(phase_sync_patches(current, receipt['revision']))
