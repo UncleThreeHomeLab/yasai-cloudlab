@@ -8,7 +8,7 @@ import sys
 import time
 import uuid
 
-from bootstrap import BASE, get, kube
+from bootstrap import BASE, get, kube, matches_revision
 from private_bootstrap import run as configure, remove
 from private_sources import resources
 from source_transition import record
@@ -27,8 +27,10 @@ def wait(check, description, timeout=240):
 def healthy(name):
     app = get('application.argoproj.io', name) or {}
     status = app.get('status', {})
+    sync = status.get('sync', {})
+    revision = sync.get('revision') or next(iter(sync.get('revisions', [])), None)
     return (status.get('sync', {}).get('status') == 'Synced' and
-            bool(status.get('sync', {}).get('revision')) and
+            bool(revision) and matches_revision(app, revision) and
             status.get('health', {}).get('status') == 'Healthy' and
             not app.get('operation') and
             not any(c['type'].endswith('Error') for c in status.get('conditions', [])) and
