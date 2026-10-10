@@ -246,7 +246,7 @@ def verify(payload):
                     raise RuntimeError('Mesh GitOps convergence changed during stability observation')
         if gateway_api(payload['gateway_api']) != state['gateway_api']:
             raise RuntimeError('Gateway API identity changed during verification')
-        check_gateways()
+        check_gateways(zone)
         return {'ambient_without_sidecars': True, 'cross_node_mutual_tls_traffic_observed': True,
                 'authorized_identity_allowed': True, 'plaintext_and_unauthorized_identity_denied': True,
                 'network_policy_separately_proven': True, 'trusted_gateway_tls': True,
