@@ -38,6 +38,9 @@ def prepare(payload):
         ns['metadata']['labels']['app.kubernetes.io/managed-by'] = OWNER
         pod = fixtures.pod(namespace, 'backend', payload['smoke_image'], 'backend', server=True)
         spec = pod['spec']
+        # Keep application roots untouched while serving the exact proof route.
+        spec['containers'][0]['command'][2] = ('mkdir -p /www; printf mesh-ok > /www/index.html; '
+            'cp /www/index.html /www' + PROOF_PATH + '; exec httpd -f -p 8080 -h /www')
         spec.pop('activeDeadlineSeconds')
         spec['restartPolicy'] = 'Always'
         spec['topologySpreadConstraints'] = [{'maxSkew': 1, 'topologyKey': 'kubernetes.io/hostname',

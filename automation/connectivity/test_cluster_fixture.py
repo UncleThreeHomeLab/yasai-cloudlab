@@ -1,6 +1,9 @@
 """Failure injection must target only redundant, healthy access components."""
 import copy
 import json
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 from automation.connectivity import cluster_fixture
@@ -22,6 +25,12 @@ class FailureBoundaryTests(unittest.TestCase):
         self.assertEqual(len(routes), 2)
         self.assertTrue(all(obj['spec']['rules'][0]['matches'] == [
             {'path': {'type': 'Exact', 'value': cluster_fixture.PROOF_PATH}}] for obj in routes))
+        for deployment in (obj for obj in documents if obj['kind'] == 'Deployment'):
+            command = deployment['spec']['template']['spec']['containers'][0]['command'][2]
+            with tempfile.TemporaryDirectory() as directory:
+                subprocess.run(['sh', '-ec', command.split('; exec httpd')[0].replace('/www', directory)], check=True)
+                self.assertEqual((Path(directory) / cluster_fixture.PROOF_PATH.lstrip('/')).read_bytes(), b'mesh-ok')
+                self.assertEqual((Path(directory) / 'index.html').read_bytes(), b'mesh-ok')
 
     def pods(self):
         return [{'metadata': {'name': 'fixture-' + str(n), 'uid': str(n)},
