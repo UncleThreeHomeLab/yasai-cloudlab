@@ -319,8 +319,9 @@ limitations and client contracts. No Grafana or Harbor installation is included.
 
 Connect to Tailscale and open `https://login.<zone>/realms/platform/account/`
 for platform account self-service. Exact split DNS sends this same issuer hostname
-to the private gateway, preserving browser SSO and the passkey origin. Its account
-paths remain denied publicly. The private Keycloak hostname root opens this page;
+to the private gateway, preserving browser SSO and the passkey origin. Platform
+self-service also works publicly; administration and management remain private.
+The private Keycloak hostname root opens this page;
 the explicit master admin console uses its separate master account.
 
 Run `docker compose run --build --rm lab identity-check` for chart and input checks.
