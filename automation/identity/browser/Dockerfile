@@ -2,5 +2,5 @@ FROM mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76c
 WORKDIR /proof
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --registry=https://registry.npmjs.org
-COPY proof.mjs ./
+COPY proof.mjs sessions.mjs ./
 ENTRYPOINT ["node", "/proof/proof.mjs"]

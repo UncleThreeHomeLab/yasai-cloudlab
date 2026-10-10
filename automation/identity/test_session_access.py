@@ -58,7 +58,8 @@ class SessionAccessTests(unittest.TestCase):
         service = yaml.safe_load((root/'compose.identity-proof.yaml').read_text())['services']['sessions']
         self.assertEqual(service['logging'], {'driver':'none'})
         self.assertTrue(service['read_only'])
-        self.assertEqual(service['volumes'], ['.:/workspace:ro'])
+        self.assertNotIn('volumes', service)
+        self.assertEqual(service['entrypoint'], ['node','/proof/sessions.mjs'])
         self.assertEqual(service['cap_drop'], ['ALL'])
         self.assertEqual(service['user'], '1000:1000')
         self.assertIn('live-sessions', service['profiles'])
