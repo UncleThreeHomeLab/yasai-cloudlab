@@ -6,9 +6,9 @@ import sys
 import time
 
 try:
-    from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding
+    from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
 except ImportError:
-    from bootstrap import BASE, get, kube, wait_application, resume_identity_binding
+    from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
 
 ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
@@ -78,6 +78,7 @@ def bind_identity(payload, target):
             raise RuntimeError('Native identity binding requires existing GitOps resources')
         if validate(root, project, controller, payload['repository']):
             raise RuntimeError('Native identity binding cannot migrate the public source')
+        identity_project_rules(project)
         if root['spec']['source']['targetRevision'] != payload['branch']:
             raise RuntimeError('Native identity binding cannot change the public revision contract')
         values = copy.deepcopy(root['spec']['source'].get('helm', {}).get('valuesObject', {}))
@@ -89,10 +90,13 @@ def bind_identity(payload, target):
             raise RuntimeError('Native identity binding resource identity changed')
         if checkpoint and checkpoint['phase'] != 'accepted' and checkpoint['target'] != target:
             raise RuntimeError('Complete the pending native identity binding before another change')
-        if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] == 'accepted':
+        if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] in ('source-updated', 'resumed', 'accepted'):
             wait_application(ROOT_APP, payload['revision'])
             wait_application('cloudlab-argocd', payload['revision'])
-            return {'changed': False, 'native_argo_values_bound': True}
+            changed = checkpoint['phase'] != 'accepted'
+            checkpoint['phase'] = 'accepted'
+            record(path, checkpoint)
+            return {'changed': changed, 'native_argo_values_bound': True}
         values.setdefault('identity', {}).update(enabled=True, argo=target)
         checkpoint = dict(identities, target=target, phase='prepared')
         record(path, checkpoint)
@@ -112,6 +116,13 @@ def bind_identity(payload, target):
                 {'op': 'add', 'path': '/metadata/annotations', 'value': annotations}]))
             checkpoint['phase'] = 'source-updated'
             record(path, checkpoint)
+            latest_project = get('appproject.argoproj.io', 'cloudlab-root')
+            if (not latest_project or latest_project['metadata']['uid'] != project['metadata']['uid']
+                    or latest_project['spec'] != project['spec']):
+                raise RuntimeError('Root project changed during identity source handoff')
+            # Argo validates all resources before applying earlier permission waves.
+            # Bootstrap grants only the ESO kind already declared by the new root.
+            grant_identity_source(latest_project)
         finally:
             kube('scale', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--replicas=1')
         checkpoint['phase'] = 'resumed'

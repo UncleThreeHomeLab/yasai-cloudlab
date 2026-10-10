@@ -40,7 +40,10 @@ class SourceTransitionTests(unittest.TestCase):
                 'metadata': {'uid': 'root'}, 'spec': {'project': 'cloudlab-root',
                     'source': {'path': 'gitops/roots/public', 'repoURL': 'old'}}},
             ('statefulset', migration.CONTROLLER): {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 1}},
-            ('appproject.argoproj.io', 'cloudlab-root'): {'metadata': {'uid': 'project'}, 'spec': {'sourceRepos': ['old']}}}
+            ('appproject.argoproj.io', 'cloudlab-root'): {'metadata': {'uid': 'project', 'resourceVersion': '1'}, 'spec': {
+                'sourceRepos': ['old'], 'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],
+                'clusterResourceWhitelist': [{'group': '', 'kind': 'Namespace'}],
+                'namespaceResourceWhitelist': [{'group': 'argoproj.io', 'kind': kind} for kind in ('Application', 'AppProject')]}}}
 
     def test_refuses_unknown_ownership_and_active_operations(self):
         items = list(self.fixtures().values())

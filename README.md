@@ -399,6 +399,9 @@ an immutable commit, and binds it through the public root owner. Run `lab apply`
 afterward to reconcile both Argo routes from its ConfigMap interface. Browser,
 RBAC and measured session checks remain required before Access cutover. A killed
 root handoff can be repaired with `lab gitops-bootstrap` independently of Keycloak.
+The handoff grants only the declared ESO kind in the exact root namespace before
+CD validation. Recovery verifies saved resource identities and source, stops the
+sole controller for that grant, then resumes it; no IdP login is required.
 After native Argo convergence, `lab identity-access-prepare` creates or reconciles
 the dedicated OIDC provider using the client secret delivered through ESO. Its
 host-backed receipt preserves provider identity and tracks credential rotation
