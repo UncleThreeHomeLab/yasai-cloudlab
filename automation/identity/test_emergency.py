@@ -13,6 +13,32 @@ from automation.identity.chart import render
 
 
 class EmergencyTests(unittest.TestCase):
+    def test_accepted_retirement_restores_only_its_exact_source_pin(self):
+        revision = 'a' * 40
+        retirement = {'phase': 'accepted', 'revision': revision, 'application_uid': 'owned'}
+        current = {'metadata': {'uid': 'owned', 'resourceVersion': '42'},
+                   'spec': {'source': {'targetRevision': revision, 'helm': {'valuesObject': {}}}}}
+        desired = {'spec': {'source': {'targetRevision': 'main'}}}
+        original = copy.deepcopy(current)
+        self.assertEqual(bootstrap.branch_handoff_patches(current, desired, retirement), [
+            {'op': 'test', 'path': '/metadata/uid', 'value': 'owned'},
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '42'},
+            {'op': 'test', 'path': '/spec/source/targetRevision', 'value': revision},
+            {'op': 'replace', 'path': '/spec/source/targetRevision', 'value': 'main'}])
+        self.assertEqual(current, original)
+        self.assertEqual(bootstrap.branch_handoff_patches(current, desired, None), [])
+        for change in ('pending', 'foreign', 'syncing', 'maintenance', 'operation'):
+            app, record = copy.deepcopy(current), dict(retirement)
+            if change == 'pending': record['phase'] = 'finishing'
+            elif change == 'foreign': app['metadata']['uid'] = 'foreign'
+            elif change == 'syncing': app['operation'] = {'sync': {}}
+            else: app['spec']['source']['helm']['valuesObject'][change] = True
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                bootstrap.branch_handoff_patches(app, desired, record)
+        for target in ('main', 'unrelated-pin'):
+            current['spec']['source']['targetRevision'] = target
+            self.assertEqual(bootstrap.branch_handoff_patches(current, desired, retirement), [])
+
     def test_phase_sync_runs_hooks_without_pruning_at_frozen_revision(self):
         revision = 'a' * 40
         patches = emergency.phase_sync_patches({}, revision)
