@@ -1,5 +1,19 @@
 """Identity's public protocol and private administration DNS contract."""
 import copy
+import json
+
+
+def runtime(environment, settings):
+    """Use the same hostname classification for apply and identity handoff."""
+    enabled = settings.get('identity', {}).get('enabled')
+    environment['LAB_IDENTITY_ENABLED'] = '1' if enabled else '0'
+    if enabled:
+        public, private = names(json.loads(environment.get('CLOUDFLARE_ACCESS_HOSTS') or '[]'),
+                                json.loads(environment.get('PRIVATE_ACCESS_HOSTS') or '[]'))
+        environment['CLOUDFLARE_ACCESS_HOSTS'] = json.dumps(public)
+        environment['PRIVATE_ACCESS_HOSTS'] = json.dumps(private)
+    environment['CLOUDFLARE_HUMAN_EMAIL'] = (environment.get('CLOUDFLARE_HUMAN_EMAIL') or
+                                           environment.get('TAILSCALE_ADMIN_LOGIN') or '')
 
 
 def names(public, private):

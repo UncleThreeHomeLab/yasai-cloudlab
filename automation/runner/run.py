@@ -159,15 +159,9 @@ def main():
         os.environ[name] = values.get(name) or ''
     import yaml
     public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
-    os.environ['LAB_IDENTITY_ENABLED'] = '1' if public_settings.get('identity', {}).get('enabled') else '0'
-    if os.environ['LAB_IDENTITY_ENABLED'] == '1':
-        sys.path.insert(0, '/workspace')
-        from automation.identity.access_inputs import names
-        public, private = names(json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS'] or '[]'),
-                                json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]'))
-        os.environ['CLOUDFLARE_ACCESS_HOSTS'] = json.dumps(public)
-        os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(private)
-    os.environ['CLOUDFLARE_HUMAN_EMAIL'] = os.environ['CLOUDFLARE_HUMAN_EMAIL'] or os.environ['TAILSCALE_ADMIN_LOGIN']
+    sys.path.insert(0, '/workspace')
+    from automation.identity.access_inputs import runtime
+    runtime(os.environ, public_settings)
     if action in {'recovery-retrieve', 'recovery-preflight'}:
         subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', action.removeprefix('recovery-')], check=True)
         return
