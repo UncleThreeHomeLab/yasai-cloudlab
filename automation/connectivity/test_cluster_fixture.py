@@ -10,27 +10,43 @@ from automation.connectivity import cluster_fixture
 
 
 class FailureBoundaryTests(unittest.TestCase):
+    def test_canary_names_and_unknown_purpose_cannot_delete_regular_fixtures(self):
+        self.assertEqual(cluster_fixture.fixture_names({'purpose': 'identity-canary'}), cluster_fixture.CANARY_NAMES)
+        self.assertTrue(set(cluster_fixture.CANARY_NAMES).isdisjoint(cluster_fixture.NAMES))
+        with patch.object(cluster_fixture, 'get') as get, patch.object(cluster_fixture, 'cleanup') as cleanup:
+            with self.assertRaises(ValueError): cluster_fixture.prepare({'purpose': 'foreign'})
+            get.assert_not_called(); cleanup.assert_not_called()
+        with patch.object(cluster_fixture, 'kube') as kube:
+            with self.assertRaises(ValueError): cluster_fixture.cleanup(['cloudlab-identity'])
+            kube.assert_not_called()
+
     def test_disposable_routes_never_claim_application_root_paths(self):
         documents = []
         def write(*args, **kwargs):
             if args[0] == 'apply': documents.extend(kwargs['document']['items'])
         certificate = {'metadata': {'generation': 1}, 'spec': {'dnsNames': ['*.example.invalid']}, 'status': {'conditions': [
             {'type': 'Ready', 'status': 'True'}]}}
-        with patch.object(cluster_fixture, 'get', return_value=certificate), \
-                patch.object(cluster_fixture, 'cleanup'), patch.object(cluster_fixture, 'kube', side_effect=write), \
-                patch.object(cluster_fixture, 'wait'):
-            cluster_fixture.prepare({'public': [{'name': 'fixture', 'access': 'public'}],
-                                     'private': ['cd'], 'smoke_image': 'fixture@sha256:' + 'a' * 64})
-        routes = [obj for obj in documents if obj['kind'] == 'HTTPRoute']
-        self.assertEqual(len(routes), 2)
-        self.assertTrue(all(obj['spec']['rules'][0]['matches'] == [
-            {'path': {'type': 'Exact', 'value': cluster_fixture.PROOF_PATH}}] for obj in routes))
-        for deployment in (obj for obj in documents if obj['kind'] == 'Deployment'):
-            command = deployment['spec']['template']['spec']['containers'][0]['command'][2]
-            with tempfile.TemporaryDirectory() as directory:
-                subprocess.run(['sh', '-ec', command.split('; exec httpd')[0].replace('/www', directory)], check=True)
-                self.assertEqual((Path(directory) / cluster_fixture.PROOF_PATH.lstrip('/')).read_bytes(), b'mesh-ok')
-                self.assertEqual((Path(directory) / 'index.html').read_bytes(), b'mesh-ok')
+        for purpose, path, namespaces in (('access', cluster_fixture.PROOF_PATH, cluster_fixture.NAMES),
+                                         ('identity-canary', cluster_fixture.CANARY_PATH, cluster_fixture.CANARY_NAMES[:1])):
+            documents.clear()
+            with self.subTest(purpose=purpose), patch.object(cluster_fixture, 'get', return_value=certificate), \
+                    patch.object(cluster_fixture, 'cleanup') as cleanup, patch.object(cluster_fixture, 'kube', side_effect=write), \
+                    patch.object(cluster_fixture, 'wait'):
+                cluster_fixture.prepare({'purpose': purpose, 'public': [{'name': 'fixture', 'access': 'public'}],
+                                         'private': ['cd'] if purpose == 'access' else [],
+                                         'smoke_image': 'fixture@sha256:' + 'a' * 64})
+                cleanup.assert_called_once_with(cluster_fixture.fixture_names({'purpose': purpose}))
+            self.assertEqual([obj['metadata']['name'] for obj in documents if obj['kind'] == 'Namespace'], namespaces)
+            routes = [obj for obj in documents if obj['kind'] == 'HTTPRoute']
+            self.assertEqual(len(routes), len(namespaces))
+            self.assertTrue(all(obj['spec']['rules'][0]['matches'] == [
+                {'path': {'type': 'Exact', 'value': path}}] for obj in routes))
+            for deployment in (obj for obj in documents if obj['kind'] == 'Deployment'):
+                command = deployment['spec']['template']['spec']['containers'][0]['command'][2]
+                with tempfile.TemporaryDirectory() as directory:
+                    subprocess.run(['sh', '-ec', command.split('; exec httpd')[0].replace('/www', directory)], check=True)
+                    self.assertEqual((Path(directory) / path.lstrip('/')).read_bytes(), b'mesh-ok')
+                    self.assertEqual((Path(directory) / 'index.html').read_bytes(), b'mesh-ok')
 
     def pods(self):
         return [{'metadata': {'name': 'fixture-' + str(n), 'uid': str(n)},

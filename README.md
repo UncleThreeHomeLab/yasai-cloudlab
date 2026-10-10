@@ -445,6 +445,28 @@ host-backed receipt preserves provider identity and tracks credential rotation
 without storing the secret. Existing providers and application policies remain
 unchanged. Masked provider secrets require browser verification; preparation does
 not claim cutover acceptance. An ambiguous interrupted creation fails closed.
+After verified real enrollment and bootstrap retirement, run
+`lab identity-access-canary`. It creates a disposable protected path on the existing
+public smoke host, leaving real application policies unchanged. Open
+`/__cloudlab_identity_access_canary`, sign in using the dedicated provider, then
+send its Access JWT as JSON `{token}` on stdin to
+`lab identity-access-canary-proof`. The signed token, exact policy, backend response
+and independent machine denial are verified without retaining the session.
+Run `lab identity-access-cutover` within 15 minutes of this proof.
+It checks current native Argo configuration,
+active private membership, WebAuthn and the dedicated OIDC client before changing
+only owned human policies. Approved email, exact `/platform-admin` claim and the
+dedicated provider are all required; prior provider is retained. Machine policies
+remain independent. Reconciliation preserves the selected provider from its
+private host receipt and never contacts Keycloak for this selection. Record a new
+signed browser proof with `lab access-human-proof` before claiming Access login
+acceptance. Provider credential rotation invalidates earlier browser evidence;
+both proofs require a newly issued Access JWT and a recent successful dedicated
+Keycloak code exchange after configuration. Use a fresh private browser session;
+an existing Access organization session can skip the IdP exchange and cannot prove rotation.
+role denials, session deadlines and IdP outage still require real integration tests.
+`lab identity-access-canary-remove` removes only its exact owned path application
+and disposable namespaces. Cleanup remains available without Keycloak login.
 
 Identity shares the existing monthly-only Longhorn backup boundary. Capture hooks
 quiesce identity before CNPG shutdown; restore hooks check signing-state hashes

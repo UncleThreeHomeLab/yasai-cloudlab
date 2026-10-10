@@ -1,5 +1,5 @@
 {
-  "status": "inactive candidate; installation and live acceptance incomplete",
+  "status": "One live official Operator/server with scoped reconciliation; real privileged enrollment and integrated browser/session acceptance remain incomplete",
   "realms": [
     "platform",
     "applications"
@@ -97,7 +97,7 @@
         "/developer",
         "/viewer"
       ],
-      "status": "not integrated; preserve independent SSH, Tailscale and Kubernetes repair. Existing Argo local admin remains disabled. Exact public/private origins use native OIDC and trusted backend TLS."
+      "status": "Native OIDC and exact full-path RBAC are bound and converged; real browser/RBAC/session acceptance remains pending. Independent SSH, Tailscale and Kubernetes repair is preserved."
     },
     "access": {
       "realm": "platform",
@@ -152,14 +152,27 @@
       "Current private membership and revocation registry"
     ],
     "gate": "Suspend every identity writer and server before physical capture. Isolated restored issuer never serves real clients. Invalidate sessions and review current revocations before reopening.",
-    "status": "Monthly capture hooks and isolated SQL signing/session checks implemented; live identity capture, recovery-input replay and isolated issuer proof unverified",
-    "restore_replay": "Validate both current private realm inputs before any import. Inventory restored clients; disable existing removed-client tombstones without recreating absent clients. Keep issuer isolated pending human credential, membership and revocation review."
+    "status": "Coordinated physical capture and isolated identity restore passed on the two existing hosts; signing state/JWT, session invalidation and current vault/private recovery-input replay verified. Monthly offsite generation predates identity until the next authorized capture.",
+    "restore_replay": "Validate both current private realm inputs before any import. Inventory restored clients; disable existing removed-client tombstones without recreating absent clients. Keep issuer isolated pending human credential, membership and revocation review.",
+    "isolated_proof": {
+      "capture_seconds": 166.595,
+      "restore_seconds": 697.417,
+      "identity_data_age_seconds": 748.099,
+      "b2_reads": 0,
+      "retained_local_generations": 0,
+      "signing_state_and_jwt_verified": true,
+      "sessions_invalidated": true,
+      "current_vault_and_private_inputs_replayed": true,
+      "issuer_exposed_to_real_clients": false,
+      "membership_revocation_review_required_before_reopening": true,
+      "scope": "Temporary local physical generation on existing hosts; not complete lab disaster recovery or identity offsite-restore proof"
+    }
   },
   "health": {
     "schedule_seconds": 300,
     "permission": "Dedicated realm-health service clients with view-events only",
     "audit": "Redacted latest 100 events per category; no identities, IPs, paths or representations",
-    "status": "Chart implemented; disposable role-scope checks passed; live schedule unverified"
+    "status": "Live public discovery/JWKS/token and canonical proxy/privacy checks passed; scoped audit reads succeeded and user administration was denied. Full monitoring belongs to milestone 05."
   },
   "private_source": {
     "path": "identity",
@@ -170,7 +183,7 @@
     ],
     "credential": "ESO project-scoped github-argocd",
     "permissions": "ConfigMap only in cloudlab-identity; no prune or empty apply; unavailable source blocks realm import",
-    "status": "Owner and validation implemented; source content/publication and live proof pending",
+    "status": "Complete private inputs published and scoped reconciliation converged; generic public templates contain no private people/client metadata.",
     "file": "identity/configmap.yaml only; adjacent argo-values.yaml is a values input, never a Kubernetes manifest"
   },
   "operations": {
@@ -229,7 +242,7 @@
     ],
     "limits": "Offline creation is the official bootstrap recovery boundary, not an additional normal realm writer. Retirement and emergency-client disable use config-cli. Real custody, credential retirement and live recovery remain required."
   },
-  "database_transport": "Keycloak verify-server maps to PostgreSQL server identity verification; use the CNPG CA from the explicit Operator-mounted truststore file. Live TLS proof remains required.",
+  "database_transport": "Keycloak verify-server uses the explicit Operator-mounted CNPG CA. Live server and isolated restored server connected with verified PostgreSQL TLS.",
   "production_bootstrap_retirement": {
     "command": "lab identity-retire-bootstrap",
     "stdin": {
@@ -243,5 +256,20 @@
     "token_limit_seconds": 300,
     "evidence": "Existing emergency JWT rejection is measured when retained in memory. Interrupted runs wait a fresh full lifetime and explicitly record a conservative bound instead.",
     "status": "Implementation only; real enrollment, custody and production exercise unverified."
+  },
+  "access_cutover": {
+    "command": "lab identity-access-cutover",
+    "canary_commands": [
+      "lab identity-access-canary",
+      "lab identity-access-canary-proof",
+      "lab identity-access-canary-remove"
+    ],
+    "gate": "Completed production retirement with real MFA/custody, exact resource owners, current native Argo CM/RBAC, active private primary membership and enrolled WebAuthn, and authenticated exact dedicated OIDC client.",
+    "policy": "Only owned human applications; approved email AND exact /platform-admin OIDC group AND dedicated login method. Previous provider remains present; machine applications retain their independent service-token policy.",
+    "writer": "Existing external Reconciler; durable prepared/configured/accepted host receipt. Normal selection is pure and never contacts Keycloak; inconsistent receipts fail closed without provider fallback.",
+    "canary": "Before initial policy cutover, a disposable path-specific Access application on the already owned public smoke hostname requires the dedicated provider, approved email and exact /platform-admin group. A real signed session, exact audience, backend response and independent machine denial must pass within 900 seconds of cutover. No production application policies change during this proof. Separate named fixture namespaces and exact ownership checks permit cleanup without contacting Keycloak.",
+    "browser_proof": "Existing access-human-proof verifies a real signed Access JWT, exact issuer/audience/email/expiry, protected backend and machine denial. Current central policy/provider and unchanged credential receipt are required. It records acceptance without persisting the session.",
+    "rotation": "Preparation preserves accepted phase only for unchanged provider inputs. Credential hash and configuration timestamp participate in browser evidence. A newly issued Access JWT and a successful primary-user cloudflare-access CODE_TO_TOKEN event after configuration and within 900 seconds are required. Cached organization SSO cannot substitute for a current IdP exchange; audit reads use the existing view-events-only health client.",
+    "status": "Implementation under test; real cutover, negative browser paths and measured session/outage acceptance remain unverified."
   }
 }

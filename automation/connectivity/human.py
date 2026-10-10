@@ -26,9 +26,18 @@ RECEIPT = Path('/state/connectivity/human-proof.json')
 
 
 def selected():
+    from automation.identity.access_cutover import selection
+    with transaction() as receipts:
+        state = receipts.load('external') or {}
+    identity_provider, identity_group = selection(state, os.environ['CLOUDFLARE_IDP_ID'])
     admin_values = fields('cloudflare-management', ('API_TOKEN', 'ACCOUNT_ID', 'ZONE_ID'))
     dns_values = fields('cloudlab-dns01', ('API_TOKEN', 'ZONE_ID'))
     admin, dns = API(admin_values['API_TOKEN']), API(dns_values['API_TOKEN'])
+    if identity_group:
+        from automation.identity.access_provider import public_provider
+        provider = admin.request('GET', 'accounts/' + admin_values['ACCOUNT_ID'] + '/access/identity_providers/' + identity_provider)
+        if not matches(public_provider(provider), state['identity_provider']['intent']):
+            raise RuntimeError('Central Access provider differs from the verified OIDC contract')
     zone = dns.request('GET', 'zones/' + dns_values['ZONE_ID'])['name']
     rules = host_rules(json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS']), zone)
     organization = admin.request('GET', 'accounts/' + admin_values['ACCOUNT_ID'] + '/access/organizations')['auth_domain']
@@ -43,11 +52,15 @@ def selected():
             raise RuntimeError('Human Access application identity is ambiguous')
         app = admin.request('GET', 'accounts/' + admin_values['ACCOUNT_ID'] + '/access/apps/' + found[0]['id'])
         desired = access_application(rule, human_email=os.environ['CLOUDFLARE_HUMAN_EMAIL'],
-                                     identity_provider=os.environ['CLOUDFLARE_IDP_ID'])
+                                     identity_provider=identity_provider, identity_group=identity_group)
         if not matches(app, desired):
             raise RuntimeError('Human Access policy differs from its declared identity rule')
         selected_apps.append({'hostname': rule['hostname'], 'aud': app['aud'], 'id': app['id'], 'policy': desired})
-    binding = hashlib.sha256(json.dumps({'applications': selected_apps, 'organization': organization}, sort_keys=True).encode()).hexdigest()
+    evidence = {'applications': selected_apps, 'organization': organization}
+    if identity_group:
+        evidence['identity_credential'] = state['identity_provider']['credential_hash']
+        evidence['identity_ready_at'] = state['identity_provider']['credential_ready_at']
+    binding = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
     return selected_apps, rules, organization, binding
 
 
@@ -55,10 +68,10 @@ def decode(value):
     return base64.urlsafe_b64decode(value + '=' * (-len(value) % 4))
 
 
-def record(token):
-    applications, rules, organization, binding = selected()
-    if len(applications) != 1:
-        raise RuntimeError('Human proof currently requires one selected human application')
+def verify_token(token, expected_audience, organization, email, *, issued_after=None):
+    """Verify a signed Access token without retaining its session or personal data."""
+    if not isinstance(token, str) or len(token) > 65536 or token.count('.') != 2:
+        raise ValueError('Access proof requires one bounded signed JWT')
     header, body, signature = token.split('.')
     metadata, claims = json.loads(decode(header)), json.loads(decode(body))
     if metadata.get('alg') != 'RS256' or not metadata.get('kid'):
@@ -71,10 +84,28 @@ def record(token):
     now = time.time()
     audience = claims.get('aud', [])
     if isinstance(audience, str): audience = [audience]
-    if (claims.get('iss') != 'https://' + organization or applications[0]['aud'] not in audience
-            or claims.get('email', '').lower() != os.environ['CLOUDFLARE_HUMAN_EMAIL'].lower()
+    if (claims.get('iss') != 'https://' + organization or expected_audience not in audience
+            or claims.get('email', '').lower() != email.lower()
             or claims.get('exp', 0) <= now or claims.get('nbf', 0) > now):
         raise RuntimeError('Human Access JWT identity, audience or validity did not match')
+    if issued_after is not None and (type(issued_after) is not int or type(claims.get('iat')) is not int
+                                    or not issued_after < claims['iat'] <= now):
+        raise RuntimeError('Access proof requires a newly issued token after provider configuration')
+    return int(now)
+
+
+def record(token):
+    with transaction() as receipts:
+        captured = receipts.load('external') or {}
+    applications, rules, organization, binding = selected()
+    if len(applications) != 1:
+        raise RuntimeError('Human proof currently requires one selected human application')
+    since = None
+    if captured.get('identity_cutover'):
+        since = captured['identity_provider']['credential_ready_at']
+        from automation.identity.access_cutover import browser_gate
+        browser_gate(organization.removesuffix('.cloudflareaccess.com'), since)
+    now = verify_token(token, applications[0]['aud'], organization, os.environ['CLOUDFLARE_HUMAN_EMAIL'], issued_after=since)
     headers = {'Cookie': 'CF_Authorization=' + token}
     if not success(https(applications[0]['hostname'], headers=headers, path=PROOF_PATH)):
         raise RuntimeError('Verified human session did not reach the protected backend')
@@ -91,6 +122,14 @@ def record(token):
         os.fsync(stream.fileno())
     temporary.replace(RECEIPT)
     with transaction() as receipts:
+        current = receipts.load('external') or {}
+        if current.get('identity_cutover'):
+            if (current.get('identity_provider') != captured.get('identity_provider') or
+                    current.get('identity_cutover') != captured.get('identity_cutover')):
+                raise RuntimeError('Central Access inputs changed during browser proof; repeat verification')
+            current['identity_cutover']['phase'] = 'accepted'
+            current['identity_provider']['phase'] = 'accepted'
+            receipts.save('external', current)
         receipts.save('human-proof', json.loads(RECEIPT.read_text()))
     return {'human_authenticated': True, 'human_cannot_use_machine_route': True, 'session_persisted': False}
 

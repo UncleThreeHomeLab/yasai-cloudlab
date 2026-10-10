@@ -89,11 +89,11 @@ def inventory(request):
 
 def probe(settings, request, secret):
     # Invalid code proves client authentication without creating a session/token.
-    result = private_request('https://' + settings['admin_host'] + '/realms/' + request['realm'] +
+    status, result = private_request('https://' + settings['admin_host'] + '/realms/' + request['realm'] +
         '/protocol/openid-connect/token', form={'grant_type': 'authorization_code',
         'client_id': request['client_id'], 'client_secret': secret, 'code': 'cloudlab-invalid-rotation-proof',
-        'redirect_uri': settings['callback'], 'code_verifier': 'x' * 64}, accepted_statuses=(400, 401))
-    return result.get('error')
+        'redirect_uri': settings['callback'], 'code_verifier': 'x' * 64}, accepted_statuses=(400, 401), with_status=True)
+    return status, result.get('error')
 
 
 def verify(payload):
@@ -108,8 +108,9 @@ def verify(payload):
     started, deadline = time.time(), time.monotonic() + 660
     while time.monotonic() < deadline:
         external = get('externalsecret.external-secrets.io', 'keycloak-client-secrets', NAMESPACE)
-        if condition(external, 'Ready') and probe(settings, request, new) == 'invalid_grant':
-            if old is None or old == new or probe(settings, request, old) == 'invalid_client':
+        if condition(external, 'Ready') and probe(settings, request, new) == (400, 'invalid_grant'):
+            denied = probe(settings, request, old) if old is not None and old != new else None
+            if denied is None or denied in ((401, 'invalid_client'), (401, 'unauthorized_client')):
                 return {'credential_accepted': True, 'old_credential_denied': old is not None and old != new,
                         'unchanged_existing_credential': old == new, 'elapsed_seconds': round(time.time() - started, 1),
                         'sessions_created': 0}
