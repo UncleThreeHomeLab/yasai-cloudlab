@@ -5,6 +5,7 @@ kind: Namespace
 metadata:
   name: {{ $name }}
   labels:
+    cloudlab.io/gateway: {{ trimPrefix "cloudlab-gateway-" $name }}
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.36
     istio-injection: disabled
