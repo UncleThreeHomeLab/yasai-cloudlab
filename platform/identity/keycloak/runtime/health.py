@@ -112,12 +112,14 @@ def proxy_privacy(login_host, address=None):
         if document.get('issuer') != issuer or document.get('token_endpoint') != issuer + '/protocol/openid-connect/token':
             raise RuntimeError('Gateway proxy headers changed the stable identity issuer')
     paths = ['/admin/realms', '/admin/master/console/', '/realms/master/.well-known/openid-configuration',
-             '/realms/platform/account/', '/realms/platform/account/credentials',
              '/realms/applications/account/', '/realms/applications/account/credentials',
              '/health/ready', '/metrics', '/realms/platform/clients-registrations',
              '/realms/applications/clients-registrations', '/realms/platform/../../admin/realms',
              '/realms/platform/%2e%2e/%2e%2e/admin/realms',
-             '/realms/platform/%2e%2e%2f%2e%2e%2fadmin/realms']
+             '/realms/platform/%2e%2e%2f%2e%2e%2fadmin/realms',
+             '/realms/platform/account-admin', '/realms/platform/account/../../../admin/realms',
+             '/realms/platform/account/%2e%2e/%2e%2e/%2e%2e/admin/realms',
+             '/realms/platform/account/%2e%2e%2f%2e%2e%2f%2e%2e%2fadmin/realms']
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     for path in paths:
         try:

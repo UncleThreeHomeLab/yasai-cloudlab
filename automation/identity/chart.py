@@ -73,15 +73,21 @@ def check():
     route = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'identity-protocols')
     paths = [match['path'] for rule in route['spec']['rules'] for match in rule['matches']]
     exact = {path['value'] for path in paths if path['type'] == 'Exact'}
-    if ([path for path in paths if path['type'] != 'Exact'] != [{'type': 'PathPrefix', 'value': '/resources'}]
+    if ([path for path in paths if path['type'] != 'Exact'] != [
+            {'type': 'PathPrefix', 'value': '/resources'},
+            {'type': 'PathPrefix', 'value': '/realms/platform/account'}]
             or any('admin' in path or 'clients-registrations' in path or '..' in path or '%' in path for path in exact)):
-        raise ValueError('Public identity must allow exact protocol paths and static resources only')
+        raise ValueError('Public identity must allow only exact protocols, resources and platform self-service')
+    if route['spec']['rules'][0] != {'matches': [{'path': {'type': 'Exact', 'value': '/'}}],
+            'filters': [{'type': 'RequestRedirect', 'requestRedirect': {
+                'path': {'type': 'ReplaceFullPath', 'replaceFullPath': '/realms/platform/account/'}, 'statusCode': 302}}]}:
+        raise ValueError('Public identity root must redirect only to platform self-service')
     denied = next(o for o in objects if o['kind'] == 'AuthorizationPolicy')['spec']['rules'][0]['to'][0]['operation']['notPaths']
-    if set(denied) != exact | {'/resources', '/resources/*'}:
+    if set(denied) != exact | {'/resources', '/resources/*', '/realms/platform/account', '/realms/platform/account/*'}:
         raise ValueError('Gateway policy and protocol route allowlists differ')
     account = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'identity-private-account')['spec']
     if account['parentRefs'] != [{'name': 'cloudlab', 'namespace': 'cloudlab-gateway-private', 'sectionName': 'identity-account'}]:
-        raise ValueError('Account self-service must attach only to the private canonical-host listener')
+        raise ValueError('Private account route must attach only to its canonical-host listener')
     private_paths = [match['path'] for rule in account['rules'] for match in rule['matches']]
     if {path['value'] for path in private_paths if path['type'] == 'PathPrefix'} != {
             '/resources', '/realms/platform/account', '/realms/applications/account'}:
