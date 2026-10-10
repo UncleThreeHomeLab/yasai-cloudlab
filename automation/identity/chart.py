@@ -100,7 +100,8 @@ def check():
     scheduled = next(o for o in objects if o['kind'] == 'CronJob' and o['metadata']['name'] == 'identity-reconcile')
     sync = next(o for o in objects if o['kind'] == 'Job' and o['metadata']['name'] == 'identity-reconcile-sync')
     if ('acquire(skip_busy=True)' not in scheduled['spec']['jobTemplate']['spec']['template']['spec']['initContainers'][0]['args'][0]
-            or 'acquire(skip_busy=False)' not in sync['spec']['template']['spec']['initContainers'][0]['args'][0]):
+            or 'acquire_sync();' not in sync['spec']['template']['spec']['initContainers'][0]['args'][0]
+            or 'acquire(skip_busy=True)' in sync['spec']['template']['spec']['initContainers'][0]['args'][0]):
         raise ValueError('Only scheduled runs may skip a busy valid writer lock; sync must retry')
     if any(o['kind'] == 'Lease' for o in objects + bootstrap):
         raise ValueError('Argo always excludes Leases; the job must initialize its operational lock')
