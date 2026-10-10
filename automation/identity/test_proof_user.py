@@ -7,10 +7,65 @@ from unittest.mock import patch
 
 from automation.identity.configuration import proof_user
 from automation.identity.chart import render
-from automation.identity.session_fixture import scope, enroll
+from automation.identity.session_fixture import scope, enroll, membership
 
 
 class ProofUserTests(unittest.TestCase):
+    def test_resume_after_partial_creation_records_identity_and_removes_null_operation(self):
+        nonce, uid = 'a' * 32, 'owned'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'ownership.json').write_text(json.dumps({'phase':'scoped','uid':uid,'revision':'a'*40}))
+            checkpoint = root/('proof-'+nonce+'.json')
+            checkpoint.write_text(json.dumps({'nonce':nonce,'application_uid':uid,'phase':'prepared'}))
+            app = {'metadata':{'uid':uid,'resourceVersion':'1','labels':{'cloudlab.io/owner':'cloudlab-identity-bootstrap'}},
+                   'spec':{'source':{'helm':{'valuesObject':{'bootstrapAdminEnabled':False,'operation':None,
+                                                          'loginHost':'login.example.invalid','adminHost':'admin.example.invalid'}}}}}
+            def resources(kind, name, namespace):
+                if name=='cloudlab-identity':return app
+                if name=='cloudlab-identity-private':return {'spec':{'source':{'repoURL':'private'}}}
+                return {}
+            state = {'users':[{'username':'proof-'+nonce,'email':'fixture@example.invalid'}]}
+            user = {'id':'immutable','username':'proof-'+nonce,'enabled':False,
+                    'attributes':{'cloudlab-primary-owner':[nonce]}}
+            writes=[]
+            def write(*args):
+                patches=json.loads(args[-1]);writes.extend(patches)
+                if any(p.get('op')=='remove' and p['path'].endswith('/operation') for p in patches):
+                    app['spec']['source']['helm']['valuesObject'].pop('operation')
+            with patch('automation.identity.maintenance.BASE',root), \
+                    patch('automation.mesh.kube.get',side_effect=resources), \
+                    patch('automation.mesh.kube.condition',return_value=True), \
+                    patch('automation.mesh.kube.application_ready',side_effect=lambda *_:'operation' not in app['spec']['source']['helm']['valuesObject']), \
+                    patch('automation.mesh.kube.contains',return_value=True), \
+                    patch('automation.mesh.kube.wait',side_effect=lambda predicate,*a,**k:self.assertTrue(predicate())), \
+                    patch('automation.mesh.kube.kube',side_effect=write), \
+                    patch('automation.identity.bootstrap.writer_idle',return_value=True), \
+                    patch('automation.identity.bootstrap.private_inputs',return_value=({}, {}, 'private-revision')), \
+                    patch('automation.identity.configuration.compile_state',return_value=state), \
+                    patch('automation.identity.emergency.vault_secret',side_effect=lambda name:{'client_secrets':'{}','platform_client_secret':'secret'}), \
+                    patch('automation.identity.configuration.private_request',side_effect=lambda url,**k:[user] if '/users?' in url else {'access_token':'token'}), \
+                    patch('automation.identity.emergency.phase_sync_patches',return_value=[{}, {'op':'add','path':'/operation','value':{}}]):
+                result=enroll({'nonce':nonce})
+            self.assertTrue(result['existing_credentials_preserved'])
+            self.assertFalse(user['enabled'])
+            self.assertEqual(json.loads(checkpoint.read_text())['user_id'],'immutable')
+            self.assertTrue(any(p['op']=='remove' and p['path'].endswith('/operation') for p in writes))
+            self.assertFalse(any('credentials' in p['path'] or 'enabled' in p['path'] for p in writes))
+    def test_private_fixture_membership_repeat_preserves_other_users_and_refuses_revocation(self):
+        nonce = 'a' * 32
+        source = {'realms': {'platform': {'memberships': [{'username': 'unmanaged-input', 'groups': ['developer']}]}}}
+        revoked = {'realms': {'platform': {'users': []}}}
+        values = {'username': 'proof-' + nonce, 'ownership_id': nonce, 'email': 'fixture@example.invalid'}
+        result = membership(source, revoked, values, {'nonce': nonce})
+        self.assertEqual(result['realms']['platform']['memberships'][0], source['realms']['platform']['memberships'][0])
+        self.assertEqual(len(source['realms']['platform']['memberships']), 1)
+        self.assertEqual(membership(result, revoked, values, {'nonce': nonce}), result)
+        self.assertNotIn('enabled', result['realms']['platform']['memberships'][1])
+        self.assertNotIn('credentials', result['realms']['platform']['memberships'][1])
+        revoked['realms']['platform']['users'].append(values['username'])
+        with self.assertRaises(ValueError):
+            membership(result, revoked, values, {'nonce': nonce})
     def test_foreign_identity_owner_is_rejected_before_any_resource_write(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,5 +1,6 @@
 """Disposable viewer enrollment through ESO and the sole serialized Argo writer."""
 import fcntl
+import copy
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,27 @@ def scope(request):
             not isinstance(request['nonce'], str) or not re.fullmatch('[a-f0-9]{32}', request['nonce'])):
         raise ValueError('Session fixture requires one exact disposable ownership nonce')
     return request['nonce']
+
+
+def membership(source, revoked, values, request):
+    """Prepare one private viewer input without granting or reviving privilege."""
+    nonce = scope(request)
+    if (values.get('username') != 'proof-' + nonce or values.get('ownership_id') != nonce or
+            not isinstance(values.get('email'), str) or
+            not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', values['email'])):
+        raise ValueError('Disposable membership requires its exact private vault identity')
+    if values['username'] in revoked['realms'].get('platform', {}).get('users', []):
+        raise ValueError('Offboarded disposable membership cannot be re-enabled')
+    result = copy.deepcopy(source)
+    rows = result['realms'].setdefault('platform', {}).setdefault('memberships', [])
+    desired = {'username': values['username'], 'groups': ['viewer'],
+               'profile': {'email': values['email'], 'verified': True}}
+    current = [row for row in rows if row['username'] == desired['username']]
+    if current and current != [desired]:
+        raise ValueError('Disposable membership changed; adoption refused')
+    if not current:
+        rows.append(desired)
+    return result
 
 
 def provision(request):
@@ -62,11 +84,17 @@ def enroll(request, *, stage=False):
         owner = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
         values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
+        checkpoint = BASE / ('proof-' + nonce + '.json')
+        saved = json.loads(checkpoint.read_text()) if checkpoint.exists() else {}
+        resume_null = ('operation' in values and values['operation'] is None and
+            saved.get('nonce') == nonce and saved.get('application_uid') == owner.get('uid') and
+            saved.get('phase') in ('prepared', 'created', 'enrolled'))
         if (owner.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != owner.get('uid') or
                 app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 values.get('bootstrapAdminEnabled') is not False or values.get('bootstrapMode') or values.get('maintenance') or
                 values.get('operation') not in (None, {}, operation, preparation) or
-                (values.get('operation') not in (operation, preparation) and not application_ready(APP, owner['revision'])) or
+                (values.get('operation') not in (operation, preparation) and not resume_null and
+                 not application_ready(APP, owner['revision'])) or
                 not condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready')):
             raise RuntimeError('Disposable enrollment requires the current retired scoped identity owner')
         private = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd')
@@ -77,7 +105,6 @@ def enroll(request, *, stage=False):
         members = [row for row in state.get('users', []) if row.get('username') == 'proof-' + nonce]
         if not stage and (len(members) != 1 or members[0].get('enabled') is False):
             raise RuntimeError('Publish the exact active private disposable membership first')
-        checkpoint = BASE / ('proof-' + nonce + '.json')
         record = json.loads(checkpoint.read_text()) if checkpoint.exists() else {
             'nonce': nonce, 'application_uid': owner['uid'], 'phase': 'prepared'}
         if (record.get('nonce') != nonce or record.get('application_uid') != owner['uid'] or
@@ -96,11 +123,19 @@ def enroll(request, *, stage=False):
             raise RuntimeError('Disposable enrollment refuses an existing unowned account')
         if record.get('user_id') and (not before or before[0]['id'] != record['user_id']):
             raise RuntimeError('Disposable user identity changed')
+        if before:
+            # A CLI failure can happen after creation but before checkpointing.
+            record.update(user_id=before[0]['id'], phase='created')
+            atomic(checkpoint, record)
         def set_operation(value, revision):
             actual = get('application.argoproj.io', APP, 'argocd')
             patches = [{'op': 'test', 'path': '/metadata/uid', 'value': owner['uid']},
-                       {'op': 'test', 'path': '/metadata/resourceVersion', 'value': actual['metadata']['resourceVersion']},
-                       {'op': 'add', 'path': '/spec/source/helm/valuesObject/operation', 'value': value}]
+                       {'op': 'test', 'path': '/metadata/resourceVersion', 'value': actual['metadata']['resourceVersion']}]
+            if value is None:
+                if 'operation' in actual['spec']['source']['helm']['valuesObject']:
+                    patches.append({'op': 'remove', 'path': '/spec/source/helm/valuesObject/operation'})
+            else:
+                patches.append({'op': 'add', 'path': '/spec/source/helm/valuesObject/operation', 'value': value})
             sync = phase_sync_patches(actual, owner['revision'])
             patches.extend([{'op': 'add', 'path': '/spec/source/targetRevision', 'value': revision}, sync[1]])
             kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
@@ -126,7 +161,7 @@ def enroll(request, *, stage=False):
                 raise RuntimeError('Disposable enrollment did not create its exact owned identity')
             record.update(user_id=created[0]['id'], phase='created')
             atomic(checkpoint, record)
-        if get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject'].get('operation') == operation:
+        if resume_null or get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject'].get('operation') == operation:
             wait(writer_idle, 'disposable enrollment writer release', timeout=300)
             set_operation(None, 'main')
             wait(ready, 'normal reconciliation after disposable enrollment', timeout=900)
