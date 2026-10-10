@@ -1,5 +1,5 @@
 {
-  "status": "One live official Operator/server with scoped reconciliation; real privileged enrollment and integrated browser/session acceptance remain incomplete",
+  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement and integrated Access/session acceptance remain incomplete.",
   "realms": [
     "platform",
     "applications"
@@ -204,7 +204,7 @@
       "identity-scoped",
       "identity-argo"
     ],
-    "limitations": "Real privileged enrollment/custody, production bootstrap retirement, integrated Argo/Access browser/session/outage checks and complete live lifecycle acceptance remain incomplete.",
+    "limitations": "Production bootstrap retirement, integrated Argo/Access browser/session/outage checks and complete live lifecycle acceptance remain incomplete.",
     "native_argo": "Read-only GitHub App verifies the exact private producer overlay at an immutable commit and its active exact-callback public client. Current private state and HTTPS discovery/token reachability gate binding. Existing bounded GitOps owner stops its sole controller during the root values handoff and resumes it in finally. Interrupted controller repair through GitOps bootstrap never contacts Keycloak. Both routes reconcile from the consumer ConfigMap interface; browser/RBAC/session checks remain required."
   },
   "credential_operations": {
@@ -278,7 +278,7 @@
   "host_clock": {
     "requirement": "Automatic host time synchronization on both VMs. Apply retries an already active systemd-timesyncd daemon once when unsynchronized, then waits at most one minute. Verification only reads synchronization state. Both fail before cluster operations unless timedatectl confirms synchronization. Upstream NTP reachability is an external prerequisite.",
     "token_validation": "Strict expiration, not-before and issued-at validation remains unchanged; rejection reasons contain no claims or tokens.",
-    "latest_live_proof": "Both applies at 3f38a0c changed zero resources and independent Access disruptions passed. Final isolated restore token proof failed at lifetime validation; both hosts were unsynchronized with approximately six seconds of relative skew. Restore fixtures were cleaned. This run is not accepted recovery proof.",
-    "status": "After upstream firewall repair, both hosts receive valid replies from configured NTP servers and ICMP responses; fresh SSH works and managed host firewalls retain default input DROP. Last inspected clocks remain unsynchronized. Restore acceptance requires working automatic synchronization and a successful repeat proof."
+    "latest_live_proof": "Clean checkout 408ac85 full Compose prove passed on both existing hosts: second apply changed zero on both. Five independent Access disruptions passed with maximum success gap 8.12 seconds. Isolated physical identity restore preserved signing state, invalidated sessions, replayed current recovery inputs and verified a signed JWT. Data age 731.198 seconds; capture 130.242 seconds and restore 771.426 seconds. No offsite reads, retained local generations or exposure of restored issuer to real clients.",
+    "status": "Both clocks synchronized after upstream firewall repair and one bounded retry of the worker's already active daemon. Configured NTP offsets measured -0.204/-0.843 milliseconds. Existing-host local recovery passed; this does not prove empty-VM setup or identity restoration from the older offsite generation."
   }
 }
