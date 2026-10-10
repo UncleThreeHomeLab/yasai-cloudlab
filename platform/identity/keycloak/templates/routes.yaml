@@ -95,7 +95,7 @@ metadata:
   namespace: cloudlab-identity-admin
 spec:
   parentRefs:
-    - {name: cloudlab, namespace: cloudlab-gateway-private, sectionName: identity-account}
+    - {name: cloudlab, namespace: cloudlab-gateway-private, sectionName: https}
   hostnames: [{{ .Values.loginHost | quote }}]
   rules:
     - matches: [{path: {type: Exact, value: /}}]

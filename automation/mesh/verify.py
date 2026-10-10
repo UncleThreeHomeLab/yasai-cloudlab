@@ -98,9 +98,8 @@ def check_gateways(zone):
         if not condition(obj, 'Programmed') or not condition(obj, 'Accepted'):
             raise RuntimeError('Gateway conditions are not ready')
         listeners = obj['spec']['listeners']
-        expected = {'https': '*.' + ('internal.' if exposure == 'private' else '') + zone}
-        if exposure == 'private':
-            expected['identity-account'] = 'login.' + zone
+        # One TLS chain per certificate keeps coalesced HTTP/2 hosts routable.
+        expected = {'https': '*.' + zone}
         if (len(listeners) != len(expected) or
                 {item.get('name'): item.get('hostname') for item in listeners} != expected):
             raise RuntimeError('Gateway listener inventory or hostname changed')

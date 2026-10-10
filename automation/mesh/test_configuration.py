@@ -15,9 +15,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_live_gateway_inventory_accepts_only_reviewed_https_listeners(self):
         gateways = {}
         for exposure in ('public', 'private'):
-            hosts = {'https': '*.' + ('internal.' if exposure == 'private' else '') + 'example.invalid'}
-            if exposure == 'private':
-                hosts['identity-account'] = 'login.example.invalid'
+            hosts = {'https': '*.example.invalid'}
             gateways[exposure] = {'spec': {'listeners': [
                 {'name': name, 'hostname': host, 'protocol': 'HTTPS', 'port': 443,
                  'tls': {'mode': 'Terminate', 'certificateRefs': [
@@ -36,18 +34,22 @@ class ConfigurationTests(unittest.TestCase):
                     'status': {'availableReplicas': 2}}
         with patch.object(verify, 'get', side_effect=get), patch.object(verify, 'condition', return_value=True):
             verify.check_gateways('example.invalid')
-            for field, value in (('hostname', '*.example.invalid'), ('name', 'foreign'),
+            for field, value in (('hostname', '*.internal.example.invalid'), ('name', 'foreign'),
                                  ('port', 80), ('protocol', 'HTTP'),
                                  ('tls', {'mode': 'Passthrough'}),
                                  ('allowedRoutes', {'namespaces': {'from': 'All'}})):
                 original = copy.deepcopy(gateways['private'])
-                gateways['private']['spec']['listeners'][1][field] = value
+                gateways['private']['spec']['listeners'][0][field] = value
                 with self.subTest(field=field), self.assertRaises(RuntimeError):
                     verify.check_gateways('example.invalid')
                 gateways['private'] = original
-            gateways['public']['spec']['listeners'].append(copy.deepcopy(gateways['private']['spec']['listeners'][1]))
-            with self.assertRaises(RuntimeError):
-                verify.check_gateways('example.invalid')
+            for exposure in ('public', 'private'):
+                duplicate = copy.deepcopy(gateways[exposure]['spec']['listeners'][0])
+                duplicate.update(name='identity-account', hostname='login.example.invalid')
+                gateways[exposure]['spec']['listeners'].append(duplicate)
+                with self.subTest(exposure=exposure), self.assertRaises(RuntimeError):
+                    verify.check_gateways('example.invalid')
+                gateways[exposure]['spec']['listeners'].pop()
 
     def test_argo_routes_preserve_both_origins_and_refuse_missing_or_foreign_source(self):
         current = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-argocd:/ConfigMap:argocd/argocd-cm'}},

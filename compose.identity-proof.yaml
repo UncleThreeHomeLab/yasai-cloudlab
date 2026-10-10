@@ -1,5 +1,12 @@
 # Disposable, unpublished compatibility fixture. No production issuer or credentials.
 services:
+  private-routing:
+    profiles: [live-routing]
+    build: ./automation/identity/browser
+    entrypoint: [node, /workspace/automation/identity/browser/private-routing.mjs]
+    volumes: [".:/workspace:ro"]
+    network_mode: bridge
+    mem_limit: 256m
   pki:
     build: ./automation/runner
     entrypoint: [python, /workspace/automation/identity/fixture_pki.py]
