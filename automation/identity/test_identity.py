@@ -32,6 +32,36 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_browser_login_copies_preserve_passkeys_and_reject_conflicting_items(self):
+        from automation.identity.credentials import primary_login_items
+        primary = {'master_username': 'master-fixture', 'platform_username': 'operator-fixture',
+                   'master_password': 'x' * 64, 'platform_password': 'y' * 64, 'ownership_id': 'a' * 32}
+        hosts = {'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid'}
+        items = {}
+        writes = []
+        def command(arguments, token, document=None):
+            if arguments[:2] == ['item', 'list']:
+                return [{'id': title, 'title': title} for title in items]
+            if arguments[:2] == ['item', 'get']:
+                return copy.deepcopy(items[arguments[2]])
+            self.assertEqual(arguments[:3], ['item', 'create', '-'])
+            writes.append(copy.deepcopy(document))
+            items[document['title']] = dict(copy.deepcopy(document), id=document['title'])
+            return items[document['title']]
+        with patch('automation.identity.credentials.command', side_effect=command):
+            first = primary_login_items('private-writer', primary, hosts)
+            self.assertEqual(len(first['created']), 2)
+            self.assertFalse(first['passkeys_created'])
+            enrolled = items['keycloak-master-admin-login']
+            enrolled['fields'].append({'id': 'passkey', 'type': 'PASSKEY', 'value': 'private-authenticator'})
+            before = copy.deepcopy(items)
+            self.assertEqual(len(primary_login_items('private-writer', primary, hosts)['preserved']), 2)
+            self.assertEqual(items, before)
+            self.assertEqual(len(writes), 2)
+            enrolled['fields'][0]['value'] = 'unrelated-person'
+            with self.assertRaises(RuntimeError): primary_login_items('private-writer', primary, hosts)
+            self.assertEqual(len(writes), 2)
+
     def test_session_offboarding_requires_applied_private_tombstone_and_exact_identity(self):
         from automation.identity import lifecycle
         request = {'realm': 'applications', 'username': 'fixture-person',
@@ -1165,6 +1195,20 @@ class IdentityTests(unittest.TestCase):
             {'id': 'reference', 'public': True, 'audience': 'reference-api',
              'callbacks': ['https://reference.example.invalid/callback'], 'roles': ['reader']}],
             'memberships': [{'username': 'fixture-person', 'groups': ['viewer']}]}}}
+
+    def test_nested_role_group_cannot_match_platform_admin_rbac(self):
+        source = self.source()
+        configured = source['realms']['applications']['clients'][0]
+        configured.update(roles=['platform-admin'], role_groups={'platform-admin': ['viewer']})
+        state = compile_state('applications', 'login.example.invalid', source)
+        self.assertIn('/client-reference/platform-admin', state['users'][0]['groups'])
+        mapper = next(row for row in state['clients'][0]['protocolMappers'] if row['name'] == 'groups')
+        self.assertEqual(mapper['config']['full.path'], 'true')
+        policy = argo('https://login.example.invalid/realms/platform',
+                      'https://cd.example.invalid', ['https://cd.internal.example.invalid'])['helm']['argo-cd']['configs']['rbac']['policy.csv']
+        self.assertIn('g, /platform-admin, role:admin', policy.splitlines())
+        self.assertNotIn('g, platform-admin, role:admin', policy.splitlines())
+        self.assertNotIn('g, /client-reference/platform-admin, role:admin', policy.splitlines())
 
     def test_offboarding_overrides_memberships_and_client(self):
         denied = {'format': 1, 'realms': {'applications': {'users': ['fixture-person'], 'clients': ['reference']}}}

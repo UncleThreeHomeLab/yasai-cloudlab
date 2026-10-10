@@ -15,6 +15,12 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_primary_login_preparation_never_applies_hosts(self):
+        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+            playbook = self.invoke('identity-primary-login-items')
+        playbook.assert_not_called()
+        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.credentials', '--login-items'])
+
     def test_identity_offboarding_uses_existing_lifecycle_owner_without_host_apply(self):
         with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
             playbook = self.invoke('identity-offboard')

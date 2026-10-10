@@ -110,7 +110,7 @@ def client(value, secrets):
             {'name': 'api-audience', 'protocol': 'openid-connect', 'protocolMapper': 'oidc-audience-mapper',
              'config': {'included.custom.audience': audience, 'access.token.claim': 'true', 'id.token.claim': 'false'}},
             {'name': 'groups', 'protocol': 'openid-connect', 'protocolMapper': 'oidc-group-membership-mapper',
-             'config': {'claim.name': 'groups', 'full.path': 'false', 'id.token.claim': 'true',
+             'config': {'claim.name': 'groups', 'full.path': 'true', 'id.token.claim': 'true',
                         'access.token.claim': 'true', 'userinfo.token.claim': 'true'}},
             {'name': 'client-roles', 'protocol': 'openid-connect', 'protocolMapper': 'oidc-usermodel-client-role-mapper',
              'config': {'usermodel.clientRoleMapping.clientId': identifier, 'claim.name': 'roles',

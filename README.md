@@ -312,7 +312,7 @@ roughly a month or longer after failures. No continuous WAL archiving or PITR is
 provided. Disk replication is not database or S3 service HA. Identity and other
 dependent applications require the complete data recovery proof.
 
-Identity remains inactive until its live recovery and SSO gates pass. The pinned
+Identity acceptance remains gated on live recovery and SSO checks. The pinned
 Operator/server/config-cli combination is verified in disposable fixtures; see
 `platform/identity/keycloak/contract.json` for inputs, lifecycle ownership,
 limitations and client contracts. No Grafana or Harbor installation is included.
@@ -387,6 +387,15 @@ Declare the platform username's `platform-admin` membership in the private sourc
 then run `lab identity-primary`. Initial login requires verified WebAuthn enrollment;
 repeat never resets existing credentials or re-enables a disabled account. Enroll
 the actual passkeys in your personal vault before retiring bootstrap access.
+`lab identity-primary-login-items` creates separate standard Login items in CloudLab:
+`keycloak-platform-admin-login` and `keycloak-master-admin-login`. It copies the
+existing credentials and private website links; it never creates a passkey or
+modifies an existing Login item. Enroll with the 1Password browser extension, then
+move those Login items to your personal vault. For platform enrollment, open the
+private CD website stored on its item and select Keycloak login. For master, open
+the private admin console website. Run this creation command only when
+preparing CloudLab items, not after moving them. The original machine-owned
+`keycloak-primary-admin` item remains the ESO source during initialization.
 Machine bootstrap validates the complete private source but creates no people;
 private overlays apply in the primary/scoped phases. Creation-only credentials
 do not enter normal CLI state tracking. Scheduled scoped reconciliation retains
