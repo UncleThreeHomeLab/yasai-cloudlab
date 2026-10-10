@@ -42,11 +42,21 @@ def validated_claims(token, jwks, issuer, audience, kind, now=None):
                 or claims.get('iss') != issuer or audience not in audiences or claims.get('typ') != kind
                 or (kind == 'ID' and len(audiences) > 1 and claims.get('azp') != audience)):
             raise ValueError
-        stage = 'lifetime-subject'
+        stage = 'lifetime-format'
         dates = [claims.get('exp'), claims.get('iat'), claims.get('nbf', 0)]
-        if (any(type(value) not in (int, float) or not math.isfinite(value) for value in dates)
-                or claims['exp'] <= current or claims.get('nbf', 0) > current
-                or claims['iat'] > current or not isinstance(claims.get('sub'), str) or not claims['sub']):
+        if any(type(value) not in (int, float) or not math.isfinite(value) for value in dates):
+            raise ValueError
+        stage = 'expired'
+        if claims['exp'] <= current:
+            raise ValueError
+        stage = 'not-before'
+        if claims.get('nbf', 0) > current:
+            raise ValueError
+        stage = 'issued-in-future'
+        if claims['iat'] > current:
+            raise ValueError
+        stage = 'subject'
+        if not isinstance(claims.get('sub'), str) or not claims['sub']:
             raise ValueError
         return claims
     except Exception:

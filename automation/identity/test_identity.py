@@ -1199,6 +1199,10 @@ class IdentityTests(unittest.TestCase):
                       {'typ': 'ID'}, {'exp': True}, {'exp': float('nan')}, {'sub': ['fixture']}, {'iat': 101}):
             with self.subTest(patch=patch), self.assertRaises(ValueError):
                 access_token(token(dict(claims, **patch)), jwks, claims['iss'], 'reference-api', 'reader', 100)
+        for patch, reason in (({'exp': 100}, 'expired'), ({'nbf': 101}, 'not-before'),
+                              ({'iat': 101}, 'issued-in-future'), ({'sub': ''}, 'subject')):
+            with self.subTest(patch=patch), self.assertRaisesRegex(ValueError, 'Token rejected: ' + reason):
+                access_token(token(dict(claims, **patch)), jwks, claims['iss'], 'reference-api', 'reader', 100)
         id_claims = dict(claims, typ='ID', aud=['reference', 'other'], nonce='expected', azp='other')
         with self.assertRaises(ValueError):
             identity_token(token(id_claims), jwks, claims['iss'], 'reference', 'expected', 100)

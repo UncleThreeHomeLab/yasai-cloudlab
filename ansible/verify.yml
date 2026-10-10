@@ -11,6 +11,10 @@
       ansible.builtin.include_role:
         name: host
         tasks_from: identity
+    - name: Verify synchronized host clocks
+      ansible.builtin.include_role:
+        name: host
+        tasks_from: clock
     - name: Verify independent host access
       ansible.builtin.include_role:
         name: tailscale
