@@ -15,6 +15,13 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_bootstrap_retirement_uses_existing_identity_owner_without_host_apply(self):
+        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+            playbook = self.invoke('identity-retire-bootstrap')
+        playbook.assert_not_called()
+        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.emergency'])
+        self.assertTrue(run.call_args.kwargs['check'])
+
     def test_primary_login_preparation_never_applies_hosts(self):
         with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
             playbook = self.invoke('identity-primary-login-items')

@@ -116,10 +116,15 @@ def discover():
             'trustedProxyAddresses': sorted(set(proxies))}
 
 
-def application(payload, phase):
+def application(payload, phase, retired=False, retired_item=''):
     import ipaddress
     if phase not in PHASES:
         raise ValueError('Unsupported identity bootstrap phase')
+    if type(retired) is not bool or (retired and phase != 'scoped'):
+        raise ValueError('Retired bootstrap access requires normal scoped reconciliation')
+    import re
+    if (retired and not re.fullmatch('keycloak-emergency-[a-f0-9]{32}', retired_item)) or (not retired and retired_item):
+        raise ValueError('Retirement requires its persistent ESO credential owner')
     values = payload['values']
     allowed = {'loginHost', 'adminHost', 'database', 'databaseRole', 'databaseHost',
                'databasePort', 'databaseCA', 'trustedProxyAddresses'}
@@ -145,7 +150,9 @@ def application(payload, phase):
             raise ValueError('Proxy trust must use bounded verified private gateway Pod ranges')
     desired = dict(values, enabled=True, operatorEnabled=False, serverEnabled=True,
                    maintenance=False, reconciliationEnabled=phase != 'server', bootstrapMode=phase in ('bootstrap', 'primary'),
-                   primaryAdminEnabled=phase == 'primary', privateStateEnabled=phase != 'server', bootstrapAdminEnabled=True)
+                   primaryAdminEnabled=phase == 'primary', privateStateEnabled=phase != 'server', bootstrapAdminEnabled=not retired)
+    if retired:
+        desired['retiredEmergencyItem'] = retired_item
     return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
         'metadata': {'name': APP, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
         'spec': {'project': APP, 'source': {'repoURL': payload['repository'], 'targetRevision': payload['branch'],
@@ -209,7 +216,12 @@ def run(payload, phase):
         raise RuntimeError('Identity state must stay beneath its exact owner')
     with (BASE / 'owner.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        desired = application(payload, phase)
+        retirement_path = BASE / 'retirement.json'
+        retirement = json.loads(retirement_path.read_text()) if retirement_path.exists() else None
+        if retirement and retirement.get('phase') != 'accepted':
+            raise RuntimeError('Resume the pending retirement owner before identity bootstrap')
+        desired = application(payload, phase, retired=bool(retirement),
+                              retired_item='keycloak-emergency-' + retirement['nonce'] if retirement else '')
         prerequisites(payload)
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else None
@@ -220,6 +232,10 @@ def run(payload, phase):
             raise RuntimeError('Identity Application has conflicting or changed ownership')
         if state and not current:
             raise RuntimeError('Identity Application identity was lost; automatic recreation refused')
+        if retirement and (not state or retirement.get('application_uid') != state['uid']):
+            raise RuntimeError('Accepted retirement resource identity changed; bootstrap recreation refused')
+        if retirement and retirement.get('keycloak_uid') != (get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}).get('metadata', {}).get('uid'):
+            raise RuntimeError('Accepted retirement server identity changed; recovery review required')
         previous = state['phase'] if state else None
         recovery = BASE / 'startup-recovery.json'
         if recovery.exists() and json.loads(recovery.read_text()).get('phase') != 'accepted':
@@ -257,7 +273,7 @@ def run(payload, phase):
         wait(lambda: reconciled(payload['revision'], current['metadata']['uid']) and
              condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready'),
              'identity Application and server readiness convergence', timeout=900)
-        return {'changed': changed, 'phase': phase, 'bootstrap_admin_retired': False,
+        return {'changed': changed, 'phase': phase, 'bootstrap_admin_retired': bool(retirement),
                 'real_clients_ready': False, 'owner': 'argocd'}
 
 

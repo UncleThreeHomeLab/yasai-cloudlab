@@ -1,0 +1,102 @@
+{{- if and .Values.enabled .Values.reconciliationEnabled .Values.operation (has .Values.operation.action (list "seed-emergency" "retire-bootstrap" "retire-emergency")) }}
+{{- $seed := eq .Values.operation.action "seed-emergency" }}
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ ternary "identity-emergency-seed" "identity-bootstrap-retirement" $seed }}
+  annotations:
+    argocd.argoproj.io/hook: {{ ternary "PreSync" "PostSync" $seed }}
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  activeDeadlineSeconds: 210
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {cloudlab.io/identity-writer: 'true'}
+    spec:
+      serviceAccountName: identity-writer
+      restartPolicy: Never
+      activeDeadlineSeconds: 210
+      terminationGracePeriodSeconds: 20
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      initContainers:
+        - name: validate-and-lock
+          image: {{ $lock.images.python | quote }}
+          command: [python, -c]
+          args:
+            - >-
+              import sys,json; sys.path.insert(0,'/code'); from lease import acquire,offline_guard; acquire();
+              {{- if $seed }}
+              offline_guard({{ .Values.operation.keycloakUID | quote }})
+              {{- else }}
+              from configuration import prepare_retirement;
+              prepare_retirement('/imports', json.loads({{ toJson .Values.operation | quote }}), {{ .Values.adminHost | quote }}, '/emergency')
+              {{- end }}
+          env:
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: imports, mountPath: /imports}
+            - {name: emergency, mountPath: /emergency, readOnly: true}
+      containers:
+        - name: {{ ternary "offline-bootstrap" "config-cli" $seed }}
+          image: {{ ternary $lock.images.server $lock.images.config_cli $seed | quote }}
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              {{- if $seed }}
+              /opt/keycloak/bin/kc.sh bootstrap-admin service --client-id:env=RECOVERY_CLIENT --client-secret:env=RECOVERY_SECRET --no-prompt >/tmp/private-result 2>&1 || { echo 'Offline emergency creation failed; private diagnostics withheld'; exit 1; }
+              {{- else }}
+              export KEYCLOAK_CLIENTID="$(cat /emergency/client_id)"
+              export KEYCLOAK_CLIENTSECRET="$(cat /emergency/client_secret)"
+              java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.remote-state.enabled=false --import.cache.key=bootstrap-retirement >/tmp/private-result 2>&1 || { echo 'Scoped bootstrap retirement failed; private diagnostics withheld'; exit 1; }
+              {{- end }}
+              echo 'Serialized emergency operation completed'
+          env:
+            {{- if $seed }}
+            - {name: KC_DB, value: postgres}
+            - {name: KC_DB_POOL_INITIAL_SIZE, value: '2'}
+            - {name: KC_DB_POOL_MIN_SIZE, value: '2'}
+            - {name: KC_DB_POOL_MAX_SIZE, value: '10'}
+            - {name: KC_DB_TLS_MODE, value: verify-server}
+            - {name: KC_DB_TLS_TRUST_STORE_FILE, value: /trust/ca.crt}
+            - {name: KC_DB_URL, value: {{ printf "jdbc:postgresql://%s:%v/%s" .Values.databaseHost .Values.databasePort .Values.database | quote }}}
+            - name: KC_DB_USERNAME
+              valueFrom: {secretKeyRef: {name: keycloak-database, key: username}}
+            - name: KC_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-database, key: password}}
+            - name: RECOVERY_CLIENT
+              valueFrom: {secretKeyRef: {name: keycloak-emergency, key: client_id}}
+            - name: RECOVERY_SECRET
+              valueFrom: {secretKeyRef: {name: keycloak-emergency, key: client_secret}}
+            {{- else }}
+            - {name: KEYCLOAK_URL, value: {{ printf "https://%s" .Values.adminHost | quote }}}
+            - {name: KEYCLOAK_LOGINREALM, value: master}
+            - {name: KEYCLOAK_GRANTTYPE, value: client_credentials}
+            - {name: KEYCLOAK_SKIPSERVERINFO, value: 'true'}
+            - {name: IMPORT_FILES_LOCATIONS, value: /imports/master-retirement.json}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            {{- if not $seed }}
+            readOnlyRootFilesystem: true
+            {{- end }}
+            capabilities: {drop: [ALL]}
+          resources: {requests: {cpu: 100m, memory: {{ ternary "768Mi" "256Mi" $seed }}}, limits: {cpu: 500m, memory: {{ ternary "1Gi" "512Mi" $seed }}}}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: imports, mountPath: /imports, readOnly: true}
+            - {name: emergency, mountPath: /emergency, readOnly: true}
+            - {name: trust, mountPath: /trust, readOnly: true}
+            - {name: temporary, mountPath: /tmp}
+      volumes:
+        - {name: code, configMap: {name: identity-writer-code}}
+        - {name: imports, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+        - {name: emergency, secret: {secretName: keycloak-emergency, defaultMode: 0440}}
+        - {name: trust, configMap: {name: keycloak-database-ca, items: [{key: ca.crt, path: ca.crt}]}}
+        - {name: temporary, emptyDir: {medium: Memory, sizeLimit: 64Mi}}
+{{- end }}

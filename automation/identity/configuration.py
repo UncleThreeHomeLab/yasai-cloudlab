@@ -265,6 +265,38 @@ def bootstrap_retirement(username):
             'clients': [{'clientId': 'admin-cli', 'directAccessGrantsEnabled': False}]}
 
 
+def prepare_retirement(directory, operation, admin_host, credentials_directory):
+    from urllib.parse import quote
+    if (set(operation) != {'action', 'client', 'item', 'keycloakUID', 'bootstrapUsername', 'bootstrapUserId'} or
+            operation['action'] not in ('retire-bootstrap', 'retire-emergency') or
+            not re.fullmatch('emergency-[a-f0-9]{32}', operation['client']) or
+            operation['item'] != 'keycloak-' + operation['client']):
+        raise ValueError('Retirement requires its bounded temporary service inventory')
+    credentials = Path(credentials_directory)
+    identifier, secret = [credentials.joinpath(key).read_text() for key in ('client_id', 'client_secret')]
+    if identifier != operation['client'] or len(secret) < 32:
+        raise ValueError('Retirement service differs from its vault owner')
+    origin = exact_url('https://' + admin_host + '/')[:-1]
+    bearer = private_request(origin + '/realms/master/protocol/openid-connect/token', form={
+        'grant_type': 'client_credentials', 'client_id': identifier, 'client_secret': secret})['access_token']
+    if operation['action'] == 'retire-bootstrap':
+        row = private_request(origin + '/admin/realms/master/users/' + quote(operation['bootstrapUserId'], safe=''), token=bearer)
+        if row.get('id') != operation['bootstrapUserId'] or row.get('username') != operation['bootstrapUsername']:
+            raise RuntimeError('Temporary bootstrap user identity changed')
+        value = bootstrap_retirement(operation['bootstrapUsername'])
+        value['users'][0]['id'] = operation['bootstrapUserId']
+    else:
+        rows = private_request(origin + '/admin/realms/master/clients?clientId=' + identifier, token=bearer)
+        if len(rows) != 1 or rows[0].get('clientId') != identifier:
+            raise RuntimeError('Temporary service identity changed before retirement')
+        value = {'realm': 'master', 'clients': [{'clientId': identifier, 'enabled': False}]}
+    target = Path(directory)
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / 'master-retirement.json'
+    path.write_text(json.dumps(value, sort_keys=True))
+    path.chmod(0o600)
+
+
 def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, health_directory=None, primary=False):
     if primary and (private_directory is None or bootstrap_directory is None):
         raise ValueError('Primary initialization requires complete private bootstrap inputs')
