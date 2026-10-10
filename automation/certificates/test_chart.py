@@ -13,6 +13,26 @@ import vendor_chart
 
 
 class CertificateChartTests(unittest.TestCase):
+    def test_native_argo_routes_attach_only_to_the_matching_gateway_exposure(self):
+        namespaces = {o['metadata']['name']: o['metadata']['labels']
+                      for o in chart.configuration_render() if o['kind'] == 'Namespace'}
+        root = chart.ROOT.parents[1] / 'connectivity/gateways'
+        raw = subprocess.check_output(['helm', 'template', 'gateways', str(root), '-f', str(root / 'values.json'),
+            '--set', 'zone=example.invalid', '--set', 'argo.public=cd.example.invalid',
+            '--set', 'argo.private=cd.internal.example.invalid'])
+        objects = [o for o in yaml.safe_load_all(raw) if o]
+        gateways = {o['metadata']['namespace']: o for o in objects if o['kind'] == 'Gateway'}
+        routes = [o for o in objects if o['kind'] == 'HTTPRoute']
+        self.assertEqual(len(routes), 2)
+        for route in routes:
+            namespace = route['metadata']['namespace']
+            selector = gateways[namespace]['spec']['listeners'][0]['allowedRoutes']['namespaces']
+            self.assertEqual(selector['from'], 'Selector')
+            labels = selector['selector']['matchLabels']
+            self.assertTrue(all(namespaces[namespace].get(k) == v for k, v in labels.items()))
+            other = next(name for name in namespaces if name != namespace)
+            self.assertFalse(all(namespaces[other].get(k) == v for k, v in labels.items()))
+
     @classmethod
     def setUpClass(cls):
         cls.objects = chart.render()
