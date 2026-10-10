@@ -19,6 +19,15 @@ def encoded(data):
 
 
 class HumanTests(unittest.TestCase):
+    def test_token_pipe_preserves_json_compatibility_and_rejects_logs_or_unbounded_input(self):
+        for raw in ('header.payload.signature\n', '{"token":"header.payload.signature"}'):
+            self.assertEqual(human.read_token(io.StringIO(raw)), 'header.payload.signature')
+        for raw in ('', 'login log\nheader.payload.signature', 'header.payload.signature\nother.payload.signature',
+                    '{"token":42}', '{"token":"header.payload.signature","extra":true}',
+                    'a' * 65537 + '.b.c', ' ' * 131073):
+            with self.subTest(input_length=len(raw)), self.assertRaises(ValueError):
+                human.read_token(io.StringIO(raw))
+
     @classmethod
     def setUpClass(cls):
         cls.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

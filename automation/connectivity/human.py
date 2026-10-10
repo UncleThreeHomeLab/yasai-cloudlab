@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -66,6 +67,23 @@ def selected():
 
 def decode(value):
     return base64.urlsafe_b64decode(value + '=' * (-len(value) % 4))
+
+
+def read_token(stream):
+    """Accept bounded JSON or a CLI token pipe without printing or saving sessions."""
+    raw = stream.read(131073)
+    if len(raw) > 131072:
+        raise ValueError('Access proof input exceeds its bound')
+    token = raw.strip()
+    if token.startswith('{'):
+        document = json.loads(token)
+        if not isinstance(document, dict) or set(document) != {'token'}:
+            raise ValueError('Access proof requires one token field')
+        token = document['token']
+    if (not isinstance(token, str) or len(token) > 65536 or
+            not re.fullmatch(r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', token)):
+        raise ValueError('Access proof requires one bounded JWT')
+    return token
 
 
 def verify_token(token, expected_audience, organization, email, *, issued_after=None):
@@ -148,6 +166,6 @@ def retained():
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(record(json.load(sys.stdin)['token']), sort_keys=True))
+        print(json.dumps(record(read_token(sys.stdin)), sort_keys=True))
     except Exception:
         raise SystemExit('Human Access proof failed; session and private diagnostics withheld.') from None
