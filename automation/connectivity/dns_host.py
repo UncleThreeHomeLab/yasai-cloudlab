@@ -45,6 +45,8 @@ def validate_answers(payload, port=53):
         for address, expected, source in [('127.0.0.1', payload['cluster_gateway'], None),
                                          (payload['tailnet_address'], payload['tailnet_gateway'], payload['tailnet_address'])]:
             private_answer(address, name, expected, port=port, source=source, tcp=tcp)
+            if payload.get('identity_host'):
+                private_answer(address, payload['identity_host'], expected, port=port, source=source, tcp=tcp)
             absent_answer(address, 'nonexistent-cloudlab-proof.' + payload['zone'], port=port, source=source, tcp=tcp)
     if not query('127.0.0.1', 'github.com', port=port)['addresses']:
         raise RuntimeError('Retained public DNS forwarding failed')
@@ -143,6 +145,8 @@ def activate():
     for address in ('10.44.0.1', '10.44.0.2'):
         for tcp in (False, True):
             private_answer(address, payload['names'][0] + '.' + payload['zone'], payload['cluster_gateway'], tcp=tcp)
+            if payload.get('identity_host'):
+                private_answer(address, payload['identity_host'], payload['cluster_gateway'], tcp=tcp)
             absent_answer(address, 'nonexistent-cloudlab-proof.' + payload['zone'], tcp=tcp)
             if not query(address, 'github.com', tcp=tcp)['addresses']:
                 raise RuntimeError('Independent resolver forwarding is unavailable')

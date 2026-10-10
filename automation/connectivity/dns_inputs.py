@@ -12,13 +12,15 @@ def read():
     if not condition(certificate, 'Ready'):
         raise RuntimeError('Private certificate is not ready')
     names = certificate['spec']['dnsNames']
-    if len(names) != 1 or not names[0].startswith('*.internal.'):
+    if (len(names) != 2 or not names[0].startswith('*.internal.') or
+            names[1] != 'login.' + names[0][11:]):
         raise RuntimeError('Private certificate contract changed')
     addresses = [x['ip'] for x in tailnet.get('status', {}).get('loadBalancer', {}).get('ingress', [])
                  if x.get('ip') and ':' not in x['ip']]
     if len(addresses) != 1:
         raise RuntimeError('Private L3 Service has no unique ready IPv4 address')
-    return {'zone': names[0][2:], 'cluster_gateway': service['spec']['clusterIP'], 'tailnet_gateway': addresses[0]}
+    return {'zone': names[0][2:], 'identity_host': names[1],
+            'cluster_gateway': service['spec']['clusterIP'], 'tailnet_gateway': addresses[0]}
 
 
 if __name__ == '__main__':

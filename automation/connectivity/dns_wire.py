@@ -1,5 +1,6 @@
 """Small bounded DNS client for independent UDP/TCP and authoritative-answer proof."""
 import secrets
+import ipaddress
 import socket
 import struct
 
@@ -66,6 +67,20 @@ def private_answer(address, name, expected, **kwargs):
     result = query(address, name, **kwargs)
     if result != {'rcode': 0, 'authoritative': True, 'addresses': [expected]}:
         raise RuntimeError('Private DNS answer did not match the selected view')
+
+
+def public_address(name):
+    """Resolve outside split DNS so a private peer cannot satisfy public proof."""
+    for resolver in ('1.1.1.1', '8.8.8.8'):
+        try:
+            result = query(resolver, name, tcp=True)
+        except (OSError, ValueError):
+            continue
+        if result['rcode'] == 0 and result['addresses'] and all(
+                ipaddress.ip_address(value).is_global for value in result['addresses']):
+            return result['addresses'][0]
+        raise RuntimeError('Public identity DNS answer is not a public peer')
+    raise RuntimeError('Independent public identity DNS lookup failed')
 
 
 def absent_answer(address, name, **kwargs):

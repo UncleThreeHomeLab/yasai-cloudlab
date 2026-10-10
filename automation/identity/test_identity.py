@@ -32,6 +32,23 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_explicit_public_peer_preserves_https_hostname_and_rejects_redirects(self):
+        from automation.identity import health
+        connection = Mock()
+        response = connection.getresponse.return_value
+        response.status, response.read.return_value = 200, b'{}'
+        context = Mock()
+        with patch.object(health.http.client, 'HTTPSConnection', return_value=connection), \
+                patch.object(health.socket, 'create_connection') as connect, \
+                patch.object(health.ssl, 'create_default_context', return_value=context):
+            self.assertEqual(health.direct_https('https://login.example.invalid/realms/platform/', '1.1.1.1', {}), (200, b'{}'))
+            connect.assert_called_once_with(('1.1.1.1', 443), timeout=15)
+            self.assertEqual(context.wrap_socket.call_args.kwargs['server_hostname'], 'login.example.invalid')
+            connection.request.assert_called_once_with('GET', '/realms/platform/', body=None, headers={})
+            connection.close.assert_called_once()
+        with patch.object(health, 'direct_https', return_value=(302, b'')), self.assertRaises(HTTPError):
+            health.json_get('https://login.example.invalid/realms/platform/', address='1.1.1.1')
+
     def test_login_guide_repeat_preserves_human_notes_and_never_edits_login_items(self):
         from automation.identity.credentials import login_guide
         item = None
@@ -252,9 +269,17 @@ class IdentityTests(unittest.TestCase):
                 return {'error': 'Forbidden'}
             return [{'time': 1, 'type': 'LOGIN', 'operationType': 'UPDATE',
                      'username': 'private-user', 'ipAddress': 'private-address', 'representation': 'private'}]
+        def direct(url, address, headers):
+            if url.endswith('/credentials'): return 401, b''
+            if url.endswith('/admin/realms'): return 404, b''
+            return 200, b'{"serverBaseUrl": "https://login.example.invalid"}'
         with patch.object(verify, 'check', return_value={'discovery': True, 'jwks': True}), \
+                patch.object(verify, 'public_address', return_value='1.1.1.1'), \
+                patch.object(verify, 'get', return_value={'spec': {'clusterIP': '10.43.0.10'}}), \
+                patch.object(verify, 'direct_https', side_effect=direct), \
+                patch.object(verify, 'json_get', side_effect=request), \
                 patch.object(verify, 'private_request', side_effect=request), \
-                patch.object(verify, 'proxy_privacy', return_value={'public_management_paths_denied': 10}):
+                patch.object(verify, 'proxy_privacy', return_value={'public_management_paths_denied': 14}):
             result = verify.protocols(values, dict(platform='x' * 32, applications='y' * 32))
             self.assertTrue(result['realms']['platform']['public_client_credentials_token'])
             for sensitive in ('private-user', 'private-address', 'private-token', 'representation'):
@@ -590,7 +615,7 @@ class IdentityTests(unittest.TestCase):
                 patch('automation.identity.health.urllib.request.build_opener', return_value=opener):
             result = proxy_privacy('login.example.invalid')
             self.assertTrue(result['canonical_proxy_headers'])
-            self.assertEqual(result['public_management_paths_denied'], 10)
+            self.assertEqual(result['public_management_paths_denied'], 14)
             self.assertEqual(read.call_args.kwargs['headers']['X-Forwarded-Host'], 'forbidden.invalid')
             for status in (200, 302, 401, 500):
                 opener.open.side_effect = None
@@ -607,7 +632,7 @@ class IdentityTests(unittest.TestCase):
         def objects(kind, name=None, namespace=None):
             if kind == 'certificate.cert-manager.io':
                 return {'metadata': {}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]},
-                        'spec': {'dnsNames': ['*.internal.example.invalid']}}
+                        'spec': {'dnsNames': ['*.internal.example.invalid', 'login.example.invalid']}}
             if kind == 'nodes': return {'items': [{'metadata': {'name': 'node'}, 'spec': {'podCIDR': '10.42.0.0/24'}}]}
             if kind == 'pods': return {'items': [{'metadata': {'labels': {'gateway.networking.k8s.io/gateway-name': 'cloudlab'}},
                 'spec': {'nodeName': 'node', 'hostNetwork': host_network[0]}, 'status': {'podIP': '10.42.0.' + str(suffix[0])}}]}

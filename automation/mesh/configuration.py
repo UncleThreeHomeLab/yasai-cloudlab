@@ -56,7 +56,7 @@ def selected_zone():
     if len(names) != 1 or not names[0].startswith('*.'):
         raise RuntimeError('Public certificate wildcard contract changed')
     zone = names[0][2:]
-    if private['spec'].get('dnsNames') != ['*.internal.' + zone]:
+    if private['spec'].get('dnsNames') != ['*.internal.' + zone, 'login.' + zone]:
         raise RuntimeError('Private certificate wildcard contract changed')
     return zone
 

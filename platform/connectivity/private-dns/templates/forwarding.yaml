@@ -15,3 +15,12 @@ data:
             health_check 2s
         }
     }
+  cloudlab-identity.server: |
+    login.{{ trimPrefix "internal." .Values.zone }}:53 {
+        errors
+        cache 30
+        forward . 10.44.0.1 10.44.0.2 {
+            max_fails 1
+            health_check 2s
+        }
+    }

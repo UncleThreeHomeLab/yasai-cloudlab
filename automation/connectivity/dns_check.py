@@ -27,7 +27,7 @@ def check():
             binary = directory / 'coredns'
             binary.write_bytes(archive.extractfile('coredns').read())
             binary.chmod(0o700)
-        inputs = dict(zone='internal.example.invalid', names=['app'], tailnet_address='100.64.0.1',
+        inputs = dict(zone='internal.example.invalid', identity_host='login.example.invalid', names=['app'], tailnet_address='100.64.0.1',
                       host_address='10.44.0.1', cluster_gateway='10.43.0.10', tailnet_gateway='100.64.0.5',
                       nameservers=['100.64.0.1', '100.64.0.2'], upstreams=['1.1.1.1'])
         for name, content in configuration(inputs).items():
@@ -51,6 +51,12 @@ def check():
             for tcp in (False, True):
                 private_answer('127.0.0.1', 'app.internal.example.invalid', '10.43.0.10', tcp=tcp)
                 private_answer('127.0.0.2', 'app.internal.example.invalid', '100.64.0.5', source='127.0.0.2', tcp=tcp)
+                private_answer('127.0.0.1', 'login.example.invalid', '10.43.0.10', tcp=tcp)
+                private_answer('127.0.0.2', 'login.example.invalid', '100.64.0.5', source='127.0.0.2', tcp=tcp)
+                if query('127.0.0.2', 'missing.login.example.invalid', source='127.0.0.2', tcp=tcp)['addresses']:
+                    raise RuntimeError('Unknown issuer subdomain resolved through the private view')
+                if query('127.0.0.2', 'login.example.invalid', source='127.0.0.1', tcp=tcp)['rcode'] != 5:
+                    raise RuntimeError('Canonical issuer DNS bypassed its source restriction')
                 for destination, source in [('127.0.0.1', '127.0.0.1'), ('127.0.0.2', '127.0.0.2')]:
                     absent_answer(destination, 'missing.internal.example.invalid', source=source, tcp=tcp)
                 if query('127.0.0.2', 'github.com', source='127.0.0.2', tcp=tcp)['rcode'] != 5:
@@ -60,7 +66,7 @@ def check():
         finally:
             process.terminate()
             process.wait(timeout=10)
-    return {'artifact_verified': True, 'private_views_udp_tcp': True, 'unknown_names_fail_closed': True,
+    return {'artifact_verified': True, 'private_views_udp_tcp': True, 'canonical_private_issuer_udp_tcp': True, 'unknown_names_fail_closed': True,
             'tailnet_recursion_denied': True, 'source_restriction': True, 'live_host_dns_tested': False}
 
 
