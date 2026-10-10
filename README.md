@@ -214,10 +214,23 @@ failure, with a maximum 30-second interval without a successful request.
 It requires two healthy replicas on distinct nodes before each failure, waits for
 both replicas to recover, and removes disposable backend namespaces afterward.
 `prove` includes these checks. Human sign-in requires the approved mailbox once;
-`lab access-human-proof` reads a JSON object containing `token` from standard input,
+`lab access-human-proof` reads JSON containing `token` or one raw JWT from standard input,
 verifies the Access JWT signature and protected backend, and records evidence
 without retaining the session. Repeat checks require the same application identity,
 audience and policy. Changed human policy requires a fresh sign-in proof.
+
+For a live Access proof without copying a browser cookie, pipe the pinned helper's
+output directly into the proof command. Replace `<application-url>` with the
+declared canary URL; use `access-human-proof` for the real application after cutover.
+
+```sh
+docker compose -p identity-access-browser -f compose.identity-proof.yaml run --rm -T access-browser access login --app '<application-url>' | docker compose -p yasai-cloudlab run --rm -T lab identity-access-canary-proof
+```
+
+Open the headless login link shown on standard error and authenticate in your own
+browser. The JWT goes through the pipe, never the terminal or command arguments.
+The helper caches sessions only in container memory; `--rm` removes the container.
+Never run the first half alone or redirect its output to a file or log.
 
 `lab access-cutover` requires complete replacement acceptance from the last 24 hours,
 rechecks access, and audits the stored Helm release for all ten CRD retention rules.

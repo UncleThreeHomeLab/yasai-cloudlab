@@ -11,7 +11,7 @@ from automation.connectivity.cloudflare import access_application
 from automation.connectivity.contract import host_rules
 from automation.connectivity.reconcile import Reconciler, matches
 from automation.connectivity.traffic import https, success, denied
-from automation.connectivity.human import verify_token
+from automation.connectivity.human import verify_token, read_token
 
 
 def desired(hostname, email, provider):
@@ -168,6 +168,6 @@ def local(action, token=None):
 if __name__ == '__main__':
     try:
         action = sys.argv[1]
-        print(json.dumps(local(action, json.load(sys.stdin)['token'] if action == 'proof' else None)))
+        print(json.dumps(local(action, read_token(sys.stdin) if action == 'proof' else None)))
     except Exception:
         raise SystemExit('Access canary incomplete; retain ownership. Session and private diagnostics withheld.') from None

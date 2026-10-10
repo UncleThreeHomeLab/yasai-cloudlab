@@ -1,5 +1,6 @@
 import copy
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -8,6 +9,18 @@ from automation.connectivity.test_reconcile import Provider
 
 
 class CanaryTests(unittest.TestCase):
+    def test_live_browser_helper_uses_locked_image_and_memory_only_session_cache(self):
+        import yaml
+        root = Path(__file__).resolve().parents[2]
+        helper = yaml.safe_load((root / 'compose.identity-proof.yaml').read_text())['services']['access-browser']
+        lock = json.loads((root / 'platform/connectivity/access/images.lock.json').read_text())
+        self.assertEqual(helper['image'], lock['images']['cloudflared'])
+        self.assertEqual(helper['profiles'], ['live-access'])
+        self.assertTrue(helper['read_only'])
+        self.assertNotIn('volumes', helper)
+        self.assertEqual(helper['tmpfs'], ['/home/nonroot/.cloudflared:uid=65532,gid=65532,mode=0700'])
+        self.assertEqual(helper['user'], '65532:65532')
+
     def fixture(self):
         state = {'binding': 'owned', 'objects': {'dns:public.example.invalid': {'id': 'dns'}},
                  'identity_provider': {'id': 'dedicated', 'intent': {'config': {'client_id': 'cloudflare-access'}},
