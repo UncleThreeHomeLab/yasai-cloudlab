@@ -416,6 +416,15 @@ Use generated usernames: email login is disabled. The platform account signs int
 applications; the separate master account administers the private master console.
 The public issuer root opens authenticated platform self-service. Platform account
 paths work on both gateways; master, admin/API and management paths remain private.
+Private services share one HTTPS listener and certificate so browsers can reuse
+HTTP/2 connections across Argo and Keycloak without selecting a different route
+table. Exact route hostnames, allowed namespaces and gateway policies enforce
+the access boundaries. To verify reuse without credentials, pass private JSON
+`{zone, gateway_address}` on stdin to
+`docker compose -f compose.identity-proof.yaml run --build --rm -T private-routing`.
+The address must be the existing private gateway's tailnet address. All three
+private origins must work on each connection, and the canonical issuer must
+still deny realm administration.
 After both real browser logins and recovery custody are complete, run
 `lab identity-retire-bootstrap` with JSON
 `{"recovery_custody_confirmed": true}` on standard input. This operation verifies

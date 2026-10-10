@@ -1,5 +1,6 @@
 {
-  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement and integrated Access/session acceptance remain incomplete.",
+  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement accepted; integrated Access/session acceptance remains incomplete.",
+  "private_http2_routing": "All private origins share one HTTPS listener and TLS route table. Gateway wildcard matching includes nested labels; exact HTTPRoute hostnames, certificate SANs, restricted attachment namespaces and policies retain private boundaries. The credential-free Compose private-routing proof checks twelve requests across three reused HTTP/2 connections, including canonical issuer administration denial. Separate SNI listeners using this same certificate cause browser coalescing 404s and are rejected.",
   "realms": [
     "platform",
     "applications"

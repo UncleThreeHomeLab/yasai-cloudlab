@@ -86,8 +86,8 @@ def check():
     if set(denied) != exact | {'/resources', '/resources/*', '/realms/platform/account', '/realms/platform/account/*'}:
         raise ValueError('Gateway policy and protocol route allowlists differ')
     account = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'identity-private-account')['spec']
-    if account['parentRefs'] != [{'name': 'cloudlab', 'namespace': 'cloudlab-gateway-private', 'sectionName': 'identity-account'}]:
-        raise ValueError('Private account route must attach only to its canonical-host listener')
+    if account['parentRefs'] != [{'name': 'cloudlab', 'namespace': 'cloudlab-gateway-private', 'sectionName': 'https'}]:
+        raise ValueError('Private account route must share the private HTTPS listener for HTTP/2 reuse')
     private_paths = [match['path'] for rule in account['rules'] for match in rule['matches']]
     if {path['value'] for path in private_paths if path['type'] == 'PathPrefix'} != {
             '/resources', '/realms/platform/account', '/realms/applications/account'}:

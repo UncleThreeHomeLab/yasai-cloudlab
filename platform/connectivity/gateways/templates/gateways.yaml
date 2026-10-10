@@ -1,9 +1,6 @@
 {{- range $exposure := list "public" "private" }}
 {{- $namespace := printf "cloudlab-gateway-%s" $exposure }}
 {{- $host := printf "*.%s" $.Values.zone }}
-{{- if eq $exposure "private" }}
-{{- $host = printf "*.internal.%s" $.Values.zone }}
-{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -77,6 +74,8 @@ spec:
       kind: ConfigMap
       name: cloudlab-gateway-options
   listeners:
+    # Gateway wildcards include nested labels. Exact routes and certificate SANs
+    # retain host boundaries; one TLS chain avoids HTTP/2 coalescing 404s.
     - name: https
       hostname: {{ $host | quote }}
       port: 443
@@ -96,19 +95,4 @@ spec:
         kinds:
           - group: gateway.networking.k8s.io
             kind: HTTPRoute
-    {{- if eq $exposure "private" }}
-    - name: identity-account
-      hostname: {{ printf "login.%s" $.Values.zone | quote }}
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs: [{group: '', kind: Secret, name: cloudlab-gateway-tls}]
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchLabels: {cloudlab.io/gateway: private}
-        kinds: [{group: gateway.networking.k8s.io, kind: HTTPRoute}]
-    {{- end }}
 {{- end }}
