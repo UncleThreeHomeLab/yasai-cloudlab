@@ -96,6 +96,42 @@ def probe(settings, request, secret):
     return status, result.get('error')
 
 
+def refresh(request):
+    """Request delivery from the existing ESO owner without any realm mutation."""
+    from automation.identity.maintenance import APP, NAMESPACE, OWNER
+    from automation.mesh.kube import get, kube
+    request_scope(request)
+    app = get('application.argoproj.io', APP, 'argocd') or {}
+    values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
+    external = get('externalsecret.external-secrets.io', TITLE, NAMESPACE) or {}
+    extracts = external.get('spec', {}).get('dataFrom', [])
+    if (app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
+            not values.get('privateStateEnabled') or values.get('maintenance') or
+            not external.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(APP + ':') or
+            external.get('spec', {}).get('secretStoreRef') != {'name': 'cloudlab', 'kind': 'ClusterSecretStore'} or
+            len(extracts) != 1 or set(extracts[0]) != {'extract'} or
+            extracts[0].get('extract', {}).get('key') != TITLE or
+            external.get('spec', {}).get('target', {}).get('name') != TITLE):
+        raise RuntimeError('Credential delivery requires the unchanged private ESO owner')
+    kube('patch', 'externalsecret.external-secrets.io', TITLE, '-n', NAMESPACE, '--type=merge',
+         '-p', json.dumps({'metadata': {'uid': external['metadata']['uid'],
+             'resourceVersion': external['metadata']['resourceVersion'],
+             'annotations': {'force-sync': str(time.time_ns())}}}))
+    return {'credential_delivery_requested': True, 'realm_changes': 0}
+
+
+def local_refresh(request):
+    from dotenv import dotenv_values
+    from automation.connectivity.preflight import ssh
+    request_scope(request)
+    environment = dotenv_values(ROOT / '.env', interpolate=False)
+    for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
+        os.environ[key] = environment[key]
+    os.environ['VM_PORT'] = environment.get('VM_PORT') or '22'
+    return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/automation/identity/rotation.py refresh',
+        input=json.dumps(request), timeout=60))
+
+
 def verify(payload):
     from automation.mesh.kube import get, kube, condition
     from automation.identity.maintenance import NAMESPACE
@@ -167,6 +203,10 @@ def local(request):
             delivered = json.loads(fields(TITLE, ['client_secrets'])['client_secrets'])
             if delivered[request['realm']].get(request['client_id']) != state['new']:
                 raise RuntimeError('Read-only vault reader cannot retrieve the provisioned credential')
+            refreshed = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/automation/identity/rotation.py refresh',
+                input=json.dumps(request), timeout=60))
+            if not refreshed.get('credential_delivery_requested'):
+                raise RuntimeError('Initial credential delivery was not requested; retain checkpoint')
             pending.unlink()
             return {'vault_credential_ready': True, 'existing_credential_preserved': state['old'] == state['new'],
                     'realm_credential_verified': False, 'sessions_created': 0}
@@ -183,6 +223,7 @@ if __name__ == '__main__':
         payload = json.load(sys.stdin)
         mode = sys.argv[1:] or ['local']
         print(json.dumps({'inventoried': bool(inventory(payload))} if mode == ['inventory'] else
-                         verify(payload) if mode == ['verify'] else local(payload)))
+                         verify(payload) if mode == ['verify'] else refresh(payload) if mode == ['refresh'] else
+                         local_refresh(payload) if mode == ['--refresh'] else local(payload)))
     except Exception:
         raise SystemExit('Identity credential operation incomplete; preserve checkpoint. Private diagnostics withheld.') from None

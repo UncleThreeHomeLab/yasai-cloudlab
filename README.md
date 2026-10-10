@@ -380,6 +380,9 @@ Identity credentials refresh hourly to fit the existing 1Password subscription.
 Explicit rotation forces one ESO refresh; realm reconciliation still runs every
 five minutes. Quota exhaustion blocks credential delivery until reset and never
 justifies weaker vault permissions or another subscription.
+Initial provisioning also requests ESO delivery before private publication.
+`lab identity-client-refresh` accepts the same private provision/rotate request
+to retry delivery through the existing ESO owner; it changes no realm fields.
 Provisioning preserves existing secrets. Rotation uses a resumable vault checkpoint
 and verifies new credentials accepted and old credentials denied after ESO/CLI
 reconciliation. Public or retired clients are rejected. `lab identity-client-remove`
@@ -400,7 +403,18 @@ until expiry, and unmanaged client lifetimes require separate review. These live
 offboarding and integrated deadline checks remain unverified. Runtime phases
 `identity-server`, `identity-bootstrap`, `identity-primary` and `identity-scoped` require published,
 explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
-They preserve bootstrap access; retirement and live cutovers remain incomplete.
+Bootstrap access is retired after the recovery exercise. Dedicated Access browser
+and back-channel login is verified; integrated session measurements remain pending.
+For disposable session acceptance, `lab identity-proof-credentials` and
+`lab identity-proof-enroll` accept only `{nonce}` JSON on stdin, with a 32-character
+lowercase hexadecimal owner ID. Provisioning preserves the corresponding CloudLab
+item (`keycloak-proof-<nonce>`: `username`, `password`, `email`, `ownership_id`).
+Publish its verified viewer membership only in the complete private source before
+enrollment. Enrollment uses ESO and the existing serialized Argo config-cli job;
+it refuses foreign accounts, privileged groups and revocations. Credentials are
+creation-only and never enter normal realm state tracking. Repeat enrollment does
+not reset credentials or enable an existing account. No messages are sent. These
+operations prepare a fixture; they do not themselves prove session deadlines.
 `lab identity-recover-startup` repairs an owned server-only installation whose
 failed Pod still uses an older template. It stops and resumes the server through
 Argo's existing maintenance field, preserves the database, and resumes safely

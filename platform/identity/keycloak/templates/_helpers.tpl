@@ -28,8 +28,10 @@ initContainers:
     args:
       - >-
         import sys; from pathlib import Path; sys.path.insert(0,'/code');
-        from lease import acquire, acquire_sync; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory;
-        {{- if .Values.operation }}
+        from lease import acquire, acquire_sync; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory, prepare_proof_user;
+        {{- if and .Values.operation (eq .Values.operation.action "initialize-proof") }}
+        {{- /* Read identity ownership only after acquiring the same writer Lease. */}}
+        {{- else if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
         {{- else }}
         prepare('/imports', {{ .Values.loginHost | quote }}, {{ ternary "'/private'" "None" .Values.privateStateEnabled }}, {{ ternary "'/credentials'" "None" .Values.bootstrapMode }}, {{ ternary "'/health-credentials'" "None" .Values.bootstrapMode }}, primary={{ ternary "True" "False" .Values.primaryAdminEnabled }});
@@ -45,7 +47,9 @@ initContainers:
         {{- else }}
         acquire_sync();
         {{- end }}
-        {{- if .Values.operation }}
+        {{- if and .Values.operation (eq .Values.operation.action "initialize-proof") }}
+        prepare_proof_user('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }})
+        {{- else if .Values.operation }}
         removal_inventory('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, {{ .Values.adminHost | quote }})
         {{- end }}
     env:
@@ -58,6 +62,9 @@ initContainers:
     volumeMounts:
       - {name: code, mountPath: /code, readOnly: true}
       - {name: imports, mountPath: /imports}
+      {{- if and .Values.operation (eq .Values.operation.action "initialize-proof") }}
+      - {name: proof-credentials, mountPath: /proof-credentials, readOnly: true}
+      {{- end }}
       {{- if or .Values.bootstrapMode (not (empty .Values.operation)) }}
       - {name: credentials, mountPath: /credentials, readOnly: true}
       {{- end }}
@@ -78,7 +85,13 @@ containers:
     args:
       - |
         if test -f /imports/skip; then echo 'Serialized operation skipped; no realm changes'; exit 0; fi
-        {{- if .Values.operation }}
+        {{- if and .Values.operation (eq .Values.operation.action "initialize-proof") }}
+        export KEYCLOAK_LOGINREALM=platform KEYCLOAK_CLIENTID=realm-writer
+        export KEYCLOAK_CLIENTSECRET="$(cat /credentials/platform_client_secret)"
+        export IMPORT_FILES_LOCATIONS=/imports/proof.json
+        java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.remote-state.enabled=false --import.cache.key={{ printf "proof-%s" .Values.operation.nonce | quote }} >/tmp/result 2>&1 || { echo 'Disposable enrollment failed; diagnostics withheld'; exit 1; }
+        echo 'Disposable viewer enrollment completed; existing credentials preserved'
+        {{- else if .Values.operation }}
         export KEYCLOAK_LOGINREALM={{ .Values.operation.realm | quote }}
         export KEYCLOAK_CLIENTID=realm-writer
         export KEYCLOAK_CLIENTSECRET="$(cat /credentials/${KEYCLOAK_LOGINREALM}_client_secret)"
@@ -147,6 +160,9 @@ volumes:
   - {name: imports, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
   - {name: temporary, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
   - {name: credentials, secret: {secretName: keycloak-realm-writers, defaultMode: 0440}}
+  {{- if and .Values.operation (eq .Values.operation.action "initialize-proof") }}
+  - {name: proof-credentials, secret: {secretName: keycloak-proof, defaultMode: 0440}}
+  {{- end }}
   {{- if .Values.bootstrapMode }}
   - {name: bootstrap, secret: {secretName: keycloak-bootstrap-admin, defaultMode: 0440}}
   - name: health-credentials
