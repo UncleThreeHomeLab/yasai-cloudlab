@@ -418,6 +418,8 @@ it refuses foreign accounts, privileged groups and revocations. Credentials are
 creation-only and never enter normal realm state tracking. Repeat enrollment does
 not reset credentials or enable an existing account. No messages are sent. These
 operations prepare a fixture; they do not themselves prove session deadlines.
+After enrollment, run `lab identity-scoped` to release its accepted immutable source
+pin and converge the current public revision before measuring browser sessions.
 After removing the accepted original canary, `lab identity-session-canary` accepts
 the same `{nonce}` and creates one viewer-only disposable Access policy. It retains
 the accepted provider and production policies. `identity-session-canary-remove`
