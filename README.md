@@ -51,7 +51,7 @@ volume.
 
 ## Run it
 
-1. Prepare two reachable VMs with synchronized clocks and Docker Compose. Automatic time synchronization must work on both hosts; permit outbound NTP traffic through upstream firewalls. Apply and verification stop early when a host is not synchronized.
+1. Prepare two reachable VMs with automatic time synchronization and Docker Compose. Permit outbound NTP traffic and its replies through upstream firewalls. Apply retries an already active systemd-timesyncd daemon once if the clock is unsynchronized, then waits up to one minute. Verification is read-only; both stop before cluster operations if synchronization fails.
 2. Fill in `.env` from [`.env.example`](.env.example), including the 1Password token. Create the B2 item in CloudLab. Keep secrets out of Git.
 3. Apply and verify:
 

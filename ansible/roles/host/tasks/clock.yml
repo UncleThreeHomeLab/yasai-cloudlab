@@ -5,11 +5,48 @@
   changed_when: false
   failed_when: false
 
+- name: Check the existing time daemon before retrying synchronization
+  ansible.builtin.command: systemctl is-active systemd-timesyncd
+  register: host_clock_daemon
+  changed_when: false
+  failed_when: false
+  when:
+    - host_clock_retry | default(false) | bool
+    - host_clock_sync.rc == 0
+    - host_clock_sync.stdout | trim != 'yes'
+
+- name: Retry the active time daemon after upstream connectivity recovers
+  ansible.builtin.systemd_service:
+    name: systemd-timesyncd
+    state: restarted
+  when:
+    - host_clock_retry | default(false) | bool
+    - host_clock_sync.rc == 0
+    - host_clock_sync.stdout | trim != 'yes'
+    - host_clock_daemon.rc | default(1) == 0
+
+- name: Wait for real synchronization after the bounded retry
+  ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+  register: host_clock_retried
+  changed_when: false
+  failed_when: false
+  until: host_clock_retried.rc == 0 and host_clock_retried.stdout | trim == 'yes'
+  retries: 12
+  delay: 5
+  when:
+    - host_clock_retry | default(false) | bool
+    - host_clock_sync.rc == 0
+    - host_clock_sync.stdout | trim != 'yes'
+    - host_clock_daemon.rc | default(1) == 0
+
 - name: Require synchronized clocks for certificates and token validation
   ansible.builtin.assert:
     that:
       - host_clock_sync.rc == 0
-      - host_clock_sync.stdout | trim == 'yes'
+      - >-
+        host_clock_sync.stdout | trim == 'yes' or
+        (host_clock_retried.rc | default(1) == 0 and
+         host_clock_retried.stdout | default('') | trim == 'yes')
     fail_msg: >-
       Host clock is not synchronized. Restore automatic time synchronization
       and upstream access to its NTP servers before retrying. VM creation and

@@ -21,6 +21,8 @@
 
 - name: Check the host clock prerequisite
   ansible.builtin.import_tasks: clock.yml
+  vars:
+    host_clock_retry: true
 
 - name: Check supported host and minimum server resources
   ansible.builtin.assert:
