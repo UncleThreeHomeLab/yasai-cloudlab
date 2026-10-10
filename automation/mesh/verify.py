@@ -90,7 +90,7 @@ def controller_snapshot():
     return result
 
 
-def check_gateways():
+def check_gateways(zone):
     accounts = []
     for exposure in ('public', 'private'):
         ns = 'cloudlab-gateway-' + exposure
@@ -98,11 +98,21 @@ def check_gateways():
         if not condition(obj, 'Programmed') or not condition(obj, 'Accepted'):
             raise RuntimeError('Gateway conditions are not ready')
         listeners = obj['spec']['listeners']
-        if len(listeners) != 1 or listeners[0]['protocol'] != 'HTTPS' or listeners[0]['port'] != 443:
-            raise RuntimeError('Gateway listener exposes an unreviewed protocol')
-        selector = listeners[0]['allowedRoutes']['namespaces']
-        if selector != {'from': 'Selector', 'selector': {'matchLabels': {'cloudlab.io/gateway': exposure}}}:
-            raise RuntimeError('Gateway route attachment restriction changed')
+        expected = {'https': '*.' + ('internal.' if exposure == 'private' else '') + zone}
+        if exposure == 'private':
+            expected['identity-account'] = 'login.' + zone
+        if (len(listeners) != len(expected) or
+                {item.get('name'): item.get('hostname') for item in listeners} != expected):
+            raise RuntimeError('Gateway listener inventory or hostname changed')
+        for listener in listeners:
+            if (listener['protocol'] != 'HTTPS' or listener['port'] != 443 or
+                    listener['tls'] != {'mode': 'Terminate', 'certificateRefs': [
+                        {'group': '', 'kind': 'Secret', 'name': 'cloudlab-gateway-tls'}]}):
+                raise RuntimeError('Gateway listener exposes an unreviewed protocol or certificate')
+            if listener['allowedRoutes'] != {
+                    'namespaces': {'from': 'Selector', 'selector': {'matchLabels': {'cloudlab.io/gateway': exposure}}},
+                    'kinds': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute'}]}:
+                raise RuntimeError('Gateway route attachment restriction changed')
         service = get('service', 'cloudlab-istio', ns)
         if service['spec']['type'] != 'ClusterIP' or service['spec'].get('externalIPs') or any(p.get('nodePort') for p in service['spec']['ports']):
             raise RuntimeError('Gateway has external service exposure')
@@ -123,7 +133,8 @@ def verify(payload):
         if component_identities(payload) != state['components']:
             raise RuntimeError('Istio object identities changed')
         wait(lambda: application_ready('cloudlab-gateways', payload['revision']), 'gateway Application convergence')
-        check_gateways()
+        zone = selected_zone()
+        check_gateways(zone)
         ns = 'cloudlab-gateway-public'
         kube('patch', 'configmap', 'cloudlab-gateway-options', '-n', ns, '--type=merge',
              '-p', json.dumps({'metadata': {'annotations': {'cloudlab.io/ownership-proof': 'drift-fixture'}}}))
@@ -132,7 +143,6 @@ def verify(payload):
         # One drift fixture proves this Application's writer. Wait for its full
         # operation to finish before traffic checks or another verification run.
         wait(lambda: application_ready('cloudlab-gateways', payload['revision']), 'post-drift gateway convergence')
-        zone = selected_zone()
         suffix = uuid.uuid4().hex[:10]
         public, private, plain = ['cloudlab-mesh-' + role + '-' + suffix for role in ('public', 'private', 'plain')]
         created = {}

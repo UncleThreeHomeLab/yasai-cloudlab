@@ -4,6 +4,7 @@ from unittest.mock import patch
 import json
 from pathlib import Path
 import tempfile
+import copy
 
 import configuration
 from kube import contains
@@ -11,6 +12,43 @@ import verify
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_live_gateway_inventory_accepts_only_reviewed_https_listeners(self):
+        gateways = {}
+        for exposure in ('public', 'private'):
+            hosts = {'https': '*.' + ('internal.' if exposure == 'private' else '') + 'example.invalid'}
+            if exposure == 'private':
+                hosts['identity-account'] = 'login.example.invalid'
+            gateways[exposure] = {'spec': {'listeners': [
+                {'name': name, 'hostname': host, 'protocol': 'HTTPS', 'port': 443,
+                 'tls': {'mode': 'Terminate', 'certificateRefs': [
+                     {'group': '', 'kind': 'Secret', 'name': 'cloudlab-gateway-tls'}]},
+                 'allowedRoutes': {'namespaces': {'from': 'Selector', 'selector': {
+                     'matchLabels': {'cloudlab.io/gateway': exposure}}},
+                     'kinds': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute'}]}}
+                for name, host in hosts.items()]}}
+        def get(kind, name, namespace):
+            exposure = namespace.removeprefix('cloudlab-gateway-')
+            if kind.startswith('gateway.'):
+                return gateways[exposure]
+            if kind == 'service':
+                return {'spec': {'type': 'ClusterIP', 'ports': [{'port': 443}]}}
+            return {'spec': {'replicas': 2, 'template': {'spec': {'serviceAccountName': 'gateway'}}},
+                    'status': {'availableReplicas': 2}}
+        with patch.object(verify, 'get', side_effect=get), patch.object(verify, 'condition', return_value=True):
+            verify.check_gateways('example.invalid')
+            for field, value in (('hostname', '*.example.invalid'), ('name', 'foreign'),
+                                 ('port', 80), ('protocol', 'HTTP'),
+                                 ('tls', {'mode': 'Passthrough'}),
+                                 ('allowedRoutes', {'namespaces': {'from': 'All'}})):
+                original = copy.deepcopy(gateways['private'])
+                gateways['private']['spec']['listeners'][1][field] = value
+                with self.subTest(field=field), self.assertRaises(RuntimeError):
+                    verify.check_gateways('example.invalid')
+                gateways['private'] = original
+            gateways['public']['spec']['listeners'].append(copy.deepcopy(gateways['private']['spec']['listeners'][1]))
+            with self.assertRaises(RuntimeError):
+                verify.check_gateways('example.invalid')
+
     def test_argo_routes_preserve_both_origins_and_refuse_missing_or_foreign_source(self):
         current = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-argocd:/ConfigMap:argocd/argocd-cm'}},
             'data': {'oidc.config': 'issuer: https://login.example.invalid/realms/platform\nclientID: argocd',
