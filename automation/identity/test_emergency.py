@@ -13,6 +13,25 @@ from automation.identity.chart import render
 
 
 class EmergencyTests(unittest.TestCase):
+    def test_current_private_email_preserves_legacy_master_input_and_revocation_gate(self):
+        primary = {'platform_username': 'operator-fixture', 'email': 'master@example.invalid'}
+        member = {'username': 'operator-fixture', 'groups': ['platform-admin']}
+        source = {'realms': {'platform': {'memberships': [member]}}}
+        revoked = {'realms': {'platform': {'users': []}}}
+        private = {'spec': {'source': {'repoURL': 'https://example.invalid/private.git'}}}
+        with patch.object(emergency, 'get', return_value=private), \
+                patch.object(emergency, 'private_inputs', return_value=(source, revoked, 'revision')):
+            self.assertEqual(emergency.current_private({}, primary), primary['email'])
+            member['profile'] = {'email': 'platform@example.invalid', 'verified': True}
+            self.assertEqual(emergency.current_private({}, primary), 'platform@example.invalid')
+            self.assertEqual(primary['email'], 'master@example.invalid')
+            revoked['realms']['platform']['users'].append(primary['platform_username'])
+            with self.assertRaises(RuntimeError): emergency.current_private({}, primary)
+        with patch.object(emergency, 'get', return_value=private), \
+                patch.object(emergency, 'private_inputs', side_effect=RuntimeError('Source unavailable')):
+            with self.assertRaisesRegex(RuntimeError, 'Source unavailable'):
+                emergency.current_private({}, primary)
+
     def test_empty_admin_denial_is_measured_by_http_status_not_json_body(self):
         for status in (401, 403):
             with self.subTest(status=status), patch('urllib.request.build_opener') as opener:
