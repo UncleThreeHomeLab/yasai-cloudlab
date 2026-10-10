@@ -73,6 +73,10 @@ def main():
         mode = {'identity-proof-credentials': 'provision', 'identity-proof-stage': '--stage', 'identity-proof-enroll': 'local'}[action]
         subprocess.run([sys.executable, '-m', 'automation.identity.session_fixture', mode], cwd='/workspace', check=True)
         return
+    if action in ('identity-session-canary', 'identity-session-canary-remove'):
+        mode = 'remove' if action.endswith('-remove') else 'prepare'
+        subprocess.run([sys.executable, '-m', 'automation.identity.session_access', mode], cwd='/workspace', check=True)
+        return
     if action == 'identity-client-refresh':
         subprocess.run([sys.executable, '-m', 'automation.identity.rotation', '--refresh'], cwd='/workspace', check=True)
         return

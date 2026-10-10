@@ -418,6 +418,20 @@ it refuses foreign accounts, privileged groups and revocations. Credentials are
 creation-only and never enter normal realm state tracking. Repeat enrollment does
 not reset credentials or enable an existing account. No messages are sent. These
 operations prepare a fixture; they do not themselves prove session deadlines.
+After removing the accepted original canary, `lab identity-session-canary` accepts
+the same `{nonce}` and creates one viewer-only disposable Access policy. It retains
+the accepted provider and production policies. `identity-session-canary-remove`
+removes only that exact recorded policy. Neither operation invites users.
+The `live-sessions` Compose profile runs the pinned browser and a controller on an
+internal network with no published control port. Run `session-controller` with
+`-p yasai-cloudlab` so it reads the existing private fixture checkpoint and SSH state.
+Supply the existing GitHub credential on stdin for reviewed private-source changes.
+The controller enrolls a synthetic passkey only on the disposable viewer, verifies
+native Argo/Access SSO and denied administration, publishes a persistent offboarding
+tombstone, invalidates supported sessions, and measures old-session denial.
+Tokens stay in process memory; Docker logging is disabled for both services.
+This check is destructive only to the disposable viewer. It is not a repeatable
+login check after offboarding. Actual personal passkeys require separate human proof.
 `lab identity-recover-startup` repairs an owned server-only installation whose
 failed Pod still uses an older template. It stops and resumes the server through
 Argo's existing maintenance field, preserves the database, and resumes safely
