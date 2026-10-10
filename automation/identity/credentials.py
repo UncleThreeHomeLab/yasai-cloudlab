@@ -115,22 +115,79 @@ def primary_login_items(token, primary, hosts):
     return result
 
 
+def login_guide(token, hosts):
+    """Keep instructions in a separate note; CLI JSON cannot preserve passkeys."""
+    from automation.identity.configuration import exact_url
+    if (not hosts['loginHost'].startswith('login.') or
+            hosts['adminHost'] != 'identity-admin.internal.' + hosts['loginHost'][6:]):
+        raise ValueError('Login guide requires the existing private host contract')
+    master = exact_url('https://' + hosts['adminHost'] + '/admin/master/console/')
+    argo = exact_url('https://cd.internal.' + hosts['loginHost'][6:] + '/')
+    title = 'keycloak-login-guide'
+    begin, end = '[CloudLab managed login instructions]', '[/CloudLab managed login instructions]'
+    instructions = '\n'.join([
+        begin, 'Connect to Tailscale first. These private pages require private DNS and access.', '',
+        'Keycloak master administration: ' + master,
+        'Use keycloak-master-admin-login: its generated username, password and enrolled passkey.',
+        'The platform account cannot administer the master realm.', '',
+        'Platform / Argo CD: ' + argo,
+        'Choose Keycloak login. Use keycloak-platform-admin-login: its generated username, password and enrolled passkey.',
+        'Email login is disabled. The account email is a profile field, not the login username.',
+        'The platform account has application roles, not Keycloak realm-management permissions.', '',
+        'The public login hostname is an OIDC issuer, not a homepage. Its root and account page are denied by the gateway.',
+        'Platform account self-service is under verification; do not count it as a working login path yet.', '',
+        'Keep enrolled passkeys in your personal vault. Do not edit Login items through CLI JSON templates.',
+        'Keep keycloak-primary-admin in CloudLab: it is the ESO recovery source. This guide contains no passwords.',
+        end])
+    rows = [row for row in command(['item', 'list', '--vault', 'CloudLab'], token) if row.get('title') == title]
+    if len(rows) > 1:
+        raise RuntimeError('Duplicate login guide title; no changes made')
+    if rows:
+        current = command(['item', 'get', rows[0]['id'], '--vault', 'CloudLab'], token)
+        if current.get('category') != 'SECURE_NOTE' or 'cloudlab-managed' not in current.get('tags', []):
+            raise RuntimeError('Existing login guide has a conflicting owner; no changes made')
+        notes = [field for field in current.get('fields', []) if field.get('id') == 'notesPlain']
+        if len(notes) != 1 or notes[0].get('type') != 'STRING':
+            raise RuntimeError('Login guide notes are ambiguous; no changes made')
+        previous = notes[0].get('value') or ''
+        if previous.count(begin) != 1 or previous.count(end) != 1 or previous.index(begin) > previous.index(end):
+            raise RuntimeError('Login guide managed section changed; preserve human notes')
+        before, rest = previous.split(begin, 1)
+        _, after = rest.split(end, 1)
+        updated = before + instructions + after
+        if updated == previous:
+            return {'login_guide_ready': True, 'changed': False, 'login_items_untouched': True}
+        notes[0]['value'] = updated
+        command(['item', 'edit', current['id'], '--vault', 'CloudLab'], token, current)
+    else:
+        created = command(['item', 'create', '-', '--vault', 'CloudLab'], token, {
+            'title': title, 'category': 'SECURE_NOTE', 'tags': ['cloudlab-managed'],
+            'fields': [{'id': 'notesPlain', 'type': 'STRING', 'purpose': 'NOTES', 'value': instructions}]})
+        if created.get('title') != title or not created.get('id'):
+            raise RuntimeError('Login guide creation response incomplete; inspect before retrying')
+    return {'login_guide_ready': True, 'changed': True, 'login_items_untouched': True}
+
+
 def main():
     values = dotenv_values(ROOT / '.env', interpolate=False)
     values['CLOUDFLARE_HUMAN_EMAIL'] = values.get('CLOUDFLARE_HUMAN_EMAIL') or values.get('TAILSCALE_ADMIN_LOGIN')
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
-    if sys.argv[1:] == ['--login-items']:
+    if sys.argv[1:] in (['--login-items'], ['--login-guide']):
         from automation.connectivity.preflight import ssh
         for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
             os.environ[key] = values[key]
         os.environ['VM_PORT'] = values.get('VM_PORT') or '22'
         hosts = json.loads(ssh('VM', values['VM_HOST'],
             'python3 /opt/cloudlab/automation/identity/bootstrap.py inputs', timeout=60))
-        primary = fields('keycloak-primary-admin', ('master_username', 'platform_username',
-                         'master_password', 'platform_password', 'ownership_id'))
         with Path('/state/identity-vault-provision.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            print(json.dumps(primary_login_items(values.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN'), primary, hosts)))
+            if sys.argv[1:] == ['--login-guide']:
+                result = login_guide(values.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN'), hosts)
+            else:
+                primary = fields('keycloak-primary-admin', ('master_username', 'platform_username',
+                                 'master_password', 'platform_password', 'ownership_id'))
+                result = primary_login_items(values.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN'), primary, hosts)
+            print(json.dumps(result))
         return
     selected = definitions()
     if sys.argv[1:] == ['--primary']:

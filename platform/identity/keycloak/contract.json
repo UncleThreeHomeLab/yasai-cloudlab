@@ -1,5 +1,5 @@
 {
-  "status": "One live official Operator/server with scoped reconciliation; real privileged enrollment and integrated browser/session acceptance remain incomplete",
+  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement and integrated Access/session acceptance remain incomplete.",
   "realms": [
     "platform",
     "applications"
@@ -48,7 +48,7 @@
   "managed_fields": {
     "realm": "Fields emitted by configuration.baseline; master excluded",
     "client": "Fields emitted by configuration.client; only explicit private inventory",
-    "membership": "Complete group list for explicitly inventoried users; never enabled:true or credentials",
+    "membership": "Complete group list for explicitly inventoried users; optional exact profile {email, verified} manages email/emailVerified through scoped config-cli. Verification is an explicit operator ownership assertion, not SMTP proof. Omitted profiles remain unmanaged; never enabled:true or credentials.",
     "revocations": "Persistent private tombstones override desired clients and memberships",
     "unmanaged": [
       "Other users",
@@ -193,6 +193,7 @@
       "retire-client",
       "remove-client",
       "offboard-user",
+      "set-user-email",
       "provision-argo",
       "provision-access"
     ],
@@ -203,7 +204,7 @@
       "identity-scoped",
       "identity-argo"
     ],
-    "limitations": "Real privileged enrollment/custody, production bootstrap retirement, integrated Argo/Access browser/session/outage checks and complete live lifecycle acceptance remain incomplete.",
+    "limitations": "Production bootstrap retirement, integrated Argo/Access browser/session/outage checks and complete live lifecycle acceptance remain incomplete.",
     "native_argo": "Read-only GitHub App verifies the exact private producer overlay at an immutable commit and its active exact-callback public client. Current private state and HTTPS discovery/token reachability gate binding. Existing bounded GitOps owner stops its sole controller during the root values handoff and resumes it in finally. Interrupted controller repair through GitOps bootstrap never contacts Keycloak. Both routes reconcile from the consumer ConfigMap interface; browser/RBAC/session checks remain required."
   },
   "credential_operations": {
@@ -220,6 +221,7 @@
     "status": "Live vault-to-ESO-to-serialized-CLI rotation passed: new credential authenticated, old credential denied with HTTP 401, no sessions created. An interrupted proof resumed the same pending secret without a second rotation.",
     "refresh": "Hourly routine ESO reads; an explicit rotation requests one force-sync and waits for serialized five-minute CLI convergence. Quota exhaustion blocks delivery until reset; existing retained secrets and independent repair remain available.",
     "browser_login_items": "Explicit identity-primary-login-items creates two CloudLab Login copies of existing primary credentials and private websites. Never changes existing items, passkeys or Keycloak credentials. Human browser enrollment and a move to the personal vault remain required; original primary-admin item stays the ESO source during initialization.",
+    "login_guide": "identity-login-guide maintains a separate owned CloudLab Secure Note with private master and Argo login links, separate account selection and generated username instructions. Preserves notes outside the managed section and never edits Login items or passkeys. Public issuer root/account paths are denied; platform has application roles, not realm-management privileges.",
     "denial": "New credential must return HTTP 400 invalid_grant for a deliberately invalid authorization code. Old credential must return HTTP 401 invalid_client or unauthorized_client. Other codes/statuses do not complete rotation."
   },
   "master_emergency_proof": {
@@ -266,7 +268,7 @@
       "lab identity-access-canary-remove"
     ],
     "gate": "Completed production retirement with real MFA/custody, exact resource owners, current native Argo CM/RBAC, active private primary membership and enrolled WebAuthn, and authenticated exact dedicated OIDC client.",
-    "policy": "Only owned human applications; approved email AND exact /platform-admin OIDC group AND dedicated login method. Previous provider remains present; machine applications retain their independent service-token policy.",
+    "policy": "Only owned human applications; current verified platform email from private membership profile (legacy vault email when omitted) AND exact /platform-admin OIDC group AND dedicated login method. Canary must prove that exact email before cutover; durable receipt preserves it independently of Keycloak. Previous provider and its pre-cutover email remain present; Cloudflare account email and machine service-token policies stay independent.",
     "writer": "Existing external Reconciler; durable prepared/configured/accepted host receipt. Normal selection is pure and never contacts Keycloak; inconsistent receipts fail closed without provider fallback.",
     "canary": "Before initial policy cutover, a disposable path-specific Access application on the already owned public smoke hostname requires the dedicated provider, approved email and exact /platform-admin group. A real signed session, exact audience, backend response and independent machine denial must pass within 900 seconds of cutover. No production application policies change during this proof. Separate named fixture namespaces and exact ownership checks permit cleanup without contacting Keycloak.",
     "browser_proof": "Existing access-human-proof verifies a real signed Access JWT, exact issuer/audience/email/expiry, protected backend and machine denial. Current central policy/provider and unchanged credential receipt are required. It records acceptance without persisting the session.",
@@ -276,7 +278,7 @@
   "host_clock": {
     "requirement": "Automatic host time synchronization on both VMs. Apply retries an already active systemd-timesyncd daemon once when unsynchronized, then waits at most one minute. Verification only reads synchronization state. Both fail before cluster operations unless timedatectl confirms synchronization. Upstream NTP reachability is an external prerequisite.",
     "token_validation": "Strict expiration, not-before and issued-at validation remains unchanged; rejection reasons contain no claims or tokens.",
-    "latest_live_proof": "Both applies at 3f38a0c changed zero resources and independent Access disruptions passed. Final isolated restore token proof failed at lifetime validation; both hosts were unsynchronized with approximately six seconds of relative skew. Restore fixtures were cleaned. This run is not accepted recovery proof.",
-    "status": "After upstream firewall repair, both hosts receive valid replies from configured NTP servers and ICMP responses; fresh SSH works and managed host firewalls retain default input DROP. Last inspected clocks remain unsynchronized. Restore acceptance requires working automatic synchronization and a successful repeat proof."
+    "latest_live_proof": "Clean checkout 408ac85 full Compose prove passed on both existing hosts: second apply changed zero on both. Five independent Access disruptions passed with maximum success gap 8.12 seconds. Isolated physical identity restore preserved signing state, invalidated sessions, replayed current recovery inputs and verified a signed JWT. Data age 731.198 seconds; capture 130.242 seconds and restore 771.426 seconds. No offsite reads, retained local generations or exposure of restored issuer to real clients.",
+    "status": "Both clocks synchronized after upstream firewall repair and one bounded retry of the worker's already active daemon. Configured NTP offsets measured -0.204/-0.843 milliseconds. Existing-host local recovery passed; this does not prove empty-VM setup or identity restoration from the older offsite generation."
   }
 }

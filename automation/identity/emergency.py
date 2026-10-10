@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from automation.data.control import atomic, sql
 from automation.identity.bootstrap import writer_idle, reconciled, private_inputs
-from automation.identity.configuration import private_request
+from automation.identity.configuration import email_profile, private_request
 from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER, _set_maintenance
 from automation.identity.recovery import signature_state
 from automation.mesh.kube import get, kube, condition, contains, wait
@@ -116,6 +116,8 @@ def current_private(values, primary):
     if (primary['platform_username'] in revoked['realms'].get('platform', {}).get('users', []) or
             not any(row['username'] == primary['platform_username'] and 'platform-admin' in row['groups'] for row in members)):
         raise RuntimeError('Permanent platform administrator must remain active in the current private source')
+    member = next(row for row in members if row['username'] == primary['platform_username'])
+    return email_profile(member['profile'])['email'] if 'profile' in member else primary['email']
 
 
 def owner():

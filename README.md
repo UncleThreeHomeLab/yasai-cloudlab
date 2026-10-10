@@ -344,6 +344,13 @@ provisioning credential and never merges or modifies realms.
 GitHub Free does not enforce private branch protection. Private PR review and
 compiler validation are procedural safeguards; public implementation PRs remain
 protected. Argo values must use a validated immutable private revision.
+`set-user-email` accepts exact private `{action, realm, username, email, verified}`
+inputs for one active, inventoried membership. It stores an optional
+`profile: {email, verified}` on that membership; scoped config-cli reconciliation
+manages only those two profile fields. Omitted profiles remain unmanaged.
+`verified` is an explicit operator assertion of address ownership, not an SMTP
+verification test. This operation sends no messages, resets no credentials and
+never re-enables an account. Master administration keeps its separate vault email.
 `lab identity-client-credential` accepts private `{action, realm, client_id}` JSON;
 initial provisioning can also include the exact confidential `client` contract
 before its private publication. Current complete private inputs must be available;
@@ -396,6 +403,12 @@ private CD website stored on its item and select Keycloak login. For master, ope
 the private admin console website. Run this creation command only when
 preparing CloudLab items, not after moving them. The original machine-owned
 `keycloak-primary-admin` item remains the ESO source during initialization.
+`lab identity-login-guide` maintains a separate CloudLab Secure Note named
+`keycloak-login-guide` with private login links and account instructions. It preserves
+notes outside its managed section and never edits Login items or enrolled passkeys.
+Use generated usernames: email login is disabled. The platform account signs into
+applications; the separate master account administers the private master console.
+Public issuer root and account paths are denied by the gateway.
 After both real browser logins and recovery custody are complete, run
 `lab identity-retire-bootstrap` with JSON
 `{"recovery_custody_confirmed": true}` on standard input. This operation verifies
@@ -458,8 +471,12 @@ active private membership, WebAuthn and the dedicated OIDC client before changin
 only owned human policies. Approved email, exact `/platform-admin` claim and the
 dedicated provider are all required; prior provider is retained. Machine policies
 remain independent. Reconciliation preserves the selected provider from its
-private host receipt and never contacts Keycloak for this selection. Record a new
-signed browser proof with `lab access-human-proof` before claiming Access login
+private host receipt and never contacts Keycloak for this selection.
+The dedicated provider's human policy uses the current verified platform email
+from its private membership profile. Before cutover, the prior provider's approved
+email remains unchanged. Cloudflare account identity and machine policies are
+independent of this application policy. Record a new signed browser proof with
+`lab access-human-proof` before claiming Access login
 acceptance. Provider credential rotation invalidates earlier browser evidence;
 both proofs require a newly issued Access JWT and a recent successful dedicated
 Keycloak code exchange after configuration. Use a fresh private browser session;

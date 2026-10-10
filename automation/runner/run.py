@@ -63,6 +63,9 @@ def main():
     if action == 'identity-primary-login-items':
         subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--login-items'], cwd='/workspace', check=True)
         return
+    if action == 'identity-login-guide':
+        subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--login-guide'], cwd='/workspace', check=True)
+        return
     if action == 'identity-offboard':
         subprocess.run([sys.executable, '-m', 'automation.identity.lifecycle', '--offboard'], cwd='/workspace', check=True)
         return

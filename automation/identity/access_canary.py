@@ -156,13 +156,13 @@ def local(action, token=None):
             raise RuntimeError('Dedicated provider drifted before canary verification')
         save = lambda value: receipts.save('external', value)
         if action == 'proof':
-            return record(api, account, state, save, domain, values['CLOUDFLARE_HUMAN_EMAIL'], token,
+            return record(api, account, state, save, domain, contract['human_email'], token,
                           [rule['hostname'] for rule in rules if rule['access'] == 'machine'])
         if action != 'prepare':
             raise ValueError('Unknown canary action')
         remote('prepare', purpose='identity-canary', public=[{'name': hostname.split('.')[0], 'access': 'public'}],
                private=[], smoke_image=yaml.safe_load((root / 'ansible/group_vars/all/verification.yml').read_text())['smoke_image'])
-        return configure(api, account, state, save, hostname, values['CLOUDFLARE_HUMAN_EMAIL'])
+        return configure(api, account, state, save, hostname, contract['human_email'])
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import yaml
 
-from automation.identity.configuration import compile_state, name, REALMS
+from automation.identity.configuration import compile_state, email_profile, name, REALMS
 from automation.identity.integrations import argo, access
 
 
@@ -49,6 +49,15 @@ def change(source, revocations, operation):
         for item in desired['clients']:
             if item['id'] == identifier:
                 item['enabled'] = False
+    elif action == 'set-user-email':
+        if set(operation) != {'action', 'realm', 'username', 'email', 'verified'}:
+            raise ValueError('Email migration requires an exact private user and verification assertion')
+        matches = [u for u in desired.get('memberships', []) if u['username'] == operation['username']]
+        if len(matches) != 1 or operation['username'] in denied.get('users', []):
+            raise ValueError('Email migration requires one active inventoried private membership')
+        profile = {key: operation[key] for key in ('email', 'verified')}
+        email_profile(profile)
+        matches[0]['profile'] = profile
     elif action == 'offboard-user':
         if set(operation) != {'action', 'realm', 'username'} or not isinstance(operation['username'], str) or not operation['username']:
             raise ValueError('Invalid offboarding fields')

@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from automation.identity.access_cutover import prepare, selection, gate
+from automation.identity.access_cutover import approved_email, prepare, selection, gate
 from automation.identity import maintenance, emergency
 from automation.identity.access_provider import public_provider
 from automation.identity.access_provider import prepare as prepare_provider
@@ -24,10 +24,12 @@ class AccessCutoverTests(unittest.TestCase):
         api.objects[path + '/previous'] = copy.deepcopy(prior)
         contract = access('https://login.example.invalid/realms/platform', 'fixture', 'x' * 64)
         prepare_provider(api, 'a' * 32, 'previous', contract, state, lambda value: None)
+        contract['human_email'] = 'fixture@example.invalid'
         self.proven(state)
         prepare(state, 'previous', contract)
         state['identity_provider']['phase'] = state['identity_cutover']['phase'] = 'accepted'
-        self.assertFalse(prepare_provider(api, 'a' * 32, 'previous', contract, state, lambda value: None)['changed'])
+        self.assertFalse(prepare_provider(api, 'a' * 32, 'previous',
+            {key: value for key, value in contract.items() if key != 'human_email'}, state, lambda value: None)['changed'])
         self.assertEqual(state['identity_provider']['phase'], 'accepted')
         contract = access('https://login.example.invalid/realms/platform', 'fixture', 'y' * 64)
         self.assertTrue(prepare_provider(api, 'a' * 32, 'previous', contract, state, lambda value: None)['changed'])
@@ -56,14 +58,14 @@ class AccessCutoverTests(unittest.TestCase):
             return changes.get('groups', [{'path': '/platform-admin'}])
         with tempfile.TemporaryDirectory() as directory, patch.object(maintenance, 'BASE', Path(directory)), \
                 patch('automation.mesh.kube.get', side_effect=get), \
-                patch.object(emergency, 'current_private') as private, \
+                patch.object(emergency, 'current_private', return_value='fixture@example.invalid') as private, \
                 patch.object(emergency, 'vault_secret', side_effect=lambda name: {'platform_username': 'fixture', 'ownership_id': 'owner', 'email': 'fixture@example.invalid'}
                     if name == 'keycloak-primary-admin' else {'platform_client_secret': 'private-secret'}), \
                 patch('automation.identity.configuration.private_request', side_effect=request), \
-                patch('automation.identity.access_provider.snapshot', return_value='contract') as snapshot:
+                patch('automation.identity.access_provider.snapshot', return_value={'contract': 'fixture'}) as snapshot:
             (Path(directory) / 'ownership.json').write_text(json.dumps({'uid': 'owned'}))
             path = Path(directory) / 'retirement.json'; path.write_text(json.dumps(retired))
-            self.assertEqual(gate('fixture'), 'contract')
+            self.assertEqual(gate('fixture'), {'contract': 'fixture', 'human_email': 'fixture@example.invalid'})
             now = int(time.time())
             event = {'type': 'CODE_TO_TOKEN', 'clientId': 'cloudflare-access', 'userId': 'primary', 'time': now * 1000}
             for event_change in (None, {'time': (now - 901) * 1000}, {'time': (now + 1) * 1000},
@@ -71,7 +73,7 @@ class AccessCutoverTests(unittest.TestCase):
                 changes['events'] = [] if event_change is None else [dict(event, **event_change)]
                 with self.subTest(event_change=event_change), self.assertRaises(RuntimeError): gate('fixture', since=now - 1000)
             changes['events'] = [event]
-            self.assertEqual(gate('fixture', since=now - 1000), 'contract')
+            self.assertEqual(gate('fixture', since=now - 1000), {'contract': 'fixture', 'human_email': 'fixture@example.invalid'})
             for change in ({'user': {'enabled': False}}, {'user': {'email': 'other@example.invalid'}}, {'credentials': []}, {'groups': [{'path': '/nested/platform-admin'}]},
                            {'cm': {'users.session.duration': '1h'}}, {'cm': {'url': 'https://other.example.invalid'}}):
                 changes.clear(); changes.update(change); snapshot.reset_mock()
@@ -93,14 +95,17 @@ class AccessCutoverTests(unittest.TestCase):
             'intent': public_provider(contract['provider']),
             'credential_hash': hashlib.sha256(('x' * 64).encode()).hexdigest()}}
         self.proven(state)
+        contract['human_email'] = 'fixture@example.invalid'
         return state, contract
 
     def proven(self, state):
+        from automation.identity.access_canary import desired
         owner = state['identity_provider']
         state['identity_canary'] = {'phase': 'proven', 'binding': state['binding'], 'provider': owner['id'],
             'credential_hash': owner['credential_hash'], 'provider_intent': copy.deepcopy(owner['intent']),
             'provider_ready_at': owner['credential_ready_at'], 'configured_at': owner['credential_ready_at'],
-            'verified_at': int(time.time())}
+            'verified_at': int(time.time()), 'hostname': 'public.example.invalid',
+            'desired': desired('public.example.invalid', 'fixture@example.invalid', owner['id'])}
 
     def test_no_real_policy_switch_without_recent_provider_specific_browser_proof(self):
         state, contract = self.fixture()
@@ -123,9 +128,22 @@ class AccessCutoverTests(unittest.TestCase):
     def test_bad_receipts_fail_without_falling_back_to_previous_provider(self):
         state, contract = self.fixture(); prepare(state, 'previous', contract)
         for key, value in (('phase', 'unknown'), ('binding', 'foreign'), ('previous', 'other'),
-                           ('provider', 'foreign'), ('group', '/nested/platform-admin')):
+                           ('provider', 'foreign'), ('group', '/nested/platform-admin'), ('human_email', '')):
             changed = copy.deepcopy(state); changed['identity_cutover'][key] = value
             with self.subTest(key=key), self.assertRaises(RuntimeError): selection(changed, 'previous')
+
+    def test_platform_email_is_bound_to_canary_and_selection_remains_independent(self):
+        state, contract = self.fixture()
+        previous = 'personal@example.invalid'
+        self.assertEqual(approved_email(state, previous), previous)
+        contract['human_email'] = 'homelab@example.invalid'
+        with self.assertRaises(RuntimeError): prepare(state, 'previous', contract)
+        from automation.identity.access_canary import desired
+        state['identity_canary']['desired'] = desired('public.example.invalid', contract['human_email'], 'dedicated')
+        self.assertTrue(prepare(state, 'previous', contract))
+        with patch('urllib.request.build_opener') as network:
+            self.assertEqual(approved_email(state, previous), 'homelab@example.invalid')
+            network.assert_not_called()
 
     def test_drifted_secret_or_provider_cannot_create_cutover_intent(self):
         for key, value in (('credential_hash', 'foreign'), ('intent', {}), ('phase', 'unknown')):
