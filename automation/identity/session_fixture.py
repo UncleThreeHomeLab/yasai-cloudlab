@@ -69,6 +69,26 @@ def provision(request):
     return {'disposable_credentials_ready': True, 'created': bool(result['created']), 'messages_sent': 0}
 
 
+def retained_delivery_patches(external, nonce, application):
+    """Retain only the exact completed fixture delivery without masking spec drift."""
+    if not external:
+        return []
+    metadata, spec = external['metadata'], external['spec']
+    tracking = application + ':external-secrets.io/ExternalSecret:cloudlab-identity/keycloak-proof'
+    if (metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id') != tracking or
+            metadata.get('ownerReferences') or metadata.get('deletionTimestamp') or
+            spec.get('dataFrom') != [{'extract': {'key': 'keycloak-proof-' + nonce}}] or
+            spec.get('target') != {'name': 'keycloak-proof', 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain'}):
+        raise RuntimeError('Disposable credential delivery ownership changed')
+    wanted = {'argocd.argoproj.io/compare-options': 'IgnoreExtraneous',
+              'argocd.argoproj.io/sync-options': 'Prune=false'}
+    return ([{'op': 'test', 'path': '/metadata/uid', 'value': metadata['uid']},
+             {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']}] +
+            [{'op': 'add', 'path': '/metadata/annotations/' + key.replace('/', '~1'), 'value': value}
+             for key, value in wanted.items() if metadata['annotations'].get(key) != value]
+            if any(metadata['annotations'].get(key) != value for key, value in wanted.items()) else [])
+
+
 def enroll(request, *, stage=False):
     from automation.identity.bootstrap import private_inputs, writer_idle
     from automation.identity.configuration import compile_state, private_request
@@ -89,11 +109,17 @@ def enroll(request, *, stage=False):
         resume_null = ('operation' in values and values['operation'] is None and
             saved.get('nonce') == nonce and saved.get('application_uid') == owner.get('uid') and
             saved.get('phase') in ('prepared', 'created', 'enrolled'))
+        resume_created = (saved.get('nonce') == nonce and saved.get('application_uid') == owner.get('uid') and
+            saved.get('phase') == 'created' and saved.get('user_id') and saved.get('revision') == owner.get('revision') and
+            app.get('spec', {}).get('source', {}).get('targetRevision') == owner.get('revision') and
+            not app.get('operation') and not values.get('operation') and
+            app.get('status', {}).get('health', {}).get('status') == 'Healthy' and
+            contains(app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {}), app['spec']['source']))
         if (owner.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != owner.get('uid') or
                 app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 values.get('bootstrapAdminEnabled') is not False or values.get('bootstrapMode') or values.get('maintenance') or
                 values.get('operation') not in (None, {}, operation, preparation) or
-                (values.get('operation') not in (operation, preparation) and not resume_null and
+                (values.get('operation') not in (operation, preparation) and not resume_null and not resume_created and
                  not application_ready(APP, owner['revision'])) or
                 not condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready')):
             raise RuntimeError('Disposable enrollment requires the current retired scoped identity owner')
@@ -164,7 +190,11 @@ def enroll(request, *, stage=False):
                 raise RuntimeError('Disposable enrollment did not create its exact owned identity')
             record.update(user_id=created[0]['id'], phase='created')
             atomic(checkpoint, record)
-        if resume_null or get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject'].get('operation') == operation:
+        patches = retained_delivery_patches(get('externalsecret.external-secrets.io', 'keycloak-proof', NAMESPACE), nonce, APP)
+        if patches:
+            kube('patch', 'externalsecret.external-secrets.io', 'keycloak-proof', '-n', NAMESPACE,
+                 '--type=json', '--field-manager=' + OWNER, '-p', json.dumps(patches))
+        if resume_null or resume_created or get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject'].get('operation') == operation:
             wait(writer_idle, 'disposable enrollment writer release', timeout=300)
             # Keep the immutable source until normal bootstrap accepts the receipt.
             set_operation(None, owner['revision'])

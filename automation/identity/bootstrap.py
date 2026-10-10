@@ -309,8 +309,8 @@ def run(payload, phase):
                 wait(writer_idle, 'previous identity writer completion and lease expiry', timeout=300)
             if current:
                 current = get('application.argoproj.io', APP, 'argocd')
-                receipt = enrollment_handoff(current, state, BASE) or retirement
-                patches = branch_handoff_patches(current, desired, receipt)
+                handoff_receipt = enrollment_handoff(current, state, BASE) or retirement
+                patches = branch_handoff_patches(current, desired, handoff_receipt)
                 if patches:
                     kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
                          '--field-manager=' + OWNER, '-p', json.dumps(patches))

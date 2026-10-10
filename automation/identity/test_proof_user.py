@@ -7,11 +7,28 @@ from unittest.mock import patch
 
 from automation.identity.configuration import proof_user
 from automation.identity.chart import render
-from automation.identity.session_fixture import scope, enroll, membership
+from automation.identity.session_fixture import scope, enroll, membership, retained_delivery_patches
 from automation.identity.bootstrap import enrollment_handoff, branch_handoff_patches
+from automation.identity import bootstrap
 
 
 class ProofUserTests(unittest.TestCase):
+    def test_source_handoff_writes_ownership_to_its_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);revision='b'*40
+            path=root/'ownership.json'
+            path.write_text(json.dumps({'phase':'scoped','uid':'owned','revision':revision}))
+            current={'metadata':{'uid':'owned','resourceVersion':'1','labels':{'cloudlab.io/owner':bootstrap.OWNER}},
+                     'spec':{'source':{'targetRevision':revision,'helm':{'valuesObject':{}}}}}
+            desired=copy.deepcopy(current);desired['spec']['source']['targetRevision']='main'
+            with patch.object(bootstrap,'BASE',root), patch.object(bootstrap,'application',return_value=desired), \
+                    patch.object(bootstrap,'prerequisites'), patch.object(bootstrap,'private_resources',return_value=[]), \
+                    patch.object(bootstrap,'private_inputs'), patch.object(bootstrap,'get',return_value=current), \
+                    patch.object(bootstrap,'enrollment_handoff',return_value={'phase':'accepted','revision':revision,'application_uid':'owned'}), \
+                    patch.object(bootstrap,'kube'), patch.object(bootstrap,'wait'):
+                bootstrap.run({'revision':'c'*40},'scoped')
+            self.assertEqual(json.loads(path.read_text())['revision'],'c'*40)
+
     def test_source_handoff_requires_completed_exact_nonce_user_and_application(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);nonce='a'*32;revision='b'*40
@@ -30,6 +47,12 @@ class ProofUserTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     enrollment_handoff(current,state,root)
     def test_resume_after_partial_creation_records_identity_and_removes_null_operation(self):
+        self.resume_creation()
+
+    def test_resume_after_operation_removal_still_requires_exact_created_identity(self):
+        self.resume_creation(normal=True)
+
+    def resume_creation(self, normal=False):
         nonce, uid = 'a' * 32, 'owned'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -39,6 +62,12 @@ class ProofUserTests(unittest.TestCase):
             app = {'metadata':{'uid':uid,'resourceVersion':'1','labels':{'cloudlab.io/owner':'cloudlab-identity-bootstrap'}},
                    'spec':{'source':{'helm':{'valuesObject':{'bootstrapAdminEnabled':False,'operation':None,
                                                           'loginHost':'login.example.invalid','adminHost':'admin.example.invalid'}}}}}
+            if normal:
+                app['spec']['source']['targetRevision']='a'*40
+                app['spec']['source']['helm']['valuesObject'].pop('operation')
+                app['status']={'health':{'status':'Healthy'},'sync':{'comparedTo':{'source':copy.deepcopy(app['spec']['source'])}}}
+                checkpoint.write_text(json.dumps({'nonce':nonce,'application_uid':uid,'phase':'created',
+                                                  'revision':'a'*40,'user_id':'immutable'}))
             def resources(kind, name, namespace):
                 if name=='cloudlab-identity':return app
                 if name=='cloudlab-identity-private':return {'spec':{'source':{'repoURL':'private'}}}
@@ -68,9 +97,30 @@ class ProofUserTests(unittest.TestCase):
             self.assertTrue(result['existing_credentials_preserved'])
             self.assertFalse(user['enabled'])
             self.assertEqual(json.loads(checkpoint.read_text())['user_id'],'immutable')
-            self.assertTrue(any(p['op']=='remove' and p['path'].endswith('/operation') for p in writes))
+            self.assertEqual(any(p['op']=='remove' and p['path'].endswith('/operation') for p in writes), not normal)
             self.assertEqual(next(p['value'] for p in writes if p['path']=='/spec/source/targetRevision'),'a'*40)
             self.assertFalse(any('credentials' in p['path'] or 'enabled' in p['path'] for p in writes))
+    def test_retained_delivery_refuses_foreign_scope_and_preserves_secret(self):
+        nonce='a'*32
+        external={'metadata':{'uid':'owned','resourceVersion':'7','annotations':{
+            'argocd.argoproj.io/tracking-id':'cloudlab-identity:external-secrets.io/ExternalSecret:cloudlab-identity/keycloak-proof'}},
+            'spec':{'dataFrom':[{'extract':{'key':'keycloak-proof-'+nonce}}],
+                    'target':{'name':'keycloak-proof','creationPolicy':'Owner','deletionPolicy':'Retain'}}}
+        patches=retained_delivery_patches(external,nonce,'cloudlab-identity')
+        self.assertEqual(patches[:2],[{'op':'test','path':'/metadata/uid','value':'owned'},
+                                     {'op':'test','path':'/metadata/resourceVersion','value':'7'}])
+        self.assertEqual({p['value']for p in patches[2:]},{'IgnoreExtraneous','Prune=false'})
+        self.assertTrue(all(p['path'].startswith('/metadata/')for p in patches))
+        for patch_value in patches[2:]:
+            external['metadata']['annotations'][patch_value['path'].split('/')[-1].replace('~1','/')]=patch_value['value']
+        self.assertEqual(retained_delivery_patches(external,nonce,'cloudlab-identity'),[])
+        for change in ('foreign','item','target','deleting'):
+            altered=copy.deepcopy(external)
+            if change=='foreign':altered['metadata']['annotations']['argocd.argoproj.io/tracking-id']='foreign'
+            elif change=='item':altered['spec']['dataFrom'][0]['extract']['key']='other-secret'
+            elif change=='target':altered['spec']['target']['deletionPolicy']='Delete'
+            else:altered['metadata']['deletionTimestamp']='now'
+            with self.assertRaises(RuntimeError):retained_delivery_patches(altered,nonce,'cloudlab-identity')
     def test_private_fixture_membership_repeat_preserves_other_users_and_refuses_revocation(self):
         nonce = 'a' * 32
         source = {'realms': {'platform': {'memberships': [{'username': 'unmanaged-input', 'groups': ['developer']}]}}}
@@ -145,6 +195,8 @@ class ProofUserTests(unittest.TestCase):
         objects = render(values)
         secret = next(o for o in objects if o['kind'] == 'ExternalSecret' and o['metadata']['name'] == 'keycloak-proof')
         self.assertEqual(secret['spec']['dataFrom'][0]['extract']['key'], 'keycloak-proof-' + self.nonce)
+        self.assertEqual(secret['metadata']['annotations'],{'argocd.argoproj.io/compare-options':'IgnoreExtraneous',
+                                                          'argocd.argoproj.io/sync-options':'Prune=false'})
         job = next(o for o in objects if o['kind'] == 'Job')['spec']['template']['spec']
         init = job['initContainers'][0]['args'][0]
         self.assertLess(init.index('acquire_sync();'), init.index("prepare_proof_user('/imports'"))

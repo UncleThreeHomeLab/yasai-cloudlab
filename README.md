@@ -434,6 +434,9 @@ tombstone, invalidates supported sessions, and measures old-session denial.
 Tokens stay in process memory; Docker logging is disabled for both services.
 This check is destructive only to the disposable viewer. It is not a repeatable
 login check after offboarding. Actual personal passkeys require separate human proof.
+Disposable ESO delivery is retained after enrollment with `Prune=false` and
+`IgnoreExtraneous`. Only its later absence from the chart is excluded from Argo
+sync status; declared resource drift is still checked and credentials are preserved.
 `lab identity-recover-startup` repairs an owned server-only installation whose
 failed Pod still uses an older template. It stops and resumes the server through
 Argo's existing maintenance field, preserves the database, and resumes safely
