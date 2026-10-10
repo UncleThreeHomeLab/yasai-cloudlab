@@ -110,6 +110,9 @@ def enroll(request, *, stage=False):
         if (record.get('nonce') != nonce or record.get('application_uid') != owner['uid'] or
                 record.get('phase') not in ('prepared', 'created', 'enrolled')):
             raise RuntimeError('Disposable enrollment checkpoint changed')
+        if record.get('revision', owner['revision']) != owner['revision']:
+            raise RuntimeError('Disposable enrollment source checkpoint changed')
+        record['revision'] = owner['revision']
         atomic(checkpoint, record)
         origin = 'https://' + values['adminHost']
         endpoint = origin + '/admin/realms/platform/users?' + urlencode({'username': 'proof-' + nonce, 'exact': 'true', 'max': 2})
@@ -163,7 +166,8 @@ def enroll(request, *, stage=False):
             atomic(checkpoint, record)
         if resume_null or get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject'].get('operation') == operation:
             wait(writer_idle, 'disposable enrollment writer release', timeout=300)
-            set_operation(None, 'main')
+            # Keep the immutable source until normal bootstrap accepts the receipt.
+            set_operation(None, owner['revision'])
             wait(ready, 'normal reconciliation after disposable enrollment', timeout=900)
         record.update(phase='enrolled')
         atomic(checkpoint, record)
