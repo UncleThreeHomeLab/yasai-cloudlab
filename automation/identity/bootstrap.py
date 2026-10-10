@@ -210,6 +210,23 @@ def private_inputs(payload):
     return source, revoked, revision
 
 
+def branch_handoff_patches(current, desired, retirement):
+    if (not retirement or current['spec']['source']['targetRevision'] != retirement['revision'] or
+            current['spec']['source']['targetRevision'] == desired['spec']['source']['targetRevision']):
+        return []
+    values = current['spec']['source']['helm']['valuesObject']
+    if (retirement.get('phase') != 'accepted' or current['metadata']['uid'] != retirement['application_uid'] or
+            current.get('operation') or values.get('maintenance') or values.get('operation')):
+        raise RuntimeError('Branch handoff requires accepted retirement and an idle unchanged Application')
+    # The phase's Update ownership otherwise conflicts with normal server-side Apply.
+    return [
+        {'op': 'test', 'path': '/metadata/uid', 'value': retirement['application_uid']},
+        {'op': 'test', 'path': '/metadata/resourceVersion', 'value': current['metadata']['resourceVersion']},
+        {'op': 'test', 'path': '/spec/source/targetRevision', 'value': retirement['revision']},
+        {'op': 'replace', 'path': '/spec/source/targetRevision',
+         'value': desired['spec']['source']['targetRevision']}]
+
+
 def run(payload, phase):
     os.umask(0o077)
     BASE.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -266,6 +283,12 @@ def run(payload, phase):
         if changed:
             if current and current['spec']['source']['helm']['valuesObject'].get('reconciliationEnabled'):
                 wait(writer_idle, 'previous identity writer completion and lease expiry', timeout=300)
+            if current:
+                current = get('application.argoproj.io', APP, 'argocd')
+                patches = branch_handoff_patches(current, desired, retirement)
+                if patches:
+                    kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
+                         '--field-manager=' + OWNER, '-p', json.dumps(patches))
             kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
         current = get('application.argoproj.io', APP, 'argocd')
         # Save identity before waiting so interrupted convergence can resume safely.
