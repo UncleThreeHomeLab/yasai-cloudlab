@@ -236,7 +236,7 @@ class EmergencyTests(unittest.TestCase):
                  'keycloak_uid': 'server', 'revision': 'b' * 40, 'bootstrap_username': 'temporary',
                  'bootstrap_user_id': 'user', 'temporary_token_denial_measured': True}
         app = {'metadata': {'uid': 'owned', 'resourceVersion': '1'}, 'spec': {'source': {'helm': {
-            'valuesObject': {'adminHost': 'admin.example.invalid'}}}}}
+            'valuesObject': {'adminHost': 'admin.example.invalid', 'operation': None}}}}}
         with tempfile.TemporaryDirectory() as directory, patch.object(emergency, 'BASE', Path(directory)), \
                 patch.object(emergency, 'owner', return_value=({'uid': 'owned', 'revision': 'b' * 40}, app, {'metadata': {'uid': 'server'}})), \
                 patch.object(emergency, 'get', return_value=app), patch.object(emergency, 'kube') as writes, \
@@ -249,7 +249,8 @@ class EmergencyTests(unittest.TestCase):
             patches = json.loads(writes.call_args.args[-1])
             changes = {row['path'].split('/')[-1]: row['value'] for row in patches
                        if row['op'] == 'add' and row['path'].startswith('/spec/source/helm/valuesObject/')}
-            self.assertEqual(changes, {'operation': None, 'maintenance': False,
+            self.assertIn({'op': 'remove', 'path': '/spec/source/helm/valuesObject/operation'}, patches)
+            self.assertEqual(changes, {'maintenance': False,
                 'bootstrapAdminEnabled': False, 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32})
 
     def test_self_disable_hook_failure_requires_exact_disabled_state_and_authentication_denial(self):
