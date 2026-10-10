@@ -15,8 +15,7 @@ services:
   sessions:
     profiles: [live-sessions]
     build: ./automation/identity/browser
-    entrypoint: [node, /workspace/automation/identity/browser/sessions.mjs]
-    volumes: [".:/workspace:ro"]
+    entrypoint: [node, /proof/sessions.mjs]
     logging: {driver: none}
     stdin_open: true
     read_only: true
