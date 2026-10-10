@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -76,6 +77,8 @@ def prepare(api, account, previous, contract, state, save):
         raise RuntimeError('Access provider preparation changed prior identity or did not converge')
     phase = owner.get('phase') if not changed and owner.get('phase') in ('configured', 'accepted') else (
         'configured' if state.get('identity_cutover') else 'prepared')
+    if changed or type(owner.get('credential_ready_at')) is not int:
+        owner['credential_ready_at'] = int(time.time())
     owner.update(intent=public, credential_hash=secret_hash, phase=phase)
     save(state)
     return {'changed': changed, 'dedicated_provider_prepared': True,

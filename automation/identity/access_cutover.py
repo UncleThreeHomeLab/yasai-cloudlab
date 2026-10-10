@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -28,7 +29,7 @@ def selection(state, previous):
     return cutover['provider'], cutover['group']
 
 
-def gate(team):
+def gate(team, since=None):
     import yaml
     from automation.identity.integrations import argo
     from automation.identity.access_provider import snapshot
@@ -67,6 +68,7 @@ def gate(team):
     admin = 'https://' + values['adminHost'] + '/admin/realms/platform'
     rows = private_request(admin + '/users?' + urlencode({'username': primary['platform_username'], 'exact': 'true'}), token=bearer)
     if (len(rows) != 1 or rows[0].get('enabled') is not True or rows[0].get('emailVerified') is not True or
+            rows[0].get('email', '').lower() != primary['email'].lower() or
             rows[0].get('attributes', {}).get('cloudlab-primary-owner') != [primary['ownership_id']] or
             'webauthn-register' in rows[0].get('requiredActions', [])):
         raise RuntimeError('Central Access requires the current active enrolled primary operator')
@@ -74,7 +76,29 @@ def gate(team):
     if (not any(row.get('type') == 'webauthn' for row in private_request(endpoint + '/credentials', token=bearer)) or
             not any(row.get('path') == '/platform-admin' for row in private_request(endpoint + '/groups', token=bearer))):
         raise RuntimeError('Central Access requires current WebAuthn and exact privileged membership')
+    if since is not None:
+        if type(since) is not int or not 0 < since <= time.time():
+            raise RuntimeError('Fresh Access exchange requires its owned configuration timestamp')
+        health = vault_secret('keycloak-realm-health')
+        audit_token = private_request(origin + '/realms/platform/protocol/openid-connect/token', form={
+            'grant_type': 'client_credentials', 'client_id': 'realm-health',
+            'client_secret': health['platform_client_secret']})['access_token']
+        events = private_request(admin + '/events?' + urlencode({'user': rows[0]['id'], 'type': 'CODE_TO_TOKEN', 'max': 100}), token=audit_token)
+        if not any(row.get('type') == 'CODE_TO_TOKEN' and not row.get('error') and
+                   row.get('userId') == rows[0]['id'] and row.get('clientId') == 'cloudflare-access' and
+                   type(row.get('time')) is int and row['time'] > since * 1000 and
+                   0 <= time.time() * 1000 - row['time'] <= 900000 for row in events):
+            raise RuntimeError('Fresh dedicated-client code exchange required; cached Access SSO is insufficient')
     return snapshot(team)
+
+
+def browser_gate(team, since):
+    import shlex
+    from automation.connectivity.preflight import ssh
+    script = "import sys,json;sys.path.insert(0,'/opt/cloudlab');from automation.identity.access_cutover import gate;gate(**json.load(sys.stdin));print('verified')"
+    if ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
+           input=json.dumps({'team': team, 'since': since}), timeout=60).strip() != 'verified':
+        raise RuntimeError('Fresh dedicated-provider browser exchange was not verified')
 
 
 def validate_provider(state, previous, contract):
@@ -82,6 +106,7 @@ def validate_provider(state, previous, contract):
     owner = state.get('identity_provider') or {}
     if (state.get('phase') != 'configured' or not state.get('binding') or
             owner.get('phase') not in ('prepared', 'configured', 'accepted') or not owner.get('id') or
+            type(owner.get('credential_ready_at')) is not int or
             owner.get('binding', {}).get('previous') != previous or
             not re.fullmatch('[A-Za-z0-9-]{1,64}', owner.get('id') or '') or
             owner.get('intent') != public_provider(contract['provider']) or

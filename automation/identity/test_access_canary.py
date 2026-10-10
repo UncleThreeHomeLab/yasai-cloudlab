@@ -10,10 +10,12 @@ from automation.connectivity.test_reconcile import Provider
 class CanaryTests(unittest.TestCase):
     def fixture(self):
         state = {'binding': 'owned', 'objects': {'dns:public.example.invalid': {'id': 'dns'}},
-                 'identity_provider': {'id': 'dedicated', 'intent': {'config': {'client_id': 'cloudflare-access'}}, 'credential_hash': 'current'}}
+                 'identity_provider': {'id': 'dedicated', 'intent': {'config': {'client_id': 'cloudflare-access'}},
+                                       'credential_hash': 'current', 'credential_ready_at': 800}}
         api = Provider()
         saved = []
-        canary.configure(api, 'account', state, lambda value: saved.append(copy.deepcopy(value)), 'public.example.invalid', 'fixture@example.invalid')
+        with patch.object(canary.time, 'time', return_value=900):
+            canary.configure(api, 'account', state, lambda value: saved.append(copy.deepcopy(value)), 'public.example.invalid', 'fixture@example.invalid')
         return api, state, saved
 
     def test_configure_repeat_preserves_identity_without_real_policy_writes(self):
@@ -41,7 +43,7 @@ class CanaryTests(unittest.TestCase):
                     self.assertFalse(canary.verified(state, now=1901))
                     self.assertNotIn('private-session-token', json.dumps(saved))
                     verify.assert_called_once_with('private-session-token', state['identity_canary']['aud'],
-                        'fixture.cloudflareaccess.com', 'fixture@example.invalid')
+                        'fixture.cloudflareaccess.com', 'fixture@example.invalid', issued_after=state['identity_canary']['configured_at'])
                 else:
                     with self.assertRaises(RuntimeError):
                         canary.record(api, 'account', state, lambda value: saved.append(copy.deepcopy(value)),
@@ -49,7 +51,8 @@ class CanaryTests(unittest.TestCase):
                     self.assertEqual(state['identity_canary']['phase'], 'configured')
 
     def test_rotated_or_foreign_provider_cannot_reuse_old_canary(self):
-        for key, value in (('credential_hash', 'old'), ('provider', 'foreign'), ('binding', 'foreign'), ('provider_intent', {})):
+        for key, value in (('credential_hash', 'old'), ('provider', 'foreign'), ('binding', 'foreign'),
+                           ('provider_intent', {}), ('provider_ready_at', 799)):
             api, state, _ = self.fixture(); state['identity_canary'].update(phase='proven', verified_at=1000)
             state['identity_canary'][key] = value
             self.assertFalse(canary.verified(state, now=1001))

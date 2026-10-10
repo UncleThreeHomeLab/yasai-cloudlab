@@ -27,7 +27,11 @@ def verified(state, now=None):
     return (canary.get('phase') == 'proven' and canary.get('binding') == state.get('binding') and
             canary.get('provider') == owner.get('id') and canary.get('credential_hash') == owner.get('credential_hash') and
             canary.get('provider_intent') == owner.get('intent') and
-            type(canary.get('verified_at')) is int and 0 <= now - canary['verified_at'] <= 900)
+            canary.get('provider_ready_at') == owner.get('credential_ready_at') and
+            type(canary.get('configured_at')) is int and
+            type(owner.get('credential_ready_at')) is int and canary['configured_at'] >= owner['credential_ready_at'] and
+            type(canary.get('verified_at')) is int and canary['verified_at'] >= canary['configured_at'] and
+            0 <= now - canary['verified_at'] <= 900)
 
 
 def configure(api, account, state, save, hostname, email):
@@ -45,9 +49,12 @@ def configure(api, account, state, save, hostname, email):
         raise RuntimeError('Canary has no exact Access audience')
     current = {'phase': 'configured', 'binding': state['binding'], 'hostname': hostname,
                'id': actual['id'], 'aud': actual['aud'], 'desired': wanted, 'provider': owner['id'],
-               'credential_hash': owner['credential_hash'], 'provider_intent': copy.deepcopy(owner['intent'])}
-    if prior and all(prior.get(key) == value for key, value in current.items() if key != 'phase'):
+               'credential_hash': owner['credential_hash'], 'provider_intent': copy.deepcopy(owner['intent']),
+               'provider_ready_at': owner['credential_ready_at']}
+    if prior and type(prior.get('configured_at')) is int and all(prior.get(key) == value for key, value in current.items() if key != 'phase'):
         current = prior
+    else:
+        current['configured_at'] = int(time.time())
     state['identity_canary'] = current
     save(state)
     return {'changed': client.changed, 'canary_configured': True, 'real_application_policies_changed': 0,
@@ -59,12 +66,13 @@ def record(api, account, state, save, organization, email, token, machine_hosts)
     owner = state.get('identity_provider') or {}
     if (canary.get('phase') not in ('configured', 'proven') or canary.get('binding') != state.get('binding') or
             canary.get('provider') != owner.get('id') or canary.get('credential_hash') != owner.get('credential_hash') or
+            canary.get('provider_ready_at') != owner.get('credential_ready_at') or
             canary.get('provider_intent') != owner.get('intent') or not machine_hosts):
         raise RuntimeError('Canary proof requires unchanged provider inputs and an independent machine boundary')
     actual = api.request('GET', 'accounts/' + account + '/access/apps/' + canary['id'])
     if actual.get('aud') != canary['aud'] or not matches(actual, canary['desired']):
         raise RuntimeError('Canary policy or audience changed before browser proof')
-    now = verify_token(token, canary['aud'], organization, email)
+    now = verify_token(token, canary['aud'], organization, email, issued_after=canary['configured_at'])
     headers = {'Cookie': 'CF_Authorization=' + token}
     if not success(https(canary['hostname'], headers=headers, path=CANARY_PATH)):
         raise RuntimeError('Signed canary session did not reach its disposable backend')
@@ -137,9 +145,12 @@ def local(action, token=None):
     hostname = public[0]['hostname']
     with transaction() as receipts:
         state = receipts.load('external') or {}
-        script = "import sys,json;sys.path.insert(0,'/opt/cloudlab');from automation.identity.access_cutover import gate;print(json.dumps(gate(json.load(sys.stdin))))"
+        script = "import sys,json;sys.path.insert(0,'/opt/cloudlab');from automation.identity.access_cutover import gate;print(json.dumps(gate(**json.load(sys.stdin))))"
+        since = (state.get('identity_canary') or {}).get('configured_at') if action == 'proof' else None
+        if action == 'proof' and type(since) is not int:
+            raise RuntimeError('Configure the owned canary before browser proof')
         contract = json.loads(ssh('VM', values['VM_HOST'], 'python3 -c ' + shlex.quote(script),
-            input=json.dumps(domain.removesuffix('.cloudflareaccess.com')), timeout=60))
+            input=json.dumps({'team': domain.removesuffix('.cloudflareaccess.com'), 'since': since}), timeout=60))
         validate_provider(state, values['CLOUDFLARE_IDP_ID'], contract)
         if not matches(public_provider(api.request('GET', 'accounts/' + account + '/access/identity_providers/' + state['identity_provider']['id'])), state['identity_provider']['intent']):
             raise RuntimeError('Dedicated provider drifted before canary verification')

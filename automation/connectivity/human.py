@@ -59,6 +59,7 @@ def selected():
     evidence = {'applications': selected_apps, 'organization': organization}
     if identity_group:
         evidence['identity_credential'] = state['identity_provider']['credential_hash']
+        evidence['identity_ready_at'] = state['identity_provider']['credential_ready_at']
     binding = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
     return selected_apps, rules, organization, binding
 
@@ -67,7 +68,7 @@ def decode(value):
     return base64.urlsafe_b64decode(value + '=' * (-len(value) % 4))
 
 
-def verify_token(token, expected_audience, organization, email):
+def verify_token(token, expected_audience, organization, email, *, issued_after=None):
     """Verify a signed Access token without retaining its session or personal data."""
     if not isinstance(token, str) or len(token) > 65536 or token.count('.') != 2:
         raise ValueError('Access proof requires one bounded signed JWT')
@@ -87,6 +88,9 @@ def verify_token(token, expected_audience, organization, email):
             or claims.get('email', '').lower() != email.lower()
             or claims.get('exp', 0) <= now or claims.get('nbf', 0) > now):
         raise RuntimeError('Human Access JWT identity, audience or validity did not match')
+    if issued_after is not None and (type(issued_after) is not int or type(claims.get('iat')) is not int
+                                    or not issued_after < claims['iat'] <= now):
+        raise RuntimeError('Access proof requires a newly issued token after provider configuration')
     return int(now)
 
 
@@ -96,7 +100,12 @@ def record(token):
     applications, rules, organization, binding = selected()
     if len(applications) != 1:
         raise RuntimeError('Human proof currently requires one selected human application')
-    now = verify_token(token, applications[0]['aud'], organization, os.environ['CLOUDFLARE_HUMAN_EMAIL'])
+    since = None
+    if captured.get('identity_cutover'):
+        since = captured['identity_provider']['credential_ready_at']
+        from automation.identity.access_cutover import browser_gate
+        browser_gate(organization.removesuffix('.cloudflareaccess.com'), since)
+    now = verify_token(token, applications[0]['aud'], organization, os.environ['CLOUDFLARE_HUMAN_EMAIL'], issued_after=since)
     headers = {'Cookie': 'CF_Authorization=' + token}
     if not success(https(applications[0]['hostname'], headers=headers, path=PROOF_PATH)):
         raise RuntimeError('Verified human session did not reach the protected backend')

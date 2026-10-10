@@ -43,7 +43,8 @@ class HumanTests(unittest.TestCase):
             self.addCleanup(item.stop)
 
     def token(self, **changes):
-        claims = {'aud': ['audience'], 'email': 'admin@example.invalid', 'iss': 'https://fixture.cloudflareaccess.com', 'exp': time.time() + 60}
+        claims = {'aud': ['audience'], 'email': 'admin@example.invalid', 'iss': 'https://fixture.cloudflareaccess.com',
+                  'exp': time.time() + 60, 'iat': int(time.time())}
         claims.update(changes)
         head = encoded(json.dumps({'alg': 'RS256', 'kid': 'fixture'}).encode())
         body = encoded(json.dumps(claims).encode())
@@ -60,14 +61,16 @@ class HumanTests(unittest.TestCase):
     def test_central_acceptance_requires_signed_browser_proof_and_unchanged_provider_inputs(self):
         for drift in (False, True):
             with self.subTest(drift=drift):
-                state = {'identity_cutover': {'phase': 'configured'}, 'identity_provider': {'phase': 'configured', 'credential_hash': 'original'}}
+                state = {'identity_cutover': {'phase': 'configured'}, 'identity_provider': {
+                    'phase': 'configured', 'credential_hash': 'original', 'credential_ready_at': int(time.time()) - 10}}
                 saved = {}
                 def response(*args, **kwargs):
                     if kwargs['headers'].get('Cookie') and args[0].startswith('machine'):
                         if drift: state['identity_provider']['credential_hash'] = 'changed'
                         return {'status': 403, 'body': b'Forbidden'}
                     return {'status': 200, 'body': b'mesh-ok'}
-                with patch.object(human, 'transaction') as transaction, patch.object(human, 'https', side_effect=response):
+                with patch.object(human, 'transaction') as transaction, patch.object(human, 'https', side_effect=response), \
+                        patch('automation.identity.access_cutover.browser_gate') as browser_gate:
                     store = transaction.return_value.__enter__.return_value
                     store.load.side_effect = lambda name: copy.deepcopy(state) if name == 'external' else saved.get(name)
                     store.save.side_effect = lambda name, value: saved.update({name: copy.deepcopy(value)})
@@ -79,6 +82,16 @@ class HumanTests(unittest.TestCase):
                         self.assertTrue(human.record(self.token())['human_authenticated'])
                         self.assertEqual(saved['external']['identity_cutover']['phase'], 'accepted')
                         self.assertEqual(saved['external']['identity_provider']['phase'], 'accepted')
+                    browser_gate.assert_called_once_with('fixture', state['identity_provider']['credential_ready_at'])
+
+    def test_old_signed_cookie_cannot_prove_new_provider_credentials(self):
+        since = int(time.time()) - 10
+        for issued in (since, since - 1, None, True, int(time.time()) + 60):
+            with self.subTest(issued=issued), self.assertRaises(RuntimeError):
+                human.verify_token(self.token(iat=issued), 'audience', 'fixture.cloudflareaccess.com',
+                                   'admin@example.invalid', issued_after=since)
+        self.assertIsInstance(human.verify_token(self.token(), 'audience', 'fixture.cloudflareaccess.com',
+                                                'admin@example.invalid', issued_after=since), int)
 
     def test_wrong_identity_audience_issuer_and_expiry_fail_before_backend_request(self):
         for changes in ({'email': 'other@example.invalid'}, {'aud': ['other']}, {'iss': 'https://other.invalid'}, {'exp': 1}):

@@ -49,21 +49,30 @@ class AccessCutoverTests(unittest.TestCase):
             return {'data': dict(expected['rbac'] if name == 'argocd-rbac-cm' else expected['cm'], **changes.get('cm', {}))}
         def request(url, **kwargs):
             if url.endswith('/token'): return {'access_token': 'private-token'}
-            if '/users?' in url: return [dict({'id': 'primary', 'enabled': True, 'emailVerified': True,
+            if '/events?' in url: return changes.get('events', [])
+            if '/users?' in url: return [dict({'id': 'primary', 'enabled': True, 'emailVerified': True, 'email': 'fixture@example.invalid',
                 'attributes': {'cloudlab-primary-owner': ['owner']}}, **changes.get('user', {}))]
             if url.endswith('/credentials'): return changes.get('credentials', [{'type': 'webauthn'}])
             return changes.get('groups', [{'path': '/platform-admin'}])
         with tempfile.TemporaryDirectory() as directory, patch.object(maintenance, 'BASE', Path(directory)), \
                 patch('automation.mesh.kube.get', side_effect=get), \
                 patch.object(emergency, 'current_private') as private, \
-                patch.object(emergency, 'vault_secret', side_effect=lambda name: {'platform_username': 'fixture', 'ownership_id': 'owner'}
+                patch.object(emergency, 'vault_secret', side_effect=lambda name: {'platform_username': 'fixture', 'ownership_id': 'owner', 'email': 'fixture@example.invalid'}
                     if name == 'keycloak-primary-admin' else {'platform_client_secret': 'private-secret'}), \
                 patch('automation.identity.configuration.private_request', side_effect=request), \
                 patch('automation.identity.access_provider.snapshot', return_value='contract') as snapshot:
             (Path(directory) / 'ownership.json').write_text(json.dumps({'uid': 'owned'}))
             path = Path(directory) / 'retirement.json'; path.write_text(json.dumps(retired))
             self.assertEqual(gate('fixture'), 'contract')
-            for change in ({'user': {'enabled': False}}, {'credentials': []}, {'groups': [{'path': '/nested/platform-admin'}]},
+            now = int(time.time())
+            event = {'type': 'CODE_TO_TOKEN', 'clientId': 'cloudflare-access', 'userId': 'primary', 'time': now * 1000}
+            for event_change in (None, {'time': (now - 901) * 1000}, {'time': (now + 1) * 1000},
+                                 {'clientId': 'argocd'}, {'userId': 'other'}, {'type': 'LOGIN'}, {'error': 'invalid_client'}):
+                changes['events'] = [] if event_change is None else [dict(event, **event_change)]
+                with self.subTest(event_change=event_change), self.assertRaises(RuntimeError): gate('fixture', since=now - 1000)
+            changes['events'] = [event]
+            self.assertEqual(gate('fixture', since=now - 1000), 'contract')
+            for change in ({'user': {'enabled': False}}, {'user': {'email': 'other@example.invalid'}}, {'credentials': []}, {'groups': [{'path': '/nested/platform-admin'}]},
                            {'cm': {'users.session.duration': '1h'}}, {'cm': {'url': 'https://other.example.invalid'}}):
                 changes.clear(); changes.update(change); snapshot.reset_mock()
                 with self.subTest(change=change), self.assertRaises(RuntimeError): gate('fixture')
@@ -80,6 +89,7 @@ class AccessCutoverTests(unittest.TestCase):
         contract = access('https://login.example.invalid/realms/platform', 'fixture', 'x' * 64)
         state = {'phase': 'configured', 'binding': 'owned', 'identity_provider': {
             'id': 'dedicated', 'phase': 'prepared', 'binding': {'account': 'a' * 32, 'previous': 'previous'},
+            'credential_ready_at': int(time.time()) - 10,
             'intent': public_provider(contract['provider']),
             'credential_hash': hashlib.sha256(('x' * 64).encode()).hexdigest()}}
         self.proven(state)
@@ -89,6 +99,7 @@ class AccessCutoverTests(unittest.TestCase):
         owner = state['identity_provider']
         state['identity_canary'] = {'phase': 'proven', 'binding': state['binding'], 'provider': owner['id'],
             'credential_hash': owner['credential_hash'], 'provider_intent': copy.deepcopy(owner['intent']),
+            'provider_ready_at': owner['credential_ready_at'], 'configured_at': owner['credential_ready_at'],
             'verified_at': int(time.time())}
 
     def test_no_real_policy_switch_without_recent_provider_specific_browser_proof(self):

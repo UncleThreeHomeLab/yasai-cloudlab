@@ -461,6 +461,9 @@ remain independent. Reconciliation preserves the selected provider from its
 private host receipt and never contacts Keycloak for this selection. Record a new
 signed browser proof with `lab access-human-proof` before claiming Access login
 acceptance. Provider credential rotation invalidates earlier browser evidence;
+both proofs require a newly issued Access JWT and a recent successful dedicated
+Keycloak code exchange after configuration. Use a fresh private browser session;
+an existing Access organization session can skip the IdP exchange and cannot prove rotation.
 role denials, session deadlines and IdP outage still require real integration tests.
 `lab identity-access-canary-remove` removes only its exact owned path application
 and disposable namespaces. Cleanup remains available without Keycloak login.
