@@ -1,6 +1,6 @@
 {{- if and .Values.enabled .Values.reconciliationEnabled }}
 {{- if .Values.operation }}
-{{- if eq .Values.operation.action "initialize-proof" }}
+{{- if has .Values.operation.action (list "prepare-proof" "initialize-proof") }}
 {{- if or .Values.bootstrapMode .Values.maintenance (not .Values.privateStateEnabled) (ne (len .Values.operation) 3) (ne .Values.operation.realm "platform") (not (regexMatch "^[a-f0-9]{32}$" .Values.operation.nonce)) }}{{ fail "Disposable enrollment requires its exact private viewer owner" }}{{ end }}
 {{- else if has .Values.operation.action (list "prepare-emergency" "seed-emergency" "retire-bootstrap" "retire-emergency") }}
 {{- if or .Values.bootstrapMode (not .Values.privateStateEnabled) (ne (len .Values.operation) 6) (not (regexMatch "^emergency-[a-f0-9]{32}$" .Values.operation.client)) (ne .Values.operation.item (printf "keycloak-%s" .Values.operation.client)) (not (regexMatch "^[a-z][a-z0-9-]{0,62}$" .Values.operation.bootstrapUsername)) (not (regexMatch "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$" .Values.operation.bootstrapUserId)) (not (regexMatch "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$" .Values.operation.keycloakUID)) }}

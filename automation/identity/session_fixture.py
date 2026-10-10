@@ -47,7 +47,7 @@ def provision(request):
     return {'disposable_credentials_ready': True, 'created': bool(result['created']), 'messages_sent': 0}
 
 
-def enroll(request):
+def enroll(request, *, stage=False):
     from automation.identity.bootstrap import private_inputs, writer_idle
     from automation.identity.configuration import compile_state, private_request
     from automation.identity.emergency import phase_sync_patches, vault_secret
@@ -56,6 +56,7 @@ def enroll(request):
     from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
     nonce = scope(request)
     operation = {'action': 'initialize-proof', 'realm': 'platform', 'nonce': nonce}
+    preparation = dict(operation, action='prepare-proof')
     with (BASE / 'owner.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         owner = json.loads((BASE / 'ownership.json').read_text())
@@ -64,8 +65,8 @@ def enroll(request):
         if (owner.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != owner.get('uid') or
                 app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 values.get('bootstrapAdminEnabled') is not False or values.get('bootstrapMode') or values.get('maintenance') or
-                values.get('operation') not in (None, {}, operation) or
-                (values.get('operation') != operation and not application_ready(APP, owner['revision'])) or
+                values.get('operation') not in (None, {}, operation, preparation) or
+                (values.get('operation') not in (operation, preparation) and not application_ready(APP, owner['revision'])) or
                 not condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready')):
             raise RuntimeError('Disposable enrollment requires the current retired scoped identity owner')
         private = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd')
@@ -74,7 +75,7 @@ def enroll(request):
         credentials = json.loads(vault_secret('keycloak-client-secrets')['client_secrets'])
         state = compile_state('platform', values['loginHost'], source, credentials, revoked)
         members = [row for row in state.get('users', []) if row.get('username') == 'proof-' + nonce]
-        if len(members) != 1 or members[0].get('enabled') is False:
+        if not stage and (len(members) != 1 or members[0].get('enabled') is False):
             raise RuntimeError('Publish the exact active private disposable membership first')
         checkpoint = BASE / ('proof-' + nonce + '.json')
         record = json.loads(checkpoint.read_text()) if checkpoint.exists() else {
@@ -108,6 +109,13 @@ def enroll(request):
             actual = get('application.argoproj.io', APP, 'argocd') or {}
             compared = actual.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {})
             return contains(compared, actual.get('spec', {}).get('source', {})) and application_ready(APP, owner['revision'])
+        if stage:
+            if before:
+                raise RuntimeError('Disposable account already exists; resume enrollment instead of staging')
+            wait(writer_idle, 'normal writer release before private fixture publication', timeout=300)
+            set_operation(preparation, owner['revision'])
+            wait(ready, 'paused writer before private fixture publication', timeout=900)
+            return {'normal_writers_paused': True, 'server_stopped': False, 'realm_changes': 0}
         if not before:
             wait(writer_idle, 'disposable enrollment writer idle', timeout=300)
             set_operation(operation, owner['revision'])
@@ -128,7 +136,7 @@ def enroll(request):
                 'writer': 'serialized Argo config-cli', 'messages_sent': 0}
 
 
-def local(request):
+def local(request, *, stage=False):
     from dotenv import dotenv_values
     from automation.connectivity.preflight import ssh
     scope(request)
@@ -136,7 +144,8 @@ def local(request):
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
         os.environ[key] = environment[key]
     os.environ['VM_PORT'] = environment.get('VM_PORT') or '22'
-    return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/automation/identity/session_fixture.py enroll',
+    mode = 'stage' if stage else 'enroll'
+    return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/automation/identity/session_fixture.py ' + mode,
         input=json.dumps(request), timeout=2400))
 
 
@@ -144,9 +153,10 @@ if __name__ == '__main__':
     try:
         request = json.load(sys.stdin)
         mode = sys.argv[1:]
-        if mode not in (['enroll'], ['provision'], ['local']):
+        if mode not in (['enroll'], ['stage'], ['provision'], ['local'], ['--stage']):
             raise ValueError('Unknown disposable enrollment operation')
-        result = enroll(request) if mode == ['enroll'] else provision(request) if mode == ['provision'] else local(request)
+        result = (enroll(request) if mode == ['enroll'] else enroll(request, stage=True) if mode == ['stage'] else
+                  provision(request) if mode == ['provision'] else local(request, stage=True) if mode == ['--stage'] else local(request))
         print(json.dumps(result))
     except Exception:
         raise SystemExit('Disposable enrollment incomplete; retain its private ownership checkpoint. Diagnostics withheld.') from None

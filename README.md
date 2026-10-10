@@ -409,8 +409,11 @@ For disposable session acceptance, `lab identity-proof-credentials` and
 `lab identity-proof-enroll` accept only `{nonce}` JSON on stdin, with a 32-character
 lowercase hexadecimal owner ID. Provisioning preserves the corresponding CloudLab
 item (`keycloak-proof-<nonce>`: `username`, `password`, `email`, `ownership_id`).
-Publish its verified viewer membership only in the complete private source before
-enrollment. Enrollment uses ESO and the existing serialized Argo config-cli job;
+Run `lab identity-proof-stage` with the same `{nonce}` first. It pauses the normal
+writer without stopping the server or creating users. Then publish its verified
+viewer membership only in the complete private source and run enrollment. This
+order prevents the normal membership writer creating a credential-free user before
+the creation-only job. Enrollment uses ESO and the existing serialized Argo config-cli job;
 it refuses foreign accounts, privileged groups and revocations. Credentials are
 creation-only and never enter normal realm state tracking. Repeat enrollment does
 not reset credentials or enable an existing account. No messages are sent. These
