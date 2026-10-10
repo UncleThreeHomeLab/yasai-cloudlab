@@ -1,5 +1,6 @@
 """A saved human proof must authenticate the selected identity and exact Access audience."""
 import base64
+import copy
 import io
 import json
 import os
@@ -55,6 +56,29 @@ class HumanTests(unittest.TestCase):
             self.assertTrue(human.record(token)['human_authenticated'])
         self.assertNotIn(token, self.receipt.read_text())
         self.assertTrue(human.retained()['human_policy_matches_signed_proof'])
+
+    def test_central_acceptance_requires_signed_browser_proof_and_unchanged_provider_inputs(self):
+        for drift in (False, True):
+            with self.subTest(drift=drift):
+                state = {'identity_cutover': {'phase': 'configured'}, 'identity_provider': {'phase': 'configured', 'credential_hash': 'original'}}
+                saved = {}
+                def response(*args, **kwargs):
+                    if kwargs['headers'].get('Cookie') and args[0].startswith('machine'):
+                        if drift: state['identity_provider']['credential_hash'] = 'changed'
+                        return {'status': 403, 'body': b'Forbidden'}
+                    return {'status': 200, 'body': b'mesh-ok'}
+                with patch.object(human, 'transaction') as transaction, patch.object(human, 'https', side_effect=response):
+                    store = transaction.return_value.__enter__.return_value
+                    store.load.side_effect = lambda name: copy.deepcopy(state) if name == 'external' else saved.get(name)
+                    store.save.side_effect = lambda name, value: saved.update({name: copy.deepcopy(value)})
+                    if drift:
+                        with self.assertRaises(RuntimeError): human.record(self.token())
+                        self.assertNotIn('external', saved)
+                        self.assertNotIn('human-proof', saved)
+                    else:
+                        self.assertTrue(human.record(self.token())['human_authenticated'])
+                        self.assertEqual(saved['external']['identity_cutover']['phase'], 'accepted')
+                        self.assertEqual(saved['external']['identity_provider']['phase'], 'accepted')
 
     def test_wrong_identity_audience_issuer_and_expiry_fail_before_backend_request(self):
         for changes in ({'email': 'other@example.invalid'}, {'aud': ['other']}, {'iss': 'https://other.invalid'}, {'exp': 1}):

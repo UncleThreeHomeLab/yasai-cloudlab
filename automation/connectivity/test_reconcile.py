@@ -38,6 +38,19 @@ class Provider:
 
 
 class ReconcileTests(unittest.TestCase):
+    def test_central_provider_repeat_preserves_machine_identity_and_does_zero_writes(self):
+        self.run_apply()
+        before = copy.deepcopy(self.state)
+        machine = copy.deepcopy(next(v for v in self.api.objects.values() if v.get('domain') == 'machine.example.invalid'))
+        self.inputs.update(identity_provider='dedicated', identity_group='/platform-admin')
+        self.assertTrue(self.run_apply()['changed'])
+        self.assertEqual(self.state['binding'], before['binding'])
+        self.assertEqual(self.state['objects'], before['objects'])
+        self.assertEqual(next(v for v in self.api.objects.values() if v.get('domain') == 'machine.example.invalid'), machine)
+        self.api.writes.clear()
+        self.assertFalse(self.run_apply()['changed'])
+        self.assertEqual(self.api.writes, [])
+
     def setUp(self):
         self.api, self.state, self.saved = Provider(), {}, []
         self.inputs = dict(account='account', zone_id='zone', zone='example.invalid', tunnel='tunnel',

@@ -9,6 +9,15 @@ from kube import condition, get, kube, wait
 OWNER = 'cloudlab-access-verify'
 NAMES = ['cloudlab-access-proof-public', 'cloudlab-access-proof-private']
 PROOF_PATH = '/__cloudlab_access_proof'
+CANARY_PATH = '/__cloudlab_identity_access_canary'
+CANARY_NAMES = ['cloudlab-identity-access-public', 'cloudlab-identity-access-private']
+
+
+def fixture_names(payload):
+    purpose = payload.get('purpose', 'access')
+    if purpose not in ('access', 'identity-canary'):
+        raise ValueError('Unknown disposable fixture purpose')
+    return CANARY_NAMES if purpose == 'identity-canary' else NAMES
 
 
 def owned(namespace):
@@ -18,13 +27,17 @@ def owned(namespace):
     return existing
 
 
-def cleanup():
-    for namespace in NAMES:
+def cleanup(names=NAMES):
+    if names not in (NAMES, CANARY_NAMES):
+        raise ValueError('Cleanup is limited to the named disposable fixtures')
+    for namespace in names:
         if owned(namespace):
             kube('delete', 'namespace', namespace, '--wait=true', '--timeout=120s', timeout=150)
 
 
 def prepare(payload):
+    namespaces = fixture_names(payload)
+    proof_path = CANARY_PATH if namespaces == CANARY_NAMES else PROOF_PATH
     certificate = get('certificate.cert-manager.io', 'cloudlab-gateway', 'cloudlab-gateway-public')
     if not condition(certificate, 'Ready'):
         raise RuntimeError('Public gateway certificate is not ready')
@@ -32,15 +45,18 @@ def prepare(payload):
     if len(names) != 1 or not names[0].startswith('*.'):
         raise RuntimeError('Public certificate wildcard contract changed')
     zone = names[0][2:]
-    cleanup()
-    for namespace, exposure in zip(NAMES, ('public', 'private')):
+    cleanup(namespaces)
+    for namespace, exposure in zip(namespaces, ('public', 'private')):
+        labels = [rule['name'] for rule in payload['public']] if exposure == 'public' else payload['private']
+        if namespaces == CANARY_NAMES and not labels:
+            continue
         ns = fixtures.namespace(namespace, exposure, ambient=True)
         ns['metadata']['labels']['app.kubernetes.io/managed-by'] = OWNER
         pod = fixtures.pod(namespace, 'backend', payload['smoke_image'], 'backend', server=True)
         spec = pod['spec']
         # Keep application roots untouched while serving the exact proof route.
         spec['containers'][0]['command'][2] = ('mkdir -p /www; printf mesh-ok > /www/index.html; '
-            'cp /www/index.html /www' + PROOF_PATH + '; exec httpd -f -p 8080 -h /www')
+            'cp /www/index.html /www' + proof_path + '; exec httpd -f -p 8080 -h /www')
         spec.pop('activeDeadlineSeconds')
         spec['restartPolicy'] = 'Always'
         spec['topologySpreadConstraints'] = [{'maxSkew': 1, 'topologyKey': 'kubernetes.io/hostname',
@@ -52,11 +68,10 @@ def prepare(payload):
         objects = [ns, fixtures.account(namespace, 'backend'), fixtures.service(namespace), deployment]
         objects += fixtures.identity_policy(namespace, ['cluster.local/ns/cloudlab-gateway-' + exposure + '/sa/cloudlab-istio'])
         objects += [fixtures.network_policy(namespace)]
-        labels = [rule['name'] for rule in payload['public']] if exposure == 'public' else payload['private']
         for label in labels:
             hostname = label + ('.internal.' if exposure == 'private' else '.') + zone
             route = fixtures.route(namespace, label, exposure, hostname)
-            route['spec']['rules'][0]['matches'] = [{'path': {'type': 'Exact', 'value': PROOF_PATH}}]
+            route['spec']['rules'][0]['matches'] = [{'path': {'type': 'Exact', 'value': proof_path}}]
             objects.append(route)
         kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=fixtures.document(objects))
         kube('rollout', 'status', 'deployment/backend', '-n', namespace, '--timeout=180s', timeout=210)
@@ -172,7 +187,7 @@ if __name__ == '__main__':
         if action == 'prepare':
             result = prepare(payload)
         elif action == 'cleanup':
-            cleanup()
+            cleanup(fixture_names(payload))
             result = {'fixtures_removed': True}
         elif action == 'snapshot':
             result = snapshot()

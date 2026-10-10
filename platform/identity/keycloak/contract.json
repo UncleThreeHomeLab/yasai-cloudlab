@@ -243,5 +243,16 @@
     "token_limit_seconds": 300,
     "evidence": "Existing emergency JWT rejection is measured when retained in memory. Interrupted runs wait a fresh full lifetime and explicitly record a conservative bound instead.",
     "status": "Implementation only; real enrollment, custody and production exercise unverified."
+  },
+  "access_cutover": {
+    "command": "lab identity-access-cutover",
+    "canary_commands": ["lab identity-access-canary", "lab identity-access-canary-proof", "lab identity-access-canary-remove"],
+    "gate": "Completed production retirement with real MFA/custody, exact resource owners, current native Argo CM/RBAC, active private primary membership and enrolled WebAuthn, and authenticated exact dedicated OIDC client.",
+    "policy": "Only owned human applications; approved email AND exact /platform-admin OIDC group AND dedicated login method. Previous provider remains present; machine applications retain their independent service-token policy.",
+    "writer": "Existing external Reconciler; durable prepared/configured/accepted host receipt. Normal selection is pure and never contacts Keycloak; inconsistent receipts fail closed without provider fallback.",
+    "canary": "Before initial policy cutover, a disposable path-specific Access application on the already owned public smoke hostname requires the dedicated provider, approved email and exact /platform-admin group. A real signed session, exact audience, backend response and independent machine denial must pass within 900 seconds of cutover. No production application policies change during this proof. Separate named fixture namespaces and exact ownership checks permit cleanup without contacting Keycloak.",
+    "browser_proof": "Existing access-human-proof verifies a real signed Access JWT, exact issuer/audience/email/expiry, protected backend and machine denial. Current central policy/provider and unchanged credential receipt are required. It records acceptance without persisting the session.",
+    "rotation": "Preparation preserves accepted phase only for unchanged provider inputs. Credential hash participates in browser evidence, requiring fresh proof after rotation.",
+    "status": "Implementation under test; real cutover, negative browser paths and measured session/outage acceptance remain unverified."
   }
 }

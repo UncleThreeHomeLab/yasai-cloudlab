@@ -81,7 +81,7 @@ class Reconciler:
             raise RuntimeError('External access resource did not converge')
         return actual
 
-    def run(self, *, account, zone_id, zone, tunnel, rules, team, human_email, identity_provider, service_token_id, add_identity_protocol=False):
+    def run(self, *, account, zone_id, zone, tunnel, rules, team, human_email, identity_provider, service_token_id, add_identity_protocol=False, identity_group=None):
         # Validate all declarations before the first mutation.
         rules = host_rules(rules, zone)
         binding = digest({'account': account, 'zone': zone_id, 'tunnel': tunnel, 'rules': rules})
@@ -96,7 +96,7 @@ class Reconciler:
             # Existing identities, classification and managed objects stay unchanged.
             extension = True
         applications = {rule['hostname']: access_application(rule, human_email=human_email,
-                            identity_provider=identity_provider, service_token_id=service_token_id)
+                            identity_provider=identity_provider, service_token_id=service_token_id, identity_group=identity_group)
                         for rule in rules if rule['access'] != 'public'}
         if applications and not team:
             raise ValueError('Access organization is required before publication')

@@ -74,7 +74,9 @@ def prepare(api, account, previous, contract, state, save):
     actual = api.request('GET', path + '/' + owner['id'])
     if not matches(public_provider(actual), public) or api.request('GET', path + '/' + previous) != prior:
         raise RuntimeError('Access provider preparation changed prior identity or did not converge')
-    owner.update(intent=public, credential_hash=secret_hash, phase='prepared')
+    phase = owner.get('phase') if not changed and owner.get('phase') in ('configured', 'accepted') else (
+        'configured' if state.get('identity_cutover') else 'prepared')
+    owner.update(intent=public, credential_hash=secret_hash, phase=phase)
     save(state)
     return {'changed': changed, 'dedicated_provider_prepared': True,
             'prior_provider_preserved': True, 'applications_changed': 0,

@@ -15,6 +15,19 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_identity_canary_modes_are_explicit_without_host_apply(self):
+        for command, mode in (('identity-access-canary', 'prepare'), ('identity-access-canary-proof', 'proof'),
+                              ('identity-access-canary-remove', 'remove')):
+            with self.subTest(command=command), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+                playbook = self.invoke(command)
+            playbook.assert_not_called()
+            self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.access_canary', mode])
+
+    def test_central_access_cutover_uses_identity_gate_without_host_apply(self):
+        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+            playbook = self.invoke('identity-access-cutover')
+        playbook.assert_not_called()
+        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.access_cutover'])
     def test_bootstrap_retirement_uses_existing_identity_owner_without_host_apply(self):
         with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
             playbook = self.invoke('identity-retire-bootstrap')

@@ -69,7 +69,7 @@ def tunnel_config(rules, audiences, team):
     return {'config': {'ingress': ingress, 'warp-routing': {'enabled': False}}}
 
 
-def access_application(rule, *, human_email=None, identity_provider=None, service_token_id=None):
+def access_application(rule, *, human_email=None, identity_provider=None, service_token_id=None, identity_group=None):
     runtime_rule(rule)
     kind = rule['access']
     if kind not in ('human', 'machine'):
@@ -91,6 +91,13 @@ def access_application(rule, *, human_email=None, identity_provider=None, servic
                             'include': rules, 'exclude': [], 'require': []}]}
     if kind == 'human':
         result['allowed_idps'] = [identity_provider]
+        if identity_group is not None:
+            if identity_group != '/platform-admin':
+                raise ValueError('Central Access requires the exact privileged group path')
+            result['policies'][0]['require'] = [
+                {'login_method': {'id': identity_provider}},
+                {'oidc': {'claim_name': 'groups', 'claim_value': identity_group,
+                          'identity_provider_id': identity_provider}}]
     return result
 
 

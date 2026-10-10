@@ -50,6 +50,13 @@ def main():
     if action == 'identity-access-prepare':
         subprocess.run([sys.executable, '-m', 'automation.identity.access_provider'], cwd='/workspace', check=True)
         return
+    if action == 'identity-access-cutover':
+        subprocess.run([sys.executable, '-m', 'automation.identity.access_cutover'], cwd='/workspace', check=True)
+        return
+    if action in ('identity-access-canary', 'identity-access-canary-proof', 'identity-access-canary-remove'):
+        mode = {'identity-access-canary': 'prepare', 'identity-access-canary-proof': 'proof', 'identity-access-canary-remove': 'remove'}[action]
+        subprocess.run([sys.executable, '-m', 'automation.identity.access_canary', mode], cwd='/workspace', check=True)
+        return
     if action == 'identity-primary-credentials':
         subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--primary'], cwd='/workspace', check=True)
         return
