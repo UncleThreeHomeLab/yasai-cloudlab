@@ -187,8 +187,8 @@ try {
     await new Promise(resolve=>setTimeout(resolve,2000));
   }
   if (Object.keys(measured).length!==5) throw new Error('Offboarding observation timed out');
-  stage = 'offboarded fresh Argo and Access login';
-  for (const url of [argo+'/auth/login?return_url='+encodeURIComponent(argo),input.access_url]) {
+  for (const [name,url] of [['Argo',argo+'/auth/login?return_url='+encodeURIComponent(argo)],['Access',input.access_url]]) {
+    stage = 'offboarded new '+name+' login';
     const fresh = await browser.newContext();
     fresh.setDefaultTimeout(60000);
     try {
