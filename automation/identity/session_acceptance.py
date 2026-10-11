@@ -1,6 +1,7 @@
 """Measure real disposable-user sessions; never save credentials or browser tokens."""
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import socket
@@ -128,9 +129,19 @@ def run():
         stream.write(json.dumps(browser_input)+'\n');stream.flush()
         ready = json.loads(stream.readline())
         if ready.get('ready') is not True:
-            stages = ('input','account enrollment','account session','native Argo SSO','Access SSO')
+            stages = ('input','account enrollment','account password','WebAuthn registration',
+                      'account session','native Argo SSO','Access SSO')
             if ready.get('failed_stage') in stages:
-                print(json.dumps({'browser_failed_stage':ready['failed_stage']}),flush=True)
+                print(json.dumps({'browser_failed_stage':ready['failed_stage'],
+                                  'password_rejected':ready.get('password_rejected') is True,
+                                  'profile_form_present':ready.get('profile_form_present') is True,
+                                  'registration_error':ready.get('registration_error') is True,
+                                  'headings':[text for text in ready.get('headings',[]) if isinstance(text,str)
+                                      and re.fullmatch("[A-Za-z ,.!?'\\-]{1,120}",text)][:4],
+                                  'webauthn_error':ready.get('webauthn_error') if ready.get('webauthn_error') in
+                                      ('SecurityError','NotAllowedError','InvalidStateError','UnknownError','NotSupportedError') else None,
+                                  'register_button_present':ready.get('register_button_present') is True,
+                                  'authenticator_label_present':ready.get('authenticator_label_present') is True}),flush=True)
             raise RuntimeError('Browser baseline not accepted')
         print(json.dumps(ready),flush=True)
         stream.write('{"action":"observe-offboarding"}\n');stream.flush()
