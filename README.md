@@ -6,10 +6,6 @@ A K3s cluster on two cloud VMs, managed with Ansible and Docker Compose.
 
 ## Architecture
 
-Public traffic enters through Cloudflare, while private traffic uses Tailscale.
-Istio routes requests to apps, Argo CD deploys them and Longhorn stores their data.
-The diagrams include planned components. See [the stack](#the-stack) for their status.
-
 ![Architecture](docs/architecture/arch.png)
 
 ## The lab
