@@ -1,16 +1,62 @@
 import base64
 import copy
 import json
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 import yaml
 
 from automation.identity.operations import change, private_files
-from automation.identity.session_acceptance import offboard_inputs, network_diagnostics
+from automation.identity.session_acceptance import offboard_inputs, network_diagnostics, REMOTE
 
 
 class SessionAcceptanceTests(unittest.TestCase):
+    def test_observation_waits_for_convergence_and_rejects_owner_changes(self):
+        nonce='a'*32
+        owner={'phase':'scoped','uid':'owned','revision':'published'}
+        with TemporaryDirectory() as directory:
+            base=Path(directory)
+            (base/'ownership.json').write_text(json.dumps(owner))
+            (base/('proof-'+nonce+'.json')).write_text(json.dumps(
+                {'phase':'enrolled','application_uid':'owned','user_id':'disposable'}))
+            for outcome in ('converged','failed','maintenance','owner'):
+                (base/'ownership.json').write_text(json.dumps(owner))
+                app={'metadata':{'uid':'owned'},'spec':{'source':{'helm':{'valuesObject':
+                    {'adminHost':'admin.fixture.invalid','loginHost':'login.fixture.invalid'}}}}}
+                calls=[]
+                def ready(revision,uid):
+                    self.assertEqual((revision,uid),('published','owned'))
+                    calls.append(True)
+                    if outcome=='failed':raise RuntimeError('Identity reconciliation failed')
+                    if outcome=='maintenance':app['spec']['source']['helm']['valuesObject']['maintenance']=True
+                    if outcome=='owner':(base/'ownership.json').write_text(json.dumps(dict(owner,uid='foreign')))
+                    return len(calls)>1
+                user={'id':'disposable','username':'proof-'+nonce,'email':'viewer@fixture.invalid',
+                      'enabled':False,'attributes':{'cloudlab-primary-owner':[nonce]}}
+                def request(url,**kwargs):
+                    if url.endswith('/token'):return {'access_token':'fixture'}
+                    if '/users?' in url:return [user]
+                    if url.endswith('/certs'):return {'keys':[]}
+                    if url.endswith('/groups'):return [{'path':'/viewer'}]
+                    raise AssertionError('Unexpected request')
+                with patch('automation.identity.maintenance.BASE',base), \
+                        patch('automation.mesh.kube.get',return_value=app), \
+                        patch('automation.identity.bootstrap.reconciled',side_effect=ready), \
+                        patch('automation.mesh.kube.time.sleep'), \
+                        patch('automation.identity.emergency.vault_secret',return_value={'platform_client_secret':'fixture'}), \
+                        patch('automation.identity.configuration.private_request',side_effect=request) as api, \
+                        patch('sys.stdin',io.StringIO(json.dumps({'nonce':nonce}))), redirect_stdout(io.StringIO()) as output:
+                    if outcome=='converged':
+                        exec(REMOTE,{})
+                        self.assertFalse(json.loads(output.getvalue())['enabled'])
+                        self.assertEqual(len(calls),2)
+                    else:
+                        with self.assertRaises(RuntimeError):exec(REMOTE,{})
+                        api.assert_not_called()
+
     def test_deadline_includes_private_delivery_and_session_expiry(self):
         policy=json.loads((Path(__file__).resolve().parents[2]/'platform/identity/keycloak/contract.json').read_text())['sessions']
         self.assertEqual(policy['access_token_seconds'],300)

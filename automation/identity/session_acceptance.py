@@ -31,13 +31,18 @@ from automation.identity.session_fixture import scope
 from automation.identity.emergency import vault_secret
 from automation.identity.configuration import private_request
 from automation.identity.maintenance import APP,NAMESPACE,BASE
-from automation.mesh.kube import get,application_ready
+from automation.mesh.kube import get,wait
+from automation.identity.bootstrap import reconciled
 from urllib.parse import urlencode
 request=json.load(sys.stdin);nonce=scope(request)
 owner=json.loads((BASE/'ownership.json').read_text())
 app=get('application.argoproj.io',APP,'argocd');values=app['spec']['source']['helm']['valuesObject']
-if owner['phase']!='scoped' or owner['uid']!=app['metadata']['uid'] or values.get('operation') or values.get('maintenance') or not application_ready(APP,owner['revision']):
+if owner['phase']!='scoped' or owner['uid']!=app['metadata']['uid'] or values.get('operation') or values.get('maintenance'):
  raise RuntimeError('Session observation requires normal scoped reconciliation')
+wait(lambda:reconciled(owner['revision'],owner['uid']),'session observation convergence',timeout=60)
+app=get('application.argoproj.io',APP,'argocd');values=app['spec']['source']['helm']['valuesObject']
+if json.loads((BASE/'ownership.json').read_text())!=owner or app['metadata']['uid']!=owner['uid'] or values.get('operation') or values.get('maintenance'):
+ raise RuntimeError('Session observation ownership changed during convergence')
 checkpoint=json.loads((BASE/('proof-'+nonce+'.json')).read_text())
 if checkpoint.get('phase')!='enrolled' or checkpoint.get('application_uid')!=owner['uid']: raise RuntimeError('Disposable enrollment is incomplete')
 origin='https://'+values['adminHost'];root=origin+'/admin/realms/platform'
@@ -175,6 +180,11 @@ def run():
         outcome = local_offboard({key:before[key] for key in ('realm','username','user_id','email')})
         print(json.dumps(outcome),flush=True)
         measured = json.loads(stream.readline())
+        print(json.dumps({'browser_observation_complete':measured.get('logout_is_not_instant_jwt_revocation') is True,
+                          'browser_failed_stage':measured.get('failed_stage') if measured.get('failed_stage') in
+                              ('offboarding observation','offboarded new Argo login','offboarded new Access login') else None,
+                          'browser_error_type':measured.get('error_type') if measured.get('error_type') in
+                              ('Error','TimeoutError','TypeError') else None}),flush=True)
         after = remote_state(request)
         if (after['enabled'] is not False or before['preservation'] != after['preservation'] or
                 not measured.get('logout_is_not_instant_jwt_revocation')):
