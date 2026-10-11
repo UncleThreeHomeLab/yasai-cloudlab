@@ -53,3 +53,30 @@ volume.
 Automation installs missing host packages from configured Debian repositories;
 distribution upgrades are managed separately. Bootstrap inputs are listed in
 [`.env.example`](.env.example); private values stay in ignored `.env`.
+
+## Setup
+
+1. Clone this repo and install Docker with Compose on your local machine.
+2. Prepare two reachable Debian 13 VMs with SSH access and automatic time
+   synchronization. VM creation and upstream firewall rules are managed outside
+   this repo; allow the required outbound traffic, including NTP.
+3. Copy [`.env.example`](.env.example) to `.env`. Fill in both VM credential sets,
+   the CloudLab read-only 1Password token, and the enabled service inputs.
+4. Prepare the external services: a CloudLab vault, scoped Tailscale credentials,
+   a B2 bucket/key and restic password, and Cloudflare DNS/tunnel/Access credentials.
+   Keep application secrets in 1Password. Access and application credential fields
+   are defined in the [access](platform/connectivity/access/contract.json),
+   [data](platform/data/contract.json) and [identity](platform/identity/keycloak/contract.json)
+   contracts. Host-access inputs are listed in `.env.example`; backup inputs are
+   defined by the [recovery module](automation/recovery/runner.py).
+
+From the repo directory, apply and verify:
+
+```sh
+docker compose run --build --rm lab prove
+```
+
+`prove` applies twice, requires zero changes on the second apply on both VMs,
+then verifies behavior. GitOps bootstrap requires verified Tailscale host access
+and a fresh control-plane recovery point; its [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml)
+run before bootstrap. Repeat application preserves existing secrets and data.

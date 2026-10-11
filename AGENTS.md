@@ -49,8 +49,11 @@ Configuration reproducibility does not replace backup and restore testing.
 Keep the root README lightweight: describe the repo and preserve its lab, stack,
 external service and automation tables. Keep component purposes concise; do not
 remove useful stack details just to meet a line count. Retain the host OS and
-update policy. Do not add run guides, command catalogs or detailed setup instructions
-unless explicitly requested. Link to `.env.example` for inputs.
+update policy. Include a short, usable setup section: prerequisites, where to put
+inputs and secrets, and the main apply/verify command. Link to owning modules for
+credential fields and service-specific requirements. Keep detailed runbooks and
+command catalogs out unless explicitly requested. Do not remove essential setup
+instructions in the name of brevity. Link to `.env.example` for inputs.
 
 Apply the same brevity to all tracked documentation and descriptive contract
 fields. Keep only current settings, required secret field names and concise

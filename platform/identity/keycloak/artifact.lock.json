@@ -3,7 +3,7 @@
   "server_version": "26.8.0",
   "config_cli_version": "6.5.1",
   "config_cli_build_server": "26.5.5",
-  "compatibility": "Verified isolated K3s 1.36.5: official Operator 26.6.4 starts without preview CRDs; patched server 26.8.0 reaches Ready under restricted Pod security using MutatingAdmissionPolicy/v1 JSONPatch, without unsupported podTemplate. Repeat preserves StatefulSet; CR change and stop/resume reconcile. Config-cli 6.5.1-26.5.5 scoped writer/convergence/verified TLS protocol and virtual WebAuthn fixture passed.",
+  "compatibility": "K3s 1.36.5; official Operator without preview client CRDs; server uses MutatingAdmissionPolicy/v1 JSONPatch for restricted Pod security, not podTemplate",
   "operator_install_verified": true,
   "sources": {
     "kubernetes.yml": {
