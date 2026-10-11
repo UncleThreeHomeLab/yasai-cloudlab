@@ -1,14 +1,16 @@
 mock_provider "cloudflare" {}
+mock_provider "cloudflare" { alias = "dns" }
 
 run "synthetic_contract" {
   command = plan
   variables {
-    account_id   = jsondecode(file("fixtures.json")).account_id
-    zone_id      = jsondecode(file("fixtures.json")).zone_id
-    tunnel_id    = jsondecode(file("fixtures.json")).tunnel_id
-    team_name    = jsondecode(file("fixtures.json")).team_name
-    applications = jsondecode(file("fixtures.json")).applications
-    routes       = jsondecode(file("fixtures.json")).routes
+    dns_api_token = "synthetic-only"
+    account_id    = jsondecode(file("fixtures.json")).account_id
+    zone_id       = jsondecode(file("fixtures.json")).zone_id
+    tunnel_id     = jsondecode(file("fixtures.json")).tunnel_id
+    team_name     = jsondecode(file("fixtures.json")).team_name
+    applications  = jsondecode(file("fixtures.json")).applications
+    routes        = jsondecode(file("fixtures.json")).routes
   }
   assert {
     condition     = cloudflare_dns_record.publication["fixture"].proxied

@@ -59,6 +59,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "routing" {
 }
 
 resource "cloudflare_dns_record" "publication" {
+  provider   = cloudflare.dns
   for_each   = var.routes
   zone_id    = var.zone_id
   name       = each.value.hostname

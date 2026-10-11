@@ -2,6 +2,7 @@
 import argparse
 import fcntl
 import hashlib
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -78,14 +79,18 @@ def digest(data):
 def source_binding(root):
     files = list((WORKSPACE / 'automation/infra').glob('*.py'))
     files += list((WORKSPACE / 'infra' / root).rglob('*'))
-    files += [WORKSPACE / name for name in ('compose.yaml', 'automation/runner/tools.lock.json',
-                                           'automation/runner/Dockerfile', 'automation/runner/run.py')]
+    files += list((WORKSPACE / 'automation/runner').glob('*')) + [WORKSPACE / 'compose.yaml']
     content = hashlib.sha256()
     for path in sorted(files):
         if path.is_file() and '.terraform' not in path.parts and '__pycache__' not in path.parts:
             content.update(str(path.relative_to(WORKSPACE)).encode() + b'\0' + path.read_bytes())
     revision = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'rev-parse', 'HEAD'],
                               cwd=WORKSPACE, capture_output=True, check=True, text=True).stdout.strip()
+    dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--',
+                            'automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml'],
+                           cwd=WORKSPACE, capture_output=True, check=True).stdout
+    if dirty:
+        raise ValueError('Live commands require committed infrastructure sources')
     return {'revision': revision, 'source_hash': content.hexdigest()}
 
 
@@ -126,6 +131,13 @@ class Client:
         self.root = root
         self.path = WORK / root
         self.path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if not check:
+            inputs = PRIVATE / root
+            required = ('desired.tfvars.json', 'backend.json', 'credentials.env', 'encryption.json', 'acceptance.json', 'inventory.json')
+            if any(not (inputs / name).is_file() for name in required):
+                raise ValueError('Private inputs unavailable; refused before live init or plan')
+            snapshot = {name: (inputs / name).read_bytes() for name in required}
+            source_start = source_binding(root)
         # Remove only copied declarations, never state, backend cache, or recovery material.
         for path in self.path.glob('*.tf'):
             path.unlink()
@@ -138,37 +150,46 @@ class Client:
             self.env = environment({'USERNAME': 'synthetic', 'TOKEN': 'synthetic'},
                                    'https://example.invalid', 'synthetic-only-passphrase-never-used-for-live-state')
             return
-        inputs = PRIVATE / root
-        required = ('desired.tfvars.json', 'backend.json', 'credentials.env', 'encryption.json', 'acceptance.json', 'inventory.json')
-        if any(not (inputs / name).is_file() for name in required):
-            raise ValueError('Private inputs unavailable; refused before live init or plan')
-        self.desired = json.loads((inputs / required[0]).read_text())
+        if source_binding(root) != source_start:
+            raise ValueError('Source changed while preparing the private run')
+        self.desired = json.loads(snapshot[required[0]])
         if set(self.desired) != set(SCHEMAS[root]):
             raise ValueError('Private desired inputs incomplete')
         reject_unknown(self.desired, SCHEMAS[root])
-        backend = json.loads((inputs / 'backend.json').read_text())
+        backend = json.loads(snapshot['backend.json'])
         if set(backend) != {'project_id'} or not re.fullmatch(r'[1-9][0-9]*', str(backend['project_id'])):
             raise ValueError('Backend requires the designated private GitLab project ID')
-        credentials = dotenv_values(inputs / 'credentials.env', interpolate=False)
+        credentials = dotenv_values(stream=StringIO(snapshot['credentials.env'].decode()), interpolate=False)
         provider_key = 'CLOUDFLARE_API_TOKEN' if root == 'cloudflare' else 'GITHUB_TOKEN'
-        if set(credentials) != {'TF_HTTP_USERNAME', 'TF_HTTP_PASSWORD', provider_key} or not all(credentials.values()):
+        credential_keys = {'TF_HTTP_USERNAME', 'TF_HTTP_PASSWORD', provider_key}
+        if root == 'cloudflare':
+            credential_keys.add('TF_VAR_dns_api_token')
+        if set(credentials) != credential_keys or not all(credentials.values()):
             raise ValueError('Use separate scoped backend and governance credentials')
-        encryption = json.loads((inputs / 'encryption.json').read_text())
+        encryption = json.loads(snapshot['encryption.json'])
         if set(encryption) != {'passphrase'} or not isinstance(encryption['passphrase'], str) or len(encryption['passphrase']) < 32:
             raise ValueError('Independent encryption recovery passphrase required')
-        acceptance = json.loads((inputs / 'acceptance.json').read_text())
+        acceptance = json.loads(snapshot['acceptance.json'])
         if acceptance != {'root': root, 'status': 'accepted'}:
             raise ValueError('Ordinary commands require accepted ownership; use reviewed maintenance for adoption')
-        self.inventory = json.loads((inputs / 'inventory.json').read_text())
+        self.inventory = json.loads(snapshot['inventory.json'])
         if not self.inventory or not all(isinstance(key, str) and isinstance(value, str) and value for key, value in self.inventory.items()):
             raise ValueError('Accepted private resource identity inventory required')
         url = 'https://gitlab.com/api/v4/projects/' + str(backend['project_id']) + '/terraform/state/managed'
         self.env = environment({'USERNAME': credentials['TF_HTTP_USERNAME'], 'TOKEN': credentials['TF_HTTP_PASSWORD']},
                                url, encryption['passphrase'])
         self.env[provider_key] = credentials[provider_key]
-        self.binding = dict(source_binding(root), root=root, backend_hash=digest(url.encode()),
-                            inputs={name: digest((inputs / name).read_bytes()) for name in required if name != 'credentials.env'})
-        shutil.copyfile(inputs / 'desired.tfvars.json', self.path / 'desired.tfvars.json')
+        if root == 'cloudflare':
+            self.env['TF_VAR_dns_api_token'] = credentials['TF_VAR_dns_api_token']
+        self.binding = dict(source_start, root=root, backend_hash=digest(url.encode()),
+                            inputs={name: digest(data) for name, data in snapshot.items()})
+        (self.path / 'desired.tfvars.json').write_bytes(snapshot['desired.tfvars.json'])
+
+    def unchanged_inputs(self):
+        if source_binding(self.root) != {key: self.binding[key] for key in ('revision', 'source_hash')} or any(
+                digest((PRIVATE / self.root / name).read_bytes()) != checksum
+                for name, checksum in self.binding['inputs'].items()):
+            raise ValueError('Source or private inputs changed during the run; review a fresh plan')
 
     def native(self, *arguments, private=True):
         prefix = 2 if arguments[0] == 'state' else 1
@@ -218,6 +239,7 @@ class Client:
         if review.returncode:
             return review.returncode
         (self.path / 'review.txt').write_bytes(review.stdout)
+        self.unchanged_inputs()
         manifest = dict(self.binding, plan_hash=digest((self.path / filename).read_bytes()), planned_at=int(time.time()))
         (self.path / 'plan-binding.json').write_text(json.dumps(manifest, sort_keys=True))
         print(json.dumps({'root': self.root, 'changes': count, 'review': manifest['plan_hash'],
@@ -245,6 +267,7 @@ class Client:
             raise ValueError('Resource inventory changed; maintenance review required')
         # Native backend serial/lineage checks reject stale plans after initialization.
         self.initialize()
+        self.unchanged_inputs()
         result = self.native('apply', '-input=false', '-lock-timeout=0s', 'reviewed.tfplan')
         print(json.dumps({'root': self.root, 'native_apply_exit': result.returncode,
                           'recovery_directory': str(self.path)}))

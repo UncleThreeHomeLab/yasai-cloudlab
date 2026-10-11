@@ -16,6 +16,46 @@ def plan(kind='github_repository', actions=None, before=None, after=None):
 
 
 class ContractTests(unittest.TestCase):
+    def inputs(self, directory, root):
+        private = Path(directory) / root
+        private.mkdir()
+        desired = json.loads((command.WORKSPACE / 'infra' / root / 'fixtures.json').read_text())
+        documents = {'desired.tfvars.json': desired, 'backend.json': {'project_id': 1},
+                     'encryption.json': {'passphrase': 'synthetic-independent-key-for-unit-test'},
+                     'acceptance.json': {'root': root, 'status': 'accepted'},
+                     'inventory.json': {'synthetic.fixture': 'synthetic-id'}}
+        for name, document in documents.items():
+            (private / name).write_text(json.dumps(document))
+        credential = 'CLOUDFLARE_API_TOKEN=synthetic-management\nTF_VAR_dns_api_token=synthetic-dns' if root == 'cloudflare' else 'GITHUB_TOKEN=synthetic-governance'
+        (private / 'credentials.env').write_text('TF_HTTP_USERNAME=synthetic\nTF_HTTP_PASSWORD=synthetic-state\n' + credential + '\n')
+        return private, desired
+
+    def test_dns_and_management_credentials_stay_separate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private, _ = self.inputs(temporary, 'cloudflare')
+            with patch.object(command, 'PRIVATE', private.parent), \
+                    patch.object(command, 'WORK', Path(temporary) / 'work'), \
+                    patch.object(command, 'source_binding', return_value={'revision': 'synthetic', 'source_hash': 'synthetic'}):
+                client = command.Client('cloudflare')
+            self.assertEqual(client.env['CLOUDFLARE_API_TOKEN'], 'synthetic-management')
+            self.assertEqual(client.env['TF_VAR_dns_api_token'], 'synthetic-dns')
+            self.assertNotIn('GITHUB_TOKEN', client.env)
+            self.assertNotIn('OP_PROVISION_SERVICE_ACCOUNT_TOKEN', client.env)
+            self.assertNotIn('VM_PASSWORD', client.env)
+
+    def test_private_input_change_invalidates_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private, desired = self.inputs(temporary, 'github')
+            with patch.object(command, 'PRIVATE', private.parent), \
+                    patch.object(command, 'WORK', Path(temporary) / 'work'), \
+                    patch.object(command, 'source_binding', return_value={'revision': 'synthetic', 'source_hash': 'synthetic'}):
+                client = command.Client('github')
+                desired['owner'] = 'synthetic-changed'
+                (private / 'desired.tfvars.json').write_text(json.dumps(desired))
+                with self.assertRaisesRegex(ValueError, 'inputs changed during the run'):
+                    client.unchanged_inputs()
+                self.assertNotEqual(json.loads((client.path / 'desired.tfvars.json').read_text())['owner'], desired['owner'])
+
     def test_removal_and_replacement_rejected_without_resource_lifecycle(self):
         for actions in (['delete'], ['create'], ['delete', 'create'], ['create', 'delete']):
             with self.subTest(actions=actions), self.assertRaises(ValueError):

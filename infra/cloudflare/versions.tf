@@ -14,3 +14,8 @@ terraform {
 }
 
 provider "cloudflare" {}
+
+provider "cloudflare" {
+  alias     = "dns"
+  api_token = var.dns_api_token
+}

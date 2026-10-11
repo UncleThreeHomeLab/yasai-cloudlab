@@ -96,13 +96,15 @@ Each accepted root has a `cloudflare/` or `github/` subdirectory containing:
 | --- | --- |
 | `desired.tfvars.json` | Complete typed desired inputs; public `fixtures.json` demonstrates the shape. Unknown policy fields are rejected. |
 | `backend.json` | `project_id` for the designated private GitLab project; the state name is `managed`. |
-| `credentials.env` | `TF_HTTP_USERNAME`, `TF_HTTP_PASSWORD`, and only `CLOUDFLARE_API_TOKEN` or `GITHUB_TOKEN` for that root. |
+| `credentials.env` | `TF_HTTP_USERNAME`, `TF_HTTP_PASSWORD`, and `CLOUDFLARE_API_TOKEN` plus `TF_VAR_dns_api_token` for Cloudflare, or `GITHUB_TOKEN` for GitHub. |
 | `encryption.json` | `passphrase`, independently recoverable from the owning vault item. |
 | `inventory.json` | Exact native resource addresses mapped to accepted existing IDs. |
 | `acceptance.json` | `root` and `status: accepted`, issued only after reviewed import and ownership acceptance. |
 
 Missing files or an unaccepted root stop before live init/plan. Do not create an
 acceptance receipt to bypass handoff. Deployment jobs receive no governance inputs.
+Cloudflare keeps account management and zone DNS credentials separate; use the existing
+owning vault items without changing their values. ACME challenge records stay external.
 The independent client mounts only its code and Git metadata, excludes `.env`, and passes only root credentials
 to OpenTofu. Raw diagnostics, private review text, encrypted plans, backend cache and
 failed-upload recovery state stay in the local `infra_work` Docker volume, outside Git,
