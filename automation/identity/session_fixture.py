@@ -90,7 +90,7 @@ def retained_delivery_patches(external, nonce, application):
 
 
 def enroll(request, *, stage=False):
-    from automation.identity.bootstrap import private_inputs, writer_idle
+    from automation.identity.bootstrap import private_inputs, writer_idle, reconciled
     from automation.identity.configuration import compile_state, private_request
     from automation.identity.emergency import phase_sync_patches, vault_secret
     from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER
@@ -170,9 +170,7 @@ def enroll(request, *, stage=False):
             kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
                  '--field-manager=' + OWNER, '-p', json.dumps(patches))
         def ready():
-            actual = get('application.argoproj.io', APP, 'argocd') or {}
-            compared = actual.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {})
-            return contains(compared, actual.get('spec', {}).get('source', {})) and application_ready(APP, owner['revision'])
+            return reconciled(owner['revision'], owner['uid'])
         if stage:
             if before:
                 raise RuntimeError('Disposable account already exists; resume enrollment instead of staging')
