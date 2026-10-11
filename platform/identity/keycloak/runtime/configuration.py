@@ -518,7 +518,7 @@ def proof_user(state, current, values, nonce):
     if current:
         return {'realm': 'platform', 'users': []}
     user = copy.deepcopy(members[0])
-    user.update(enabled=True, requiredActions=['webauthn-register'],
+    user.update(enabled=True, firstName='Fixture', lastName='Viewer', requiredActions=['webauthn-register'],
                 attributes={'cloudlab-primary-owner': [nonce]},
                 credentials=[{'type': 'password', 'value': values['password'], 'temporary': False}])
     return {'realm': 'platform', 'users': [user]}
