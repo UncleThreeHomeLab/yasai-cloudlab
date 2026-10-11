@@ -2,6 +2,16 @@
 
 A K3s cluster on two cloud VMs, managed with Ansible and Docker Compose.
 
+[Architecture](#architecture) | [The lab](#the-lab) | [Setup](#setup) | [The stack](#the-stack) | [Detailed flows](#detailed-flows)
+
+## Architecture
+
+Public traffic enters through Cloudflare, while private traffic uses Tailscale.
+Istio routes requests to apps, Argo CD deploys them and Longhorn stores their data.
+The diagrams include planned components. See [the stack](#the-stack) for their status.
+
+![Architecture](docs/architecture/arch.png)
+
 ## The lab
 
 Both VMs run **Debian 13 (Trixie), x86_64**.
@@ -14,67 +24,8 @@ Both VMs run **Debian 13 (Trixie), x86_64**.
 These are the current resources, not minimum requirements. The control plane
 uses SQLite and depends on the main VM.
 
-## Cluster components
-
-**Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.
-Deployment still depends on inputs and verification.
-
-| Category | Component | Purpose | Status |
-| --- | --- | --- | --- |
-| Platform | K3s | Kubernetes with DNS, metrics and local storage | Available |
-| Deployment | Argo CD | Private API, public platform root and optional scoped private sources | Available |
-| Connectivity | WireGuard | Encrypted traffic between the VMs | Available |
-| Host access | Tailscale | Independent SSH access with scoped enrolment credentials | Available |
-| Private access | Tailscale operator + CoreDNS | L3 gateway ingress, independent private DNS and an authenticated Kubernetes API proxy | Available |
-| HTTPS and mesh | cert-manager + Istio | Automatic certificates, separate public/private gateways and workload identity | Available |
-| Security | Host firewalls | Restrict public access and keep cluster and ingress ports private | Available |
-| Secrets | External Secrets Operator | Synchronise 1Password values into Kubernetes Secrets | Available |
-| Storage | [Longhorn](https://github.com/longhorn/longhorn) | Persistent volumes with one replica on each VM | Available |
-| Application data | CloudNativePG + SeaweedFS | Private SQL over TLS and authenticated S3, subject to restore checks | Available |
-| Identity | Keycloak | Realm configuration, passkeys and application OIDC | Available |
-| Recovery | SQLite + restic | Monthly control plane export with separate credentials and recovery checks | Available |
-| Packaging | Helm | Versioned workload charts | Available |
-| Runners | ARC | Separate application and infrastructure runners | Planned |
-| Registry | Harbor | Private images and OCI charts | Planned |
-| Builds | BuildKit | Rootless image builds | Planned |
-| Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
-| Policy | Kyverno | Admission and image policies | Planned |
-| GitOps | ApplicationSet | Generate app deployments | Planned |
-| Releases | Argo Rollouts | Canary releases and previews | Planned |
-| Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Planned |
-| Logs | Grafana Alloy + Loki | Collect and store logs | Planned |
-| Traces | OpenTelemetry + Tempo | Collect and store traces | Planned |
-| Dashboards | Grafana + Kiali | Service health and mesh views | Planned |
-
-## External services
-
-| Category | Service | Purpose | Status |
-| --- | --- | --- | --- |
-| Storage | [Backblaze B2](https://www.backblaze.com/cloud-storage) | External storage for Longhorn backups | Available |
-| Secrets | 1Password | CloudLab vault, accessed with a read-only service account | Available |
-| Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies | Available |
-| Source | GitHub | Code and GitOps repositories | Available |
-| Certificates | Let's Encrypt | Public TLS certificates | Available |
-| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
-| Monitoring | UptimeRobot | External HTTPS checks | Planned |
-
-**Storage:** Applications opt in to Longhorn. `local-path` remains the default.
-Longhorn schedules monthly B2 backups and keeps the latest scheduled backup per
-volume.
-
-## Automation
-
-| Tool | Purpose | Status |
-| --- | --- | --- |
-| Ansible | Configure and verify hosts and the cluster | Available |
-| Docker Compose | Run the pinned automation environment | Available |
-| OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
-| GitHub Actions | Trusted builds and infrastructure jobs through ARC | Planned |
-| Renovate | Reviewed dependency updates | Planned |
-
 Automation installs missing host packages from the configured Debian repositories.
-Distribution upgrades are managed separately. Bootstrap inputs are listed in
-[`.env.example`](.env.example). Keep private values in the ignored `.env` file.
+Distribution upgrades are managed separately.
 
 ## Setup
 
@@ -104,13 +55,67 @@ Tailscale host access and a fresh recovery point for the control plane.
 The [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml) run first.
 Running the configuration again preserves existing secrets and data.
 
-## Architecture
+## The stack
 
-Public traffic enters through Cloudflare, while private traffic uses Tailscale.
-Istio routes requests to apps, Argo CD deploys them and Longhorn stores their data.
-The diagrams include planned components. Check the tables above for their status.
+**Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.
+Deployment still depends on inputs and verification.
 
-![Architecture](docs/architecture/arch.png)
+### Cluster components
+
+| Category | Component | Purpose | Status |
+| --- | --- | --- | --- |
+| Platform | K3s | Kubernetes with DNS, metrics and local storage | Available |
+| Deployment | Argo CD | Private API, public platform root and optional scoped private sources | Available |
+| Connectivity | WireGuard | Encrypted traffic between the VMs | Available |
+| Host access | Tailscale | Independent SSH access with scoped enrolment credentials | Available |
+| Private access | Tailscale operator + CoreDNS | L3 gateway ingress, independent private DNS and an authenticated Kubernetes API proxy | Available |
+| HTTPS and mesh | cert-manager + Istio | Automatic certificates, separate public/private gateways and workload identity | Available |
+| Security | Host firewalls | Restrict public access and keep cluster and ingress ports private | Available |
+| Secrets | External Secrets Operator | Synchronise 1Password values into Kubernetes Secrets | Available |
+| Storage | [Longhorn](https://github.com/longhorn/longhorn) | Persistent volumes with one replica on each VM | Available |
+| Application data | CloudNativePG + SeaweedFS | Private SQL over TLS and authenticated S3, subject to restore checks | Available |
+| Identity | Keycloak | Realm configuration, passkeys and application OIDC | Available |
+| Recovery | SQLite + restic | Monthly control plane export with separate credentials and recovery checks | Available |
+| Packaging | Helm | Versioned workload charts | Available |
+| Runners | ARC | Separate application and infrastructure runners | Planned |
+| Registry | Harbor | Private images and OCI charts | Planned |
+| Builds | BuildKit | Rootless image builds | Planned |
+| Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
+| Policy | Kyverno | Admission and image policies | Planned |
+| GitOps | ApplicationSet | Generate app deployments | Planned |
+| Releases | Argo Rollouts | Canary releases and previews | Planned |
+| Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Planned |
+| Logs | Grafana Alloy + Loki | Collect and store logs | Planned |
+| Traces | OpenTelemetry + Tempo | Collect and store traces | Planned |
+| Dashboards | Grafana + Kiali | Service health and mesh views | Planned |
+
+**Storage:** Applications opt in to Longhorn. `local-path` remains the default.
+Longhorn schedules monthly B2 backups and keeps the latest scheduled backup per
+volume.
+
+### External services
+
+| Category | Service | Purpose | Status |
+| --- | --- | --- | --- |
+| Storage | [Backblaze B2](https://www.backblaze.com/cloud-storage) | External storage for Longhorn backups | Available |
+| Secrets | 1Password | CloudLab vault, accessed with a read-only service account | Available |
+| Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies | Available |
+| Source | GitHub | Code and GitOps repositories | Available |
+| Certificates | Let's Encrypt | Public TLS certificates | Available |
+| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
+| Monitoring | UptimeRobot | External HTTPS checks | Planned |
+
+### Automation
+
+| Tool | Purpose | Status |
+| --- | --- | --- |
+| Ansible | Configure and verify hosts and the cluster | Available |
+| Docker Compose | Run the pinned automation environment | Available |
+| OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
+| GitHub Actions | Trusted builds and infrastructure jobs through ARC | Planned |
+| Renovate | Reviewed dependency updates | Planned |
+
+## Detailed flows
 
 ### Access
 
