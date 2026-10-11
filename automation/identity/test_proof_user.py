@@ -52,7 +52,10 @@ class ProofUserTests(unittest.TestCase):
     def test_resume_after_operation_removal_still_requires_exact_created_identity(self):
         self.resume_creation(normal=True)
 
-    def resume_creation(self, normal=False):
+    def test_failed_reconciliation_preserves_created_checkpoint_for_retry(self):
+        self.resume_creation(normal=True, failed=True)
+
+    def resume_creation(self, normal=False, failed=False):
         nonce, uid = 'a' * 32, 'owned'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -88,11 +91,20 @@ class ProofUserTests(unittest.TestCase):
                     patch('automation.mesh.kube.wait',side_effect=lambda predicate,*a,**k:self.assertTrue(predicate())), \
                     patch('automation.mesh.kube.kube',side_effect=write), \
                     patch('automation.identity.bootstrap.writer_idle',return_value=True), \
+                    patch('automation.identity.bootstrap.reconciled',side_effect=RuntimeError('failed sync') if failed else None,return_value=True) as ready, \
                     patch('automation.identity.bootstrap.private_inputs',return_value=({}, {}, 'private-revision')), \
                     patch('automation.identity.configuration.compile_state',return_value=state), \
                     patch('automation.identity.emergency.vault_secret',side_effect=lambda name:{'client_secrets':'{}','platform_client_secret':'secret'}), \
                     patch('automation.identity.configuration.private_request',side_effect=lambda url,**k:[user] if '/users?' in url else {'access_token':'token'}), \
                     patch('automation.identity.emergency.phase_sync_patches',return_value=[{}, {'op':'add','path':'/operation','value':{}}]):
+                if failed:
+                    with self.assertRaisesRegex(RuntimeError,'failed sync'):
+                        enroll({'nonce':nonce})
+                    ready.assert_called_once_with('a'*40,uid)
+                    self.assertEqual(json.loads(checkpoint.read_text())['phase'],'created')
+                    self.assertEqual(json.loads(checkpoint.read_text())['user_id'],'immutable')
+                    self.assertFalse(user['enabled'])
+                    return
                 result=enroll({'nonce':nonce})
             self.assertTrue(result['existing_credentials_preserved'])
             self.assertFalse(user['enabled'])
