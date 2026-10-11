@@ -14,7 +14,7 @@ import yaml
 
 from automation.connectivity.cutover import definitions, retention
 from automation.connectivity import cutover, verify
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'mesh'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'mesh'))
 from automation.connectivity import legacy
 
 

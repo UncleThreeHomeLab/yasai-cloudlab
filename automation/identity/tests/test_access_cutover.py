@@ -36,7 +36,7 @@ class AccessCutoverTests(unittest.TestCase):
                 native_argo_contract({'realms': {'platform': {'clients': clients}}}, revoked, 'login.example.invalid')
 
     def test_unchanged_provider_preserves_acceptance_rotation_requires_new_proof(self):
-        from automation.connectivity.test_reconcile import Provider
+        from automation.connectivity.tests.fixtures import Provider
         api = Provider(); state = {'phase': 'configured', 'binding': 'owned'}
         path = 'accounts/' + 'a' * 32 + '/access/identity_providers'
         prior = {'id': 'previous', 'name': 'Prior provider', 'type': 'onetimepin', 'config': {}}

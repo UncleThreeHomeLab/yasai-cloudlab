@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('eso_bootstrap', Path(__file__).with_name('bootstrap.py'))
+spec = importlib.util.spec_from_file_location('eso_bootstrap', Path(__file__).parents[1] / 'bootstrap.py')
 bootstrap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bootstrap)
 OBJECTS = [{'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'external-secrets'}},
