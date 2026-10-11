@@ -26,6 +26,8 @@ variable "applications" {
     allowed_idps              = set(string)
     app_launcher_visible      = bool
     auto_redirect_to_identity = bool
+    enable_binding_cookie     = bool
+    options_preflight_bypass  = bool
     policies = map(object({
       name       = string
       decision   = string

@@ -26,6 +26,7 @@ SCHEMAS = {
         'applications': {'*': {
             'name': None, 'domain': None, 'session_duration': None, 'allowed_idps': [None],
             'app_launcher_visible': None, 'auto_redirect_to_identity': None,
+            'enable_binding_cookie': None, 'options_preflight_bypass': None,
             'policies': {'*': {'name': None, 'decision': None, 'precedence': None,
                           'include': [{'email': {'email': None}, 'service_token': {'token_id': None}}],
                           'exclude': [{'email': {'email': None}}],

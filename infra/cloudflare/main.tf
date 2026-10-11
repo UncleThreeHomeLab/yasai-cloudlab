@@ -10,8 +10,8 @@ resource "cloudflare_zero_trust_access_policy" "policy" {
   name       = each.value.name
   decision   = each.value.decision
   include    = each.value.include
-  exclude    = each.value.exclude
-  require    = each.value.require
+  exclude    = length(each.value.exclude) == 0 ? null : each.value.exclude
+  require    = length(each.value.require) == 0 ? null : each.value.require
   # Existing non-reusable IDs must pass account-endpoint import/update certification before handoff.
   lifecycle { prevent_destroy = true }
 }
@@ -26,6 +26,8 @@ resource "cloudflare_zero_trust_access_application" "application" {
   allowed_idps              = each.value.allowed_idps
   app_launcher_visible      = each.value.app_launcher_visible
   auto_redirect_to_identity = each.value.auto_redirect_to_identity
+  enable_binding_cookie     = each.value.enable_binding_cookie
+  options_preflight_bypass  = each.value.options_preflight_bypass
   policies = [for ordered in sort([for key, policy in each.value.policies : format("%020d:%s", policy.precedence, key)]) : {
     id         = cloudflare_zero_trust_access_policy.policy["${each.key}:${split(":", ordered)[1]}"].id
     precedence = each.value.policies[split(":", ordered)[1]].precedence

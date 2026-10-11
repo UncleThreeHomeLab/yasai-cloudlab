@@ -11,6 +11,8 @@
       "allowed_idps": ["00000000-0000-4000-8000-000000000004"],
       "app_launcher_visible": false,
       "auto_redirect_to_identity": false,
+      "enable_binding_cookie": false,
+      "options_preflight_bypass": false,
       "policies": {
         "z_human": {"name": "synthetic-allow", "decision": "allow", "precedence": 1,
           "include": [{"email": {"email": "allowed@example.invalid"}}], "exclude": [],
