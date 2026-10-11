@@ -6,7 +6,7 @@ A K3s cluster on two cloud VMs, managed with Ansible and Docker Compose.
 
 ## Architecture
 
-![Architecture](docs/architecture/arch.png)
+![Architecture](docs/architecture/arch.png?v=58ad7863cc35)
 
 ## The lab
 
