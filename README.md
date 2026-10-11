@@ -136,9 +136,9 @@ docker compose run --rm --workdir /workspace --entrypoint python lab -m automati
 
 Encryption bootstrap creates only missing `CloudLab/opentofu-state-cloudflare` and
 `CloudLab/opentofu-state-github` items with concealed `PASSPHRASE`; it preserves existing
-keys and rejects duplicates/incompatible fields. Key provisioning is not yet accepted
-because 1Password request limits currently block it. Keep recovery access independent
-and retain old keys through any separately reviewed encryption-key rotation.
+keys and rejects duplicates/incompatible fields. Live handoff requires completed key
+provisioning and independent retrieval. Keep recovery access independent and retain
+old keys through any separately reviewed encryption-key rotation.
 Qualification uses disposable `terraform_data`, not production provider resources,
 and leaves protected receipts/encrypted versions under `recovery_outputs:/recovery/infra/gitlab`.
 It tests both clients, cross-project/anonymous denial, prior-version independent
