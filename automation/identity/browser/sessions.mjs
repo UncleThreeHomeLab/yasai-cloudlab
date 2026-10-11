@@ -12,7 +12,7 @@ const connection = await new Promise((resolve, reject) => {
   listener.once('error', reject);
 });
 const lines = readline.createInterface({input:connection, terminal:false})[Symbol.asyncIterator]();
-let browser, stage = 'input';
+let browser, page, stage = 'input';
 const report = value => connection.write(JSON.stringify(value)+'\n');
 try {
   const input = JSON.parse((await lines.next()).value);
@@ -36,12 +36,14 @@ try {
     '--host-resolver-rules=MAP cd.internal.'+input.zone+' '+input.gateway_address]});
   const context = await browser.newContext();
   context.setDefaultTimeout(60000);
-  const page = await context.newPage();
+  page = await context.newPage();
+  await page.addInitScript(() => {
+    const create = navigator.credentials.create.bind(navigator.credentials);
+    navigator.credentials.create = async options => {
+      try {return await create(options);} catch(error) {window.disposableWebAuthnError=error.name;throw error;}
+    };
+  });
   page.on('dialog', dialog => dialog.accept('disposable-session-proof'));
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', {options:{protocol:'ctap2',transport:'internal',
-    hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   let refresh;
   page.on('response', async response => {
     if (response.url() === issuer+'/protocol/openid-connect/token' && response.status() === 200) {
@@ -50,17 +52,33 @@ try {
   });
   stage = 'account enrollment';
   await page.goto(issuer+'/account/');
+  stage = 'account password';
   await page.getByLabel('Username', {exact:false}).fill(input.username);
   await page.getByLabel('Password', {exact:true}).fill(input.password);
   await page.getByRole('button', {name:'Sign In',exact:true}).click();
+  stage = 'WebAuthn registration';
+  await page.waitForLoadState('networkidle');
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', {options:{protocol:'ctap2',transport:'internal',
+    hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   await page.getByRole('button', {name:/Register/}).click();
+  await page.waitForLoadState('networkidle');
   const label = page.getByLabel(/Authenticator Label/);
   if (await label.count()) {
     await label.fill('disposable-session-proof');
     await page.getByRole('button', {name:/Register/}).click();
   }
   stage = 'account session';
-  await page.getByRole('heading', {name:'Personal info',exact:true}).waitFor();
+  const personal = page.getByRole('heading', {name:'Personal info',exact:true});
+  const firstName = page.getByLabel('First name',{exact:false});
+  await Promise.race([personal.waitFor(),firstName.waitFor()]);
+  if (await firstName.isVisible()) {
+    await firstName.fill('Fixture');
+    await page.getByLabel('Last name',{exact:false}).fill('Viewer');
+    await page.getByRole('button',{name:/^Submit$/i}).click();
+  }
+  await personal.waitFor();
   const profilePromise = page.waitForResponse(r => r.url().startsWith(issuer+'/account/?') && r.status()===200);
   await page.reload();
   const profile = await profilePromise;
@@ -159,7 +177,21 @@ try {
   report({...measured,offboarded_new_argo_and_access_login_denied:true,
     logout_is_not_instant_jwt_revocation:true,sessions_persisted:false});
 } catch (error) {
-  report({ready:false,failed_stage:stage,error_type:error.name});
+  let diagnostics={};
+  try {
+    if (page) {
+      const feedback=(await page.locator('#kc-error-message,.kc-feedback-text').allTextContents()).join(' ');
+      diagnostics={registration_error:/(?:webauthn|security key)/i.test(feedback),
+        headings:(await page.getByRole('heading').allTextContents()).map(text=>text.trim())
+          .filter(text=>/^[A-Za-z ,.!?'-]{1,120}$/.test(text)).slice(0,4),
+        webauthn_error:await page.evaluate(()=>window.disposableWebAuthnError || null),
+        register_button_present:await page.getByRole('button',{name:/Register/}).count()>0,
+        password_rejected:await page.getByText(/^Invalid username or password\.$/).count()>0,
+        profile_form_present:await page.getByLabel('First name',{exact:false}).count()>0,
+        authenticator_label_present:await page.getByLabel(/Authenticator Label/).count()>0};
+    }
+  } catch {}
+  report({ready:false,failed_stage:stage,error_type:error.name,...diagnostics});
   console.error('Disposable session proof failed at '+stage+': '+error.name);
   process.exitCode=1;
 } finally {

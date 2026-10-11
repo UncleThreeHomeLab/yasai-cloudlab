@@ -168,6 +168,7 @@ class ProofUserTests(unittest.TestCase):
         self.assertEqual(set(result), {'realm', 'users'})
         user = result['users'][0]
         self.assertEqual(user['requiredActions'], ['webauthn-register'])
+        self.assertEqual((user['firstName'],user['lastName']),('Fixture','Viewer'))
         self.assertEqual(user['credentials'][0]['value'], self.values['password'])
         current = dict(user, enabled=False, id='immutable')
         self.assertEqual(proof_user(self.state, [current], self.values, self.nonce),
