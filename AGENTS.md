@@ -46,8 +46,21 @@ Configuration reproducibility does not replace backup and restore testing.
 
 ## Documentation
 
-Keep the root README as a short overview with prerequisites, required inputs,
-and starting commands. Use plain language and maintain one home for each topic.
+Keep the root README lightweight: describe the repo and preserve its lab, stack,
+external service and automation tables. Keep component purposes concise; do not
+remove useful stack details just to meet a line count. Retain the host OS and
+update policy. Do not add run guides, command catalogs or detailed setup instructions
+unless explicitly requested. Link to `.env.example` for inputs.
+
+Apply the same brevity to all tracked documentation and descriptive contract
+fields. Keep only current settings, required secret field names and concise
+behavior or safety requirements. Never record milestones, roadmaps, work plans,
+session history, completed work, test measurements or acceptance narratives.
+Preserve machine-consumed configuration and checks.
+
+Keep detailed reference material and working notes in ignored `docs/local/`
+when useful. Never stage or publish these files unless explicitly requested.
+Use plain language and maintain one home for each topic.
 
 Do not create extra docs, dated reports, session histories, or security report
 files unless explicitly requested. Put progress, test evidence, and security
