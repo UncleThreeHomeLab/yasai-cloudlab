@@ -13,6 +13,7 @@ try {
   const context = await browser.newContext();
   context.setDefaultTimeout(60000);
   page = await context.newPage();
+  // Pinned Keycloak prompts for the label and submits registration itself.
   page.on('dialog', dialog => dialog.accept('disposable-browser'));
   if (failure) {
     const response = await page.goto('https://localhost/login');
@@ -34,11 +35,6 @@ try {
   await page.getByRole('button', {name:'Sign In', exact:true}).click();
   stage='WebAuthn registration';
   await page.getByRole('button', {name:/Register/}).click();
-  const label = page.getByLabel(/Authenticator Label/);
-  if (await label.count()) {
-    await label.fill('disposable-browser');
-    await page.getByRole('button', {name:/Register/}).click();
-  }
   stage='MFA callback';
   await page.waitForURL('https://localhost/', {timeout:60000});
   if (!(await page.getByText('MFA session active').count())) throw new Error('Reference MFA login failed');
@@ -147,11 +143,6 @@ try {
   await masterPage.getByLabel('Password',{exact:true}).fill(input.master_password);
   await masterPage.getByRole('button',{name:'Sign In',exact:true}).click();
   await masterPage.getByRole('button',{name:/Register/}).click();
-  const masterLabel = masterPage.getByLabel(/Authenticator Label/);
-  if (await masterLabel.count()) {
-    await masterLabel.fill('disposable-master');
-    await masterPage.getByRole('button',{name:/Register/}).click();
-  }
   await masterPage.waitForURL(/^https:\/\/admin\.fixture\.test\/admin\/master\/console\/(?:#|$)/,{timeout:60000});
   await masterPage.getByRole('link',{name:'Realm settings',exact:true}).waitFor({timeout:60000});
   await masterContext.close();
