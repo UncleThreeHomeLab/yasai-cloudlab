@@ -105,57 +105,68 @@ run before bootstrap. Repeat application preserves existing secrets and data.
 
 ## Architecture
 
-Platform overview. Includes planned components.
+Public traffic enters through Cloudflare; private traffic uses Tailscale.
+Istio routes requests to apps, Argo CD deploys them, and Longhorn stores their data.
+These diagrams include planned components; the tables above show implementation status.
 
 ![Architecture](docs/architecture/arch.png)
 
-<details>
-<summary>Access: Public and private traffic</summary>
+### Access
+
+Cloudflare Tunnel carries public requests to the public Istio gateway.
+Tailscale carries private requests to a separate gateway. Both route to apps over
+HTTPS; cert-manager manages certificates, and Cloudflare Access protects selected public hosts.
 
 ![Access](docs/architecture/access.png)
 
-</details>
+### Identity
 
-<details>
-<summary>Identity: Sign-in, secrets and trust</summary>
+Users sign in through Keycloak; apps use OIDC tokens and roles to control access.
+External Secrets copies scoped credentials from 1Password into Kubernetes.
+Istio encrypts traffic between workloads and checks which services may communicate.
 
 ![Identity](docs/architecture/identity.png)
 
-</details>
+### Delivery
 
-<details>
-<summary>Delivery: Build, sign and deploy</summary>
+GitHub Actions runs trusted builds on ARC workers in Cloudlab. Images are built,
+scanned, signed and stored in Harbor. Argo CD reads public or private GitOps repos
+and deploys the selected images. Dedicated infrastructure runners execute OpenTofu;
+GitHub governance stays on independent Compose.
 
 ![Delivery](docs/architecture/delivery.png)
 
-</details>
+### Releases
 
-<details>
-<summary>Releases: Canaries and previews</summary>
+Argo Rollouts sends a small share of traffic to a new revision. Prometheus metrics
+and k6 tests guide promotion or rollback. ApplicationSet creates private previews
+for approved revisions; closing or expiring a preview removes its resources.
 
 ![Releases](docs/architecture/releases.png)
 
-</details>
+### Data
 
-<details>
-<summary>Data: Storage and monthly backups</summary>
+Apps use PostgreSQL managed by CloudNativePG and private S3 storage from SeaweedFS.
+Their PVCs use Longhorn replicas across both VMs. Coordinated monthly backups go
+to B2; isolated restores check that databases and objects can be recovered.
 
 ![Data](docs/architecture/data.png)
 
-</details>
+### Observability
 
-<details>
-<summary>Observability: Metrics, logs and traces</summary>
+Prometheus collects metrics; Alloy sends logs to Loki and traces to Tempo.
+Grafana brings these signals together, Kiali shows mesh traffic, and Alertmanager
+routes alerts. UptimeRobot checks public access independently. Telemetry stays on local storage.
 
 ![Observability](docs/architecture/observability.png)
 
-</details>
+### Foundation
 
-<details>
-<summary>Foundation: Hosts, infrastructure CI and recovery</summary>
+Compose runs Ansible to configure both VMs and K3s. Dedicated ARC runners apply
+reviewed OpenTofu changes to Cloudflare and Harbor, with encrypted state in GitLab.
+Compose remains available for bootstrap, recovery and GitHub governance.
+K3s recovery uses a separate monthly restic backup to B2.
 
 ![Foundation](docs/architecture/foundation.png)
-
-</details>
 
 Logos identify their projects. [Logo sources](docs/architecture/logo-sources.json).
