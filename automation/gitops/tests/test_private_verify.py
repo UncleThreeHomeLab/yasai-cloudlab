@@ -5,7 +5,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'verification/integration'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'verification/integration'))
 from private_verify import healthy, credential_failure
 
 

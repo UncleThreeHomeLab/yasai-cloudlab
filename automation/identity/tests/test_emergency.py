@@ -183,7 +183,7 @@ class EmergencyTests(unittest.TestCase):
         jobs = [row for row in objects if row['kind'] == 'Job']
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0]['metadata']['annotations']['argocd.argoproj.io/hook'], 'PostSync')
-        images = json.loads((Path(__file__).parents[2] / 'platform/identity/keycloak/artifact.lock.json').read_text())['images']
+        images = json.loads((Path(__file__).parents[3] / 'platform/identity/keycloak/artifact.lock.json').read_text())['images']
         self.assertEqual(jobs[0]['spec']['template']['spec']['containers'][0]['image'], images['config_cli'])
         values['operation']['client'] = 'realm-writer'
         with self.assertRaises(ValueError): render(values)

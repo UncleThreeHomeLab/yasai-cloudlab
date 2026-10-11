@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('eso_chart', Path(__file__).with_name('chart.py'))
+spec = importlib.util.spec_from_file_location('eso_chart', Path(__file__).parents[1] / 'chart.py')
 chart = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(chart)
 

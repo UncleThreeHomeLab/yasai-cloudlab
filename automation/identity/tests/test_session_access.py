@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 import yaml
 
-from automation.connectivity.test_reconcile import Provider
+from automation.connectivity.tests.fixtures import Provider
 from automation.identity.session_access import configure, remove
 
 
@@ -54,7 +54,7 @@ class SessionAccessTests(unittest.TestCase):
         self.assertEqual(state['objects'], {'dns:public.example.invalid': {'id':'dns'}})
 
     def test_browser_sessions_have_no_persistent_profile_or_docker_logs(self):
-        root = Path(__file__).resolve().parents[2]
+        root = Path(__file__).resolve().parents[3]
         service = yaml.safe_load((root/'compose.identity-proof.yaml').read_text())['services']['sessions']
         self.assertEqual(service['logging'], {'driver':'none'})
         self.assertTrue(service['read_only'])

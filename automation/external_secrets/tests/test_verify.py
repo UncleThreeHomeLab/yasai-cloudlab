@@ -7,7 +7,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('eso_verify', Path(__file__).with_name('verify.py'))
+spec = importlib.util.spec_from_file_location('eso_verify', Path(__file__).parents[1] / 'verify.py')
 verify = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify)
 

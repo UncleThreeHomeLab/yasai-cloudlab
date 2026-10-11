@@ -7,8 +7,8 @@ import unittest
 import sys
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parents[2] / 'longhorn'))
-spec = importlib.util.spec_from_file_location('check_backup', Path(__file__).parents[2] / 'longhorn/check_backup.py')
+sys.path.insert(0, str(Path(__file__).parents[1]))
+spec = importlib.util.spec_from_file_location('check_backup', Path(__file__).parents[1] / 'check_backup.py')
 backup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backup)
 

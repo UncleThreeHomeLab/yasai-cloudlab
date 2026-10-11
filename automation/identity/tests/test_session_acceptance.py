@@ -58,7 +58,7 @@ class SessionAcceptanceTests(unittest.TestCase):
                         api.assert_not_called()
 
     def test_deadline_includes_private_delivery_and_session_expiry(self):
-        policy=json.loads((Path(__file__).resolve().parents[2]/'platform/identity/keycloak/contract.json').read_text())['sessions']
+        policy=json.loads((Path(__file__).resolve().parents[3]/'platform/identity/keycloak/contract.json').read_text())['sessions']
         self.assertEqual(policy['access_token_seconds'],300)
         self.assertGreaterEqual(policy['private_revocation_convergence_seconds'],
                                 policy['reconcile_schedule_seconds']+180+210)
