@@ -388,8 +388,9 @@ and verifies new credentials accepted and old credentials denied after ESO/CLI
 reconciliation. Public or retired clients are rejected. `lab identity-client-remove`
 accepts `{realm, client_id}` only after the private retirement/removal tombstone is
 published and the client is disabled. It waits the declared session/token bound,
-runs the serialized Argo removal job and restores normal reconciliation. These
-live operations remain unverified.
+runs the serialized Argo removal job and restores normal reconciliation. Live
+disposable-client acceptance verifies rotation, disablement, removal and unchanged
+repeat reconciliation; retained vault credentials cannot authenticate a removed client.
 `lab identity-offboard` accepts private JSON `{realm, username, user_id, email}` on stdin.
 First publish the persistent private user tombstone and let the sole config-cli writer
 disable the exact account. The operation refuses missing sources, enabled accounts,
@@ -399,12 +400,18 @@ dedicated Access cutover with no prior provider allowed by managed human applica
 It revokes Access tokens without changing devices or WARP sessions through the existing
 external owner. API acknowledgment does not prove browser denial: measure current
 Keycloak, Argo and Access sessions separately. Existing signed JWTs can remain valid
-until expiry, and unmanaged client lifetimes require separate review. These live
-offboarding and integrated deadline checks remain unverified. Runtime phases
+until expiry, and unmanaged client lifetimes require separate review. Supported
+live session invalidation preserves credentials. Disposable browser acceptance
+measures Keycloak refresh denial at 345.7 seconds, Argo session denial at 358.3
+seconds and Access session denial at 360.3 seconds from private publication;
+fresh Argo/Access logins are denied. The original JWT expires within 296 seconds,
+and unrelated users, credentials and public signing keys remain unchanged.
+These existing-lab measurements use a synthetic disposable passkey and do not
+establish deadlines for unmanaged clients. Runtime phases
 `identity-server`, `identity-bootstrap`, `identity-primary` and `identity-scoped` require published,
 explicitly enabled Operator/CNPG inputs and verified prior recovery/access receipts.
 Bootstrap access is retired after the recovery exercise. Dedicated Access browser
-and back-channel login is verified; integrated session measurements remain pending.
+and back-channel login and disposable integrated session measurements are verified.
 For disposable session acceptance, `lab identity-proof-credentials` and
 `lab identity-proof-enroll` accept only `{nonce}` JSON on stdin, with a 32-character
 lowercase hexadecimal owner ID. Provisioning preserves the corresponding CloudLab
