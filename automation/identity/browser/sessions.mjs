@@ -197,7 +197,7 @@ try {
       await login.getByLabel('Username',{exact:false}).fill(input.username);
       await login.getByLabel('Password',{exact:true}).fill(input.password);
       await login.getByRole('button',{name:'Sign In',exact:true}).click();
-      await login.getByText(/^(Invalid username or password\.|Account is disabled\.)$/).waitFor();
+      await login.getByText(/^(Invalid username or password\.|Account is disabled, contact your administrator\.)$/).waitFor();
       if ((await fresh.cookies()).some(cookie=>['argocd.token','CF_Authorization'].includes(cookie.name)))
         throw new Error('Offboarded fresh login issued an application session');
     } finally {await fresh.close();}
