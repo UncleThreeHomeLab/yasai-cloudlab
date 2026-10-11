@@ -83,7 +83,7 @@ def preserved(before, after):
     if before['app']['id'] != after['app']['id'] or before['app']['aud'] != after['app']['aud']:
         raise ValueError('Disposable Access identity or audience changed')
     if any(before['app'].get(key) != after['app'].get(key) for key in (
-            'allowed_idps', 'app_launcher_visible', 'auto_redirect_to_identity',
+            'name', 'domain', 'allowed_idps', 'app_launcher_visible', 'auto_redirect_to_identity',
             'enable_binding_cookie', 'options_preflight_bypass')):
         raise ValueError('Existing Access authentication settings changed')
     policies = lambda value: {policy['id']: policy for policy in value['app']['policies']}
@@ -91,12 +91,14 @@ def preserved(before, after):
     if set(old) != set(new) or any(policy.get('reusable') is not False for policy in new.values()):
         raise ValueError('Legacy policy identity or reusability changed')
     for key in old:
-        if any(old[key].get(field) != new[key].get(field) for field in ('include', 'exclude', 'require', 'decision')):
+        if any(old[key].get(field) != new[key].get(field) for field in ('include', 'exclude', 'require', 'decision', 'precedence')):
             raise ValueError('Existing Access selectors changed')
     if after['config']['config'].get('warp-routing') != before['config']['config'].get('warp-routing'):
         raise ValueError('Unrepresented tunnel routing changed')
     if before['dns']['id'] != after['dns']['id']:
         raise ValueError('Disposable DNS identity changed')
+    if any(before['dns'].get(key) != after['dns'].get(key) for key in ('name', 'type', 'content', 'proxied', 'ttl')):
+        raise ValueError('Disposable DNS publication scope changed')
 
 
 def state_identities(document):

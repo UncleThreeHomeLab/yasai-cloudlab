@@ -110,7 +110,7 @@ class CloudflareQualificationTests(unittest.TestCase):
             'id': 'policy', 'reusable': False, 'include': [], 'exclude': [], 'require': [], 'decision': 'deny'}]},
             'config': {'config': {'warp-routing': {'enabled': False}}}, 'dns': {'id': 'record'}}
         preserved(before, before)
-        for field in ('aud', 'reusable', 'routing', 'allowed_idps'):
+        for field in ('aud', 'reusable', 'routing', 'allowed_idps', 'domain', 'dns_content', 'precedence'):
             after = copy.deepcopy(before)
             if field == 'aud':
                 after['app']['aud'] = 'replacement'
@@ -118,6 +118,12 @@ class CloudflareQualificationTests(unittest.TestCase):
                 after['app']['policies'][0]['reusable'] = True
             elif field == 'allowed_idps':
                 after['app']['allowed_idps'] = ['replacement']
+            elif field == 'domain':
+                after['app']['domain'] = 'unrelated.example.invalid'
+            elif field == 'dns_content':
+                after['dns']['content'] = 'unrelated.cfargotunnel.com'
+            elif field == 'precedence':
+                after['app']['policies'][0]['precedence'] = 9
             else:
                 after['config']['config']['warp-routing']['enabled'] = True
             with self.assertRaises(ValueError):
