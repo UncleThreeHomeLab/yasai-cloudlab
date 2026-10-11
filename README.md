@@ -105,86 +105,56 @@ run before bootstrap. Repeat application preserves existing secrets and data.
 
 ## Architecture
 
-**Target design - includes planned components.** Status is listed above.
+Platform overview. Includes planned components.
 
-![Architecture - target design](docs/architecture/arch.png)
-
-[SVG](docs/architecture/arch.svg) - [Edit](docs/architecture/arch.excalidraw)
+![Architecture](docs/architecture/arch.png)
 
 <details>
-<summary>Access - target design</summary>
+<summary>Access: Public and private traffic</summary>
 
-Public and private traffic. Includes planned components.
-
-![Access - target design](docs/architecture/access.png)
-
-[SVG](docs/architecture/access.svg) - [Edit](docs/architecture/access.excalidraw)
+![Access](docs/architecture/access.png)
 
 </details>
 
 <details>
-<summary>Identity - target design</summary>
+<summary>Identity: Sign-in, secrets and trust</summary>
 
-Sign-in, secrets and trust. Includes planned components.
-
-![Identity - target design](docs/architecture/identity.png)
-
-[SVG](docs/architecture/identity.svg) - [Edit](docs/architecture/identity.excalidraw)
+![Identity](docs/architecture/identity.png)
 
 </details>
 
 <details>
-<summary>Delivery - target design</summary>
+<summary>Delivery: Build, sign and deploy</summary>
 
-Build, sign and deploy. Includes planned components.
-
-![Delivery - target design](docs/architecture/delivery.png)
-
-[SVG](docs/architecture/delivery.svg) - [Edit](docs/architecture/delivery.excalidraw)
+![Delivery](docs/architecture/delivery.png)
 
 </details>
 
 <details>
-<summary>Releases - target design</summary>
+<summary>Releases: Canaries and previews</summary>
 
-Canaries and previews. Includes planned components.
-
-![Releases - target design](docs/architecture/releases.png)
-
-[SVG](docs/architecture/releases.svg) - [Edit](docs/architecture/releases.excalidraw)
+![Releases](docs/architecture/releases.png)
 
 </details>
 
 <details>
-<summary>Data - target design</summary>
+<summary>Data: Storage and monthly backups</summary>
 
-Storage and monthly backups. Includes planned components.
-
-![Data - target design](docs/architecture/data.png)
-
-[SVG](docs/architecture/data.svg) - [Edit](docs/architecture/data.excalidraw)
+![Data](docs/architecture/data.png)
 
 </details>
 
 <details>
-<summary>Observability - target design</summary>
+<summary>Observability: Metrics, logs and traces</summary>
 
-Metrics, logs and traces. Includes planned components.
-
-![Observability - target design](docs/architecture/observability.png)
-
-[SVG](docs/architecture/observability.svg) - [Edit](docs/architecture/observability.excalidraw)
+![Observability](docs/architecture/observability.png)
 
 </details>
 
 <details>
-<summary>Foundation - target design</summary>
+<summary>Foundation: Hosts, infrastructure CI and recovery</summary>
 
-Hosts, infrastructure CI and recovery. Includes planned components.
-
-![Foundation - target design](docs/architecture/foundation.png)
-
-[SVG](docs/architecture/foundation.svg) - [Edit](docs/architecture/foundation.excalidraw)
+![Foundation](docs/architecture/foundation.png)
 
 </details>
 
