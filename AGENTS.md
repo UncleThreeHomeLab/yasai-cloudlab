@@ -38,11 +38,22 @@ Configuration reproducibility does not replace backup and restore testing.
 
 - Group code by responsibility. Each module has one job and clear inputs and outputs.
 - Keep entry points thin and implementation and checks with their owning module.
-  Give cross-module tests a clear integration owner.
+- Keep component tests in `automation/<component>/tests/` and shared integration
+  checks in `verification/integration/`. Put reusable test fixtures in the owning
+  component's `tests/fixtures.py`; never import fixtures from test suites or
+  import test code into runtime modules.
 - Define shared settings once. Reuse public interfaces, not private files or side effects.
 - Extend existing modules before adding new ones. Avoid needless layers and folders.
 - Split files when responsibilities differ. Remove replaced code, update references,
   and verify preserved behavior.
+- Before deleting or merging files, check imports, runner commands, deployment
+  references and tests. Preserve validation, error handling and safety gates;
+  do not combine different responsibilities merely to reduce file count.
+- Use explicit dispatch tables for repeated runner command routing. Keep component
+  behavior with its owner and preserve credential validation and write gates.
+- Run local tests with `docker compose run --build --rm lab test`; they must not
+  require VM or service credentials. Keep component test processes isolated when
+  standalone VM modules use overlapping import names.
 
 ## Documentation
 

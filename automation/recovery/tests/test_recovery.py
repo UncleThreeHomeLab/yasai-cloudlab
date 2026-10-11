@@ -19,7 +19,7 @@ from b2 import S3
 from backup import freshness
 import runner
 
-POLICY = json.loads(Path(__file__).with_name('policy.json').read_text())
+POLICY = json.loads((Path(__file__).parents[1] / 'policy.json').read_text())
 
 
 class RecoveryTests(unittest.TestCase):

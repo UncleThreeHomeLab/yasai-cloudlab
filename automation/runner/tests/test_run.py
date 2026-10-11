@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 
+from automation.runner import test as test_runner
 
 spec = importlib.util.spec_from_file_location('lab_run', Path(__file__).parents[1] / 'run.py')
 runner = importlib.util.module_from_spec(spec)
@@ -15,6 +16,44 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_local_tests_need_no_credentials_dns_or_host_apply(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'test']), \
+                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
+                patch.object(runner.socket, 'gethostbyname', side_effect=AssertionError('Resolved host')), \
+                patch.object(runner, 'playbook') as playbook, \
+                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
+            runner.main()
+        playbook.assert_not_called()
+        command.assert_called_once_with(
+            [runner.sys.executable, '/workspace/automation/runner/test.py'], check=True)
+
+    def test_test_runner_isolates_owners_and_reports_failures_after_all_groups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('automation/mesh/tests', 'automation/certificates/tests', 'verification/integration'):
+                folder = root / name
+                folder.mkdir(parents=True)
+                (folder / 'test_example.py').write_text('')
+            with patch.object(test_runner.subprocess, 'run', side_effect=[Mock(returncode=1), Mock(returncode=0), Mock(returncode=0)]) as command, \
+                    patch('builtins.print'), \
+                    self.assertRaisesRegex(RuntimeError, 'Tests failed: automation[/\\\\]certificates[/\\\\]tests'):
+                test_runner.run(root)
+            self.assertEqual(command.call_count, 3)
+            for call, owner in zip(command.call_args_list, ('certificates', 'mesh', None)):
+                self.assertEqual(call.kwargs['cwd'], root)
+                paths = call.kwargs['env']['PYTHONPATH'].split(os.pathsep)
+                self.assertEqual(paths[0], str(root / 'automation' / owner) if owner else str(root / 'verification'))
+                self.assertIn(str(root), paths)
+
+    def test_test_runner_rejects_empty_test_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'verification/integration').mkdir(parents=True)
+            with patch.object(test_runner.subprocess, 'run') as command, \
+                    self.assertRaisesRegex(RuntimeError, 'No tests found'):
+                test_runner.run(root)
+            command.assert_not_called()
+
     def test_login_guide_never_runs_host_apply(self):
         with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
             playbook = self.invoke('identity-login-guide')

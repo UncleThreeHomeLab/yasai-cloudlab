@@ -9,6 +9,31 @@ import sys
 
 from dotenv import dotenv_values
 
+IDENTITY_COMMANDS = {
+    'identity-private-publish': ('operations', '--publish'),
+    'identity-access-prepare': ('access_provider',),
+    'identity-access-cutover': ('access_cutover',),
+    'identity-access-canary': ('access_canary', 'prepare'),
+    'identity-access-canary-proof': ('access_canary', 'proof'),
+    'identity-access-canary-remove': ('access_canary', 'remove'),
+    'identity-primary-credentials': ('credentials', '--primary'),
+    'identity-primary-login-items': ('credentials', '--login-items'),
+    'identity-login-guide': ('credentials', '--login-guide'),
+    'identity-offboard': ('lifecycle', '--offboard'),
+    'identity-proof-credentials': ('session_fixture', 'provision'),
+    'identity-proof-stage': ('session_fixture', '--stage'),
+    'identity-proof-enroll': ('session_fixture', 'local'),
+    'identity-session-canary': ('session_access', 'prepare'),
+    'identity-session-canary-remove': ('session_access', 'remove'),
+    'identity-client-refresh': ('rotation', '--refresh'),
+    'identity-retire-bootstrap': ('emergency',),
+    'identity-credentials': ('credentials',),
+    'identity-operation': ('operations',),
+    'identity-client-credential': ('rotation',),
+    'identity-client-remove': ('lifecycle',),
+}
+
+
 def playbook(name, *, syntax=False, unchanged=False):
     stats_path = Path('/tmp/lab-stats.json')
     stats_path.unlink(missing_ok=True)
@@ -39,53 +64,18 @@ def main():
     if identity_phase:
         os.environ['LAB_IDENTITY_PHASE'] = identity_phase
         action = 'inspect'
+    if action == 'test':
+        subprocess.run([sys.executable, '/workspace/automation/runner/test.py'], check=True)
+        return
     if action == 'identity-check':
         subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
-        subprocess.run([sys.executable, '-m', 'unittest', 'automation.identity.test_identity'],
+        subprocess.run([sys.executable, '-m', 'unittest', 'automation.identity.tests.test_identity'],
                        cwd='/workspace', check=True)
         return
-    if action == 'identity-private-publish':
-        subprocess.run([sys.executable, '-m', 'automation.identity.operations', '--publish'], cwd='/workspace', check=True)
-        return
-    if action == 'identity-access-prepare':
-        subprocess.run([sys.executable, '-m', 'automation.identity.access_provider'], cwd='/workspace', check=True)
-        return
-    if action == 'identity-access-cutover':
-        subprocess.run([sys.executable, '-m', 'automation.identity.access_cutover'], cwd='/workspace', check=True)
-        return
-    if action in ('identity-access-canary', 'identity-access-canary-proof', 'identity-access-canary-remove'):
-        mode = {'identity-access-canary': 'prepare', 'identity-access-canary-proof': 'proof', 'identity-access-canary-remove': 'remove'}[action]
-        subprocess.run([sys.executable, '-m', 'automation.identity.access_canary', mode], cwd='/workspace', check=True)
-        return
-    if action == 'identity-primary-credentials':
-        subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--primary'], cwd='/workspace', check=True)
-        return
-    if action == 'identity-primary-login-items':
-        subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--login-items'], cwd='/workspace', check=True)
-        return
-    if action == 'identity-login-guide':
-        subprocess.run([sys.executable, '-m', 'automation.identity.credentials', '--login-guide'], cwd='/workspace', check=True)
-        return
-    if action == 'identity-offboard':
-        subprocess.run([sys.executable, '-m', 'automation.identity.lifecycle', '--offboard'], cwd='/workspace', check=True)
-        return
-    if action in ('identity-proof-credentials', 'identity-proof-stage', 'identity-proof-enroll'):
-        mode = {'identity-proof-credentials': 'provision', 'identity-proof-stage': '--stage', 'identity-proof-enroll': 'local'}[action]
-        subprocess.run([sys.executable, '-m', 'automation.identity.session_fixture', mode], cwd='/workspace', check=True)
-        return
-    if action in ('identity-session-canary', 'identity-session-canary-remove'):
-        mode = 'remove' if action.endswith('-remove') else 'prepare'
-        subprocess.run([sys.executable, '-m', 'automation.identity.session_access', mode], cwd='/workspace', check=True)
-        return
-    if action == 'identity-client-refresh':
-        subprocess.run([sys.executable, '-m', 'automation.identity.rotation', '--refresh'], cwd='/workspace', check=True)
-        return
-    if action == 'identity-retire-bootstrap':
-        subprocess.run([sys.executable, '-m', 'automation.identity.emergency'], cwd='/workspace', check=True)
-        return
-    if action in ('identity-credentials', 'identity-operation', 'identity-client-credential', 'identity-client-remove'):
-        module = {'identity-credentials': 'credentials', 'identity-operation': 'operations', 'identity-client-credential': 'rotation', 'identity-client-remove': 'lifecycle'}[action]
-        subprocess.run([sys.executable, '-m', 'automation.identity.' + module], cwd='/workspace', check=True)
+    command = IDENTITY_COMMANDS.get(action)
+    if command:
+        subprocess.run([sys.executable, '-m', 'automation.identity.' + command[0], *command[1:]],
+                       cwd='/workspace', check=True)
         return
     data_actions = {'data-monthly': 'monthly',
                     'data-acceptance-export': 'acceptance-export',

@@ -558,7 +558,7 @@ class IdentityTests(unittest.TestCase):
             initialize_primary(state, [], values)
 
     def test_access_provider_repeat_drift_rotation_preserve_prior_and_hide_secrets(self):
-        from automation.connectivity.test_reconcile import Provider
+        from automation.connectivity.tests.fixtures import Provider
         api, state = Provider(), {}
         account, previous = 'a' * 32, 'prior-provider'
         path = 'accounts/' + account + '/access/identity_providers'
@@ -587,7 +587,7 @@ class IdentityTests(unittest.TestCase):
         self.assertFalse(run()['browser_and_credential_acceptance'])
 
     def test_access_provider_refuses_foreign_lost_and_ambiguous_creation(self):
-        from automation.connectivity.test_reconcile import Provider
+        from automation.connectivity.tests.fixtures import Provider
         api, state = Provider(), {}
         account, previous = 'a' * 32, 'prior-provider'
         path = 'accounts/' + account + '/access/identity_providers'
@@ -814,7 +814,7 @@ class IdentityTests(unittest.TestCase):
         self.assertTrue(all(call.args[0] == 'GET' for call in api.request.call_args_list))
 
     def test_native_argo_routes_require_tls_and_only_gateway_network_access(self):
-        root = Path(__file__).resolve().parents[2]
+        root = Path(__file__).resolve().parents[3]
         overlay = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
                        ['https://cd.internal.example.invalid'])['helm']
         result = subprocess.run(['helm', 'template', 'argocd', str(root / 'platform/delivery/argocd'),
@@ -967,7 +967,7 @@ class IdentityTests(unittest.TestCase):
             with self.assertRaises(ValueError): exact_url(callback)
 
     def test_pinned_private_argo_overlay_preserves_self_owner_and_project_scope(self):
-        chart = Path(__file__).resolve().parents[2] / 'gitops/roots/public'
+        chart = Path(__file__).resolve().parents[3] / 'gitops/roots/public'
         inputs = {'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/fixture/private.git', 'valuesRevision': 'a' * 40}}}
         result = subprocess.run(['helm', 'template', 'cloudlab-public-root', str(chart), '--namespace', 'argocd', '-f', '-'],
             input=json.dumps(inputs), text=True, capture_output=True, check=True)
@@ -996,7 +996,7 @@ class IdentityTests(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
 
     def test_sync_observer_permission_is_one_application_read_without_oidc_dependency(self):
-        chart=Path(__file__).resolve().parents[2]/'platform/delivery/argocd'
+        chart=Path(__file__).resolve().parents[3]/'platform/delivery/argocd'
         for enabled in (False,True):
             output=subprocess.run(['helm','template','argocd',str(chart),'--namespace','argocd','-f','-'],
                 input=json.dumps({'identitySyncObserver':enabled}),text=True,capture_output=True,check=True)
@@ -1274,7 +1274,7 @@ class IdentityTests(unittest.TestCase):
         oidc = yaml.safe_load(cm['oidc.config'])
         self.assertTrue(oidc['enablePKCEAuthentication'])
         self.assertNotIn('offline_access', oidc['requestedScopes'])
-        chart = Path(__file__).resolve().parents[2] / 'platform/delivery/argocd'
+        chart = Path(__file__).resolve().parents[3] / 'platform/delivery/argocd'
         rendered = subprocess.run(['helm', 'template', 'argocd', str(chart), '--namespace', 'argocd', '-f', '-'],
             input=json.dumps(value['helm']), text=True, capture_output=True, check=True)
         objects = list(yaml.safe_load_all(rendered.stdout))
