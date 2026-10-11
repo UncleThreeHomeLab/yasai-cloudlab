@@ -102,7 +102,8 @@ try {
   }
   await personal.waitFor();
   stage = 'account reload';
-  const profilePromise = page.waitForResponse(r => r.url().startsWith(issuer+'/account/?') && r.status()===200);
+  const profilePromise = page.waitForResponse(r => r.url().startsWith(issuer+'/account/?') &&
+    new URL(r.url()).searchParams.get('userProfileMetadata')==='true' && r.status()===200);
   await page.reload();
   stage = 'account API response';
   const profile = await profilePromise;
