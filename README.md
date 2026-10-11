@@ -569,5 +569,12 @@ and invalidate sessions in the isolated database. Full identity recovery also ne
 current private inputs and membership/revocation review before issuer reopening.
 The isolated restore replays current vault credentials and private tombstones,
 then verifies a signed JWT under a different internal issuer. No restored gateway
-route is created. This implementation still needs live identity restore acceptance.
+route is created. Clean-checkout Compose proof at `e684498` passed on both existing
+hosts with zero changes on both applies. Isolated identity recovery preserved
+signing state, invalidated sessions and replayed current private inputs and client
+removal tombstones. Data age was 733 seconds; capture took 139 seconds and restore
+810 seconds. No B2 reads or retained local generations were created. The current
+monthly offsite generation predates identity; identity offsite restoration remains
+unproven until a scheduled generation includes it. This is existing-host recovery,
+not empty-VM setup or complete lab disaster recovery.
 No daily generations or additional cloud schedule are introduced.

@@ -1,5 +1,5 @@
 {
-  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement, dedicated Access cutover and disposable integrated session acceptance passed; final current-source recovery proof remains incomplete.",
+  "status": "Milestone 03b accepted on existing hosts: one live official Operator/server, scoped reconciliation, real master/platform passkeys, native Argo OIDC and dedicated Access SSO. Bootstrap retirement, disposable integrated session acceptance, clean-checkout Compose repeat proof and current isolated recovery passed.",
   "private_http2_routing": "All private origins share one HTTPS listener and TLS route table. Gateway wildcard matching includes nested labels; exact HTTPRoute hostnames, certificate SANs, restricted attachment namespaces and policies retain private boundaries. The credential-free Compose private-routing proof checks twelve requests across three reused HTTP/2 connections, including canonical issuer administration denial. Separate SNI listeners using this same certificate cause browser coalescing 404s and are rejected.",
   "realms": [
     "platform",
@@ -172,9 +172,10 @@
     "status": "Coordinated physical capture and isolated identity restore passed on the two existing hosts; signing state/JWT, session invalidation and current vault/private recovery-input replay verified. Monthly offsite generation predates identity until the next authorized capture.",
     "restore_replay": "Validate both current private realm inputs before any import. Inventory restored clients; disable existing removed-client tombstones without recreating absent clients. Keep issuer isolated pending human credential, membership and revocation review.",
     "isolated_proof": {
-      "capture_seconds": 166.595,
-      "restore_seconds": 697.417,
-      "identity_data_age_seconds": 748.099,
+      "public_revision": "e684498",
+      "capture_seconds": 138.633,
+      "restore_seconds": 809.979,
+      "identity_data_age_seconds": 732.999,
       "b2_reads": 0,
       "retained_local_generations": 0,
       "signing_state_and_jwt_verified": true,
@@ -221,7 +222,7 @@
       "identity-scoped",
       "identity-argo"
     ],
-    "limitations": "Production bootstrap retirement, dedicated Access cutover, disposable confidential rotation/disable/removal and integrated Argo/Access session measurements passed. Final current-source Compose prove/restore remains incomplete. Disposable stopped-IdP login fails closed while real SSH/Tailscale/API repair remains reachable; this is not a production IdP outage exercise.",
+    "limitations": "Production bootstrap retirement, dedicated Access cutover, disposable confidential rotation/disable/removal, integrated session measurements and current-source Compose prove/restore passed. Disposable stopped-IdP login fails closed while real SSH/Tailscale/API repair remains reachable; this is not a production IdP outage exercise. Existing-host local recovery does not prove empty-VM setup or identity restoration from the older offsite generation.",
     "native_argo": "Read-only GitHub App verifies the exact private producer overlay at an immutable commit and its active exact-callback public client. Current private state and HTTPS discovery/token reachability gate binding. Existing bounded GitOps owner stops its sole controller during the root values handoff and resumes it in finally. Interrupted controller repair through GitOps bootstrap never contacts Keycloak. Both routes reconcile from the consumer ConfigMap interface; browser/RBAC/session checks remain required."
   },
   "credential_operations": {
@@ -296,7 +297,8 @@
   "host_clock": {
     "requirement": "Automatic host time synchronization on both VMs. Apply retries an already active systemd-timesyncd daemon once when unsynchronized, then waits at most one minute. Verification only reads synchronization state. Both fail before cluster operations unless timedatectl confirms synchronization. Upstream NTP reachability is an external prerequisite.",
     "token_validation": "Strict expiration, not-before and issued-at validation remains unchanged; rejection reasons contain no claims or tokens.",
-    "latest_live_proof": "Clean checkout 408ac85 full Compose prove passed on both existing hosts: second apply changed zero on both. Five independent Access disruptions passed with maximum success gap 8.12 seconds. Isolated physical identity restore preserved signing state, invalidated sessions, replayed current recovery inputs and verified a signed JWT. Data age 731.198 seconds; capture 130.242 seconds and restore 771.426 seconds. No offsite reads, retained local generations or exposure of restored issuer to real clients.",
+    "latest_live_proof": "Clean checkout e684498 full Compose prove passed on both existing hosts: both applies changed zero on both. Five independent Access disruptions passed with maximum success gap 9.69 seconds. Isolated physical identity restore preserved signing state, invalidated sessions, replayed current recovery inputs and removal tombstones, and verified a signed JWT. Data age 732.999 seconds; capture 138.633 seconds and restore 809.979 seconds. No offsite reads, retained local generations or exposure of restored issuer to real clients. Final scoped repeat changed zero and retained bootstrap retirement.",
     "status": "Both clocks synchronized after upstream firewall repair and one bounded retry of the worker's already active daemon. Configured NTP offsets measured -0.204/-0.843 milliseconds. Existing-host local recovery passed; this does not prove empty-VM setup or identity restoration from the older offsite generation."
-  }
+  },
+  "service_contacts": "Platform service addresses stay in private inputs. The configured platform profile uses the operator-selected homelab address with trusted ownership verification; other service contacts are unset. Tailscale, Cloudflare and personal account emails remain separate. No SMTP service or outbound messages are configured."
 }
