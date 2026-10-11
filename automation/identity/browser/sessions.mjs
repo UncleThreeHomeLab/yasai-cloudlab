@@ -84,13 +84,12 @@ try {
   await page.getByLabel('Password', {exact:true}).fill(input.password);
   await page.getByRole('button', {name:'Sign In',exact:true}).click();
   stage = 'WebAuthn registration';
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   const cdp = await context.newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', {options:{protocol:'ctap2',transport:'internal',
     hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   await page.getByRole('button', {name:/Register/}).click();
-  await page.waitForLoadState('networkidle');
   stage = 'account session';
   const personal = page.getByRole('heading', {name:'Personal info',exact:true});
   const firstName = page.getByLabel('First name',{exact:false});
