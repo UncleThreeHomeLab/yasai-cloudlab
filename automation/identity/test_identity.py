@@ -130,15 +130,20 @@ class IdentityTests(unittest.TestCase):
         registry = {'format': 1, 'realms': {'applications': {'users': [request['username']]}}}
         rows = [user]
         writes = []
+        logout_changes = {'notBefore': 10}
+        credentials = [{'id': 'retained', 'type': 'webauthn'}]
+        credential_drift = False
         def api(url, **kwargs):
             if url.endswith('/token'): return {'access_token': 'private-token'}
-            if '/users?' in url: return rows
-            if url.endswith('/credentials'): return [{'id': 'retained', 'type': 'webauthn'}]
+            if '/users?' in url: return copy.deepcopy(rows)
+            if url.endswith('/credentials'): return copy.deepcopy(credentials)
             if url.endswith('/sessions'): return []
             writes.append((url, kwargs))
             self.assertTrue(url.endswith('/logout'))
             self.assertEqual(kwargs['method'], 'POST')
             self.assertEqual(kwargs['accepted_statuses'], (204,))
+            rows[0].update(logout_changes)
+            if credential_drift: credentials.append({'id': 'unexpected', 'type': 'password'})
         resources = {
             'cloudlab-identity': {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': 'cloudlab-identity-bootstrap'}},
                   'spec': {'source': {'helm': {'valuesObject': {'adminHost': 'identity-admin.internal.example.invalid'}}}}},
@@ -164,6 +169,17 @@ class IdentityTests(unittest.TestCase):
             registry['realms']['applications']['users'] = []
             with self.assertRaises(RuntimeError): lifecycle.offboard(request)
             self.assertEqual(len(writes), 1)
+            registry['realms']['applications']['users'] = [request['username']]
+            for mutation in ({'notBefore': 4}, {'notBefore': True}, {'notBefore': '6'},
+                             {'notBefore': -1}, {'firstName': 'unexpected'}):
+                rows[:] = [dict(user, notBefore=5)]
+                logout_changes.clear(); logout_changes.update(mutation)
+                with self.subTest(mutation=mutation), self.assertRaises(RuntimeError):
+                    lifecycle.offboard(request)
+            rows[:] = [dict(user, notBefore=5)]
+            logout_changes.clear(); logout_changes['notBefore'] = 10
+            credential_drift = True
+            with self.assertRaises(RuntimeError): lifecycle.offboard(request)
 
     def test_offboarding_rejects_machine_master_and_incomplete_identity_before_io(self):
         from automation.identity.lifecycle import offboard_scope

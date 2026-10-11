@@ -168,7 +168,13 @@ def offboard(request):
         started = time.monotonic()
         private_request(path + '/logout', token=token, method='POST', accepted_statuses=(204,))
         wait(lambda: private_request(path + '/sessions', token=token) == [], 'offboarded Keycloak sessions', timeout=60)
-        if verified() != user or private_request(path + '/credentials', token=token) != before:
+        after = verified()
+        not_before = [row.get('notBefore', 0) for row in (user, after)]
+        # Supported logout advances the user's token revocation timestamp.
+        if (any(type(value) is not int or value < 0 for value in not_before) or not_before[1] < not_before[0]
+                or {key: value for key, value in user.items() if key != 'notBefore'} !=
+                   {key: value for key, value in after.items() if key != 'notBefore'}
+                or private_request(path + '/credentials', token=token) != before):
             raise RuntimeError('Session invalidation changed identity or credentials')
         if private_inputs({'values': values, 'private_repository': private['spec']['source']['repoURL']}) != (source, registry, revision):
             raise RuntimeError('Private offboarding source changed during invalidation')
