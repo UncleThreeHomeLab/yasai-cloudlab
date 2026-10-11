@@ -126,6 +126,10 @@ def run():
             raise RuntimeError('Prepare the exact disposable session canary first')
         access_url = 'https://'+canary['hostname']+canary['desired']['domain'].removeprefix(canary['hostname'])
     browser_input = {key:proof[key] for key in ('username','password','email')}
+    policy = json.loads((ROOT/'platform/identity/keycloak/contract.json').read_text())['sessions']
+    limits = {key:policy[key] for key in ('access_token_seconds','private_revocation_convergence_seconds',
+                                       'integrated_offboarding_deadline_seconds')}
+    browser_input['offboarding_limits'] = limits
     browser_input.update(nonce=nonce,zone=runtime['zone'],gateway_address=runtime['private']['tailnet_gateway'],access_url=access_url)
     deadline = time.monotonic()+90
     while True:
@@ -136,7 +140,7 @@ def run():
             if time.monotonic()>deadline: raise RuntimeError('Browser controller unavailable') from None
             time.sleep(2)
     with connection:
-        connection.settimeout(660)
+        connection.settimeout(limits['integrated_offboarding_deadline_seconds']+180)
         stream = connection.makefile('rw',encoding='utf-8')
         stream.write(json.dumps(browser_input)+'\n');stream.flush()
         ready = json.loads(stream.readline())
@@ -161,8 +165,10 @@ def run():
         started = time.monotonic()
         offboard_inputs(api,values,request)
         while remote_state(request)['enabled'] is not False:
-            if time.monotonic()-started > 300: raise RuntimeError('Private offboarding did not converge within 300 seconds')
+            if time.monotonic()-started > limits['private_revocation_convergence_seconds']:
+                raise RuntimeError('Private offboarding convergence deadline exceeded')
             time.sleep(5)
+        source_disabled_seconds = round(time.monotonic()-started,1)
         outcome = local_offboard({key:before[key] for key in ('realm','username','user_id','email')})
         print(json.dumps(outcome),flush=True)
         measured = json.loads(stream.readline())
@@ -171,6 +177,7 @@ def run():
                 not measured.get('logout_is_not_instant_jwt_revocation')):
             raise RuntimeError('Disposable offboarding or unrelated user preservation failed')
         result = dict(measured,unrelated_platform_users_credentials_and_public_keys_preserved=True,
+                      private_account_disabled_seconds=source_disabled_seconds,declared_limits=limits,
                       private_revocation_persisted=True,environment='existing lab; synthetic disposable passkey')
         with transaction() as receipts:
             state = receipts.load('external')
