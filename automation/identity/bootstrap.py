@@ -174,7 +174,7 @@ def prerequisites(payload):
     access = json.loads(Path('/var/lib/cloudlab/connectivity/receipts/acceptance.json').read_text())
     if not access.get('verified_at') or not access.get('external_binding'):
         raise RuntimeError('Independent public/private access proof must precede identity')
-    for name in ('cloudlab-keycloak-operator', 'cloudlab-data-configuration', 'cloudlab-access'):
+    for name in ('cloudlab-keycloak-operator', 'cloudlab-data-configuration', 'cloudlab-access', 'cloudlab-argocd'):
         if not application_ready(name, payload['revision']):
             raise RuntimeError('Identity prerequisite Application is not converged')
     data = get('application.argoproj.io', 'cloudlab-data-configuration', 'argocd')['spec']['source']['helm']['valuesObject']

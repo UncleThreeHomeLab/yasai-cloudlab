@@ -1,3 +1,4 @@
+identitySyncObserver: false
 argo-cd:
   fullnameOverride: argocd
   global:

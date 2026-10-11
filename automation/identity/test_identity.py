@@ -260,6 +260,7 @@ class IdentityTests(unittest.TestCase):
         with patch.object(lease, 'Path') as paths, patch.object(lease.ssl, 'create_default_context'), \
                 patch.object(lease, 'owned_lease', return_value={'spec': {}}), \
                 patch.object(lease, 'available', return_value=True), \
+                patch.object(lease, 'sync_pending', return_value=False), \
                 patch.dict('os.environ', {'POD_UID': 'current'}), \
                 patch.object(lease.urllib.request, 'urlopen') as request:
             paths.return_value.joinpath.return_value.read_text.return_value = 'private'
@@ -270,6 +271,32 @@ class IdentityTests(unittest.TestCase):
                 else:
                     with self.assertRaises(HTTPError): lease.acquire(skip_busy=True)
                 with self.assertRaises(HTTPError): lease.acquire()
+
+    def test_scheduled_writer_yields_without_changing_lease_during_sync(self):
+        from automation.identity import lease
+        with patch.object(lease,'Path') as paths, \
+                patch.object(lease,'owned_lease',return_value={'spec':{}}), \
+                patch.object(lease,'sync_pending',return_value=True), \
+                patch.object(lease,'api_request') as api:
+            paths.return_value.joinpath.return_value.read_text.return_value='private'
+            self.assertFalse(lease.acquire(skip_busy=True))
+            api.assert_not_called()
+
+    def test_sync_observer_reads_only_exact_owner_and_handles_active_phases(self):
+        from automation.identity import lease
+        app={'metadata':{'name':'cloudlab-identity','namespace':'argocd','uid':'owned',
+                         'labels':{'cloudlab.io/owner':'cloudlab-identity-bootstrap'}}}
+        for phase in (None,'Succeeded','Failed','Running','Terminating'):
+            value=dict(app,status={'operationState':{'phase':phase}})
+            with patch.object(lease,'api_request',return_value=value) as api:
+                self.assertEqual(lease.sync_pending(),phase in ('Running','Terminating'))
+                api.assert_called_once_with('GET','https://kubernetes.default.svc/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/cloudlab-identity')
+        with patch.object(lease,'api_request',return_value=dict(app,operation={'sync':{}})):
+            self.assertTrue(lease.sync_pending())
+        for field,value in (('name','foreign'),('namespace','foreign'),('uid',None),('labels',{})):
+            foreign=dict(app,metadata=dict(app['metadata'],**{field:value}))
+            with patch.object(lease,'api_request',return_value=foreign):
+                with self.assertRaisesRegex(RuntimeError,'foreign'):lease.sync_pending()
 
     def test_live_protocol_check_redacts_audit_and_requires_public_token_and_denied_admin(self):
         from automation.identity import verify
@@ -949,6 +976,7 @@ class IdentityTests(unittest.TestCase):
         argo_app = indexed['Application', 'cloudlab-argocd']['spec']
         self.assertNotIn('source', argo_app)
         self.assertEqual(argo_app['sources'][0]['helm']['valueFiles'], ['$identity/identity/argo-values.yaml'])
+        self.assertEqual(argo_app['sources'][0]['helm']['valuesObject'],{'identitySyncObserver':True})
         self.assertEqual(argo_app['sources'][1]['targetRevision'], 'a' * 40)
         self.assertFalse(argo_app['syncPolicy']['automated']['prune'])
         root = indexed['Application', 'cloudlab-public-root']
@@ -966,6 +994,23 @@ class IdentityTests(unittest.TestCase):
         inputs['identity']['argo']['valuesRevision'] = 'main'
         rejected = subprocess.run(['helm', 'template', 'root', str(chart), '-f', '-'], input=json.dumps(inputs), text=True, capture_output=True)
         self.assertNotEqual(rejected.returncode, 0)
+
+    def test_sync_observer_permission_is_one_application_read_without_oidc_dependency(self):
+        chart=Path(__file__).resolve().parents[2]/'platform/delivery/argocd'
+        for enabled in (False,True):
+            output=subprocess.run(['helm','template','argocd',str(chart),'--namespace','argocd','-f','-'],
+                input=json.dumps({'identitySyncObserver':enabled}),text=True,capture_output=True,check=True)
+            objects=[row for row in yaml.safe_load_all(output.stdout) if row]
+            observers=[row for row in objects if row['metadata']['name']=='identity-sync-observer']
+            if not enabled:
+                self.assertEqual(observers,[])
+                continue
+            role=next(row for row in observers if row['kind']=='Role')
+            self.assertEqual(role['rules'],[{'apiGroups':['argoproj.io'],'resources':['applications'],
+                'resourceNames':['cloudlab-identity'],'verbs':['get']}])
+            binding=next(row for row in observers if row['kind']=='RoleBinding')
+            self.assertEqual(binding['subjects'],[{'kind':'ServiceAccount','name':'identity-writer','namespace':'cloudlab-identity'}])
+            self.assertEqual(binding['roleRef'],{'apiGroup':'rbac.authorization.k8s.io','kind':'Role','name':'identity-sync-observer'})
 
     def test_multi_source_convergence_requires_exact_private_values_revision(self):
         app = {'spec': {'sources': [{'targetRevision': 'main'}, {'targetRevision': 'a' * 40}]},
