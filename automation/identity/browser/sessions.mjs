@@ -18,7 +18,7 @@ const network = {failed_resources:0,failed_account:0,failed_protocol:0,failed_re
 const report = value => connection.write(JSON.stringify(value)+'\n');
 try {
   const input = JSON.parse((await lines.next()).value);
-  if (Object.keys(input).sort().join(',') !== 'access_url,email,gateway_address,nonce,password,username,zone' ||
+  if (Object.keys(input).sort().join(',') !== 'access_url,email,gateway_address,nonce,offboarding_limits,password,username,zone' ||
       !/^[a-f0-9]{32}$/.test(input.nonce) || input.username !== 'proof-'+input.nonce ||
       typeof input.password !== 'string' || input.password.length < 32 ||
       typeof input.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email) ||
@@ -27,6 +27,13 @@ try {
       net.isIP(input.gateway_address) !== 4 || Number(input.gateway_address.split('.')[0]) !== 100 ||
       Number(input.gateway_address.split('.')[1]) < 64 || Number(input.gateway_address.split('.')[1]) > 127)
     throw new Error('Invalid disposable viewer input');
+  const limits=input.offboarding_limits;
+  if (!limits || Object.keys(limits).sort().join(',') !==
+      'access_token_seconds,integrated_offboarding_deadline_seconds,private_revocation_convergence_seconds' ||
+      !Object.values(limits).every(value=>Number.isInteger(value)&&value>0) ||
+      limits.access_token_seconds>300 || limits.private_revocation_convergence_seconds>900 ||
+      limits.integrated_offboarding_deadline_seconds>1500)
+    throw new Error('Invalid offboarding limits');
   const access = new URL(input.access_url);
   if (access.protocol !== 'https:' || !access.hostname.endsWith('.'+input.zone) ||
       access.pathname !== '/__cloudlab_identity_access_canary' || access.search || access.hash ||
@@ -106,7 +113,7 @@ try {
   const authorization = (await profile.request().allHeaders()).authorization;
   if (!authorization?.startsWith('Bearer ') || !refresh) throw new Error('Missing real account session');
   const claims = JSON.parse(Buffer.from(authorization.split('.')[1], 'base64url'));
-  if (claims.iss !== issuer || !claims.exp || claims.exp-claims.iat > 300)
+  if (claims.iss !== issuer || !claims.exp || claims.exp-claims.iat > limits.access_token_seconds)
     throw new Error('Unexpected issuer or token lifetime');
   stage = 'native Argo SSO';
   await page.goto(argo+'/auth/login?return_url='+encodeURIComponent(argo));
@@ -136,7 +143,7 @@ try {
   const command = JSON.parse((await lines.next()).value);
   if (JSON.stringify(command)!=='{"action":"observe-offboarding"}') throw new Error('Invalid observation command');
   const started = Date.now(), measured = {};
-  while (Date.now()-started < 660000) {
+  while (Date.now()-started < (limits.integrated_offboarding_deadline_seconds+60)*1000) {
     stage = 'offboarding observation';
     const elapsed = () => Math.round((Date.now()-started)/100)/10;
     if (measured.keycloak_access_token_denied_seconds === undefined) {
@@ -171,8 +178,10 @@ try {
     if (measured.original_access_jwt_expiry_bound_seconds === undefined && Date.now()/1000 >= claims.exp)
       measured.original_access_jwt_expiry_bound_seconds=elapsed();
     if (Object.keys(measured).length===5) {
-      if (measured.keycloak_refresh_denied_seconds>300 || measured.argo_session_denied_seconds>600 ||
-          measured.keycloak_access_token_denied_seconds>300 || measured.access_session_denied_seconds>600)
+      if (measured.keycloak_refresh_denied_seconds>limits.private_revocation_convergence_seconds ||
+          measured.argo_session_denied_seconds>limits.integrated_offboarding_deadline_seconds ||
+          measured.keycloak_access_token_denied_seconds>limits.access_token_seconds ||
+          measured.access_session_denied_seconds>limits.integrated_offboarding_deadline_seconds)
         throw new Error('Coordinated offboarding deadline exceeded');
       break;
     }

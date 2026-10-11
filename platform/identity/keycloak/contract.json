@@ -68,6 +68,9 @@
     "access_token_seconds": 300,
     "keycloak_session_max_seconds": 600,
     "reconcile_schedule_seconds": 300,
+    "private_revocation_convergence_seconds": 900,
+    "integrated_offboarding_deadline_seconds": 1500,
+    "deadline_origin": "Reviewed private publication starts the measured window. Budget includes private Argo refresh, scheduled serialized writer and application revocation/expiry. Original access JWT lifetime remains 300 seconds. Fail the operation when convergence or the measured session deadline is exceeded.",
     "warning": "Logout does not revoke an already issued JWT. Argo and Access deadlines must be measured before acceptance.",
     "disposable_measurement": {
       "new_login_denied_seconds": 8,

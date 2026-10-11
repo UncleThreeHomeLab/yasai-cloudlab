@@ -1,6 +1,7 @@
 import base64
 import copy
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 import yaml
@@ -10,6 +11,14 @@ from automation.identity.session_acceptance import offboard_inputs, network_diag
 
 
 class SessionAcceptanceTests(unittest.TestCase):
+    def test_deadline_includes_private_delivery_and_session_expiry(self):
+        policy=json.loads((Path(__file__).resolve().parents[2]/'platform/identity/keycloak/contract.json').read_text())['sessions']
+        self.assertEqual(policy['access_token_seconds'],300)
+        self.assertGreaterEqual(policy['private_revocation_convergence_seconds'],
+                                policy['reconcile_schedule_seconds']+180+210)
+        self.assertGreaterEqual(policy['integrated_offboarding_deadline_seconds'],
+                                policy['private_revocation_convergence_seconds']+policy['keycloak_session_max_seconds'])
+
     def test_network_diagnostics_drop_untrusted_details(self):
         self.assertEqual(network_diagnostics({'failed_resources':1001,'failed_account':True,
             'failed_protocol':-1,'failed_requests':'secret','iframe_timeout':True,

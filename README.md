@@ -431,6 +431,11 @@ Supply the existing GitHub credential on stdin for reviewed private-source chang
 The controller enrolls a synthetic passkey only on the disposable viewer, verifies
 native Argo/Access SSO and denied administration, publishes a persistent offboarding
 tombstone, invalidates supported sessions, and measures old-session denial.
+Measurements start at private publication. Allow up to 900 seconds for private
+Argo refresh and scheduled writer convergence, and 1500 seconds for coordinated
+application session denial. These are acceptance limits, not instant revocation;
+the original access JWT still expires within 300 seconds. The receipt records
+actual source-disable and session-denial times and fails when limits are exceeded.
 Tokens stay in process memory; Docker logging is disabled for both services.
 This check is destructive only to the disposable viewer. It is not a repeatable
 login check after offboarding. Actual personal passkeys require separate human proof.
