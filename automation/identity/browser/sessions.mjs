@@ -159,6 +159,7 @@ try {
   report({...measured,offboarded_new_argo_and_access_login_denied:true,
     logout_is_not_instant_jwt_revocation:true,sessions_persisted:false});
 } catch (error) {
+  report({ready:false,failed_stage:stage,error_type:error.name});
   console.error('Disposable session proof failed at '+stage+': '+error.name);
   process.exitCode=1;
 } finally {
