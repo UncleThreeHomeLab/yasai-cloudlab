@@ -23,7 +23,7 @@ class ContractTests(unittest.TestCase):
         documents = {'desired.tfvars.json': desired, 'backend.json': {'project_id': 1},
                      'encryption.json': {'passphrase': 'synthetic-independent-key-for-unit-test'},
                      'acceptance.json': {'root': root, 'status': 'accepted'},
-                     'inventory.json': {'synthetic.fixture': 'synthetic-id'}}
+                     'inventory.json': {'synthetic.fixture': {'id': 'synthetic-id'}}}
         for name, document in documents.items():
             (private / name).write_text(json.dumps(document))
         credential = 'CLOUDFLARE_API_TOKEN=synthetic-management\nTF_VAR_dns_api_token=synthetic-dns' if root == 'cloudflare' else 'GITHUB_TOKEN=synthetic-governance'
@@ -76,6 +76,9 @@ class ContractTests(unittest.TestCase):
         document['resource_changes'][0]['change']['importing'] = {'id': 'existing'}
         with self.assertRaises(ValueError):
             command.guarded_changes(document)
+        with self.assertRaises(ValueError):
+            command.guarded_changes(plan(before={'id': 'same-name', 'repo_id': 1, 'node_id': 'original'},
+                                         after={'id': 'same-name', 'repo_id': 2, 'node_id': 'recreated'}))
 
     def test_audience_replacement_and_bypass_expansion_rejected(self):
         with self.assertRaises(ValueError):

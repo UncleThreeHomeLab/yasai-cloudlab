@@ -76,6 +76,15 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def identity(resource, attributes):
+    keys = ['id']
+    if resource['type'] == 'github_repository':
+        keys += ['repo_id', 'node_id']
+    if resource['type'] == 'cloudflare_zero_trust_access_application':
+        keys += ['aud']
+    return {key: attributes.get(key) for key in keys}
+
+
 def source_binding(root):
     files = list((WORKSPACE / 'automation/infra').glob('*.py'))
     files += list((WORKSPACE / 'infra' / root).rglob('*'))
@@ -106,7 +115,7 @@ def guarded_changes(plan):
         if any(action in ('delete', 'create') for action in change['actions']):
             raise ValueError('Ordinary apply refuses creation, deletion, and replacement')
         before, after = change.get('before') or {}, change.get('after') or {}
-        if before.get('id') != after.get('id'):
+        if identity(resource, before) != identity(resource, after):
             raise ValueError('Ordinary apply must preserve resource identities')
         if resource['type'] == 'github_repository':
             if any(before.get(key) != after.get(key) for key in ('name', 'visibility', 'archived')):
@@ -173,7 +182,11 @@ class Client:
         if acceptance != {'root': root, 'status': 'accepted'}:
             raise ValueError('Ordinary commands require accepted ownership; use reviewed maintenance for adoption')
         self.inventory = json.loads(snapshot['inventory.json'])
-        if not self.inventory or not all(isinstance(key, str) and isinstance(value, str) and value for key, value in self.inventory.items()):
+        if not isinstance(self.inventory, dict) or not self.inventory or not all(
+                isinstance(key, str) and isinstance(value, dict) and
+                isinstance(value.get('id'), str) and value['id'] and
+                not set(value) - {'id', 'aud', 'repo_id', 'node_id'}
+                for key, value in self.inventory.items()):
             raise ValueError('Accepted private resource identity inventory required')
         url = 'https://gitlab.com/api/v4/projects/' + str(backend['project_id']) + '/terraform/state/managed'
         self.env = environment({'USERNAME': credentials['TF_HTTP_USERNAME'], 'TOKEN': credentials['TF_HTTP_PASSWORD']},
@@ -231,7 +244,7 @@ class Client:
             guarded_changes(document)
         except ValueError as error:
             blocked = str(error)
-        identities = {resource['address']: (resource['change'].get('before') or {}).get('id')
+        identities = {resource['address']: identity(resource, resource['change'].get('before') or {})
                       for resource in document.get('resource_changes', []) if resource.get('mode') == 'managed'}
         if identities != self.inventory:
             blocked = 'Resource inventory changed; maintenance review required'
@@ -261,7 +274,7 @@ class Client:
             return shown.returncode
         document = json.loads(shown.stdout)
         guarded_changes(document)
-        identities = {resource['address']: (resource['change'].get('before') or {}).get('id')
+        identities = {resource['address']: identity(resource, resource['change'].get('before') or {})
                       for resource in document.get('resource_changes', []) if resource.get('mode') == 'managed'}
         if identities != self.inventory:
             raise ValueError('Resource inventory changed; maintenance review required')

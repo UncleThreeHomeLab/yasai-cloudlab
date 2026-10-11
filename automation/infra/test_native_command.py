@@ -75,7 +75,7 @@ resource "terraform_data" "fixture" { input = var.owner }
                 documents = {'desired.tfvars.json': desired, 'backend.json': {'project_id': 1},
                              'encryption.json': {'passphrase': 'synthetic-protected-key-for-native-test'},
                              'acceptance.json': {'root': 'github', 'status': 'accepted'},
-                             'inventory.json': {'terraform_data.fixture': 'pending'}}
+                             'inventory.json': {'terraform_data.fixture': {'id': 'pending'}}}
                 for name, value in documents.items():
                     (private / name).write_text(json.dumps(value))
                 (private / 'credentials.env').write_text('TF_HTTP_USERNAME=synthetic\nTF_HTTP_PASSWORD=synthetic\nGITHUB_TOKEN=synthetic\n')
@@ -98,7 +98,7 @@ resource "terraform_data" "fixture" { input = var.owner }
                     self.assertEqual(pulled.returncode, 0)
                     identity = json.loads(pulled.stdout)['resources'][0]['instances'][0]['attributes']['id']
                     self.assertNotIn(b'"resources"', (client.path / 'diagnostics.txt').read_bytes())
-                    (private / 'inventory.json').write_text(json.dumps({'terraform_data.fixture': identity}))
+                    (private / 'inventory.json').write_text(json.dumps({'terraform_data.fixture': {'id': identity}}))
                     client = command.Client('github')
                     self.assertEqual(client.plan('verify'), 0)
                     self.assertIn('encrypted_data', json.loads(stored['state']))

@@ -38,6 +38,7 @@ uses SQLite and depends on the main VM.
 | Storage | [Backblaze B2](https://www.backblaze.com/cloud-storage) | External storage for Longhorn backups |
 | Secrets | 1Password | CloudLab vault, accessed with a read-only service account |
 | Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies |
+| Infrastructure state | GitLab | Private encrypted OpenTofu state, independent locks and version recovery |
 
 **Storage:** Applications opt in to Longhorn; `local-path` remains the default.
 Longhorn schedules monthly B2 backups and keeps the latest scheduled backup per
@@ -49,6 +50,7 @@ volume.
 | --- | --- |
 | Ansible | Configure hosts and cluster; verify the result |
 | Docker Compose | Run the pinned automation environment |
+| OpenTofu | Separate Cloudflare and GitHub infrastructure roots with pinned providers |
 
 Automation installs missing host packages from configured Debian repositories;
 distribution upgrades are managed separately. Bootstrap inputs are listed in
@@ -80,3 +82,10 @@ docker compose run --build --rm lab prove
 then verifies behavior. GitOps bootstrap requires verified Tailscale host access
 and a fresh control-plane recovery point; its [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml)
 run before bootstrap. Repeat application preserves existing secrets and data.
+
+Infrastructure checks run with `docker compose run --build --rm infra check cloudflare`
+(or `github`). Live infrastructure operations require private inputs outside the
+checkout, selected by `INFRA_PRIVATE_DIR`; the independent client receives no
+deployment credentials. Required files and credential fields are validated by the
+[infrastructure module](automation/infra/command.py). Ownership acceptance is required
+before ordinary live operations.
