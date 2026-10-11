@@ -13,6 +13,8 @@ const connection = await new Promise((resolve, reject) => {
 });
 const lines = readline.createInterface({input:connection, terminal:false})[Symbol.asyncIterator]();
 let browser, page, stage = 'input';
+const network = {failed_resources:0,failed_account:0,failed_protocol:0,failed_requests:0,
+  iframe_timeout:false,script_error:false};
 const report = value => connection.write(JSON.stringify(value)+'\n');
 try {
   const input = JSON.parse((await lines.next()).value);
@@ -37,6 +39,23 @@ try {
   const context = await browser.newContext();
   context.setDefaultTimeout(60000);
   page = await context.newPage();
+  page.on('requestfailed',()=>network.failed_requests++);
+  page.on('response',response=>{
+    if (response.status()<400) return;
+    const path=new URL(response.url()).pathname;
+    if (path.startsWith('/resources/')) network.failed_resources++;
+    else if (path.startsWith('/realms/platform/account')) network.failed_account++;
+    else if (path.startsWith('/realms/platform/protocol/')) network.failed_protocol++;
+  });
+  page.on('pageerror',error=>{
+    network.script_error=true;
+    if (/3rd party check iframe|iframe.*timed out/i.test(error.message)) network.iframe_timeout=true;
+  });
+  page.on('console',message=>{
+    if (message.type()!=='error') return;
+    network.script_error=true;
+    if (/3rd party check iframe|iframe.*timed out/i.test(message.text())) network.iframe_timeout=true;
+  });
   await page.addInitScript(() => {
     const create = navigator.credentials.create.bind(navigator.credentials);
     navigator.credentials.create = async options => {
@@ -191,7 +210,7 @@ try {
         authenticator_label_present:await page.getByLabel(/Authenticator Label/).count()>0};
     }
   } catch {}
-  report({ready:false,failed_stage:stage,error_type:error.name,...diagnostics});
+  report({ready:false,failed_stage:stage,error_type:error.name,...diagnostics,network});
   console.error('Disposable session proof failed at '+stage+': '+error.name);
   process.exitCode=1;
 } finally {

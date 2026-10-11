@@ -6,10 +6,17 @@ from unittest.mock import patch
 import yaml
 
 from automation.identity.operations import change, private_files
-from automation.identity.session_acceptance import offboard_inputs
+from automation.identity.session_acceptance import offboard_inputs, network_diagnostics
 
 
 class SessionAcceptanceTests(unittest.TestCase):
+    def test_network_diagnostics_drop_untrusted_details(self):
+        self.assertEqual(network_diagnostics({'failed_resources':1001,'failed_account':True,
+            'failed_protocol':-1,'failed_requests':'secret','iframe_timeout':True,
+            'script_error':'secret','url':'secret','message':'secret'}),
+            {'failed_resources':1000,'iframe_timeout':True,'script_error':False})
+        self.assertEqual(network_diagnostics(None),{'iframe_timeout':False,'script_error':False})
+
     def test_review_rejects_unrelated_private_change_before_merge(self):
         nonce = 'a'*32
         source = {'format':1,'realms':{'platform':{'memberships':[
