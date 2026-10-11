@@ -13,6 +13,18 @@ import yaml
 from automation.identity.session_fixture import scope
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def network_diagnostics(value):
+    """Expose bounded counts and flags, never browser URLs or error messages."""
+    value = value if isinstance(value, dict) else {}
+    result = {key:min(value[key],1000) for key in (
+        'failed_resources','failed_account','failed_protocol','failed_requests')
+        if type(value.get(key)) is int and value[key]>=0}
+    result.update({key:value.get(key) is True for key in ('iframe_timeout','script_error')})
+    return result
+
+
 REMOTE = '''import sys,json,hashlib
 sys.path.insert(0,'/opt/cloudlab')
 from automation.identity.session_fixture import scope
@@ -141,7 +153,8 @@ def run():
                                   'webauthn_error':ready.get('webauthn_error') if ready.get('webauthn_error') in
                                       ('SecurityError','NotAllowedError','InvalidStateError','UnknownError','NotSupportedError') else None,
                                   'register_button_present':ready.get('register_button_present') is True,
-                                  'authenticator_label_present':ready.get('authenticator_label_present') is True}),flush=True)
+                                  'authenticator_label_present':ready.get('authenticator_label_present') is True,
+                                  'network':network_diagnostics(ready.get('network'))}),flush=True)
             raise RuntimeError('Browser baseline not accepted')
         print(json.dumps(ready),flush=True)
         stream.write('{"action":"observe-offboarding"}\n');stream.flush()
