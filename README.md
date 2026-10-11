@@ -103,7 +103,7 @@ Each accepted root has a `cloudflare/` or `github/` subdirectory containing:
 
 Missing files or an unaccepted root stop before live init/plan. Do not create an
 acceptance receipt to bypass handoff. Deployment jobs receive no governance inputs.
-The independent client masks the checkout's `.env` and passes only root credentials
+The independent client mounts only its code and Git metadata, excludes `.env`, and passes only root credentials
 to OpenTofu. Raw diagnostics, private review text, encrypted plans, backend cache and
 failed-upload recovery state stay in the local `infra_work` Docker volume, outside Git,
 Kubernetes storage and CI artifacts. Restrict access to the host and Docker daemon.

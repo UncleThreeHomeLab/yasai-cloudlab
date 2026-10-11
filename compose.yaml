@@ -25,12 +25,20 @@ services:
     working_dir: /workspace
     volumes:
       - type: bind
-        source: .
-        target: /workspace
+        source: ./automation
+        target: /workspace/automation
         read_only: true
       - type: bind
-        source: ./.env.example
-        target: /workspace/.env
+        source: ./infra
+        target: /workspace/infra
+        read_only: true
+      - type: bind
+        source: ./.git
+        target: /workspace/.git
+        read_only: true
+      - type: bind
+        source: ./compose.yaml
+        target: /workspace/compose.yaml
         read_only: true
       - type: bind
         source: ${INFRA_PRIVATE_DIR:-./.infra-private}
