@@ -29,8 +29,7 @@ __pycache__/
 *.tfstate*
 
 # Documentation stays local until explicitly requested.
-/docs/*
-!/docs/architecture/
+/docs/
 *.md
 !/README.md
 !AGENTS.md

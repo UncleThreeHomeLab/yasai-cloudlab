@@ -6,7 +6,7 @@ A K3s cluster on two cloud VMs, managed with Ansible and Docker Compose.
 
 ## Architecture
 
-![Architecture](docs/architecture/arch.png?v=58ad7863cc35)
+![Architecture](assets/arch.png)
 
 ## The lab
 
@@ -119,7 +119,7 @@ Cloudflare Tunnel carries public requests to the public Istio gateway.
 Tailscale carries private requests to a separate gateway. Both route to apps over
 HTTPS. cert-manager manages certificates and Cloudflare Access protects selected public hosts.
 
-![Access](docs/architecture/access.png)
+![Access](assets/access.png)
 
 ### Identity
 
@@ -127,7 +127,7 @@ Users sign in through Keycloak. Apps use OIDC tokens and roles to control access
 External Secrets copies scoped credentials from 1Password into Kubernetes.
 Istio encrypts traffic between workloads and checks which services may communicate.
 
-![Identity](docs/architecture/identity.png)
+![Identity](assets/identity.png)
 
 ### Delivery
 
@@ -136,7 +136,7 @@ scanned, signed and stored in Harbor. Argo CD reads public or private GitOps rep
 and deploys the selected images. Dedicated infrastructure runners execute OpenTofu.
 GitHub governance runs separately through Compose.
 
-![Delivery](docs/architecture/delivery.png)
+![Delivery](assets/delivery.png)
 
 ### Releases
 
@@ -144,7 +144,7 @@ Argo Rollouts sends a small share of traffic to a new revision. Prometheus metri
 and k6 tests guide promotion or rollback. ApplicationSet creates private previews
 for approved revisions. Preview resources are removed when the preview closes or expires.
 
-![Releases](docs/architecture/releases.png)
+![Releases](assets/releases.png)
 
 ### Data
 
@@ -152,7 +152,7 @@ Apps use PostgreSQL managed by CloudNativePG and private S3 storage from Seaweed
 Longhorn replicates their volumes across both VMs. Coordinated monthly backups go
 to B2. Isolated restores check that databases and objects can be recovered.
 
-![Data](docs/architecture/data.png)
+![Data](assets/data.png)
 
 ### Observability
 
@@ -160,7 +160,7 @@ Prometheus collects metrics. Alloy sends logs to Loki and traces to Tempo.
 Grafana brings these signals together, Kiali shows mesh traffic and Alertmanager
 routes alerts. UptimeRobot checks public access independently. Telemetry stays on local storage.
 
-![Observability](docs/architecture/observability.png)
+![Observability](assets/observability.png)
 
 ### Foundation
 
@@ -169,6 +169,4 @@ reviewed OpenTofu changes to Cloudflare and Harbor, with encrypted state in GitL
 Compose remains available for bootstrap, recovery and GitHub governance.
 K3s recovery uses a separate monthly restic backup to B2.
 
-![Foundation](docs/architecture/foundation.png)
-
-Logos identify their projects. [Logo sources](docs/architecture/logo-sources.json).
+![Foundation](assets/foundation.png)
