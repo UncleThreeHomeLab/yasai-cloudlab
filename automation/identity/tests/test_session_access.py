@@ -55,7 +55,7 @@ class SessionAccessTests(unittest.TestCase):
 
     def test_browser_sessions_have_no_persistent_profile_or_docker_logs(self):
         root = Path(__file__).resolve().parents[3]
-        service = yaml.safe_load((root/'compose.identity-proof.yaml').read_text())['services']['sessions']
+        service = yaml.safe_load((root/'automation/identity/compose.identity-proof.yaml').read_text())['services']['sessions']
         self.assertEqual(service['logging'], {'driver':'none'})
         self.assertTrue(service['read_only'])
         self.assertNotIn('volumes', service)

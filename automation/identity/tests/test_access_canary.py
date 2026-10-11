@@ -12,7 +12,7 @@ class CanaryTests(unittest.TestCase):
     def test_live_browser_helper_uses_locked_image_and_memory_only_session_cache(self):
         import yaml
         root = Path(__file__).resolve().parents[3]
-        helper = yaml.safe_load((root / 'compose.identity-proof.yaml').read_text())['services']['access-browser']
+        helper = yaml.safe_load((root / 'automation/identity/compose.identity-proof.yaml').read_text())['services']['access-browser']
         lock = json.loads((root / 'platform/connectivity/access/images.lock.json').read_text())
         self.assertEqual(helper['image'], lock['images']['cloudflared'])
         self.assertEqual(helper['profiles'], ['live-access'])
