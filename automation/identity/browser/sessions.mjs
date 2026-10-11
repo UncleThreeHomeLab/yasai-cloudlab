@@ -92,10 +92,11 @@ try {
   const personal = page.getByRole('heading', {name:'Personal info',exact:true});
   const firstName = page.getByLabel('First name',{exact:false});
   await Promise.race([personal.waitFor(),firstName.waitFor()]);
-  if (await firstName.isVisible()) {
+  const profileSubmit = page.getByRole('button',{name:/^Submit$/i});
+  if (await firstName.isVisible() && await profileSubmit.count()) {
     await firstName.fill('Fixture');
     await page.getByLabel('Last name',{exact:false}).fill('Viewer');
-    await page.getByRole('button',{name:/^Submit$/i}).click();
+    await profileSubmit.click();
   }
   await personal.waitFor();
   const profilePromise = page.waitForResponse(r => r.url().startsWith(issuer+'/account/?') && r.status()===200);
