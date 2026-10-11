@@ -68,6 +68,15 @@ def previous_writer_done(spec, pods):
                    not in ('Succeeded', 'Failed') for pod in pods)
 
 
+def sync_pending():
+    app = api_request('GET', 'https://kubernetes.default.svc/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/cloudlab-identity')
+    metadata = app.get('metadata', {})
+    if (metadata.get('name') != 'cloudlab-identity' or metadata.get('namespace') != 'argocd'
+            or not metadata.get('uid') or metadata.get('labels', {}).get('cloudlab.io/owner') != 'cloudlab-identity-bootstrap'):
+        raise RuntimeError('Scheduled writer cannot observe a foreign identity Application')
+    return bool(app.get('operation') or app.get('status', {}).get('operationState', {}).get('phase') in ('Running', 'Terminating'))
+
+
 def api_request(method, url, value=None):
     account = Path('/var/run/secrets/kubernetes.io/serviceaccount')
     context = ssl.create_default_context(cafile=str(account / 'ca.crt'))
@@ -109,6 +118,9 @@ def acquire(skip_busy=False):
             if skip_busy:
                 return False
             raise RuntimeError('Previous writer has not stopped; expired lease cannot authorize overlap')
+    # A resumed CronJob must not take the free lease before Argo's PostSync job.
+    if skip_busy and sync_pending():
+        return False
     stamp = now.isoformat().replace('+00:00', 'Z')
     current['spec'] = {'holderIdentity': os.environ['POD_UID'], 'leaseDurationSeconds': DURATION,
                        'acquireTime': stamp, 'renewTime': stamp,

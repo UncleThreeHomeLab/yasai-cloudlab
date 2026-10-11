@@ -1,3 +1,22 @@
+{{- if .Values.identitySyncObserver }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: identity-sync-observer
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: [cloudlab-identity]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: identity-sync-observer
+subjects: [{kind: ServiceAccount, name: identity-writer, namespace: cloudlab-identity}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: identity-sync-observer}
+---
+{{- end }}
 {{- $cm := (index .Values "argo-cd").configs.cm }}
 {{- if index $cm "oidc.config" }}
 {{- $origins := concat (list $cm.url) ($cm.additionalUrls | fromYamlArray) }}
