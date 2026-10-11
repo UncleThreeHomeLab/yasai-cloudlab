@@ -101,9 +101,12 @@ try {
     await profileSubmit.click();
   }
   await personal.waitFor();
+  stage = 'account reload';
   const profilePromise = page.waitForResponse(r => r.url().startsWith(issuer+'/account/?') && r.status()===200);
   await page.reload();
+  stage = 'account API response';
   const profile = await profilePromise;
+  stage = 'account token validation';
   if ((await profile.json()).username !== input.username) throw new Error('Unexpected account identity');
   const authorization = (await profile.request().allHeaders()).authorization;
   if (!authorization?.startsWith('Bearer ') || !refresh) throw new Error('Missing real account session');
