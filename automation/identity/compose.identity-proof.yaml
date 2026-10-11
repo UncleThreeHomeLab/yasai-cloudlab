@@ -1,11 +1,13 @@
 # Disposable compatibility fixtures and explicit, transient live browser proofs.
+# Keep shared runner volumes in the root Compose project.
+name: yasai-cloudlab
 services:
   session-controller:
     profiles: [live-sessions]
-    build: ./automation/runner
+    build: ../runner
     entrypoint: [python, -m, automation.identity.session_acceptance]
     working_dir: /workspace
-    volumes: [".:/workspace:ro", "ssh_known_hosts:/state", "recovery_outputs:/recovery"]
+    volumes: ["../..:/workspace:ro", "ssh_known_hosts:/state", "recovery_outputs:/recovery"]
     logging: {driver: none}
     depends_on: [sessions]
     networks: [session-control, session-internet]
@@ -14,7 +16,7 @@ services:
     mem_limit: 256m
   sessions:
     profiles: [live-sessions]
-    build: ./automation/identity/browser
+    build: ./browser
     entrypoint: [node, /proof/sessions.mjs]
     logging: {driver: none}
     stdin_open: true
@@ -38,15 +40,15 @@ services:
     mem_limit: 256m
   private-routing:
     profiles: [live-routing]
-    build: ./automation/identity/browser
+    build: ./browser
     entrypoint: [node, /workspace/automation/identity/browser/private-routing.mjs]
-    volumes: [".:/workspace:ro"]
+    volumes: ["../..:/workspace:ro"]
     network_mode: bridge
     mem_limit: 256m
   pki:
-    build: ./automation/runner
+    build: ../runner
     entrypoint: [python, /workspace/automation/identity/fixture_pki.py]
-    volumes: [".:/workspace:ro", "identity_fixture:/fixture"]
+    volumes: ["../..:/workspace:ro", "identity_fixture:/fixture"]
     network_mode: none
   database:
     image: ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec
@@ -82,9 +84,9 @@ services:
         aliases: [admin.fixture.test]
     mem_limit: 1536m
   admin-gateway:
-    build: ./automation/runner
+    build: ../runner
     entrypoint: [python, /workspace/automation/identity/fixture_gateway.py]
-    volumes: [".:/workspace:ro", "identity_fixture:/fixture:ro"]
+    volumes: ["../..:/workspace:ro", "identity_fixture:/fixture:ro"]
     depends_on:
       pki: {condition: service_completed_successfully}
       server: {condition: service_started}
@@ -133,28 +135,28 @@ services:
       server: {condition: service_started}
     volumes:
       - identity_fixture:/fixture
-      - ./platform/identity/keycloak/config-cli.properties:/code/config-cli.properties:ro
+      - ../../platform/identity/keycloak/config-cli.properties:/code/config-cli.properties:ro
     network_mode: service:server
   proof:
-    build: ./automation/runner
+    build: ../runner
     entrypoint: [python, /workspace/automation/identity/local_proof.py]
     working_dir: /workspace
     volumes:
-      - .:/workspace:ro
+      - ../..:/workspace:ro
       - identity_fixture:/fixture
     environment: {SSL_CERT_FILE: /fixture/ca.crt}
     depends_on: [server, writer, admin-gateway]
     network_mode: service:server
   reference:
-    build: ./automation/runner
+    build: ../runner
     entrypoint: [python, /workspace/automation/identity/reference.py]
-    volumes: [".:/workspace:ro", "identity_fixture:/fixture:ro"]
+    volumes: ["../..:/workspace:ro", "identity_fixture:/fixture:ro"]
     depends_on:
       pki: {condition: service_completed_successfully}
       server: {condition: service_started}
     network_mode: service:server
   browser:
-    build: ./automation/identity/browser
+    build: ./browser
     environment:
       NODE_EXTRA_CA_CERTS: /fixture/ca.crt
     volumes: ["identity_fixture:/fixture"]
@@ -181,14 +183,14 @@ services:
     mem_limit: 1536m
   emergency-proof:
     profiles: [recovery]
-    build: ./automation/runner
+    build: ../runner
     entrypoint: [python, /workspace/automation/identity/emergency_proof.py]
     working_dir: /workspace
-    volumes: [".:/workspace:ro", "identity_fixture:/fixture"]
+    volumes: ["../..:/workspace:ro", "identity_fixture:/fixture"]
     environment: {SSL_CERT_FILE: /fixture/ca.crt}
     network_mode: service:server
   failure:
-    build: ./automation/identity/browser
+    build: ./browser
     command: [--failure]
     environment:
       NODE_EXTRA_CA_CERTS: /fixture/ca.crt
