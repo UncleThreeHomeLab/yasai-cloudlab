@@ -16,7 +16,6 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
-
     def test_infra_dispatch_preserves_native_exit_without_deployment_inputs(self):
         with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'drift', 'github']), \
                 patch.object(runner, 'dotenv_values') as dotenv, \
