@@ -1,0 +1,25 @@
+{
+  "account_id": "00000000000000000000000000000001",
+  "zone_id": "00000000000000000000000000000002",
+  "tunnel_id": "00000000-0000-4000-8000-000000000003",
+  "team_name": "synthetic",
+  "applications": {
+    "fixture": {
+      "name": "synthetic-fixture",
+      "domain": "fixture.example.invalid",
+      "session_duration": "1h",
+      "allowed_idps": ["00000000-0000-4000-8000-000000000004"],
+      "app_launcher_visible": false,
+      "auto_redirect_to_identity": false,
+      "policies": {
+        "z_human": {"name": "synthetic-allow", "decision": "allow", "precedence": 1,
+          "include": [{"email": {"email": "allowed@example.invalid"}}], "exclude": [],
+          "require": [{"login_method": {"id": "00000000-0000-4000-8000-000000000004"}},
+            {"oidc": {"claim_name": "groups", "claim_value": "synthetic-members", "identity_provider_id": "00000000-0000-4000-8000-000000000004"}}]},
+        "a_machine": {"name": "synthetic-machine", "decision": "non_identity", "precedence": 2,
+          "include": [{"service_token": {"token_id": "00000000-0000-4000-8000-000000000005"}}], "exclude": [], "require": []}
+      }
+    }
+  },
+  "routes": {"fixture": {"hostname": "fixture.example.invalid", "service": "https://origin.example.invalid:443", "application": "fixture", "dns_comment": "synthetic fixture"}}
+}

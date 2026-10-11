@@ -1,0 +1,20 @@
+{
+  "owner": "synthetic-organization",
+  "repositories": {
+    "fixture": {
+      "name": "synthetic-repository", "description": "synthetic fixture", "visibility": "public", "default_branch": "main",
+      "has_issues": true, "has_projects": false, "has_wiki": false, "has_discussions": false,
+      "allow_merge_commit": false, "allow_squash_merge": true, "allow_rebase_merge": true, "allow_auto_merge": false,
+      "delete_branch_on_merge": true, "web_commit_signoff_required": false
+    }
+  },
+  "rulesets": {
+    "fixture": {
+      "repository": "fixture", "name": "synthetic-main", "include": ["refs/heads/main"], "exclude": [], "bypass_actors": [],
+      "deletion": true, "non_fast_forward": true, "required_linear_history": true,
+      "pull_request": {"allowed_merge_methods": ["squash", "rebase"], "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false, "require_last_push_approval": false, "required_approving_review_count": 0,
+        "required_review_thread_resolution": true}, "strict_status_checks": false, "status_checks": []
+    }
+  }
+}

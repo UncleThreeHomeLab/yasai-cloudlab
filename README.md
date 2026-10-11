@@ -51,6 +51,12 @@ Tailscale host access and a fresh recovery point for the control plane.
 The [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml) run first.
 Running the configuration again preserves existing secrets and data.
 
+Check external infrastructure declarations independently with
+`docker compose --profile infra run --build --rm infra check cloudflare`
+or replace `cloudflare` with `github`. Live operations require private inputs and
+accepted ownership; required fields and write gates belong to the
+[infrastructure client](automation/infra/command.py).
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.
