@@ -78,6 +78,7 @@ class AccessCutoverTests(unittest.TestCase):
             if url.endswith('/credentials'): return changes.get('credentials', [{'type': 'webauthn'}])
             return changes.get('groups', [{'path': '/platform-admin'}])
         with tempfile.TemporaryDirectory() as directory, patch.object(maintenance, 'BASE', Path(directory)), \
+                patch('automation.identity.access_cutover.time.time', return_value=1800000000), \
                 patch('automation.mesh.kube.get', side_effect=get), \
                 patch('automation.identity.bootstrap.private_inputs', return_value=(
                     {'realms': {'platform': {'clients': [contract['client']]}}}, {'realms': {'platform': {}}}, 'immutable')) as inputs, \
@@ -89,7 +90,7 @@ class AccessCutoverTests(unittest.TestCase):
             (Path(directory) / 'ownership.json').write_text(json.dumps({'uid': 'owned'}))
             path = Path(directory) / 'retirement.json'; path.write_text(json.dumps(retired))
             self.assertEqual(gate('fixture'), {'contract': 'fixture', 'human_email': 'fixture@example.invalid'})
-            now = int(time.time())
+            now = 1800000000
             event = {'type': 'CODE_TO_TOKEN', 'clientId': 'cloudflare-access', 'userId': 'primary', 'time': now * 1000}
             for event_change in (None, {'time': (now - 901) * 1000}, {'time': (now + 1) * 1000},
                                  {'clientId': 'argocd'}, {'userId': 'other'}, {'type': 'LOGIN'}, {'error': 'invalid_client'}):
