@@ -146,9 +146,12 @@ def run():
         ready = json.loads(stream.readline())
         if ready.get('ready') is not True:
             stages = ('input','account enrollment','account password','WebAuthn registration',
-                      'account session','native Argo SSO','Access SSO')
+                      'account session','account reload','account API response','account token validation',
+                      'native Argo SSO','Access SSO')
             if ready.get('failed_stage') in stages:
                 print(json.dumps({'browser_failed_stage':ready['failed_stage'],
+                                  'browser_error_type':ready.get('error_type') if ready.get('error_type') in
+                                      ('Error','TimeoutError','TypeError') else None,
                                   'password_rejected':ready.get('password_rejected') is True,
                                   'profile_form_present':ready.get('profile_form_present') is True,
                                   'registration_error':ready.get('registration_error') is True,
