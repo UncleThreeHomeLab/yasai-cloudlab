@@ -104,7 +104,7 @@ volume.
 | Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies | Available |
 | Source | GitHub | Code and GitOps repositories | Available |
 | Certificates | Let's Encrypt | Public TLS certificates | Available |
-| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
+| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
 | Monitoring | UptimeRobot | External HTTPS checks | Planned |
 
 ### Automation
@@ -113,7 +113,7 @@ volume.
 | --- | --- | --- |
 | Ansible | Configure and verify hosts and the cluster | Available |
 | Docker Compose | Run the pinned automation environment | Available |
-| OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
+| OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
 | GitHub Actions | Trusted builds and infrastructure jobs through ARC | Planned |
 | Renovate | Reviewed dependency updates | Planned |
 
