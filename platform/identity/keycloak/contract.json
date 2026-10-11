@@ -1,5 +1,5 @@
 {
-  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement and dedicated Access cutover accepted; integrated session acceptance and final current-source recovery proof remain incomplete.",
+  "status": "One live official Operator/server with scoped reconciliation; real master/platform passkeys and Argo login observed. Production bootstrap retirement, dedicated Access cutover and disposable integrated session acceptance passed; final current-source recovery proof remains incomplete.",
   "private_http2_routing": "All private origins share one HTTPS listener and TLS route table. Gateway wildcard matching includes nested labels; exact HTTPRoute hostnames, certificate SANs, restricted attachment namespaces and policies retain private boundaries. The credential-free Compose private-routing proof checks twelve requests across three reused HTTP/2 connections, including canonical issuer administration denial. Separate SNI listeners using this same certificate cause browser coalescing 404s and are rejected.",
   "realms": [
     "platform",
@@ -8,7 +8,7 @@
   "writer": "keycloak-config-cli; no RealmImport or preview client controllers",
   "runtime_application_requirement": "Argo CD always excludes Lease resources. Its serialized writer job initializes one runtime-owned operational Lease, rejects foreign/deleting locks, and acquires with resourceVersion CAS. Namespace-scoped create is separate from named get/update permission; no delete permission or Pod owner reference. Scheduled jobs yield to active identity sync operations before acquisition; Argo's module grants only get on the named identity Application, independently of OIDC. The 210-second job deadline, 240-second lease and previous-holder Pod checks remain unchanged. Server/bootstrap/primary/scoped phases preserve bootstrap access until separately verified retirement",
   "initial_startup_recovery": "Only the recorded server-only Application UID and Operator resource UID qualify. A failed stale Pod must belong to the corrected StatefulSet. The existing Argo maintenance field stops and resumes the server; no direct Pod deletion or database reset. A durable checkpoint resumes interrupted repair and blocks phase advancement until accepted. Foreign maintenance and replaced resources fail closed.",
-  "access_provider_preparation": "Live dedicated provider creation and identical repeat passed; preparation preserved the previous provider and changed zero application policies. Exact private client/ready ESO credentials and native Argo ownership/convergence gate preparation. Host receipts serialize creation, public drift repair and secret rotation. Masked remote secrets cannot prove browser acceptance; ambiguous interrupted creation fails closed. Real signed canary/browser proof and owned human policy cutover are accepted; integrated session measurements remain pending.",
+  "access_provider_preparation": "Live dedicated provider creation and identical repeat passed; preparation preserved the previous provider and changed zero application policies. Exact private client/ready ESO credentials and native Argo ownership/convergence gate preparation. Host receipts serialize creation, public drift repair and secret rotation. Masked remote secrets cannot prove browser acceptance; ambiguous interrupted creation fails closed. Real signed canary/browser proof, owned human policy cutover and disposable integrated session measurements passed.",
   "proxy_trust": "Forwarded headers are stripped and canonical HTTPS headers set by explicit gateway routes. Operator NetworkPolicy allows HTTPS only from the named public/private gateway namespace and gateway Pod selectors. Trusted addresses use verified private node Pod ranges with bounded prefixes; replacements retain trust without trusting unrelated reachable peers. Public management/master/client registration paths remain denied at the gateway.",
   "account_console": "Platform self-service uses the unchanged canonical login hostname on both public and private gateways, with native authenticated account APIs and required WebAuthn. The exact public root redirects to the platform account page. Only platform account paths, explicit OIDC paths and static resources are public; master, administration/API, management, client registration and applications account paths remain denied. Public account paths reject percent encoding through Gateway API v1 RegularExpression matching supported by the pinned Istio controller; credential IDs need no escaping. Exact split DNS retains independent private protocol access. Saved private account links redirect to the canonical origin; explicit master console remains separate. No theme override, credential reset, Access wrapper or realm-management grant. Live proof independently resolves the public edge, requires anonymous account APIs to return JSON401 and denies the audit client credential management (401 or403).",
   "private_inputs": [
@@ -71,7 +71,19 @@
     "private_revocation_convergence_seconds": 900,
     "integrated_offboarding_deadline_seconds": 1500,
     "deadline_origin": "Reviewed private publication starts the measured window. Budget includes private Argo refresh, scheduled serialized writer and application revocation/expiry. Original access JWT lifetime remains 300 seconds. Fail the operation when convergence or the measured session deadline is exceeded.",
-    "warning": "Logout does not revoke an already issued JWT. Argo and Access deadlines must be measured before acceptance.",
+    "warning": "Logout does not revoke an already issued JWT. Measured managed-client deadlines do not establish deadlines for unmanaged clients.",
+    "integrated_measurement": {
+      "public_revision": "3c2824f",
+      "private_account_disabled_seconds": 347.4,
+      "original_access_jwt_expiry_bound_seconds": 296,
+      "keycloak_access_token_denied_seconds": 298.1,
+      "keycloak_refresh_denied_seconds": 345.7,
+      "argo_session_denied_seconds": 358.3,
+      "access_session_denied_seconds": 360.3,
+      "offboarded_new_argo_and_access_login_denied": true,
+      "unrelated_platform_users_credentials_and_public_keys_preserved": true,
+      "scope": "Existing lab; disposable viewer with synthetic WebAuthn; starts at reviewed private publication; no browser tokens persisted"
+    },
     "disposable_measurement": {
       "new_login_denied_seconds": 23,
       "access_jwt_denied_seconds": 295,
@@ -102,7 +114,7 @@
         "/developer",
         "/viewer"
       ],
-      "status": "Native OIDC and exact full-path RBAC are bound and converged; real primary passkey login observed. Disposable viewer RBAC and integrated session acceptance remain pending. Independent SSH, Tailscale and Kubernetes repair is preserved."
+      "status": "Native OIDC and exact full-path RBAC are bound and converged; real primary passkey login observed. Disposable viewer collection access, denied private administration, integrated session denial and denied offboarded new login passed. Independent SSH, Tailscale and Kubernetes repair is preserved."
     },
     "access": {
       "realm": "platform",
@@ -113,7 +125,7 @@
         "email"
       ],
       "groups_claim": "groups",
-      "status": "Dedicated confidential client and owned provider accepted after real signed canary login and owned human policy cutover; previous provider and machine policies preserved. Integrated session acceptance remains pending.",
+      "status": "Dedicated confidential client and owned provider accepted after real signed canary login and owned human policy cutover; previous provider and machine policies preserved. Disposable integrated session denial and denied offboarded new login passed.",
       "groups_claim_values": [
         "/platform-admin",
         "/developer",
@@ -209,7 +221,7 @@
       "identity-scoped",
       "identity-argo"
     ],
-    "limitations": "Production bootstrap retirement, dedicated Access cutover and disposable confidential rotation/disable/removal are accepted. Integrated Argo/Access session measurements and final current-source Compose prove/restore remain incomplete. Disposable stopped-IdP login fails closed while real SSH/Tailscale/API repair remains reachable; this is not a production IdP outage exercise.",
+    "limitations": "Production bootstrap retirement, dedicated Access cutover, disposable confidential rotation/disable/removal and integrated Argo/Access session measurements passed. Final current-source Compose prove/restore remains incomplete. Disposable stopped-IdP login fails closed while real SSH/Tailscale/API repair remains reachable; this is not a production IdP outage exercise.",
     "native_argo": "Read-only GitHub App verifies the exact private producer overlay at an immutable commit and its active exact-callback public client. Current private state and HTTPS discovery/token reachability gate binding. Existing bounded GitOps owner stops its sole controller during the root values handoff and resumes it in finally. Interrupted controller repair through GitOps bootstrap never contacts Keycloak. Both routes reconcile from the consumer ConfigMap interface; browser/RBAC/session checks remain required."
   },
   "credential_operations": {
@@ -279,7 +291,7 @@
     "canary": "Before initial policy cutover, a disposable path-specific Access application on the already owned public smoke hostname requires the dedicated provider, approved email and exact /platform-admin group. A real signed session, exact audience, backend response and independent machine denial must pass within 900 seconds of cutover. No production application policies change during this proof. Separate named fixture namespaces and exact ownership checks permit cleanup without contacting Keycloak.",
     "browser_proof": "Existing access-human-proof verifies a real signed Access JWT, exact issuer/audience/email/expiry, protected backend and machine denial. Current central policy/provider and unchanged credential receipt are required. It records acceptance without persisting the session.",
     "rotation": "Preparation preserves accepted phase only for unchanged provider inputs. Credential hash and configuration timestamp participate in browser evidence. A newly issued Access JWT and a successful primary-user cloudflare-access CODE_TO_TOKEN event after configuration and within 900 seconds are required. Cached organization SSO cannot substitute for a current IdP exchange; audit reads use the existing view-events-only health client.",
-    "status": "Real signed dedicated-provider canary and owned human policy cutover accepted in host-backed receipts; previous provider preserved. Integrated session deadlines and fresh offboarded Argo/Access login denial remain pending."
+    "status": "Real signed dedicated-provider canary and owned human policy cutover accepted in host-backed receipts; previous provider preserved. Disposable integrated session deadlines and fresh offboarded Argo/Access login denial passed."
   },
   "host_clock": {
     "requirement": "Automatic host time synchronization on both VMs. Apply retries an already active systemd-timesyncd daemon once when unsynchronized, then waits at most one minute. Verification only reads synchronization state. Both fail before cluster operations unless timedatectl confirms synchronization. Upstream NTP reachability is an external prerequisite.",
