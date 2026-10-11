@@ -69,6 +69,7 @@ try {
       try {return await create(options);} catch(error) {window.disposableWebAuthnError=error.name;throw error;}
     };
   });
+  // Pinned Keycloak prompts for the label and submits registration itself.
   page.on('dialog', dialog => dialog.accept('disposable-session-proof'));
   let refresh;
   page.on('response', async response => {
@@ -90,11 +91,6 @@ try {
     hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   await page.getByRole('button', {name:/Register/}).click();
   await page.waitForLoadState('networkidle');
-  const label = page.getByLabel(/Authenticator Label/);
-  if (await label.count()) {
-    await label.fill('disposable-session-proof');
-    await page.getByRole('button', {name:/Register/}).click();
-  }
   stage = 'account session';
   const personal = page.getByRole('heading', {name:'Personal info',exact:true});
   const firstName = page.getByLabel('First name',{exact:false});
