@@ -1,6 +1,6 @@
 # yasai-cloudlab
 
-Two cloud VMs, one K3s cluster. Managed as code with Ansible and Docker Compose.
+A K3s cluster on two cloud VMs, managed with Ansible and Docker Compose.
 
 ## The lab
 
@@ -21,18 +21,18 @@ Deployment still depends on inputs and verification.
 
 | Category | Component | Purpose | Status |
 | --- | --- | --- | --- |
-| Platform | K3s | Kubernetes with bundled DNS, metrics, and local storage | Available |
+| Platform | K3s | Kubernetes with DNS, metrics and local storage | Available |
 | Deployment | Argo CD | Private API, public platform root and optional scoped private sources | Available |
 | Connectivity | WireGuard | Encrypted traffic between the VMs | Available |
-| Host access | Tailscale | Independent SSH access; requires scoped enrollment credentials | Available |
+| Host access | Tailscale | Independent SSH access with scoped enrolment credentials | Available |
 | Private access | Tailscale operator + CoreDNS | L3 gateway ingress, independent private DNS and an authenticated Kubernetes API proxy | Available |
 | HTTPS and mesh | cert-manager + Istio | Automatic certificates, separate public/private gateways and workload identity | Available |
-| Security | Host firewalls | Restrict public access; keep cluster and ingress ports private | Available |
-| Secrets | External Secrets Operator | Synchronize 1Password values into Kubernetes Secrets | Available |
+| Security | Host firewalls | Restrict public access and keep cluster and ingress ports private | Available |
+| Secrets | External Secrets Operator | Synchronise 1Password values into Kubernetes Secrets | Available |
 | Storage | [Longhorn](https://github.com/longhorn/longhorn) | Persistent volumes with one replica on each VM | Available |
-| Application data | CloudNativePG + SeaweedFS | Private SQL/TLS and authenticated S3; gated by restore acceptance | Available |
+| Application data | CloudNativePG + SeaweedFS | Private SQL over TLS and authenticated S3, subject to restore checks | Available |
 | Identity | Keycloak | Realm configuration, passkeys and application OIDC | Available |
-| Recovery | SQLite + restic | Consistent monthly control-plane export; separate credentials and acceptance | Available |
+| Recovery | SQLite + restic | Monthly control plane export with separate credentials and recovery checks | Available |
 | Packaging | Helm | Versioned workload charts | Available |
 | Runners | ARC | Separate application and infrastructure runners | Planned |
 | Registry | Harbor | Private images and OCI charts | Planned |
@@ -55,10 +55,10 @@ Deployment still depends on inputs and verification.
 | Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies | Available |
 | Source | GitHub | Code and GitOps repositories | Available |
 | Certificates | Let's Encrypt | Public TLS certificates | Available |
-| Infrastructure state | GitLab | Encrypted state and per-root locks | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
+| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
 | Monitoring | UptimeRobot | External HTTPS checks | Planned |
 
-**Storage:** Applications opt in to Longhorn; `local-path` remains the default.
+**Storage:** Applications opt in to Longhorn. `local-path` remains the default.
 Longhorn schedules monthly B2 backups and keeps the latest scheduled backup per
 volume.
 
@@ -66,31 +66,31 @@ volume.
 
 | Tool | Purpose | Status |
 | --- | --- | --- |
-| Ansible | Configure hosts and cluster; verify the result | Available |
+| Ansible | Configure and verify hosts and the cluster | Available |
 | Docker Compose | Run the pinned automation environment | Available |
-| OpenTofu | External resources; Compose bootstrap and recovery | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
+| OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#117](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/117)) |
 | GitHub Actions | Trusted builds and infrastructure jobs through ARC | Planned |
 | Renovate | Reviewed dependency updates | Planned |
 
-Automation installs missing host packages from configured Debian repositories;
-distribution upgrades are managed separately. Bootstrap inputs are listed in
-[`.env.example`](.env.example); private values stay in ignored `.env`.
+Automation installs missing host packages from the configured Debian repositories.
+Distribution upgrades are managed separately. Bootstrap inputs are listed in
+[`.env.example`](.env.example). Keep private values in the ignored `.env` file.
 
 ## Setup
 
 1. Clone this repo and install Docker with Compose on your local machine.
 2. Prepare two reachable Debian 13 VMs with SSH access and automatic time
-   synchronization. VM creation and upstream firewall rules are managed outside
-   this repo; allow the required outbound traffic, including NTP.
+   synchronisation. VM creation and upstream firewall rules are managed outside
+   this repo. Allow the required outbound traffic, including NTP.
 3. Copy [`.env.example`](.env.example) to `.env`. Fill in both VM credential sets,
-   the CloudLab read-only 1Password token, and the enabled service inputs.
+   the CloudLab read-only 1Password token and the inputs for enabled services.
 4. Prepare the external services: a CloudLab vault, scoped Tailscale credentials,
-   a B2 bucket/key and restic password, and Cloudflare DNS/tunnel/Access credentials.
+   a B2 bucket and key, a restic password and credentials for Cloudflare DNS, Tunnel and Access.
    Keep application secrets in 1Password. Access and application credential fields
    are defined in the [access](platform/connectivity/access/contract.json),
    [data](platform/data/contract.json) and [identity](platform/identity/keycloak/contract.json)
-   contracts. Host-access inputs are listed in `.env.example`; backup inputs are
-   defined by the [recovery module](automation/recovery/runner.py).
+   contracts. Inputs for host access are listed in `.env.example`. Backup inputs
+   are defined by the [recovery module](automation/recovery/runner.py).
 
 From the repo directory, apply and verify:
 
@@ -98,16 +98,17 @@ From the repo directory, apply and verify:
 docker compose run --build --rm lab prove
 ```
 
-`prove` applies twice, requires zero changes on the second apply on both VMs,
-then verifies behavior. GitOps bootstrap requires verified Tailscale host access
-and a fresh control-plane recovery point; its [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml)
-run before bootstrap. Repeat application preserves existing secrets and data.
+`prove` applies the configuration twice and requires no changes on the second
+apply on either VM. It then checks behaviour. GitOps bootstrap needs verified
+Tailscale host access and a fresh recovery point for the control plane.
+The [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml) run first.
+Running the configuration again preserves existing secrets and data.
 
 ## Architecture
 
-Public traffic enters through Cloudflare; private traffic uses Tailscale.
-Istio routes requests to apps, Argo CD deploys them, and Longhorn stores their data.
-These diagrams include planned components; the tables above show implementation status.
+Public traffic enters through Cloudflare, while private traffic uses Tailscale.
+Istio routes requests to apps, Argo CD deploys them and Longhorn stores their data.
+The diagrams include planned components. Check the tables above for their status.
 
 ![Architecture](docs/architecture/arch.png)
 
@@ -115,13 +116,13 @@ These diagrams include planned components; the tables above show implementation 
 
 Cloudflare Tunnel carries public requests to the public Istio gateway.
 Tailscale carries private requests to a separate gateway. Both route to apps over
-HTTPS; cert-manager manages certificates, and Cloudflare Access protects selected public hosts.
+HTTPS. cert-manager manages certificates and Cloudflare Access protects selected public hosts.
 
 ![Access](docs/architecture/access.png)
 
 ### Identity
 
-Users sign in through Keycloak; apps use OIDC tokens and roles to control access.
+Users sign in through Keycloak. Apps use OIDC tokens and roles to control access.
 External Secrets copies scoped credentials from 1Password into Kubernetes.
 Istio encrypts traffic between workloads and checks which services may communicate.
 
@@ -131,8 +132,8 @@ Istio encrypts traffic between workloads and checks which services may communica
 
 GitHub Actions runs trusted builds on ARC workers in Cloudlab. Images are built,
 scanned, signed and stored in Harbor. Argo CD reads public or private GitOps repos
-and deploys the selected images. Dedicated infrastructure runners execute OpenTofu;
-GitHub governance stays on independent Compose.
+and deploys the selected images. Dedicated infrastructure runners execute OpenTofu.
+GitHub governance runs separately through Compose.
 
 ![Delivery](docs/architecture/delivery.png)
 
@@ -140,22 +141,22 @@ GitHub governance stays on independent Compose.
 
 Argo Rollouts sends a small share of traffic to a new revision. Prometheus metrics
 and k6 tests guide promotion or rollback. ApplicationSet creates private previews
-for approved revisions; closing or expiring a preview removes its resources.
+for approved revisions. Preview resources are removed when the preview closes or expires.
 
 ![Releases](docs/architecture/releases.png)
 
 ### Data
 
 Apps use PostgreSQL managed by CloudNativePG and private S3 storage from SeaweedFS.
-Their PVCs use Longhorn replicas across both VMs. Coordinated monthly backups go
-to B2; isolated restores check that databases and objects can be recovered.
+Longhorn replicates their volumes across both VMs. Coordinated monthly backups go
+to B2. Isolated restores check that databases and objects can be recovered.
 
 ![Data](docs/architecture/data.png)
 
 ### Observability
 
-Prometheus collects metrics; Alloy sends logs to Loki and traces to Tempo.
-Grafana brings these signals together, Kiali shows mesh traffic, and Alertmanager
+Prometheus collects metrics. Alloy sends logs to Loki and traces to Tempo.
+Grafana brings these signals together, Kiali shows mesh traffic and Alertmanager
 routes alerts. UptimeRobot checks public access independently. Telemetry stays on local storage.
 
 ![Observability](docs/architecture/observability.png)
