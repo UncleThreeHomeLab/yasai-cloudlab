@@ -1,0 +1,4659 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "section",
+      "type": "rectangle",
+      "x": 20,
+      "y": 20,
+      "width": 1680,
+      "height": 1560,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10000,
+      "version": 1,
+      "versionNonce": 10001,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "accent",
+      "type": "rectangle",
+      "x": 20,
+      "y": 20,
+      "width": 12,
+      "height": 90,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#6d28d9",
+      "fillStyle": "solid",
+      "strokeWidth": 0,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10002,
+      "version": 1,
+      "versionNonce": 10003,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "title",
+      "type": "text",
+      "x": 65,
+      "y": 48,
+      "width": 818.72,
+      "height": 42.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10004,
+      "version": 1,
+      "versionNonce": 10005,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "IDENTITY / People, secrets and workloads",
+      "originalText": "IDENTITY / People, secrets and workloads",
+      "fontSize": 34,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "subtitle",
+      "type": "text",
+      "x": 65,
+      "y": 100,
+      "width": 1132.3619999999999,
+      "height": 23.75,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10006,
+      "version": 1,
+      "versionNonce": 10007,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Keycloak handles login. External Secrets distributes credentials. Istio supplies workload identity.",
+      "originalText": "Keycloak handles login. External Secrets distributes credentials. Istio supplies workload identity.",
+      "fontSize": 19,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "people",
+      "type": "rectangle",
+      "x": 65,
+      "y": 155,
+      "width": 1580,
+      "height": 665,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10008,
+      "version": 1,
+      "versionNonce": 10009,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "people_label",
+      "type": "text",
+      "x": 85,
+      "y": 173,
+      "width": 168.56,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10010,
+      "version": 1,
+      "versionNonce": 10011,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "HUMAN IDENTITY",
+      "originalText": "HUMAN IDENTITY",
+      "fontSize": 20,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "secret_region",
+      "type": "rectangle",
+      "x": 65,
+      "y": 855,
+      "width": 1580,
+      "height": 300,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10012,
+      "version": 1,
+      "versionNonce": 10013,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "secret_region_label",
+      "type": "text",
+      "x": 85,
+      "y": 873,
+      "width": 228.76,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10014,
+      "version": 1,
+      "versionNonce": 10015,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "APPLICATION SECRETS",
+      "originalText": "APPLICATION SECRETS",
+      "fontSize": 20,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "mesh_region",
+      "type": "rectangle",
+      "x": 65,
+      "y": 1190,
+      "width": 1580,
+      "height": 300,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10016,
+      "version": 1,
+      "versionNonce": 10017,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "mesh_region_label",
+      "type": "text",
+      "x": 85,
+      "y": 1208,
+      "width": 168.56,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10018,
+      "version": 1,
+      "versionNonce": 10019,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "WORKLOAD TRUST",
+      "originalText": "WORKLOAD TRUST",
+      "fontSize": 20,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "passkey",
+      "type": "rectangle",
+      "x": 105,
+      "y": 225,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ddd6fe",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "passkey_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10020,
+      "version": 1,
+      "versionNonce": 10021,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_0",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "1Password passkey",
+        "external": true
+      }
+    },
+    {
+      "id": "passkey_icon",
+      "type": "image",
+      "x": 123,
+      "y": 253,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "passkey_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10022,
+      "version": 1,
+      "versionNonce": 10023,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-1password",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "passkey_name",
+      "type": "text",
+      "x": 179,
+      "y": 243,
+      "width": 214.914,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "passkey_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10024,
+      "version": 1,
+      "versionNonce": 10025,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "1Password passkey",
+      "originalText": "1Password passkey",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "passkey_role",
+      "type": "text",
+      "x": 179,
+      "y": 277,
+      "width": 240.79999999999998,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "passkey_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10026,
+      "version": 1,
+      "versionNonce": 10027,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Personal vault / WebAuthn",
+      "originalText": "Personal vault / WebAuthn",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "user",
+      "type": "rectangle",
+      "x": 685,
+      "y": 225,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ddd6fe",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "user_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10028,
+      "version": 1,
+      "versionNonce": 10029,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_0",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_1",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "User",
+        "external": true
+      }
+    },
+    {
+      "id": "user_name",
+      "type": "text",
+      "x": 707,
+      "y": 243,
+      "width": 50.568,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "user_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10030,
+      "version": 1,
+      "versionNonce": 10031,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "User",
+      "originalText": "User",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "user_role",
+      "type": "text",
+      "x": 707,
+      "y": 277,
+      "width": 202.272,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "user_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10032,
+      "version": 1,
+      "versionNonce": 10033,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Browser / code + PKCE",
+      "originalText": "Browser / code + PKCE",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "keycloak",
+      "type": "rectangle",
+      "x": 1265,
+      "y": 225,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "keycloak_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10034,
+      "version": 1,
+      "versionNonce": 10035,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_1",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_2",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_3",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_4",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Keycloak",
+        "external": false
+      }
+    },
+    {
+      "id": "keycloak_icon",
+      "type": "image",
+      "x": 1283,
+      "y": 253,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "keycloak_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10036,
+      "version": 1,
+      "versionNonce": 10037,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-keycloak",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "keycloak_name",
+      "type": "text",
+      "x": 1339,
+      "y": 243,
+      "width": 101.136,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "keycloak_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10038,
+      "version": 1,
+      "versionNonce": 10039,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Keycloak",
+      "originalText": "Keycloak",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "keycloak_role",
+      "type": "text",
+      "x": 1339,
+      "y": 277,
+      "width": 231.168,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "keycloak_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10040,
+      "version": 1,
+      "versionNonce": 10041,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Single identity instance",
+      "originalText": "Single identity instance",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "postgres",
+      "type": "rectangle",
+      "x": 105,
+      "y": 445,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#047857",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "postgres_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10042,
+      "version": 1,
+      "versionNonce": 10043,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_2",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "PostgreSQL",
+        "external": false
+      }
+    },
+    {
+      "id": "postgres_icon",
+      "type": "image",
+      "x": 123,
+      "y": 473,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "postgres_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10044,
+      "version": 1,
+      "versionNonce": 10045,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-postgresql",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "postgres_name",
+      "type": "text",
+      "x": 179,
+      "y": 463,
+      "width": 126.42,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "postgres_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10046,
+      "version": 1,
+      "versionNonce": 10047,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "PostgreSQL",
+      "originalText": "PostgreSQL",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "postgres_role",
+      "type": "text",
+      "x": 179,
+      "y": 497,
+      "width": 163.744,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "postgres_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10048,
+      "version": 1,
+      "versionNonce": 10049,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Keycloak database",
+      "originalText": "Keycloak database",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "platform_realm",
+      "type": "rectangle",
+      "x": 685,
+      "y": 445,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "platform_realm_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10050,
+      "version": 1,
+      "versionNonce": 10051,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_3",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_5",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_6",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_7",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Platform realm",
+        "external": false
+      }
+    },
+    {
+      "id": "platform_realm_name",
+      "type": "text",
+      "x": 707,
+      "y": 463,
+      "width": 176.988,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "platform_realm_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10052,
+      "version": 1,
+      "versionNonce": 10053,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Platform realm",
+      "originalText": "Platform realm",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "platform_realm_role",
+      "type": "text",
+      "x": 707,
+      "y": 497,
+      "width": 240.79999999999998,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "platform_realm_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10054,
+      "version": 1,
+      "versionNonce": 10055,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Tool roles / OIDC clients",
+      "originalText": "Tool roles / OIDC clients",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "app_realm",
+      "type": "rectangle",
+      "x": 1265,
+      "y": 445,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_realm_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10056,
+      "version": 1,
+      "versionNonce": 10057,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_4",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_8",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Application realm",
+        "external": false
+      }
+    },
+    {
+      "id": "app_realm_name",
+      "type": "text",
+      "x": 1287,
+      "y": 463,
+      "width": 214.914,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_realm_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10058,
+      "version": 1,
+      "versionNonce": 10059,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Application realm",
+      "originalText": "Application realm",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "app_realm_role",
+      "type": "text",
+      "x": 1287,
+      "y": 497,
+      "width": 231.168,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_realm_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10060,
+      "version": 1,
+      "versionNonce": 10061,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "App roles / OIDC clients",
+      "originalText": "App roles / OIDC clients",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "argo",
+      "type": "rectangle",
+      "x": 105,
+      "y": 675,
+      "width": 300,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "argo_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10062,
+      "version": 1,
+      "versionNonce": 10063,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_5",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Argo CD",
+        "external": false
+      }
+    },
+    {
+      "id": "argo_icon",
+      "type": "image",
+      "x": 123,
+      "y": 703,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "argo_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10064,
+      "version": 1,
+      "versionNonce": 10065,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-argo-cd",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "argo_name",
+      "type": "text",
+      "x": 179,
+      "y": 693,
+      "width": 88.494,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "argo_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10066,
+      "version": 1,
+      "versionNonce": 10067,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Argo CD",
+      "originalText": "Argo CD",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "argo_role",
+      "type": "text",
+      "x": 179,
+      "y": 727,
+      "width": 192.64,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "argo_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10068,
+      "version": 1,
+      "versionNonce": 10069,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Platform OIDC client",
+      "originalText": "Platform OIDC client",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "grafana",
+      "type": "rectangle",
+      "x": 505,
+      "y": 675,
+      "width": 300,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "grafana_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10070,
+      "version": 1,
+      "versionNonce": 10071,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_6",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Grafana",
+        "external": false
+      }
+    },
+    {
+      "id": "grafana_icon",
+      "type": "image",
+      "x": 523,
+      "y": 703,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "grafana_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10072,
+      "version": 1,
+      "versionNonce": 10073,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-grafana",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "grafana_name",
+      "type": "text",
+      "x": 579,
+      "y": 693,
+      "width": 88.494,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "grafana_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10074,
+      "version": 1,
+      "versionNonce": 10075,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Grafana",
+      "originalText": "Grafana",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "grafana_role",
+      "type": "text",
+      "x": 579,
+      "y": 727,
+      "width": 192.64,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "grafana_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10076,
+      "version": 1,
+      "versionNonce": 10077,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Platform OIDC client",
+      "originalText": "Platform OIDC client",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "harbor",
+      "type": "rectangle",
+      "x": 905,
+      "y": 675,
+      "width": 300,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "harbor_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10078,
+      "version": 1,
+      "versionNonce": 10079,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_7",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Harbor",
+        "external": false
+      }
+    },
+    {
+      "id": "harbor_icon",
+      "type": "image",
+      "x": 923,
+      "y": 703,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "harbor_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10080,
+      "version": 1,
+      "versionNonce": 10081,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-harbor",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "harbor_name",
+      "type": "text",
+      "x": 979,
+      "y": 693,
+      "width": 75.852,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "harbor_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10082,
+      "version": 1,
+      "versionNonce": 10083,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Harbor",
+      "originalText": "Harbor",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "harbor_role",
+      "type": "text",
+      "x": 979,
+      "y": 727,
+      "width": 192.64,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "harbor_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10084,
+      "version": 1,
+      "versionNonce": 10085,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Platform OIDC client",
+      "originalText": "Platform OIDC client",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "app_login",
+      "type": "rectangle",
+      "x": 1305,
+      "y": 675,
+      "width": 300,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_login_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10086,
+      "version": 1,
+      "versionNonce": 10087,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_8",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_11",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Application",
+        "external": false
+      }
+    },
+    {
+      "id": "app_login_icon",
+      "type": "image",
+      "x": 1323,
+      "y": 703,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_login_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10088,
+      "version": 1,
+      "versionNonce": 10089,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-kubernetes",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "app_login_name",
+      "type": "text",
+      "x": 1379,
+      "y": 693,
+      "width": 139.06199999999998,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_login_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10090,
+      "version": 1,
+      "versionNonce": 10091,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Application",
+      "originalText": "Application",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "app_login_role",
+      "type": "text",
+      "x": 1379,
+      "y": 727,
+      "width": 192.64,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "app_login_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10092,
+      "version": 1,
+      "versionNonce": 10093,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Validates app tokens",
+      "originalText": "Validates app tokens",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "vault",
+      "type": "rectangle",
+      "x": 105,
+      "y": 955,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ddd6fe",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "vault_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10094,
+      "version": 1,
+      "versionNonce": 10095,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_9",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "1Password vault",
+        "external": true
+      }
+    },
+    {
+      "id": "vault_icon",
+      "type": "image",
+      "x": 123,
+      "y": 983,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "vault_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10096,
+      "version": 1,
+      "versionNonce": 10097,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-1password",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "vault_name",
+      "type": "text",
+      "x": 179,
+      "y": 973,
+      "width": 189.63,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "vault_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10098,
+      "version": 1,
+      "versionNonce": 10099,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "1Password vault",
+      "originalText": "1Password vault",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "vault_role",
+      "type": "text",
+      "x": 179,
+      "y": 1007,
+      "width": 154.112,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "vault_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10100,
+      "version": 1,
+      "versionNonce": 10101,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "CloudLab secrets",
+      "originalText": "CloudLab secrets",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "eso",
+      "type": "rectangle",
+      "x": 685,
+      "y": 955,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "eso_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10102,
+      "version": 1,
+      "versionNonce": 10103,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_9",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_10",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "External Secrets",
+        "external": false
+      }
+    },
+    {
+      "id": "eso_icon",
+      "type": "image",
+      "x": 703,
+      "y": 983,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "eso_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10104,
+      "version": 1,
+      "versionNonce": 10105,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-external-secrets",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "eso_name",
+      "type": "text",
+      "x": 759,
+      "y": 973,
+      "width": 202.272,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "eso_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10106,
+      "version": 1,
+      "versionNonce": 10107,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "External Secrets",
+      "originalText": "External Secrets",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "eso_role",
+      "type": "text",
+      "x": 759,
+      "y": 1007,
+      "width": 231.168,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "eso_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10108,
+      "version": 1,
+      "versionNonce": 10109,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Read-only vault identity",
+      "originalText": "Read-only vault identity",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "secret",
+      "type": "rectangle",
+      "x": 1265,
+      "y": 955,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "secret_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10110,
+      "version": 1,
+      "versionNonce": 10111,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_10",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_11",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_12",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Kubernetes Secret",
+        "external": false
+      }
+    },
+    {
+      "id": "secret_icon",
+      "type": "image",
+      "x": 1283,
+      "y": 983,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "secret_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10112,
+      "version": 1,
+      "versionNonce": 10113,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-kubernetes",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "secret_name",
+      "type": "text",
+      "x": 1339,
+      "y": 973,
+      "width": 214.914,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "secret_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10114,
+      "version": 1,
+      "versionNonce": 10115,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Kubernetes Secret",
+      "originalText": "Kubernetes Secret",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "secret_role",
+      "type": "text",
+      "x": 1339,
+      "y": 1007,
+      "width": 183.00799999999998,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "secret_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10116,
+      "version": 1,
+      "versionNonce": 10117,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Per-app credentials",
+      "originalText": "Per-app credentials",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "ambient",
+      "type": "rectangle",
+      "x": 105,
+      "y": 1310,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "ambient_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10118,
+      "version": 1,
+      "versionNonce": 10119,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_13",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Istio ambient",
+        "external": false
+      }
+    },
+    {
+      "id": "ambient_icon",
+      "type": "image",
+      "x": 123,
+      "y": 1338,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "ambient_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10120,
+      "version": 1,
+      "versionNonce": 10121,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-istio",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "ambient_name",
+      "type": "text",
+      "x": 179,
+      "y": 1328,
+      "width": 164.346,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "ambient_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10122,
+      "version": 1,
+      "versionNonce": 10123,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Istio ambient",
+      "originalText": "Istio ambient",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "ambient_role",
+      "type": "text",
+      "x": 179,
+      "y": 1362,
+      "width": 221.536,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "ambient_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10124,
+      "version": 1,
+      "versionNonce": 10125,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Service identity / mTLS",
+      "originalText": "Service identity / mTLS",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "workload",
+      "type": "rectangle",
+      "x": 685,
+      "y": 1310,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "workload_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10126,
+      "version": 1,
+      "versionNonce": 10127,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_12",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_13",
+          "type": "arrow"
+        },
+        {
+          "id": "edge_14",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "Application pods",
+        "external": false
+      }
+    },
+    {
+      "id": "workload_icon",
+      "type": "image",
+      "x": 703,
+      "y": 1338,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "workload_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10128,
+      "version": 1,
+      "versionNonce": 10129,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-kubernetes",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "workload_name",
+      "type": "text",
+      "x": 759,
+      "y": 1328,
+      "width": 202.272,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "workload_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10130,
+      "version": 1,
+      "versionNonce": 10131,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Application pods",
+      "originalText": "Application pods",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "workload_role",
+      "type": "text",
+      "x": 759,
+      "y": 1362,
+      "width": 183.00799999999998,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "workload_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10132,
+      "version": 1,
+      "versionNonce": 10133,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Authenticated peers",
+      "originalText": "Authenticated peers",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "authpolicy",
+      "type": "rectangle",
+      "x": 1265,
+      "y": 1310,
+      "width": 340,
+      "height": 106,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "#ffffff",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "authpolicy_group"
+      ],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 10134,
+      "version": 1,
+      "versionNonce": 10135,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "edge_14",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "architectureNode": true,
+        "service": "AuthorizationPolicy",
+        "external": false
+      }
+    },
+    {
+      "id": "authpolicy_icon",
+      "type": "image",
+      "x": 1283,
+      "y": 1338,
+      "width": 42,
+      "height": 42,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "authpolicy_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10136,
+      "version": 1,
+      "versionNonce": 10137,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-istio",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ],
+      "crop": null
+    },
+    {
+      "id": "authpolicy_name",
+      "type": "text",
+      "x": 1339,
+      "y": 1328,
+      "width": 240.19799999999998,
+      "height": 26.25,
+      "angle": 0,
+      "strokeColor": "#374151",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "authpolicy_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10138,
+      "version": 1,
+      "versionNonce": 10139,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "AuthorizationPolicy",
+      "originalText": "AuthorizationPolicy",
+      "fontSize": 21,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "authpolicy_role",
+      "type": "text",
+      "x": 1339,
+      "y": 1362,
+      "width": 202.272,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "authpolicy_group"
+      ],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10140,
+      "version": 1,
+      "versionNonce": 10141,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Allowed service calls",
+      "originalText": "Allowed service calls",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_0",
+      "type": "arrow",
+      "x": 451,
+      "y": 278,
+      "width": 228,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10142,
+      "version": 1,
+      "versionNonce": 10143,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          228,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "passkey",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "user",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "passkey",
+        "to": "user"
+      }
+    },
+    {
+      "id": "edge_0_label",
+      "type": "text",
+      "x": 510,
+      "y": 245,
+      "width": 75.852,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10144,
+      "version": 1,
+      "versionNonce": 10145,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Passkey",
+      "originalText": "Passkey",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_1",
+      "type": "arrow",
+      "x": 1031,
+      "y": 278,
+      "width": 228,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10146,
+      "version": 1,
+      "versionNonce": 10147,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          228,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "user",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "keycloak",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "user",
+        "to": "keycloak"
+      }
+    },
+    {
+      "id": "edge_1_label",
+      "type": "text",
+      "x": 1090,
+      "y": 245,
+      "width": 108.36,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10148,
+      "version": 1,
+      "versionNonce": 10149,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "OIDC login",
+      "originalText": "OIDC login",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_2",
+      "type": "arrow",
+      "x": 1380,
+      "y": 337,
+      "width": 1105,
+      "height": 102,
+      "angle": 0,
+      "strokeColor": "#047857",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10150,
+      "version": 1,
+      "versionNonce": 10151,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          43
+        ],
+        [
+          -1105,
+          43
+        ],
+        [
+          -1105,
+          102
+        ]
+      ],
+      "startBinding": {
+        "elementId": "keycloak",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "postgres",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "keycloak",
+        "to": "postgres"
+      }
+    },
+    {
+      "id": "edge_2_label",
+      "type": "text",
+      "x": 430,
+      "y": 350,
+      "width": 151.704,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#047857",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10152,
+      "version": 1,
+      "versionNonce": 10153,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Identity state",
+      "originalText": "Identity state",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_3",
+      "type": "arrow",
+      "x": 1260,
+      "y": 310,
+      "width": 405,
+      "height": 129,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10154,
+      "version": 1,
+      "versionNonce": 10155,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -120,
+          0
+        ],
+        [
+          -120,
+          95
+        ],
+        [
+          -405,
+          95
+        ],
+        [
+          -405,
+          129
+        ]
+      ],
+      "startBinding": {
+        "elementId": "keycloak",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "platform_realm",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "keycloak",
+        "to": "platform_realm"
+      }
+    },
+    {
+      "id": "edge_3_label",
+      "type": "text",
+      "x": 885,
+      "y": 343,
+      "width": 162.54,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10156,
+      "version": 1,
+      "versionNonce": 10157,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Roles / clients",
+      "originalText": "Roles / clients",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_4",
+      "type": "arrow",
+      "x": 1470,
+      "y": 337,
+      "width": 0,
+      "height": 102,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10158,
+      "version": 1,
+      "versionNonce": 10159,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          102
+        ]
+      ],
+      "startBinding": {
+        "elementId": "keycloak",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "app_realm",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "keycloak",
+        "to": "app_realm"
+      }
+    },
+    {
+      "id": "edge_4_label",
+      "type": "text",
+      "x": 1490,
+      "y": 380,
+      "width": 54.18,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10160,
+      "version": 1,
+      "versionNonce": 10161,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Realm",
+      "originalText": "Realm",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_5",
+      "type": "arrow",
+      "x": 765,
+      "y": 557,
+      "width": 510,
+      "height": 112,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10162,
+      "version": 1,
+      "versionNonce": 10163,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          43
+        ],
+        [
+          -510,
+          43
+        ],
+        [
+          -510,
+          112
+        ]
+      ],
+      "startBinding": {
+        "elementId": "platform_realm",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "argo",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "platform_realm",
+        "to": "argo"
+      }
+    },
+    {
+      "id": "edge_6",
+      "type": "arrow",
+      "x": 825,
+      "y": 557,
+      "width": 170,
+      "height": 112,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10164,
+      "version": 1,
+      "versionNonce": 10165,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          68
+        ],
+        [
+          -170,
+          68
+        ],
+        [
+          -170,
+          112
+        ]
+      ],
+      "startBinding": {
+        "elementId": "platform_realm",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "grafana",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "platform_realm",
+        "to": "grafana"
+      }
+    },
+    {
+      "id": "edge_7",
+      "type": "arrow",
+      "x": 940,
+      "y": 557,
+      "width": 115,
+      "height": 112,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10166,
+      "version": 1,
+      "versionNonce": 10167,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          43
+        ],
+        [
+          115,
+          43
+        ],
+        [
+          115,
+          112
+        ]
+      ],
+      "startBinding": {
+        "elementId": "platform_realm",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "harbor",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "platform_realm",
+        "to": "harbor"
+      }
+    },
+    {
+      "id": "edge_8",
+      "type": "arrow",
+      "x": 1455,
+      "y": 557,
+      "width": 0,
+      "height": 112,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10168,
+      "version": 1,
+      "versionNonce": 10169,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          112
+        ]
+      ],
+      "startBinding": {
+        "elementId": "app_realm",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "app_login",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "app_realm",
+        "to": "app_login"
+      }
+    },
+    {
+      "id": "edge_8_label",
+      "type": "text",
+      "x": 1475,
+      "y": 600,
+      "width": 43.344,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10170,
+      "version": 1,
+      "versionNonce": 10171,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "OIDC",
+      "originalText": "OIDC",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_9",
+      "type": "arrow",
+      "x": 451,
+      "y": 1008,
+      "width": 228,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10172,
+      "version": 1,
+      "versionNonce": 10173,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          228,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "vault",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "eso",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "vault",
+        "to": "eso"
+      }
+    },
+    {
+      "id": "edge_9_label",
+      "type": "text",
+      "x": 495,
+      "y": 975,
+      "width": 119.196,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10174,
+      "version": 1,
+      "versionNonce": 10175,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Scoped read",
+      "originalText": "Scoped read",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_10",
+      "type": "arrow",
+      "x": 1031,
+      "y": 1008,
+      "width": 228,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10176,
+      "version": 1,
+      "versionNonce": 10177,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          228,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "eso",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "secret",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "eso",
+        "to": "secret"
+      }
+    },
+    {
+      "id": "edge_10_label",
+      "type": "text",
+      "x": 1070,
+      "y": 975,
+      "width": 97.524,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10178,
+      "version": 1,
+      "versionNonce": 10179,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Reconcile",
+      "originalText": "Reconcile",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_11",
+      "type": "arrow",
+      "x": 1455,
+      "y": 949,
+      "width": 0,
+      "height": 162,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10180,
+      "version": 1,
+      "versionNonce": 10181,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          -162
+        ]
+      ],
+      "startBinding": {
+        "elementId": "secret",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "app_login",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "secret",
+        "to": "app_login"
+      }
+    },
+    {
+      "id": "edge_11_label",
+      "type": "text",
+      "x": 1475,
+      "y": 850,
+      "width": 75.852,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10182,
+      "version": 1,
+      "versionNonce": 10183,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Consume",
+      "originalText": "Consume",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_12",
+      "type": "arrow",
+      "x": 1370,
+      "y": 1067,
+      "width": 515,
+      "height": 237,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10184,
+      "version": 1,
+      "versionNonce": 10185,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          108
+        ],
+        [
+          -515,
+          108
+        ],
+        [
+          -515,
+          237
+        ]
+      ],
+      "startBinding": {
+        "elementId": "secret",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "workload",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "secret",
+        "to": "workload"
+      }
+    },
+    {
+      "id": "edge_12_label",
+      "type": "text",
+      "x": 900,
+      "y": 1200,
+      "width": 184.212,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10186,
+      "version": 1,
+      "versionNonce": 10187,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Mount credentials",
+      "originalText": "Mount credentials",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_13",
+      "type": "arrow",
+      "x": 451,
+      "y": 1363,
+      "width": 228,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10188,
+      "version": 1,
+      "versionNonce": 10189,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          228,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "ambient",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "workload",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "ambient",
+        "to": "workload"
+      }
+    },
+    {
+      "id": "edge_13_label",
+      "type": "text",
+      "x": 535,
+      "y": 1330,
+      "width": 43.344,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10190,
+      "version": 1,
+      "versionNonce": 10191,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "mTLS",
+      "originalText": "mTLS",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "edge_14",
+      "type": "arrow",
+      "x": 1259,
+      "y": 1363,
+      "width": 228,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10192,
+      "version": 1,
+      "versionNonce": 10193,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -228,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "authpolicy",
+        "focus": 0,
+        "gap": 6
+      },
+      "endBinding": {
+        "elementId": "workload",
+        "focus": 0,
+        "gap": 6
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "customData": {
+        "from": "authpolicy",
+        "to": "workload"
+      }
+    },
+    {
+      "id": "edge_14_label",
+      "type": "text",
+      "x": 1080,
+      "y": 1330,
+      "width": 97.524,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#6d28d9",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10194,
+      "version": 1,
+      "versionNonce": 10195,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Authorize",
+      "originalText": "Authorize",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "note_0",
+      "type": "text",
+      "x": 65,
+      "y": 1525,
+      "width": 942.732,
+      "height": 22.5,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10196,
+      "version": 1,
+      "versionNonce": 10197,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Personal passkeys and the automation vault are separate. Tailscale keeps its own login.",
+      "originalText": "Personal passkeys and the automation vault are separate. Tailscale keeps its own login.",
+      "fontSize": 18,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "planned_label",
+      "type": "text",
+      "x": 1540,
+      "y": 60,
+      "width": 67.42399999999999,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 10006,
+      "version": 1,
+      "versionNonce": 10007,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "PLANNED",
+      "originalText": "PLANNED",
+      "fontSize": 16,
+      "fontFamily": 3,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": true,
+      "lineHeight": 1.25
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  },
+  "files": {
+    "logo-1password": {
+      "id": "logo-1password",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGZpbGw9Im5vbmUiIHZpZXdCb3g9IjcwLjMxIDcwLjMxIDU3OS4zOCA1NzkuMzgiPjxwYXRoIGZpbGw9IiMwMDAiIGQ9Ik0zNjAgNzAuMzEzQzE5OS45OTcgNzAuMzEzIDcwLjMxMyAxOTkuOTk3IDcwLjMxMyAzNjBTMTk5Ljk5NyA2NDkuNjg4IDM2MCA2NDkuNjg4IDY0OS42ODggNTIwLjAwMyA2NDkuNjg4IDM2MCA1MjAuMDAzIDcwLjMxMyAzNjAgNzAuMzEzbTAgMTkuMzEyYzE0OS4zMzcgMCAyNzAuMzc1IDEyMS4wMzggMjcwLjM3NSAyNzAuMzc1UzUwOS4zMzcgNjMwLjM3NSAzNjAgNjMwLjM3NSA4OS42MjUgNTA5LjMzNyA4OS42MjUgMzYwIDIxMC42NjMgODkuNjI1IDM2MCA4OS42MjUiIG9wYWNpdHk9Ii41MDIiLz48cGF0aCBmaWxsPSIjZmZmIiBkPSJNMzYwIDg5LjYyNWMxNDkuMzM3IDAgMjcwLjM3NSAxMjEuMDM4IDI3MC4zNzUgMjcwLjM3NVM1MDkuMzM3IDYzMC4zNzUgMzYwIDYzMC4zNzUgODkuNjI1IDUwOS4zMzcgODkuNjI1IDM2MCAyMTAuNjYzIDg5LjYyNSAzNjAgODkuNjI1Ii8+PHBhdGggZmlsbD0iIzBBMkQ0RCIgZD0iTTMyMS4zNzUgMjUzLjgxYzAtNS4zNDkgNC4xNTMtOS42ODUgOS40NzItOS42ODVoNTguMzA2YzUuMjMxIDAgOS40NzIgNC4yNDEgOS40NzIgOS41OHYxMDguMzAyYzAgNS4yOTEtMy4xODkgMTIuNDUxLTcuMTkxIDE2LjA1M2wtNC45MyA0LjQzN2MtMy45NzIgMy41NzQtNC4xNzQgOS40ODktLjQzNyAxMy4yMjZsNS44MDMgNS44MDRjMy43MzEgMy43MyA2Ljc1NSAxMS4xODkgNi43NTUgMTYuNDM5djQ4LjIyNGMwIDUuMzQ5LTQuMTUzIDkuNjg1LTkuNDcyIDkuNjg1aC01OC4zMDZjLTUuMjMxIDAtOS40NzItNC4xNzctOS40NzItOS42NDJWMzU5Ljk4NmMwLTUuMzI1IDMuMDE4LTEyLjY2IDYuNzU1LTE2LjM5N2w1LjgwMy01LjgwM2E5LjU0NyA5LjU0NyAwIDAgMCAwLTEzLjUwOWwtNS44MDMtNS44MDRjLTMuNzMxLTMuNzMtNi43NTUtMTEuMTg5LTYuNzU1LTE2LjQzOXoiLz48cGF0aCBmaWxsPSIjMTk4Q0ZGIiBkPSJNMzYwIDE0Ny41NjJjMTE3LjMzNiAwIDIxMi40MzggOTUuMTAyIDIxMi40MzggMjEyLjQzOFM0NzcuMzM2IDU3Mi40MzggMzYwIDU3Mi40MzggMTQ3LjU2MiA0NzcuMzM2IDE0Ny41NjIgMzYwIDI0Mi42NjQgMTQ3LjU2MiAzNjAgMTQ3LjU2Mm0wIDU3LjkzOGMtODUuMzM2IDAtMTU0LjUgNjkuMTY0LTE1NC41IDE1NC41UzI3NC42NjQgNTE0LjUgMzYwIDUxNC41IDUxNC41IDQ0NS4zMzYgNTE0LjUgMzYwIDQ0NS4zMzYgMjA1LjUgMzYwIDIwNS41Ii8+PC9zdmc+",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-keycloak": {
+      "id": "logo-keycloak",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIGlkPSJMYXllcl8xIiB4PSIwIiB5PSIwIiB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48c3R5bGU+LnN0OXtmaWxsOiNkMGQwZDB9LnN0MTF7ZmlsbDojZDlkOWQ5fS5zdDEze2ZpbGw6I2Q4ZDhkOH0uc3QxNHtmaWxsOiNlMmUyZTJ9LnN0MTZ7ZmlsbDojZGVkZWRlfS5zdDIxe2ZpbGw6IzAwYjhlM30uc3QyMntmaWxsOiMzM2M2ZTl9LnN0MjN7ZmlsbDojMDA4YWFhfTwvc3R5bGU+PGcgaWQ9ImcyNDYwIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSguNzE0IC4wNykiPjxwYXRoIGlkPSJwYXRoMTU4OCIgZD0iTTQzMi45IDE0OS4yYy0xLjQgMC0yLjctLjctMy40LTJMMzcwLjEgNDQuMWMtLjctMS4yLTItMi0zLjUtMkgxMjQuMmMtMS40IDAtMi43LjctMy40IDJMNTguOSAxNTAuOWwyMy45IDM0LjljLS43IDEuMi02LjIgMjQtNS41IDI1LjJMNTguOSAzNjAuOWw2MS45IDEwNi45Yy43IDEuMiAyIDIgMy40IDJoMjQyLjRjMS40IDAgMi43LS43IDMuNS0ybDU5LjQtMTAzLjJjLjctMS4yIDItMiAzLjQtMmg3My44YzIuNCAwIDQuNC0yIDQuNC00LjRWMTUzLjZjMC0yLjQtMi00LjQtNC40LTQuNHoiIHN0eWxlPSJmaWxsOiM0ZDRkNGQiLz48cGF0aCBpZD0icGF0aDE1OTQiIGQ9Ik03Mi43IDI0NS4zIDYuNCAyNjkuNGwtNi42LTExLjNjLS43LTEuMi0uNy0yLjcgMC0zLjlsMzAtNTJ6IiBzdHlsZT0iZmlsbDojZTFlMWUxIi8+PHBhdGggaWQ9InBvbHlnb24xNzk0IiBkPSJNNTExLjMgMjU4LjNWMzA5bC00My43LTQ0LjV6IiBzdHlsZT0iZmlsbDojYzhjOGM4Ii8+PHBhdGggaWQ9InBhdGgxNzk4IiBkPSJtNDY3LjUgMjY0LjUgNDMuNyA0NC41djQ5LjZjMCAyLjQtMiA0LjQtNC40IDQuNEg0NTZ6IiBzdHlsZT0iZmlsbDojYzJjMmMyIi8+PHBhdGggaWQ9InBvbHlnb24xODAyIiBkPSJNNDY3LjUgMjY0LjUgNDU2IDM2Mi45aC02MS4ybC0xOC41LTQ0Ljd6IiBzdHlsZT0iZmlsbDojYzdjN2M3Ii8+PHBhdGggaWQ9InBvbHlnb24xODA0IiBkPSJNNTExLjMgMjExLjJ2NDdsLTQzLjcgNi4yeiIgc3R5bGU9ImZpbGw6I2NlY2VjZSIvPjxwYXRoIGlkPSJwYXRoMTgwOCIgZD0iTTUxMS4zIDE1My42djU3LjZsLTQzLjcgNTMuMi0zMy4xLTExNS4zaDcyLjJjMi40LS4xIDQuNSAxLjggNC42IDQuM3oiIHN0eWxlPSJmaWxsOiNkM2QzZDMiLz48cGF0aCBpZD0icG9seWdvbjE4MTIiIGQ9Ik0zOTQuOCAzNjIuOWgtMzIuM2wtOC40LTEyIDIyLjEtMzIuN3oiIHN0eWxlPSJmaWxsOiNjNmM2YzYiLz48cGF0aCBpZD0icG9seWdvbjE4MTQiIGQ9Im00NjcuNSAyNjQuNS0xMjEuMS01MS4yIDYzLjctNjQuMWgyNC40eiIgc3R5bGU9ImZpbGw6I2Q1ZDVkNSIvPjxwYXRoIGlkPSJwYXRoMTgxNiIgZD0ibTM0Ni41IDIxMy4zIDI5LjggMTA1IDkxLjItNTMuOHoiIGNsYXNzPSJzdDkiLz48cGF0aCBpZD0icG9seWdvbjE4MTgiIGQ9Im0zNTMuOCAzNjIuOS40LTEyIDguNCAxMnoiIHN0eWxlPSJmaWxsOiNiZmJmYmYiLz48cGF0aCBpZD0icG9seWdvbjE4MjAiIGQ9Im00MTAuMSAxNDkuMi02My43IDY0LjEtMTEuNC01Ny40IDI0LjYtNi44aDUwLjV6IiBjbGFzcz0ic3QxMSIvPjxwYXRoIGlkPSJwYXRoMTgyMiIgZD0ibTM0Ni41IDIxMy4zLTE0NyAzMy45IDE1NC43IDEwMy43eiIgc3R5bGU9ImZpbGw6I2Q0ZDRkNCIvPjxwYXRoIGlkPSJwYXRoMTgyNCIgZD0ibTM0Ni41IDIxMy4zIDcuNyAxMzcuNiAyMi4xLTMyLjd6IiBjbGFzcz0ic3Q5Ii8+PHBhdGggaWQ9InBhdGgxODI2IiBkPSJtMzM1IDE1NS45LTEzNS41IDkxLjIgMTQ3LTMzLjl6IiBjbGFzcz0ic3QxMSIvPjxwYXRoIGlkPSJwb2x5Z29uMTgyOCIgZD0ibTE5OS41IDI0Ny4yLTYzLjcgMTE1LjdIOTkuNkw3Mi43IDI0NS4zeiIgY2xhc3M9InN0MTMiLz48cGF0aCBpZD0icGF0aDE4MzAiIGQ9Im0xMzQuMyAxNDkuMi02MS41IDk2LjFMNTcuMyAxNTVsMi4yLTMuOGMuNy0xLjIgMi0xLjkgMy40LTEuOXoiIGNsYXNzPSJzdDE0Ii8+PHBhdGggaWQ9InBhdGgxODMyIiBkPSJNOTkuNiAzNjIuOUg2Mi43Yy0xLjQgMC0yLjgtLjgtMy41LTJMNi40IDI2OS40bDY2LjQtMjQuMXoiIGNsYXNzPSJzdDEzIi8+PHBhdGggaWQ9InBvbHlnb24xODM0IiBkPSJNMjkuOSAyMDIuMSA1Ny4xIDE1NWwxNS43IDkwLjN6IiBzdHlsZT0iZmlsbDojZTRlNGU0Ii8+PHBhdGggaWQ9InBvbHlnb24xODM2IiBkPSJtMzM1IDE1NS45LTQwLjgtNi44SDE1OS40bDQwLjEgOTh6IiBjbGFzcz0ic3QxNiIvPjxwYXRoIGlkPSJwb2x5Z29uMTgzOCIgZD0ibTE5OS41IDI0Ny4yLTQwLjEtOThoLTI1LjFsLTYxLjUgOTYuMXoiIGNsYXNzPSJzdDE2Ii8+PHBhdGggaWQ9InBvbHlnb24xODQwIiBkPSJNMzI0LjcgMzYyLjloMjkuMWwuNC0xMnoiIHN0eWxlPSJmaWxsOiNjNWM1YzUiLz48cGF0aCBpZD0icG9seWdvbjE4NDIiIGQ9Ik0yNjYuNyAzNjIuOWg1OGwyOS41LTEyLTE1NC43LTEwMy43IDI3LjkgMTE1Ljd6IiBjbGFzcz0ic3Q5Ii8+PHBhdGggaWQ9InBvbHlnb24xODQ0IiBkPSJtMjI3LjQgMzYyLjktMjcuOS0xMTUuNy02My43IDExNS43eiIgc3R5bGU9ImZpbGw6I2QxZDFkMSIvPjxwYXRoIGlkPSJwb2x5Z29uMTg1NiIgZD0ibTMzNS40IDE0OS4yLS40IDYuOCAyNC42LTYuOHoiIHN0eWxlPSJmaWxsOiNkZGQiLz48cGF0aCBpZD0icG9seWdvbjE4NTgiIGQ9Im0zMzUgMTU1LjktMy44LTYuOGgtMzd6IiBzdHlsZT0iZmlsbDojZTNlM2UzIi8+PHBhdGggaWQ9InBvbHlnb24xODYwIiBkPSJtMzM1IDE1NS45LjQtNi44aC00LjJ6IiBjbGFzcz0ic3QxNCIvPjxwYXRoIGlkPSJwYXRoMTg2MiIgZD0ibTIyMy45IDE1MS01OS43IDEwMy40Yy0uMy41LS40IDEuMS0uNCAxLjdoLTQxLjdsODItMTQycS43NS40NSAxLjIgMS4ybDE4LjYgMzIuM2MuNSAxLjEuNSAyLjQgMCAzLjQiIGNsYXNzPSJzdDIxIi8+PHBhdGggaWQ9InBhdGgxODY0IiBkPSJNMjIzLjggMzY0LjkgMjA1LjMgMzk3cS0uNDUuNzUtMS4yIDEuMmwtODItMTQyLjJoNDEuN2MwIC42LjEgMS4xLjQgMS42bDU5LjYgMTAzLjJjLjggMS4yLjkgMi45IDAgNC4xIiBjbGFzcz0ic3QyMiIvPjxwYXRoIGlkPSJwYXRoMTg2NiIgZD0ibTIwNCAxMTQuMi04MiAxNDEuOS0yMC42IDM1LjYtMTkuNi0zNGMtLjMtLjUtLjQtMS0uNC0xLjZzLjEtMS4yLjQtMS43bDE5LjktMzQuNCA2MC40LTEwNC41Yy42LTEuMSAxLjgtMS44IDMtMS44aDM3LjJjLjYgMCAxLjIuMiAxLjcuNSIgY2xhc3M9InN0MjMiLz48cGF0aCBpZD0icGF0aDE4NjgiIGQ9Ik0yMDQgMzk4LjJjLS41LjMtMS4xLjUtMS44LjVoLTM3LjFjLTEuMyAwLTIuNC0uNy0zLTEuOGwtNTUuMi05NS42LTUuNS05LjUgMjAuNi0zNS42eiIgY2xhc3M9InN0MjEiLz48cGF0aCBpZD0icGF0aDE4NzAiIGQ9Im0zNjguOSAyNTYuMS04MiAxNDJxLS43NS0uNDUtMS4yLTEuMkwyNjcgMzY0LjdjLS41LTEtLjUtMi4zIDAtMy4zTDMyNi43IDI1OGMuMy0uNS41LTEuMi41LTEuOHoiIGNsYXNzPSJzdDIzIi8+PHBhdGggaWQ9InBhdGgxODcyIiBkPSJNNDA5LjQgMjU2LjFjMCAuNi0uMiAxLjMtLjUgMS44bC04MC4zIDEzOS4zYy0uNiAxLTEuOCAxLjctMyAxLjZoLTM3Yy0uNiAwLTEuMi0uMi0xLjgtLjVMMzY4LjkgMjU2bDIwLjYtMzUuNiAxOS41IDMzLjhjLjMuNy40IDEuMy40IDEuOSIgY2xhc3M9InN0MjEiLz48cGF0aCBpZD0icGF0aDE4NzQiIGQ9Ik0zNjguOSAyNTYuMWgtNDEuN2MwLS42LS4yLTEuMi0uNS0xLjhMMjY3IDE1MS4yYy0uNi0xLjEtLjYtMi41IDAtMy42bDE4LjYtMzIuMnEuNDUtLjc1IDEuMi0xLjJ6IiBjbGFzcz0ic3QyMSIvPjxwYXRoIGlkPSJwYXRoMTg3NiIgZD0ibTM4OS40IDIyMC41LTIwLjYgMzUuNi04Mi0xNDJjLjYtLjMgMS4yLS41IDEuOC0uNWgzNy4xYzEuMiAwIDIuMy42IDMgMS42eiIgY2xhc3M9InN0MjIiLz48L2c+PC9zdmc+",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-postgresql": {
+      "id": "logo-postgresql",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIGlkPSJMYXllcl8xIiB4PSIwIiB5PSIwIiB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48c3R5bGU+LnN0MntmaWxsOm5vbmU7c3Ryb2tlOiNmZmY7c3Ryb2tlLXdpZHRoOjEyLjQ2NTE7c3Ryb2tlLWxpbmVjYXA6cm91bmQ7c3Ryb2tlLWxpbmVqb2luOnJvdW5kfTwvc3R5bGU+PGcgaWQ9IkxheWVyX3gwMDIwXzMiPjxwYXRoIGQ9Ik0zNzguNSAzNzIuNWMzLjItMjYuOSAyLjMtMzAuOCAyMi4zLTI2LjVsNS4xLjRjMTUuNC43IDM1LjUtMi41IDQ3LjQtOCAyNS41LTExLjggNDAuNi0zMS41IDE1LjUtMjYuNC01Ny4zIDExLjgtNjEuMi03LjYtNjEuMi03LjYgNjAuNS04OS43IDg1LjgtMjAzLjYgNjMuOS0yMzEuNUM0MTEuOS0zIDMwOC44IDMzIDMwNy4xIDMzLjlsLS41LjFjLTExLjMtMi4zLTI0LTMuOC0zOC4yLTQtMjUuOS0uNC00NS42IDYuOC02MC41IDE4LjEgMCAwLTE4My44LTc1LjctMTc1LjIgOTUuMiAxLjggMzYuNCA1Mi4xIDI3NS4yIDExMi4xIDIwMyAyMS45LTI2LjQgNDMuMS00OC43IDQzLjEtNDguNyAxMC41IDcgMjMuMSAxMC42IDM2LjMgOS4zbDEtLjljLS4zIDMuMy0uMiA2LjUuNCAxMC4zLTE1LjUgMTcuMy0xMC45IDIwLjMtNDEuOCAyNi43LTMxLjMgNi40LTEyLjkgMTcuOS0uOSAyMC45IDE0LjUgMy42IDQ4LjIgOC44IDcwLjktMjNsLS45IDMuNmM2LjEgNC45IDUuNyAzNC45IDYuNSA1Ni4zLjkgMjEuNCAyLjMgNDEuNSA2LjcgNTMuM3M5LjUgNDIuMiA1MC4xIDMzLjVjMzQtNy4zIDU5LjktMTcuNyA2Mi4zLTExNS4xIiBzdHlsZT0ic3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjM3LjM5NTMiLz48cGF0aCBkPSJNNDY4LjcgMzEyLjFjLTU3LjMgMTEuOC02MS4yLTcuNi02MS4yLTcuNkM0NjggMjE0LjggNDkzLjMgMTAwLjkgNDcxLjQgNzMgNDExLjktMyAzMDguOCAzMyAzMDcuMSAzMy45bC0uNi4xYy0xMS4zLTIuMy0yNC0zLjctMzguMi00LTI1LjktLjQtNDUuNiA2LjgtNjAuNSAxOC4xIDAgMC0xODMuOC03NS43LTE3NS4yIDk1LjIgMS44IDM2LjQgNTIuMSAyNzUuMiAxMTIuMSAyMDMgMjEuOS0yNi40IDQzLjEtNDguNyA0My4xLTQ4LjcgMTAuNSA3IDIzLjEgMTAuNiAzNi4zIDkuM2wxLS45Yy0uMyAzLjMtLjIgNi41LjQgMTAuMy0xNS41IDE3LjMtMTAuOSAyMC4zLTQxLjggMjYuNy0zMS4zIDYuNC0xMi45IDE3LjktLjkgMjAuOSAxNC41IDMuNiA0OC4yIDguOCA3MC45LTIzbC0uOSAzLjZjNi4xIDQuOSAxMC4zIDMxLjYgOS42IDU1LjhzLTEuMiA0MC44IDMuNiA1My44IDkuNSA0Mi4yIDUwLjEgMzMuNWMzMy45LTcuMyA1MS41LTI2LjEgNTQtNTcuNiAxLjctMjIuNCA1LjctMTkgNS45LTM5bDMuMi05LjVjMy42LTMwLjMuNi00MC4xIDIxLjUtMzUuNWw1LjEuNGMxNS40LjcgMzUuNS0yLjUgNDcuNC04IDI1LjUtMTEuNyA0MC41LTMxLjQgMTUuNS0yNi4zIiBzdHlsZT0iZmlsbDojMzM2NzkxIi8+PHBhdGggZD0iTTI1Ni4zIDMyOS41Yy0xLjYgNTYuNC40IDExMy4yIDUuOSAxMjYuOSA1LjUgMTMuOCAxNy4zIDQwLjYgNTggMzEuOSAzMy45LTcuMyA0Ni4zLTIxLjQgNTEuNi01Mi40IDMuOS0yMi45IDExLjYtODYuNCAxMi41LTk5LjRNMjA3LjYgNDYuOVMyMy43LTI4LjMgMzIuMiAxNDIuN2MxLjggMzYuNCA1Mi4xIDI3NS4yIDExMi4xIDIwMyAyMS45LTI2LjQgNDEuOC00Ny4xIDQxLjgtNDcuMU0zMDYuOSAzMy4yYy02LjQgMiAxMDIuMy0zOS43IDE2NC4xIDM5LjIgMjEuOCAyNy45LTMuNSAxNDEuOC02My45IDIzMS41IiBjbGFzcz0ic3QyIi8+PHBhdGggZD0iTTQwNyAzMDMuOXMzLjkgMTkuNCA2MS4yIDcuNmMyNS4xLTUuMiAxMCAxNC41LTE1LjUgMjYuNC0yMC45IDkuNy02Ny43IDEyLjItNjguNS0xLjItMS45LTM0LjcgMjQuOC0yNC4yIDIyLjgtMzIuOC0xLjctNy44LTEzLjYtMTUuNS0yMS41LTM0LjUtNi45LTE2LjctOTQuMy0xNDQuNCAyNC4yLTEyNS41IDQuMy0uOS0zMC45LTExMi43LTE0MS44LTExNC41UzE2MC43IDE2NS44IDE2MC43IDE2NS44IiBzdHlsZT0iZmlsbDpub25lO3N0cm9rZTojZmZmO3N0cm9rZS13aWR0aDoxMi40NjUxO3N0cm9rZS1saW5lY2FwOnJvdW5kO3N0cm9rZS1saW5lam9pbjpiZXZlbCIvPjxwYXRoIGQ9Ik0yMjUuMiAzMTUuN2MtMTUuNSAxNy4zLTEwLjkgMjAuMy00MS44IDI2LjctMzEuMyA2LjQtMTIuOSAxNy45LS45IDIwLjkgMTQuNSAzLjYgNDguMiA4LjggNzAuOS0yMyA2LjktOS43IDAtMjUuMS05LjUtMjkuMS00LjYtMi0xMC44LTQuNC0xOC43IDQuNSIgY2xhc3M9InN0MiIvPjxwYXRoIGQ9Ik0yMjQuMiAzMTUuNGMtMS42LTEwLjIgMy4zLTIyLjIgOC42LTM2LjQgNy45LTIxLjIgMjYuMS00Mi40IDExLjUtMTA5LjctMTAuOC01MC4xLTgzLjYtMTAuNC04My42LTMuNnMzLjMgMzQuNS0xLjIgNjYuN2MtNS45IDQyIDI2LjcgNzcuNiA2NC4zIDczLjkiIGNsYXNzPSJzdDIiLz48cGF0aCBkPSJNMjA2LjkgMTY0LjdjLS4zIDIuMyA0LjMgOC41IDEwLjIgOS4zIDYgLjggMTEuMS00IDExLjQtNi4zcy00LjItNC45LTEwLjItNS43Yy02LS45LTExLjEuMy0xMS40IDIuN3oiIHN0eWxlPSJmaWxsOiNmZmY7c3Ryb2tlOiNmZmY7c3Ryb2tlLXdpZHRoOjQuMTU1Ii8+PHBhdGggZD0iTTM4OC40IDE1OS45Yy4zIDIuMy00LjIgOC41LTEwLjIgOS4zcy0xMS4xLTQtMTEuNC02LjMgNC4zLTQuOSAxMC4yLTUuNyAxMS4xLjQgMTEuNCAyLjd6IiBzdHlsZT0iZmlsbDojZmZmO3N0cm9rZTojZmZmO3N0cm9rZS13aWR0aDoyLjA3NzUiLz48cGF0aCBkPSJNNDA5LjggMTQzLjljMSAxOC4yLTMuOSAzMC42LTQuNSA1MC0uOSAyOC4yIDEzLjQgNjAuNC04LjIgOTIuNyIgY2xhc3M9InN0MiIvPjwvZz48L3N2Zz4=",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-argo-cd": {
+      "id": "logo-argo-cd",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjQyLjU1IDQuNSAyNzIuNjEgMzUwLjMiPjxkZWZzPjxjbGlwUGF0aCBpZD0iY2xpcC1wYXRoIj48cGF0aCBkPSJtMjQxLjAxOSAxMTUuNjg3LTcuMTczIDE2My43OTJIMTI2LjI0NWwtNS45NzgtMTYzLjc5MiIgc3R5bGU9ImZpbGw6bm9uZSIvPjwvY2xpcFBhdGg+PHN0eWxlPi5jbHMtMntmaWxsOiNlOTY1NGJ9LmNscy0ze2ZpbGw6I2I2Y2ZlYX0uY2xzLTZ7ZmlsbDojZWU3OTRifS5jbHMtMTJ7ZmlsbDojMDEwMTAxfS5jbHMtMTN7ZmlsbDojZmZmfTwvc3R5bGU+PC9kZWZzPjxwYXRoIGQ9Ik0xMjMuODU0IDI1MS45ODJzLTIuMzkxIDcuMTczLTUuOTc4IDEwLjc2YTEwLjg1IDEwLjg1IDAgMCAxLTguMzY5IDMuNTg2IDEzOSAxMzkgMCAwIDEtMTcuOTMzIDMuNTg3czguMzY5IDEuMTk2IDE3LjkzMyAyLjM5MWMzLjU4NyAwIDMuNTg3IDAgNS45NzggMS4xOTYgNS45NzggMCA4LjM3LTMuNTg3IDguMzctMy41ODdabTEwOS45OTIgMHMyLjM5MSA3LjE3MyA1Ljk3OCAxMC43NmExMC44NSAxMC44NSAwIDAgMCA4LjM2OSAzLjU4NiAxMzkgMTM5IDAgMCAwIDE3LjkzMyAzLjU4N3MtOC4zNjkgMS4xOTYtMTkuMTI5IDIuMzkxYy0zLjU4NyAwLTMuNTg3IDAtNS45NzggMS4xOTYtNy4xNzMgMC04LjM2OS0zLjU4Ny04LjM2OS0zLjU4N1oiIGNsYXNzPSJjbHMtMiIvPjxjaXJjbGUgY3g9IjE4MC4wNDYiIGN5PSIxMzMuNjIxIiByPSIxMjkuMTIxIiBjbGFzcz0iY2xzLTMiLz48Y2lyY2xlIGN4PSIxODAuMDQ2IiBjeT0iMTMzLjYyMSIgcj0iMTI0LjMzOSIgc3R5bGU9ImZpbGw6I2U2ZjVmOCIvPjxjaXJjbGUgY3g9IjE4MC4wNDYiIGN5PSIxMzYuMDEyIiByPSIxMDEuNjIzIiBzdHlsZT0iZmlsbDojZDBlOGYwIi8+PGcgaWQ9IkJvZHkiPjxwYXRoIGQ9Ik0xMjAuMjY3IDE4My44MzRzOC4zNyAxMzUuMSA4LjM3IDEzNy40OWMwIDEuMTk2IDEuMTk1IDMuNTg3LTQuNzgzIDUuOTc4cy0yNS4xMDcgNy4xNzMtMjUuMTA3IDcuMTczaDI4LjY5NGMxMy4xNTEgMCAxMy4xNTEtMTAuNzYgMTMuMTUxLTEzLjE1czMuNTg3LTUzLjgwMSAzLjU4Ny01My44MDEgMS4xOTUgNjAuOTc0IDEuMTk1IDYzLjM2NS0xLjE5NSA1Ljk3OC05LjU2NCA4LjM2OWwtMjMuOTEyIDQuNzgyaDI3LjQ5OGMxNi43MzggMCAxNi43MzgtMTAuNzYgMTYuNzM4LTEwLjc2bDMuNTg3LTUzLjhzMS4xOTYgNTMuOCAxLjE5NiA1OS43NzhjMCA0Ljc4Mi0zLjU4NyA4LjM2OS0xNi43MzggMTAuNzYtOC4zNyAyLjM5LTE5LjEzIDQuNzgyLTE5LjEzIDQuNzgyaDMxLjA4NWMxNS41NDMtMS4xOTUgMTcuOTM0LTExLjk1NiAxNy45MzQtMTEuOTU2bDI2LjMwMi0xMzMuOTAzWiIgY2xhc3M9ImNscy02Ii8+PHBhdGggZD0iTTIzOS44MjQgMTgzLjgzNHMtOC4zNyAxMzUuMS04LjM3IDEzNy40OWMwIDEuMTk2LTEuMTk1IDMuNTg3IDQuNzgzIDUuOTc4czI1LjEwNyA3LjE3MyAyNS4xMDcgNy4xNzNIMjMyLjY1Yy0xMy4xNSAwLTEzLjE1LTEwLjc2LTEzLjE1LTEzLjE1cy0zLjU4OC01My44MDEtMy41ODgtNTMuODAxLTEuMTk1IDYwLjk3NC0xLjE5NSA2My4zNjUgMS4xOTUgNS45NzggOS41NjQgOC4zNjlsMjMuOTEyIDQuNzgyaC0yNy40OThjLTE2LjczOCAwLTE2LjczOC0xMC43Ni0xNi43MzgtMTAuNzZsLTMuNTg3LTUzLjhzLTEuMTk1IDUzLjgtMS4xOTUgNTkuNzc4YzAgNC43ODIgMy41ODYgOC4zNjkgMTYuNzM3IDEwLjc2IDguMzcgMi4zOSAxOS4xMyA0Ljc4MiAxOS4xMyA0Ljc4MmgtMzEuMDg1Yy0xNS41NDMtMS4xOTUtMTcuOTM0LTExLjk1Ni0xNy45MzQtMTEuOTU2bC0yNi4zMDItMTMzLjkwM1ptMS4xOTYtNjUuNzU1YzAgMzMuNDc1LTI3LjQ5OSA1OS43NzgtNTkuNzc5IDU5Ljc3OHMtNTkuNzc4LTI3LjQ5OC01OS43NzgtNTkuNzc4UzE0OC45NjEgNTguMyAxODEuMjQxIDU4LjNzNTkuNzc4IDI2LjMwMyA1OS43NzggNTkuNzc5IiBjbGFzcz0iY2xzLTYiLz48Y2lyY2xlIGN4PSIxODEuMjQxIiBjeT0iMTUwLjM1OSIgcj0iMTA2LjQwNSIgY2xhc3M9ImNscy02IiBzdHlsZT0iY2xpcC1wYXRoOnVybCgjY2xpcC1wYXRoKSIvPjxnIHN0eWxlPSJvcGFjaXR5Oi4yMiI+PHBhdGggZD0iTTIzNy40MzMgMTgzLjgzNHM3LjE3My02My4zNjQtMi4zOTItODcuMjc2QzIxNy4xMDggNTQuNzE0IDE3NS4yNjMgNTguMyAxNzUuMjYzIDU4LjNzMjMuOTEyIDkuNTY1IDI1LjEwNyA0NS40MzJjMS4xOTYgMjUuMTA3IDAgNjIuMTY5IDAgNjIuMTY5WiIgc3R5bGU9ImZpbGw6I2UzNGUzYiIvPjwvZz48L2c+PGcgaWQ9IkZhY2UiPjxnIHN0eWxlPSJvcGFjaXR5Oi41Ij48Y2lyY2xlIGN4PSIxNTYuMTM0IiBjeT0iODUuNzk4IiByPSI4LjM2OSIgc3R5bGU9ImZpbGw6I2ZiZGZjMyIvPjwvZz48cGF0aCBkPSJNMjAxLjU2NiAyMDcuNzQ2YzAgMjAuMzI0LTkuNTY1IDMzLjQ3NS0yMS41MiAzMy40NzVzLTIxLjUyLTE1LjU0Mi0yMS41Mi0zNS44NjZjMCAwIDkuNTY0IDE5LjEyOSAyMi43MTUgMTkuMTI5czIwLjMyNS0xNi43MzggMjAuMzI1LTE2LjczOCIgY2xhc3M9ImNscy0xMiIvPjxwYXRoIGQ9Ik0yMDEuNTY2IDIwNy43NDZjMCAxMy4xNS05LjU2NSAyMC4zMjQtMjEuNTIgMjAuMzI0cy0yMC4zMjUtOS41NjQtMjAuMzI1LTIxLjUyYzAgMCA5LjU2NSAxMS45NTYgMjIuNzE2IDExLjk1NnMxOS4xMjktMTAuNzYgMTkuMTI5LTEwLjc2IiBjbGFzcz0iY2xzLTEzIi8+PGNpcmNsZSBjeD0iMjIxLjg5IiBjeT0iMTUxLjU1NCIgcj0iMzcuMDYyIiBjbGFzcz0iY2xzLTIiLz48Y2lyY2xlIGN4PSIxMzguMjAxIiBjeT0iMTUxLjU1NCIgcj0iMzcuMDYyIiBjbGFzcz0iY2xzLTIiLz48Y2lyY2xlIGN4PSIyMjEuODkiIGN5PSIxNTEuNTU0IiByPSIyOC42OTQiIGNsYXNzPSJjbHMtMTMiLz48Y2lyY2xlIGN4PSIxMzUuODEiIGN5PSIxNTEuNTU0IiByPSIyOC42OTQiIGNsYXNzPSJjbHMtMTMiLz48Y2lyY2xlIGN4PSIxMzUuODEiIGN5PSIxNDcuOTY4IiByPSI4LjM2OSIgY2xhc3M9ImNscy0xMiIvPjxjaXJjbGUgY3g9IjIyMS44OSIgY3k9IjE0Ny45NjgiIHI9IjguMzY5IiBjbGFzcz0iY2xzLTEyIi8+PC9nPjxwYXRoIGQ9Ik00OC41MzQgMTY1LjkwMWE1LjY0OCA1LjY0OCAwIDAgMS01Ljk3OC01Ljk3OHYtNDcuODIyYTUuNjQ4IDUuNjQ4IDAgMCAxIDUuOTc4LTUuOTc4IDUuNjQ4IDUuNjQ4IDAgMCAxIDUuOTc3IDUuOTc4djQ3LjgyMmE1LjY0OCA1LjY0OCAwIDAgMS01Ljk3NyA1Ljk3OG0yNjAuNjMyIDBhNS42NDggNS42NDggMCAwIDEtNS45NzctNS45Nzh2LTQ3LjgyMmE1LjY0OCA1LjY0OCAwIDAgMSA1Ljk3Ny01Ljk3OCA1LjY0OCA1LjY0OCAwIDAgMSA1Ljk3OCA1Ljk3OHY0Ny44MjJhNS42NDggNS42NDggMCAwIDEtNS45NzggNS45NzgiIGNsYXNzPSJjbHMtMyIvPjxjaXJjbGUgY3g9IjEzOS4zOTYiIGN5PSIzNy45NzYiIHI9IjUuOTc4IiBjbGFzcz0iY2xzLTEzIi8+PHBhdGggZD0iTTk2LjM1NiAxOTkuMzc3YTQuNCA0LjQgMCAwIDEtMy41ODctMS4xOTZjLTE0LjM0Ni0xNy45MzMtMjEuNTItNDAuNjQ5LTIxLjUyLTYzLjM2NWExMDYuNyAxMDYuNyAwIDAgMSAxNC4zNDctNTMuOCAxMTcgMTE3IDAgMCAxIDM4LjI1OC0zOC4yNTggNS4yNiA1LjI2IDAgMCAxIDUuOTc4IDEuMTk2IDUuMjYgNS4yNiAwIDAgMS0xLjE5NiA1Ljk3NyA5Ni41IDk2LjUgMCAwIDAtNDkuMDE4IDgzLjY5IDk0LjIyIDk0LjIyIDAgMCAwIDIwLjMyNSA1OC41ODJjMS4xOTUgMS4xOTYgMS4xOTUgNC43ODMtMS4xOTYgNS45NzgtMS4xOTUgMS4xOTYtMS4xOTUgMS4xOTYtMi4zOSAxLjE5NiIgY2xhc3M9ImNscy0xMyIvPjxwYXRoIGQ9Ik0yMzMuODQ2IDI1NS41Njh2LTkuNTY0Yy0xNi43MzggOS41NjQtMzQuNjcxIDE5LjEyOS01Ni4xOTIgMTkuMTI5LTIzLjkxIDAtMzkuNDUzLTEwLjc2LTU0Ljk5NS0xOS4xM2wxLjE5NSA5LjU2NXMxNy45MzQgMTkuMTMgNTQuOTk2IDE5LjEzYzM0LjY3MS0xLjE5NiA1NC45OTYtMTkuMTMgNTQuOTk2LTE5LjEzIiBjbGFzcz0iY2xzLTIiIHN0eWxlPSJvcGFjaXR5Oi4yNSIvPjwvc3ZnPg==",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-grafana": {
+      "id": "logo-grafana",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48bGluZWFyR3JhZGllbnQgaWQ9ImEiIHgxPSIyNTYiIHgyPSIyNTYiIHkxPSIzNTkuOTY0IiB5Mj0iNC43MzgiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgLTEgMCA1MTMpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdHlsZT0ic3RvcC1jb2xvcjojZjA1YTI4Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdHlsZT0ic3RvcC1jb2xvcjojZmJjYTBhIi8+PC9saW5lYXJHcmFkaWVudD48cGF0aCBkPSJNNDkwLjggMjI2Yy0uOC04LjYtMi4zLTE4LjUtNS4xLTI5LjUtMi44LTEwLjktNy4xLTIyLjgtMTMuMy0zNS4zLTYuMi0xMi40LTE0LjItMjUuMi0yNC43LTM3LjgtNC4xLTQuOS04LjYtOS43LTEzLjQtMTQuNCA3LjItMjguNi04LjctNTMuNS04LjctNTMuNS0yNy41LTEuNy00NSA4LjYtNTEuNSAxMy4zLTEuMS0uNC0yLjEtMS0zLjItMS40LTQuNy0xLjgtOS41LTMuNy0xNC41LTUuMi00LjktMS42LTEwLTMtMTUuMi00LjItNS4yLTEuMy0xMC40LTIuMy0xNS44LTMuMS0xLS4xLTEuOC0uMy0yLjgtLjRDMzEwLjYgMTYuMSAyNzYuMSAwIDI3Ni4xIDBjLTM4LjUgMjQuNC00NS43IDU4LjUtNDUuNyA1OC41cy0uMS43LS40IDJjLTIuMS42LTQuMiAxLjMtNi4zIDEuOC0zIC44LTUuOSAyLTguNyAzLjEtMyAxLjEtNS44IDIuMy04LjcgMy41LTUuOCAyLjUtMTEuNiA1LjQtMTcuMiA4LjUtNS41IDMuMS0xMC45IDYuNS0xNi4xIDEwbC0xLjQtLjZDMTE4LjIgNjYuNiA3MC45IDkxIDcwLjkgOTFjLTQuNCA1Ni43IDIxLjMgOTIuNCAyNi40IDk4LjktMS4zIDMuNS0yLjQgNy4xLTMuNSAxMC42LTMuOSAxMi44LTYuOSAyNi04LjcgMzkuNi0uMyAyLS42IDMuOS0uNyA1LjktNDkuNCAyNC40LTYzLjkgNzQuMi02My45IDc0LjIgNDEgNDcuMyA4OSA1MC4yIDg5IDUwLjJsLjEtLjFxOS4xNSAxNi4zNSAyMSAzMC45YzMuNCA0LjEgNi44IDcuOSAxMC40IDExLjctMTUgNDIuOSAyLjEgNzguNCAyLjEgNzguNCA0NS43IDEuNyA3NS43LTIwIDgyLjEtMjUgNC41IDEuNiA5LjIgMyAxMy44IDQuMSAxNC4xIDMuNyAyOC41IDUuOCA0Mi45IDYuMyAzLjUuMSA3LjIuMyAxMC43LjFoNS4xbDIuMy0uMXYuMWMyMS42IDMwLjcgNTkuNCAzNS4xIDU5LjQgMzUuMSAyNi45LTI4LjQgMjguNS01Ni42IDI4LjUtNjIuNnYtMi41YzUuNi0zLjkgMTEtOC4yIDE2LjEtMTIuOCAxMC43LTkuNyAyMC4yLTIwLjkgMjguMS0zMi45LjctMS4xIDEuNC0yLjMgMi4xLTMuNCAzMC41IDEuNyA1Mi0xOC45IDUyLTE4LjktNS4xLTMxLjctMjMuMS00Ny4zLTI2LjktNTAuMiAwIDAtLjEtLjEtLjQtLjMtLjMtLjEtLjMtLjMtLjMtLjMtLjEtLjEtLjQtLjMtLjctLjQuMS0yIC4zLTMuOC40LTUuOC4zLTMuNC4zLTYuOS4zLTEwLjN2LTUuM2wtLjEtMi4xLS4xLTIuOGMwLTEtLjEtMS44LS4zLTIuN3MtLjEtMS44LS4zLTIuN2wtLjMtMi43LS40LTIuN2MtLjYtMy41LTEuMS02LjktMi0xMC40LTMuMi0xMy43LTguNi0yNi43LTE1LjUtMzguNC03LjEtMTEuNy0xNS44LTIyLTI1LjgtMzAuNy05LjktOC43LTIxLTE1LjgtMzIuNi0yMS0xMS43LTUuMi0yMy44LTguNi0zNi0xMC4yLTYuMS0uOC0xMi4xLTEuMS0xOC4yLTFoLTQuNmwtMi4zLjFjLS44IDAtMS43LjEtMi40LjEtMy4xLjMtNi4yLjctOS4yIDEuMy0xMi4xIDIuMy0yMy42IDYuNi0zMy42IDEyLjdzLTE4LjggMTMuNS0yNS44IDIyYy03LjEgOC41LTEyLjYgMTcuOS0xNi40IDI3LjZzLTUuOSAxOS45LTYuNSAyOS42Yy0uMSAyLjQtLjEgNC45LS4xIDcuM3YxLjhsLjEgMmMuMSAxLjEuMSAyLjQuMyAzLjUuNCA0LjkgMS40IDkuNyAyLjcgMTQuMiAyLjcgOS4yIDYuOSAxNy41IDEyLjEgMjQuNSA1LjIgNy4xIDExLjYgMTIuOCAxOC4yIDE3LjUgNi42IDQuNSAxMy44IDcuOCAyMC45IDkuOXMxNC4xIDMgMjAuNyAzaDMuN2MuNSAwIC44IDAgMS4zLS4xLjcgMCAxLjQtLjEgMi4xLS4xLjEgMCAuNCAwIC42LS4xbC43LS4xYy40IDAgLjgtLjEgMS4zLS4xLjgtLjEgMS42LS4zIDIuNC0uNHMxLjYtLjMgMi4zLS42YzEuNi0uMyAzLS44IDQuNC0xLjMgMi44LTEgNS42LTIuMSA4LTMuNCAyLjUtMS4zIDQuOC0yLjggNy4xLTQuMi42LS40IDEuMy0uOCAxLjgtMS40IDIuMy0xLjggMi43LTUuMi44LTcuNS0xLjYtMi00LjQtMi41LTYuNi0xLjMtLjYuMy0xLjEuNi0xLjcuOC0yIDEtMy45IDEuOC02LjEgMi41LTIuMS43LTQuNCAxLjMtNi42IDEuNy0xLjEuMS0yLjMuMy0zLjUuNC0uNiAwLTEuMS4xLTEuOC4xaC0zLjRjLS43IDAtMS40IDAtMi4xLS4xaC0uOGMtLjMgMC0uNyAwLTEtLjEtLjctLjEtMS4zLS4xLTItLjMtNS4yLS43LTEwLjQtMi4zLTE1LjQtNC41LTUuMS0yLjMtOS45LTUuNC0xNC4yLTkuM3MtOC4yLTguNi0xMS4xLTE0Yy0zLTUuNC01LjEtMTEuMy02LjEtMTcuNS0uNC0zLjEtLjctNi4zLS42LTkuNSAwLS44LjEtMS43LjEtMi41di0xLjFjMC0uNC4xLS44LjEtMS4zLjEtMS43LjQtMy40LjctNS4xIDIuNC0xMy41IDkuMi0yNi44IDE5LjYtMzYuOCAyLjctMi41IDUuNS00LjggOC41LTYuOXM2LjItMy45IDkuNi01LjUgNi44LTIuOCAxMC40LTMuOGMzLjUtMSA3LjItMS42IDExLTIgMS44LS4xIDMuNy0uMyA1LjYtLjNoNC40bDEuNi4xYzQuMS4zIDggLjggMTIgMS44IDcuOSAxLjcgMTUuNyA0LjcgMjIuOCA4LjYgMTQuNCA4IDI2LjcgMjAuNSAzNC4xIDM1LjQgMy44IDcuNSA2LjUgMTUuNSA3LjggMjMuOC4zIDIuMS42IDQuMi43IDYuM2wuMSAxLjYuMSAxLjZ2Ni4yYzAgMS0uMSAyLjctLjEgMy43LS4xIDIuMy0uNCA0LjctLjcgNi45LS4zIDIuMy0uNyA0LjUtMS4xIDYuOHMtMSA0LjUtMS42IDYuNmMtMS4xIDQuNC0yLjUgOC43LTQuMiAxMy4xLTMuNCA4LjUtNy45IDE2LjYtMTMuMyAyNC4xLTEwLjkgMTUtMjUuNyAyNy4xLTQyLjYgMzQuOC04LjUgMy44LTE3LjMgNi42LTI2LjUgOC00LjUuOC05LjIgMS4zLTEzLjggMS40aC03Yy0yLjUgMC00LjktLjEtNy41LS40LTkuOS0uNy0xOS42LTIuNS0yOS4yLTUuMi05LjUtMi43LTE4LjYtNi41LTI3LjQtMTEtMTcuMy05LjMtMzMtMjItNDUuMS0zNy40LTYuMS03LjYtMTEuNC0xNS45LTE1LjgtMjQuNXMtNy45LTE3LjgtMTAuNC0yNi45Yy0yLjUtOS4zLTQuMS0xOC44LTQuOC0yOC40bC0uMS0xLjh2LTEyLjJjLjEtNC43LjYtOS42IDEuMS0xNC40LjYtNC44IDEuNC05LjcgMi40LTE0LjVzMi4xLTkuNiAzLjUtMTQuNGMyLjctOS41IDYuMS0xOC42IDEwLTI3LjIgOC0xNy4yIDE4LjUtMzIuNiAzMS00NC45IDMuMS0zLjEgNi4zLTUuOSA5LjctOC43IDMuNC0yLjcgNi45LTUuMiAxMC42LTcuNiAzLjUtMi40IDcuMy00LjUgMTEuMS02LjUgMS44LTEgMy44LTIgNS44LTIuOCAxLS40IDItLjggMy0xLjMgMS0uNCAyLS44IDMtMS4zIDMuOS0xLjcgOC0zLjEgMTIuMy00LjQgMS0uMyAyLjEtLjYgMy4xLTEgMS0uMyAyLjEtLjYgMy4xLS44IDIuMS0uNiA0LjItMS4xIDYuMy0xLjYgMS0uMyAyLjEtLjQgMy4yLS43czIuMS0uNCAzLjItLjdjMS4xLS4xIDIuMS0uNCAzLjItLjZsMS42LS4zIDEuNy0uM2MxLjEtLjEgMi4xLS4zIDMuMi0uNCAxLjMtLjEgMi40LS4zIDMuNy0uNCAxLS4xIDIuNy0uMyAzLjctLjQuNy0uMSAxLjYtLjEgMi4zLS4zbDEuNi0uMS43LS4xaC44YzEuMy0uMSAyLjQtLjEgMy43LS4zbDEuOC0uMWgxLjNjMSAwIDIuMS0uMSAzLjEtLjEgNC4xLS4xIDguMy0uMSAxMi40IDAgOC4yLjMgMTYuMiAxLjMgMjQgMi43IDE1LjcgMyAzMC4zIDcuOSA0My43IDE0LjUgMTMuNCA2LjUgMjUuMiAxNC41IDM1LjcgMjMuMy43LjYgMS4zIDEuMSAyIDEuNy42LjYgMS4zIDEuMSAxLjggMS43IDEuMyAxLjEgMi40IDIuMyAzLjcgMy40czIuNCAyLjMgMy41IDMuNCAyLjMgMi4zIDMuNCAzLjVjNC40IDQuNyA4LjUgOS4zIDEyLjEgMTQuMSA3LjMgOS41IDEzLjMgMTkgMTcuOSAyOC4xLjMuNi42IDEuMS44IDEuNy4zLjYuNiAxLjEuOCAxLjcuNiAxLjEgMS4xIDIuMyAxLjYgMy40LjYgMS4xIDEgMi4xIDEuNiAzLjIuNCAxLjEgMSAyLjEgMS40IDMuMiAxLjcgNC4yIDMuNCA4LjMgNC43IDEyLjEgMi4xIDYuMiAzLjcgMTEuNyA0LjkgMTYuNS40IDIgMi4zIDMuMiA0LjIgMyAyLjEtLjEgMy43LTEuOCAzLjctMy45LjQtNS40LjItMTEuNC0uNS0xOC4zIiBzdHlsZT0iZmlsbDp1cmwoI2EpIi8+PC9zdmc+",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-harbor": {
+      "id": "logo-harbor",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB2aWV3Qm94PSIxLjA1IC0xLjk1IDM1OS40MSAzNjEuNjYiPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0ibGluZWFyLWdyYWRpZW50IiB4MT0iMjY0Ljc5IiB4Mj0iMjY3LjI3IiB5MT0iOTUyLjM5IiB5Mj0iOTUyLjM5IiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDMwLjQzIDAgMCAtMzAuNDMgLTc5NTUuMjIgMjkyODUuNzUpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNjBiOTMyIi8+PHN0b3Agb2Zmc2V0PSIuMjgiIHN0b3AtY29sb3I9IiM2MGI5MzIiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMzNjdjMzQiLz48L2xpbmVhckdyYWRpZW50PjxsaW5lYXJHcmFkaWVudCB4bGluazpocmVmPSIjbGluZWFyLWdyYWRpZW50IiBpZD0ibGluZWFyLWdyYWRpZW50LTIiIHgxPSIyNjMuNzciIHgyPSIyNjYuMjYiIHkxPSI5NTUuNjUiIHkyPSI5NTUuNjUiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoMjcuMjEgMCAwIC0yNy4yMSAtNzA3My44NSAyNjE2OS40MSkiLz48bGluZWFyR3JhZGllbnQgeGxpbms6aHJlZj0iI2xpbmVhci1ncmFkaWVudCIgaWQ9ImxpbmVhci1ncmFkaWVudC0zIiB4MT0iMjYzLjI4IiB4Mj0iMjY1Ljc2IiB5MT0iOTUzLjc0IiB5Mj0iOTUzLjc0IiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDI1Ljc1IDAgMCAtMjUuNzUgLTY2NzEuMTMgMjQ4MTIuMjMpIi8+PGxpbmVhckdyYWRpZW50IHhsaW5rOmhyZWY9IiNsaW5lYXItZ3JhZGllbnQiIGlkPSJsaW5lYXItZ3JhZGllbnQtNCIgeDE9IjI2My43NyIgeDI9IjI2Ni4yNSIgeTE9Ijk1My4yIiB5Mj0iOTUzLjIiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoMjcuMSAwIDAgLTI3LjEgLTcwNDAuOSAyNjEwMi40OSkiLz48bGluZWFyR3JhZGllbnQgeGxpbms6aHJlZj0iI2xpbmVhci1ncmFkaWVudCIgaWQ9ImxpbmVhci1ncmFkaWVudC01IiB4MT0iMjYyLjczIiB4Mj0iMjY1LjIxIiB5MT0iOTU0LjM0IiB5Mj0iOTU0LjM0IiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDI0LjQgMCAwIC0yNC40IC02MzAxLjM2IDIzNTIxLjk3KSIvPjxsaW5lYXJHcmFkaWVudCBpZD0ibGluZWFyLWdyYWRpZW50LTYiIHgxPSIyNzIuMTQiIHgyPSIyNzQuNjIiIHkxPSI5NTUuMTUiIHkyPSI5NTUuMTUiIGdyYWRpZW50VHJhbnNmb3JtPSJzY2FsZSg2Ni4wOSAtNjYuMDkpcm90YXRlKDM2LjUyIDE1ODguMTUzIDY4LjE0OCkiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM0NTk2ZDgiLz48c3RvcCBvZmZzZXQ9Ii4yIiBzdG9wLWNvbG9yPSIjNDU5NmQ4Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIi8+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgaWQ9ImxpbmVhci1ncmFkaWVudC03IiB4MT0iMjcwLjY1IiB4Mj0iMjczLjEzIiB5MT0iOTUyLjM4IiB5Mj0iOTUyLjM4IiBncmFkaWVudFRyYW5zZm9ybT0ic2NhbGUoNzcuOCAtNzcuOClyb3RhdGUoLTExLjU0IC00NTg3LjIwOSAxODAzLjMyMykiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM0MTk0ZDciLz48c3RvcCBvZmZzZXQ9Ii4yIiBzdG9wLWNvbG9yPSIjNDE5NGQ3Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIi8+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgaWQ9ImxpbmVhci1ncmFkaWVudC04IiB4MT0iMjcwLjk3IiB4Mj0iMjczLjQ1IiB5MT0iOTUzLjc1IiB5Mj0iOTUzLjc1IiBncmFkaWVudFRyYW5zZm9ybT0ic2NhbGUoNzEuMzUgLTcxLjM1KXJvdGF0ZSgxMC4yMyA1NDc3LjM3IC0xMDI0LjYwMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM0MTk0ZDciLz48c3RvcCBvZmZzZXQ9Ii4zMyIgc3RvcC1jb2xvcj0iIzQ0OTZkOCIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmZiIvPjwvbGluZWFyR3JhZGllbnQ+PGNsaXBQYXRoIGlkPSJjbGlwLXBhdGgiPjxwYXRoIGQ9Im0xNzQuNCAzMDIuNTItNjguNjUtMzAuMjYtMy44MyA0My4yMSA3NS41IDIzLjk4eiIgY2xhc3M9ImNscy0xIi8+PC9jbGlwUGF0aD48Y2xpcFBhdGggaWQ9ImNsaXAtcGF0aC0yIj48cGF0aCBkPSJNMTE5LjE5IDEzNS4zOGgzOC41NXYzMi44OWgtOS4xNXYtMTRhMTAuMTMgMTAuMTMgMCAxIDAtMjAuMjYgMHYxNGgtOS4xNXptLTcuNyA3MiA1Ny4yIDI1LjIxLTMuOTQtNDguMjRoNy40OXYtMTYuMDhoLTUuNTV2LTMyLjg5aDUuNTV2LTkuNDVsLTMwLjg2LTMwLjE5di0yLjEyYTIuOTEgMi45MSAwIDAgMC01LjgyIDB2Mi4xMmwtMzAuODYgMzAuMTl2OS40NWg1LjU2djMyLjg5aC01LjU2djE2LjEyaDguODJ6IiBjbGFzcz0iY2xzLTEiLz48L2NsaXBQYXRoPjxjbGlwUGF0aCBpZD0iY2xpcC1wYXRoLTMiPjxwYXRoIGQ9Im0xMDguMTQgMjQ1LjI4IDYzLjg4IDI4LjE2LS45Ni0xMS43My02MS45Ni0yNy4zeiIgY2xhc3M9ImNscy0xIi8+PC9jbGlwUGF0aD48Y2xpcFBhdGggaWQ9ImNsaXAtcGF0aC00Ij48cGF0aCBkPSJtMTA2LjQ2IDI2NC4yMSA2Ny4yMyAyOS42My0uOTYtMTEuNzItNjUuMzEtMjguNzh6IiBjbGFzcz0iY2xzLTEiLz48L2NsaXBQYXRoPjxjbGlwUGF0aCBpZD0iY2xpcC1wYXRoLTUiPjxwYXRoIGQ9Im0xMTAuNzcgMjE1LjQ4LS45NiAxMC44NyA2MC41NCAyNi42OC0uOTUtMTEuNzJ6IiBjbGFzcz0iY2xzLTEiLz48L2NsaXBQYXRoPjxjbGlwUGF0aCBpZD0iY2xpcC1wYXRoLTYiPjxwYXRoIGQ9Ik0zMTMuMTMgNjcuNTlhMTc1LjMgMTc1LjMgMCAwIDAtMjkuNzUtMjguMTNjLTEuNTctMS4xNy0zLjE4LTIuMy00Ljc5LTMuNDJMMjU2IDU5LjVsLTgyLjM0IDg1LjYzIDExMy40MS01OC42OCAyOS4wNy0xNWMtMS4wMS0xLjMxLTEuOTgtMi42Mi0zLjAxLTMuODYiIGNsYXNzPSJjbHMtMSIvPjwvY2xpcFBhdGg+PGNsaXBQYXRoIGlkPSJjbGlwLXBhdGgtNyI+PHBhdGggZD0iTTM1My41OSAxNzcuNjFjMC0yLS4xNC00LS4yMi01LjkzbC0zMi4yMS0yLjMxLTE0Ny40Ny0xMC41OEwzMTguMzYgMjA5bDMwLjQxIDEwLjU1Yy4wOS0uMzYuMTktLjcxLjI4LTEuMDhhMTczLjcgMTczLjcgMCAwIDAgNC41Ny0zOS40N3YtMS4zN3oiIGNsYXNzPSJjbHMtMSIvPjwvY2xpcFBhdGg+PGNsaXBQYXRoIGlkPSJjbGlwLXBhdGgtOCI+PHBhdGggZD0iTTM0OC44NCAxMzguNjFhMTcyLjYgMTcyLjYgMCAwIDAtMTMuODQtMzcuN2wtMzAuOTQgOS45NEwxNzUuOTIgMTUybDE0Mi00LjgzIDMyLjUtMS4xMWMtLjUtMi40OC0uOTktNC45OC0xLjU4LTcuNDUiIGNsYXNzPSJjbHMtMSIvPjwvY2xpcFBhdGg+PHN0eWxlPi5jbHMtMXtmaWxsOm5vbmV9LmNscy0xM3tmaWxsOiM2OTY1NjZ9PC9zdHlsZT48L2RlZnM+PGcgaWQ9ImcxMiI+PHBhdGggaWQ9InBhdGgxNCIgZmlsbD0iI2ZmZiIgZD0iTTMwLjg5IDE3OWExNDguODcgMTQ4Ljg3IDAgMSAxIDE0OC44NyAxNDguODVBMTQ4Ljg3IDE0OC44NyAwIDAgMSAzMC44OSAxNzkiLz48ZyBpZD0iZzMwIiBjbGlwLXBhdGg9InVybCgjY2xpcC1wYXRoKSI+PGcgaWQ9ImczMiI+PHBhdGggaWQ9InBhdGg0NiIgZmlsbD0idXJsKCNsaW5lYXItZ3JhZGllbnQpIiBkPSJtMTc0LjQgMzAyLjUyLTY4LjY1LTMwLjI1LTMuODIgNDMuMiA3NS41IDI0LTMtMzYuOTMiLz48L2c+PC9nPjxnIGlkPSJnNDgiIGNsaXAtcGF0aD0idXJsKCNjbGlwLXBhdGgtMikiPjxnIGlkPSJnNTAiPjxwYXRoIGlkPSJwYXRoNjQiIGZpbGw9InVybCgjbGluZWFyLWdyYWRpZW50LTIpIiBkPSJNMTE5LjE5IDEzNS4zOGgzOC41NXYzMi44OWgtOS4xNXYtMTRhMTAuMTMgMTAuMTMgMCAxIDAtMjAuMjYgMHYxNGgtOS4xNXptLTcuNyA3MiA1Ny4yIDI1LjIxLTMuOTQtNDguMjRoNy40OXYtMTYuMDhoLTUuNTV2LTMyLjg5aDUuNTV2LTkuNDVsLTMwLjg2LTMwLjE5di0yLjEyYTIuOTEgMi45MSAwIDAgMC01LjgyIDB2Mi4xMmwtMzAuODYgMzAuMTl2OS40NWg1LjU2djMyLjg5aC01LjU2djE2LjEyaDguODJsLTIgMjMiLz48L2c+PC9nPjxnIGlkPSJnNjYiIGNsaXAtcGF0aD0idXJsKCNjbGlwLXBhdGgtMykiPjxnIGlkPSJnNjgiPjxwYXRoIGlkPSJwYXRoODIiIGZpbGw9InVybCgjbGluZWFyLWdyYWRpZW50LTMpIiBkPSJNMTA4LjEzIDI0NS4yOCAxNzIgMjczLjQ0bC0xLTExLjcyLTYyLTI3LjMxLTEgMTAuODciLz48L2c+PC9nPjxnIGlkPSJnODQiIGNsaXAtcGF0aD0idXJsKCNjbGlwLXBhdGgtNCkiPjxnIGlkPSJnODYiPjxwYXRoIGlkPSJwYXRoMTAwIiBmaWxsPSJ1cmwoI2xpbmVhci1ncmFkaWVudC00KSIgZD0ibTEwNi40NiAyNjQuMjEgNjcuMjMgMjkuNjMtMS0xMS43Mi02NS4zMS0yOC43OC0xIDEwLjg3Ii8+PC9nPjwvZz48ZyBpZD0iZzEwMiIgY2xpcC1wYXRoPSJ1cmwoI2NsaXAtcGF0aC01KSI+PGcgaWQ9ImcxMDQiPjxwYXRoIGlkPSJwYXRoMTE4IiBmaWxsPSJ1cmwoI2xpbmVhci1ncmFkaWVudC01KSIgZD0ibTExMC43NyAyMTUuNDgtMSAxMC44OEwxNzAuMzUgMjUzbC0xLTExLjcyLTU4LjYyLTI1LjgzIi8+PC9nPjwvZz48cGF0aCBpZD0icGF0aDEyMCIgZD0ibTMwNC4wNyAxMTAuODUgMzAuOTMtOS45NGMtLjExLS4yMi0uMjEtLjQ1LS4zMi0uNjZhMTc0LjQgMTc0LjQgMCAwIDAtMTguNTUtMjguODNsLTI5LjA3IDE1YTE0Mi43IDE0Mi43IDAgMCAxIDE2LjczIDIzLjg3Yy4xLjE3LjE4LjM1LjI3LjUzIiBjbGFzcz0iY2xzLTEzIi8+PHBhdGggaWQ9InBhdGgxMjIiIGQ9Im0zMjEuMTUgMTY5LjM3IDMyLjIxIDIuMzFhMTczIDE3MyAwIDAgMC0zLTI1LjU5bC0zMi41IDEuMTFhMTQxIDE0MSAwIDAgMSAzLjI1IDIyLjE3IiBjbGFzcz0iY2xzLTEzIi8+PHBhdGggaWQ9InBhdGgxMjQiIGQ9Ik0xODIgMzIwLjgxYy03OC4yIDAtMTQxLjgzLTYzLjYyLTE0MS44My0xNDEuODJTMTAzLjgyIDM3LjE2IDE4MiAzNy4xNmExNDAuOTMgMTQwLjkzIDAgMCAxIDc2LjMgMjIuMzRMMjgwLjg1IDM2QTE3Mi44NiAxNzIuODYgMCAwIDAgMTgyIDUuMTFDODYuMTUgNS4xMSA4LjE1IDgzLjExIDguMTUgMTc5czc4IDE3My44NSAxNzMuODUgMTczLjg1YzgxLjkgMCAxNTAuNjktNTcgMTY5LTEzMy4zMkwzMjAuNjIgMjA5Yy0xMy44IDYzLjg0LTcwLjY5IDExMS44My0xMzguNiAxMTEuODMiIGNsYXNzPSJjbHMtMTMiLz48ZyBpZD0iZzEyNiIgY2xpcC1wYXRoPSJ1cmwoI2NsaXAtcGF0aC02KSI+PGcgaWQ9ImcxMjgiPjxwYXRoIGlkPSJwYXRoMTQyIiBmaWxsPSJ1cmwoI2xpbmVhci1ncmFkaWVudC02KSIgZD0iTTMxMy4xMyA2Ny41OWExNzUuMyAxNzUuMyAwIDAgMC0yOS43NS0yOC4xM2MtMS41Ny0xLjE3LTMuMTgtMi4zLTQuNzktMy40MkwyNTYgNTkuNWwtODIuMzQgODUuNjMgMTEzLjQxLTU4LjY4IDI5LjA3LTE1Yy0xLTEuMjctMi0yLjU4LTMtMy44MiIvPjwvZz48L2c+PGcgaWQ9ImcxNDQiIGNsaXAtcGF0aD0idXJsKCNjbGlwLXBhdGgtNykiPjxnIGlkPSJnMTQ2Ij48cGF0aCBpZD0icGF0aDE2MCIgZmlsbD0idXJsKCNsaW5lYXItZ3JhZGllbnQtNykiIGQ9Ik0zNTMuNTkgMTc3LjYxYzAtMi0uMTQtNC0uMjItNS45M2wtMzIuMjEtMi4zMS0xNDcuNDctMTAuNThMMzE4LjM2IDIwOWwzMC40MSAxMC41NWMuMDktLjM2LjE5LS43MS4yOC0xLjA4YTE3My43IDE3My43IDAgMCAwIDQuNTctMzkuNDd2LTEuMzciLz48L2c+PC9nPjxnIGlkPSJnMTYyIiBjbGlwLXBhdGg9InVybCgjY2xpcC1wYXRoLTgpIj48ZyBpZD0iZzE2NCI+PHBhdGggaWQ9InBhdGgxNzgiIGZpbGw9InVybCgjbGluZWFyLWdyYWRpZW50LTgpIiBkPSJNMzQ4Ljg0IDEzOC42MWExNzIuNiAxNzIuNiAwIDAgMC0xMy44NC0zNy43bC0zMC45NCA5Ljk0TDE3NS45MiAxNTJsMTQyLTQuODMgMzIuNS0xLjExYy0uNDgtMi41MS0xLTUtMS41Ni03LjQ4Ii8+PC9nPjwvZz48L2c+PC9zdmc+",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-kubernetes": {
+      "id": "logo-kubernetes",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjIuODQ2IiBoZWlnaHQ9IjcwMS45NjYiPjxwYXRoIGQ9Ik0zNjUuMzEzIDE4NC44MTNhNDYuNzI1IDQ2LjM0MiAwIDAgMC0xNy45MDcgNC41M2wtMjQ0LjM0MyAxMTYuNzVhNDYuNzI1IDQ2LjM0MiAwIDAgMC0yNS4yODIgMzEuNDM4TDE3LjUgNTk5Ljc4MWE0Ni43MjUgNDYuMzQyIDAgMCAwIDYuMzQ0IDM1LjUzMkE0Ni43MjUgNDYuMzQyIDAgMCAwIDI2LjUgNjM5bDE2OS4xMjUgMjEwLjI4MWE0Ni43MjUgNDYuMzQyIDAgMCAwIDM2LjUzMSAxNy40MzhsMjcxLjIxOS0uMDYzYTQ2LjcyNSA0Ni4zNDIgMCAwIDAgMzYuNTMxLTE3LjQwNkw3MDguOTcgNjM4LjkzOGE0Ni43MjUgNDYuMzQyIDAgMCAwIDkuMDMxLTM5LjIybC02MC4zNzUtMjYyLjI1YTQ2LjcyNSA0Ni4zNDIgMCAwIDAtMjUuMjgxLTMxLjQzN0wzODcuOTY5IDE4OS4zNDRhNDYuNzI1IDQ2LjM0MiAwIDAgMC0yMi42NTYtNC41MzF6IiBzdHlsZT0iZmlsbDojMzI2Y2U1O2ZpbGwtb3BhY2l0eToxO3N0cm9rZTojZmZmO3N0cm9rZS13aWR0aDowO3N0cm9rZS1taXRlcmxpbWl0OjQ7c3Ryb2tlLW9wYWNpdHk6MTtzdHJva2UtZGFzaGFycmF5Om5vbmUiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC02LjMyNiAtMTc0Ljc1MikiLz48cGF0aCBkPSJNMzY3LjczNCAyNzQuMDZjLTguMDc3IDAtMTQuNjI2IDcuMjc2LTE0LjYyNSAxNi4yNSAwIC4xMzcuMDI4LjI2OS4wMy40MDYtLjAxMSAxLjIyLS4wNyAyLjY4OC0uMDMgMy43NS4xOTIgNS4xNzYgMS4zMiA5LjEzNyAyIDEzLjkwNiAxLjIzIDEwLjIwNyAyLjI2IDE4LjY2NyAxLjYyNSAyNi41MzEtLjYxOSAyLjk2Ni0yLjgwMyA1LjY3OC00Ljc1IDcuNTYzbC0uMzQ0IDYuMTg3YTE5MCAxOTAgMCAwIDAtMjYuNDM4IDQuMDYzYy0zNy45NzQgOC42MjItNzAuNjcgMjguMTgzLTk1LjU2MiA1NC41OTRhMjQ1IDI0NSAwIDAgMS01LjI4MS0zLjc1Yy0yLjYxMi4zNTItNS4yNSAxLjE1OC04LjY4OC0uODQ0LTYuNTQ1LTQuNDA2LTEyLjUwNi0xMC40ODctMTkuNzE5LTE3LjgxMy0zLjMwNS0zLjUwNC01LjY5OC02Ljg0LTkuNjI1LTEwLjIxOC0uODkxLS43NjctMi4yNTItMS44MDUtMy4yNS0yLjU5NC0zLjA3LTIuNDQ4LTYuNjktMy43MjQtMTAuMTg3LTMuODQ0LTQuNDk2LS4xNTQtOC44MjQgMS42MDQtMTEuNjU2IDUuMTU2LTUuMDM2IDYuMzE2LTMuNDI0IDE1Ljk2OCAzLjU5MyAyMS41NjMuMDcyLjA1Ny4xNDcuMS4yMi4xNTYuOTYzLjc4MiAyLjE0NCAxLjc4MyAzLjAzIDIuNDM4IDQuMTY3IDMuMDc2IDcuOTc0IDQuNjUxIDEyLjEyNSA3LjA5MyA4Ljc0NyA1LjQwMiAxNS45OTkgOS44ODEgMjEuNzUgMTUuMjgyIDIuMjQ2IDIuMzk0IDIuNjM5IDYuNjEzIDIuOTM4IDguNDM3bDQuNjg3IDQuMTg4Yy0yNS4wOTMgMzcuNzYzLTM2LjcwNiA4NC40MS0yOS44NDMgMTMxLjkzN2wtNi4xMjUgMS43ODFjLTEuNjE1IDIuMDg1LTMuODk2IDUuMzY1LTYuMjgyIDYuMzQ0LTcuNTI1IDIuMzctMTUuOTk0IDMuMjQtMjYuMjE4IDQuMzEzLTQuOC4zOTktOC45NDMuMTYtMTQuMDMyIDEuMTI1LTEuMTIuMjEyLTIuNjguNjE4LTMuOTA2LjkwNmwtLjEyNS4wMzFjLS4wNjcuMDE2LS4xNTQuMDQ4LS4yMTkuMDYzLTguNjIgMi4wODItMTQuMTU3IDEwLjAwNi0xMi4zNzUgMTcuODEyIDEuNzg0IDcuODA4IDEwLjIwNCAxMi41NTcgMTguODc1IDEwLjY4OC4wNjMtLjAxNS4xNTQtLjAxNy4yMi0uMDMyLjA5Ny0uMDIyLjE4My0uMDcuMjgtLjA5MyAxLjIxLS4yNjYgMi43MjQtLjU2IDMuNzgyLS44NDQgNS4wMDMtMS4zNCA4LjYyNy0zLjMwOCAxMy4xMjUtNS4wMzEgOS42NzctMy40NzEgMTcuNjkxLTYuMzcgMjUuNS03LjUgMy4yNi0uMjU2IDYuNjk3IDIuMDEyIDguNDA2IDIuOTY4bDYuMzc1LTEuMDkzYzE0LjY3IDQ1LjQ4MiA0NS40MTQgODIuMjQ1IDg0LjM0NCAxMDUuMzEybC0yLjY1NyA2LjM3NWMuOTU4IDIuNDc2IDIuMDE0IDUuODI1IDEuMyA4LjI3LTIuODM4IDcuMzYtNy43IDE1LjEzLTEzLjIzNyAyMy43OTMtMi42ODEgNC4wMDItNS40MjUgNy4xMDctNy44NDQgMTEuNjg3LS41NzkgMS4wOTYtMS4zMTYgMi43OC0xLjg3NSAzLjkzOC0zLjc1OSA4LjA0Mi0xLjAwMiAxNy4zMDUgNi4yMTkgMjAuNzggNy4yNjYgMy40OTkgMTYuMjg0LS4xOSAyMC4xODctOC4yNS4wMDYtLjAxLjAyNi0uMDE5LjAzMi0uMDMuMDA0LS4wMS0uMDA0LS4wMjMgMC0uMDMxLjU1NS0xLjE0MyAxLjM0My0yLjY0NSAxLjgxMi0zLjcyIDIuMDcyLTQuNzQ2IDIuNzYyLTguODE0IDQuMjE5LTEzLjQwNSAzLjg3LTkuNzIgNS45OTUtMTkuOTIgMTEuMzIyLTI2LjI3NSAxLjQ2LTEuNzQgMy44MzctMi40MSA2LjMwMy0zLjA3bDMuMzEyLTZjMzMuOTM5IDEzLjAyOCA3MS45MjcgMTYuNTIzIDEwOS44NzUgNy45MDdhMTkwIDE5MCAwIDAgMCAyNS4wOTQtNy41NjJjLjkzMSAxLjY1IDIuNjYxIDQuODI1IDMuMTI1IDUuNjI1IDIuNTA2LjgxNSA1LjI0IDEuMjM2IDcuNDY5IDQuNTMgMy45ODUgNi44MSA2LjcxIDE0Ljg2NSAxMC4wMzEgMjQuNTk1IDEuNDU3IDQuNTkgMi4xNzggOC42NTkgNC4yNSAxMy40MDYuNDcyIDEuMDgyIDEuMjU2IDIuNjA1IDEuODEzIDMuNzUgMy44OTQgOC4wODUgMTIuOTQyIDExLjc4NiAyMC4yMTggOC4yODEgNy4yMi0zLjQ3OCA5Ljk4LTEyLjc0IDYuMjItMjAuNzgxLS41Ni0xLjE1OC0xLjMyOC0yLjg0Mi0xLjkwNy0zLjkzOC0yLjQyLTQuNTgtNS4xNjMtNy42NTQtNy44NDQtMTEuNjU2LTUuNTM3LTguNjYyLTEwLjEzLTE1Ljg1OC0xMi45NjktMjMuMjE5LTEuMTg3LTMuNzk2LjItNi4xNTcgMS4xMjUtOC42MjUtLjU1My0uNjM0LTEuNzM4LTQuMjItMi40MzctNS45MDYgNDAuNDU3LTIzLjg4OCA3MC4yOTgtNjIuMDIxIDg0LjMxMi0xMDYuMDYyIDEuODkzLjI5NyA1LjE4Mi44NzkgNi4yNSAxLjA5MyAyLjItMS40NSA0LjIyMi0zLjM0MyA4LjE4OC0zLjAzMSA3LjgwOCAxLjEzIDE1LjgyMyA0LjAzIDI1LjUgNy41IDQuNDk4IDEuNzIzIDguMTIxIDMuNzIzIDEzLjEyNSA1LjA2MyAxLjA1Ny4yODMgMi41NzIuNTQ3IDMuNzgxLjgxMi4wOTcuMDI0LjE4My4wNzEuMjgxLjA5NC4wNjYuMDE0LjE1Ni4wMTcuMjIuMDMgOC42NzEgMS44NjggMTcuMDkzLTIuODc4IDE4Ljg3NC0xMC42ODcgMS43OC03LjgwNy0zLjc1NC0xNS43MzItMTIuMzc1LTE3LjgxMi0xLjI1NC0uMjg1LTMuMDMyLS43Ny00LjI1LTEtNS4wOS0uOTY0LTkuMjMtLjcyNi0xNC4wMzEtMS4xMjUtMTAuMjI1LTEuMDcxLTE4LjY5NC0xLjk0My0yNi4yMTktNC4zMTMtMy4wNjgtMS4xOS01LjI1MS00Ljg0LTYuMzEyLTYuMzQzbC01LjkwNy0xLjcyYzMuMDYzLTIyLjE1NCAyLjIzNy00NS4yMS0zLjA2Mi02OC4yOC01LjM0OS0yMy4yODUtMTQuOC00NC41ODEtMjcuNDA2LTYzLjM0NCAxLjUxNS0xLjM3NyA0LjM3Ni0zLjkxMSA1LjE4Ny00LjY1Ni4yMzctMi42MjUuMDMzLTUuMzc2IDIuNzUtOC4yODIgNS43NTEtNS40IDEzLjAwMy05Ljg3OSAyMS43NS0xNS4yOCA0LjE1Mi0yLjQ0MyA3Ljk5LTQuMDE4IDEyLjE1Ni03LjA5NS45NDMtLjY5NSAyLjIzLTEuNzk3IDMuMjE5LTIuNTkzIDcuMDE1LTUuNTk3IDguNjMtMTUuMjQ5IDMuNTk0LTIxLjU2M3MtMTQuNzk3LTYuOTA5LTIxLjgxMy0xLjMxMmMtLjk5OC43OS0yLjM1MyAxLjgyMi0zLjI1IDIuNTkzLTMuOTI2IDMuMzc4LTYuMzUxIDYuNzE1LTkuNjU2IDEwLjIyLTcuMjEyIDcuMzI1LTEzLjE3NCAxMy40MzctMTkuNzE5IDE3Ljg0My0yLjgzNiAxLjY1MS02Ljk5IDEuMDgtOC44NzUuOTY5bC01LjU2MiAzLjk2OGMtMzEuNzItMzMuMjYtNzQuOTA1LTU0LjUyNS0xMjEuNDA2LTU4LjY1Ni0uMTMtMS45NDktLjMtNS40NzEtLjM0NC02LjUzMS0xLjkwNC0xLjgyMi00LjIwNC0zLjM3Ny00Ljc4MS03LjMxMy0uNjM3LTcuODY0LjQyNi0xNi4zMjQgMS42NTYtMjYuNTMuNjc5LTQuNzcgMS44MDctOC43MzEgMi0xMy45MDcuMDQ0LTEuMTc3LS4wMjctMi44ODQtLjAzMS00LjE1Ni0uMDAxLTguOTc0LTYuNTQ4LTE2LjI1MS0xNC42MjUtMTYuMjV6TTM0OS40MiAzODcuNDk3bC00LjM0NCA3Ni43MTktLjMxMi4xNTZjLS4yOTEgNi44NjMtNS45NCAxMi4zNDQtMTIuODc1IDEyLjM0NC0yLjg0IDAtNS40NjMtLjkxMi03LjU5NC0yLjQ2OWwtLjEyNS4wNjMtNjIuOTA2LTQ0LjU5NGMxOS4zMzQtMTkuMDExIDQ0LjA2My0zMy4wNiA3Mi41NjItMzkuNTMxYTE1NCAxNTQgMCAwIDEgMTUuNTk0LTIuNjg4em0zNi42NTYgMGMzMy4yNzQgNC4wOTIgNjQuMDQ1IDE5LjE1OSA4Ny42MjUgNDIuMjVsLTYyLjUgNDQuMzEzLS4yMTgtLjA5NGMtNS41NDggNC4wNTItMTMuMzY0IDMuMDQ2LTE3LjY4OC0yLjM3NWExMi44IDEyLjggMCAwIDEtMi44MTItNy40NjlsLS4wNjMtLjAzMXptLTE0Ny42MjUgNzAuODc1IDU3LjQzOCA1MS4zNzUtLjA2My4zMTNjNS4xODUgNC41MDcgNS45NSAxMi4zMjggMS42MjUgMTcuNzVhMTIuOSAxMi45IDAgMCAxLTYuNjg3IDQuNDA2bC0uMDYzLjI1LTczLjYyNSAyMS4yNWMtMy43NDctMzQuMjY1IDQuMzI5LTY3LjU3NCAyMS4zNzUtOTUuMzQ0em0yNTguMTU3LjAzMWM4LjUzNCAxMy44MzMgMTQuOTk2IDI5LjI4MiAxOC44NDMgNDYuMDMyIDMuODAxIDE2LjU0OCA0Ljc1NSAzMy4wNjcgMy4xODggNDkuMDNsLTc0LTIxLjMxMi0uMDYzLS4zMTJjLTYuNjI2LTEuODExLTEwLjY5OS04LjU1Mi05LjE1Ni0xNS4zMTNhMTIuOCAxMi44IDAgMCAxIDQuMDk0LTYuODQzbC0uMDMxLS4xNTd6bS0xNDAuNjU3IDU1LjMxM2gyMy41MzJsMTQuNjI1IDE4LjI4MS01LjI1IDIyLjgxMy0yMS4xMjUgMTAuMTU2LTIxLjE4OC0xMC4xODgtNS4yNS0yMi44MTJ6bTc1LjQzOCA2Mi41NjJjMS0uMDUgMS45OTUuMDQgMi45NjkuMjJsLjEyNS0uMTU3IDc2LjE1NiAxMi44NzVjLTExLjE0NiAzMS4zMTMtMzIuNDczIDU4LjQ0LTYwLjk2OSA3Ni41OTRsLTI5LjU2Mi03MS40MDcuMDkzLS4xMjVjLTIuNzE1LTYuMzEuMDAyLTEzLjcxIDYuMjUtMTYuNzE4IDEuNi0uNzcgMy4yNzEtMS4xOTcgNC45MzgtMS4yODJ6bS0xMjcuOTA2LjMxM2M1LjgxMS4wODEgMTEuMDI0IDQuMTE1IDEyLjM3NSAxMC4wMzEuNjMyIDIuNzcuMzI0IDUuNTE0LS43MiA3LjkzOGwuMjIuMjgtMjkuMjUgNzAuNjg4Yy0yNy4zNDctMTcuNTQ4LTQ5LjEzLTQzLjgyNC02MC43ODItNzYuMDYybDc1LjUtMTIuODEzLjEyNS4xNTdjLjg0NS0uMTU2IDEuNzAxLS4yMyAyLjUzMi0uMjJ6bTYzLjc4IDMwLjk2OWExMi43NiAxMi43NiAwIDAgMSA2LjAzMiAxLjI4YzIuNTYgMS4yMzMgNC41MzcgMy4xNzQgNS43ODEgNS41aC4yODJsMzcuMjE4IDY3LjI1YTE1NCAxNTQgMCAwIDEtMTQuODc1IDQuMTU3Yy0yOC40NjQgNi40NjMtNTYuODM4IDQuNTA1LTgyLjUzLTQuMjVsMzcuMTI0LTY3LjEyNWguMDYzYTEyLjkxIDEyLjkxIDAgMCAxIDEwLjkwNi02LjgxMnoiIHN0eWxlPSJmb250LXNpemU6bWVkaXVtO2ZvbnQtc3R5bGU6bm9ybWFsO2ZvbnQtdmFyaWFudDpub3JtYWw7Zm9udC13ZWlnaHQ6NDAwO2ZvbnQtc3RyZXRjaDpub3JtYWw7dGV4dC1pbmRlbnQ6MDt0ZXh0LWFsaWduOnN0YXJ0O3RleHQtZGVjb3JhdGlvbjpub25lO2xpbmUtaGVpZ2h0Om5vcm1hbDtsZXR0ZXItc3BhY2luZzpub3JtYWw7d29yZC1zcGFjaW5nOm5vcm1hbDt0ZXh0LXRyYW5zZm9ybTpub25lO2RpcmVjdGlvbjpsdHI7YmxvY2stcHJvZ3Jlc3Npb246dGI7d3JpdGluZy1tb2RlOmxyLXRiO3RleHQtYW5jaG9yOnN0YXJ0O2Jhc2VsaW5lLXNoaWZ0OmJhc2VsaW5lO2NvbG9yOiMwMDA7ZmlsbDojZmZmO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTojZmZmO3N0cm9rZS13aWR0aDouMjU7c3Ryb2tlLW1pdGVybGltaXQ6NDtzdHJva2Utb3BhY2l0eToxO3N0cm9rZS1kYXNoYXJyYXk6bm9uZTttYXJrZXI6bm9uZTt2aXNpYmlsaXR5OnZpc2libGU7ZGlzcGxheTppbmxpbmU7b3ZlcmZsb3c6dmlzaWJsZTtmb250LWZhbWlseTpTYW5zOy1pbmtzY2FwZS1mb250LXNwZWNpZmljYXRpb246U2FucyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTYuMzI2IC0xNzQuNzUyKSIvPjwvc3ZnPg==",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-external-secrets": {
+      "id": "logo-external-secrets",
+      "dataURL": "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDE2NS40NyAxNjUuNDciPjxkZWZzPjxzdHlsZT4uZHtmaWxsOiMwMzJlNDk7fS5lLC5mLC5ne2ZpbGw6I2ZmZjt9LmYsLmgsLml7c3Ryb2tlLXdpZHRoOjRweDt9LmYsLmgsLmksLmcsLmp7c3Ryb2tlOiNmZmY7fS5mLC5oLC5pLC5qe3N0cm9rZS1saW5lY2FwOnJvdW5kO30uaCwuaSwuantmaWxsOm5vbmU7fS5pLC5qe3N0cm9rZS1saW5lam9pbjpyb3VuZDt9Lmd7c3Ryb2tlLW1pdGVybGltaXQ6MTA7fS5qe3N0cm9rZS13aWR0aDozcHg7fTwvc3R5bGU+PC9kZWZzPjxnIGlkPSJhIi8+PGcgaWQ9ImIiPjxnIGlkPSJjIj48Zz48Y2lyY2xlIGNsYXNzPSJkIiBjeD0iODIuNzMiIGN5PSI4Mi43MyIgcj0iODIuNzMiLz48Zz48cGF0aCBjbGFzcz0iaCIgZD0iTTg0LjYyLDQ1LjcxYzQuOTEsMCw4LjksMy45OCw4LjksOC45Ii8+PHBhdGggY2xhc3M9ImkiIGQ9Ik01OS44Niw2Mi45OWMwLTEyLjY2LDEwLjI2LTIyLjkyLDIyLjkyLTIyLjkyczIyLjkyLDEwLjI2LDIyLjkyLDIyLjkyIi8+PGc+PHBhdGggY2xhc3M9ImUiIGQ9Ik03Ni4yNSw5OC45NWMtLjIxLC4yOS0uNDMsLjQzLS42NSwuNDNzLS40NC0uMS0uNjYtLjI5Yy0uMjItLjE5LS4zMy0uMzgtLjMzLS41NnMuMDktLjM3LC4yNi0uNTZsMS42MS0yLjI2LTIuMTUtLjY5Yy0uNDItLjEzLS42My0uMzUtLjYzLS42NiwwLS4xNywuMDMtLjMyLC4wOS0uNDYsLjExLS40LC4zNS0uNiwuNzItLjYsLjA4LDAsLjIxLC4wMiwuNCwuMDZsMi4yMSwuNzJ2LTIuMzVjMC0uNTcsLjI5LS44NiwuODYtLjg2cy44NiwuMjksLjg2LC44NnYyLjM1bDIuMTUtLjcyYy4xOS0uMDQsLjM1LS4wNiwuNDktLjA2cy4yOSwuMSwuNDYsLjI5Yy4xNywuMTksLjI2LC40NCwuMjYsLjc2cy0uMjEsLjU0LS42MywuNjdsLTIuMTgsLjY5LDEuNjMsMi4yNmMuMTUsLjE3LC4yMywuMzUsLjIzLC41NHMtLjExLC4zOC0uMzMsLjU3Yy0uMjIsLjE5LS40MywuMjktLjY0LC4yOXMtLjQyLS4xNC0uNjMtLjQzbC0xLjY5LTIuMzgtMS42OSwyLjM4WiIvPjxwYXRoIGNsYXNzPSJlIiBkPSJNNjYuNTcsOTguOTVjLS4yMSwuMjktLjQzLC40My0uNjUsLjQzcy0uNDQtLjEtLjY2LS4yOWMtLjIyLS4xOS0uMzMtLjM4LS4zMy0uNTZzLjA5LS4zNywuMjYtLjU2bDEuNjEtMi4yNi0yLjE1LS42OWMtLjQyLS4xMy0uNjMtLjM1LS42My0uNjYsMC0uMTcsLjAzLS4zMiwuMDktLjQ2LC4xMS0uNCwuMzUtLjYsLjcyLS42LC4wOCwwLC4yMSwuMDIsLjQsLjA2bDIuMjEsLjcydi0yLjM1YzAtLjU3LC4yOS0uODYsLjg2LS44NnMuODYsLjI5LC44NiwuODZ2Mi4zNWwyLjE1LS43MmMuMTktLjA0LC4zNS0uMDYsLjQ5LS4wNnMuMjksLjEsLjQ2LC4yOWMuMTcsLjE5LC4yNiwuNDQsLjI2LC43NnMtLjIxLC41NC0uNjMsLjY3bC0yLjE4LC42OSwxLjYzLDIuMjZjLjE1LC4xNywuMjMsLjM1LC4yMywuNTRzLS4xMSwuMzgtLjMzLC41N2MtLjIyLC4xOS0uNDMsLjI5LS42NCwuMjlzLS40Mi0uMTQtLjYzLS40M2wtMS42OS0yLjM4LTEuNjksMi4zOFoiLz48cGF0aCBjbGFzcz0iZSIgZD0iTTg1LjkyLDk4Ljk1Yy0uMjEsLjI5LS40MywuNDMtLjY1LC40M3MtLjQ0LS4xLS42Ni0uMjljLS4yMi0uMTktLjMzLS4zOC0uMzMtLjU2cy4wOS0uMzcsLjI2LS41NmwxLjYxLTIuMjYtMi4xNS0uNjljLS40Mi0uMTMtLjYzLS4zNS0uNjMtLjY2LDAtLjE3LC4wMy0uMzIsLjA5LS40NiwuMTEtLjQsLjM1LS42LC43Mi0uNiwuMDgsMCwuMjEsLjAyLC40LC4wNmwyLjIxLC43MnYtMi4zNWMwLS41NywuMjktLjg2LC44Ni0uODZzLjg2LC4yOSwuODYsLjg2djIuMzVsMi4xNS0uNzJjLjE5LS4wNCwuMzUtLjA2LC40OS0uMDZzLjI5LC4xLC40NiwuMjljLjE3LC4xOSwuMjYsLjQ0LC4yNiwuNzZzLS4yMSwuNTQtLjYzLC42N2wtMi4xOCwuNjksMS42MywyLjI2Yy4xNSwuMTcsLjIzLC4zNSwuMjMsLjU0cy0uMTEsLjM4LS4zMywuNTdjLS4yMiwuMTktLjQzLC4yOS0uNjQsLjI5cy0uNDItLjE0LS42My0uNDNsLTEuNjktMi4zOC0xLjY5LDIuMzhaIi8+PHBhdGggY2xhc3M9ImUiIGQ9Ik05NS42LDk4Ljk1Yy0uMjEsLjI5LS40MywuNDMtLjY1LC40M3MtLjQ0LS4xLS42Ni0uMjljLS4yMi0uMTktLjMzLS4zOC0uMzMtLjU2cy4wOS0uMzcsLjI2LS41NmwxLjYxLTIuMjYtMi4xNS0uNjljLS40Mi0uMTMtLjYzLS4zNS0uNjMtLjY2LDAtLjE3LC4wMy0uMzIsLjA5LS40NiwuMTEtLjQsLjM1LS42LC43Mi0uNiwuMDgsMCwuMjEsLjAyLC40LC4wNmwyLjIxLC43MnYtMi4zNWMwLS41NywuMjktLjg2LC44Ni0uODZzLjg2LC4yOSwuODYsLjg2djIuMzVsMi4xNS0uNzJjLjE5LS4wNCwuMzUtLjA2LC40OS0uMDZzLjI5LC4xLC40NiwuMjljLjE3LC4xOSwuMjYsLjQ0LC4yNiwuNzZzLS4yMSwuNTQtLjYzLC42N2wtMi4xOCwuNjksMS42MywyLjI2Yy4xNSwuMTcsLjIzLC4zNSwuMjMsLjU0cy0uMTEsLjM4LS4zMywuNTdjLS4yMiwuMTktLjQzLC4yOS0uNjQsLjI5cy0uNDItLjE0LS42My0uNDNsLTEuNjktMi4zOC0xLjY5LDIuMzhaIi8+PC9nPjxyZWN0IGNsYXNzPSJqIiB4PSI1Ny41NiIgeT0iODcuNjYiIHdpZHRoPSI1MC40MyIgaGVpZ2h0PSIxNC45MyIgcng9Ii44NyIgcnk9Ii44NyIvPjxnPjxwYXRoIGNsYXNzPSJoIiBkPSJNMzEuMTUsMTAxLjYxYzAtNC45MSwzLjk4LTguOSw4LjktOC45Ii8+PHBhdGggY2xhc3M9ImgiIGQ9Ik0yNC45NCwxMDguNzNjMC0zLjQzLDIuNzgtNi4yMiw2LjIyLTYuMjJzNi4yMiwyLjc4LDYuMjIsNi4yMiIvPjxsaW5lIGNsYXNzPSJpIiB4MT0iNDQuMyIgeTE9Ijg0LjEiIHgyPSI0NC4zIiB5Mj0iMTAyLjg1Ii8+PC9nPjxnPjxwYXRoIGNsYXNzPSJoIiBkPSJNMTM0LjMxLDEwMS42MWMwLTQuOTEtMy45OC04LjktOC45LTguOSIvPjxwYXRoIGNsYXNzPSJoIiBkPSJNMTQwLjUzLDEwOC43M2MwLTMuNDMtMi43OC02LjIyLTYuMjItNi4yMnMtNi4yMiwyLjc4LTYuMjIsNi4yMiIvPjxsaW5lIGNsYXNzPSJpIiB4MT0iMTIxLjE3IiB5MT0iODQuMSIgeDI9IjEyMS4xNyIgeTI9IjEwMi44NSIvPjwvZz48Zz48Y2lyY2xlIGNsYXNzPSJnIiBjeD0iODIuNzgiIGN5PSIxOS40OSIgcj0iNC4zIi8+PGxpbmUgY2xhc3M9ImYiIHgxPSI4Mi43OCIgeTE9IjIxLjIzIiB4Mj0iODIuNzgiIHkyPSIzOS4xOCIvPjwvZz48Zz48cG9seWxpbmUgY2xhc3M9ImkiIHBvaW50cz0iNzkuMjMgMTIxLjUzIDUwLjI5IDEyMS44MyA1MC4yOSA2OC40MiAxMTUuMTggNjguNDIgMTE1LjE4IDEyMS44MyA5MC44NyAxMjEuNTgiLz48cG9seWdvbiBjbGFzcz0iZSIgcG9pbnRzPSI5Mi4wNyAxMTcuNjEgODUuMTMgMTIxLjUzIDkxLjk5IDEyNS41OCA5Mi4wNyAxMTcuNjEiLz48L2c+PC9nPjwvZz48L2c+PC9nPjwvc3ZnPg==",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    },
+    "logo-istio": {
+      "id": "logo-istio",
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCI+PHBhdGggZD0iTTExLjMgNDIwLjJoMzE0LjhsLTE5Ni43IDU5em0wLTE5LjdsMTE4LjEtMTkuN1YxNjQuNHpNMTQ5IDM4MC44bDE3Ny4xIDE5LjdMMTQ5IDd6IiB0cmFuc2Zvcm09Im1hdHJpeCguMTM1NTM2IDAgMCAuMTM1NTM2IDkuMTM1MTEyIC0uOTQ4NzUxKSIgZmlsbD0iIzQ2NmJiMCIvPjwvc3ZnPg==",
+      "mimeType": "image/svg+xml",
+      "created": 1,
+      "lastRetrieved": 1
+    }
+  },
+  "customData": {
+    "architectureSpec": {
+      "title": "IDENTITY / People, secrets and workloads",
+      "subtitle": "Keycloak handles login. External Secrets distributes credentials. Istio supplies workload identity.",
+      "color": "trust",
+      "height": 1600,
+      "groups": [
+        [
+          "people",
+          65,
+          155,
+          1580,
+          665,
+          "HUMAN IDENTITY"
+        ],
+        [
+          "secret_region",
+          65,
+          855,
+          1580,
+          300,
+          "APPLICATION SECRETS"
+        ],
+        [
+          "mesh_region",
+          65,
+          1190,
+          1580,
+          300,
+          "WORKLOAD TRUST"
+        ]
+      ],
+      "nodes": [
+        [
+          "passkey",
+          105,
+          225,
+          "1Password passkey",
+          "Personal vault / WebAuthn",
+          "1password",
+          "trust",
+          true
+        ],
+        [
+          "user",
+          685,
+          225,
+          "User",
+          "Browser / code + PKCE",
+          null,
+          "trust",
+          true
+        ],
+        [
+          "keycloak",
+          1265,
+          225,
+          "Keycloak",
+          "Single identity instance",
+          "keycloak"
+        ],
+        [
+          "postgres",
+          105,
+          445,
+          "PostgreSQL",
+          "Keycloak database",
+          "postgresql",
+          "data"
+        ],
+        [
+          "platform_realm",
+          685,
+          445,
+          "Platform realm",
+          "Tool roles / OIDC clients",
+          null
+        ],
+        [
+          "app_realm",
+          1265,
+          445,
+          "Application realm",
+          "App roles / OIDC clients",
+          null
+        ],
+        [
+          "argo",
+          105,
+          675,
+          "Argo CD",
+          "Platform OIDC client",
+          "argo-cd",
+          null,
+          false,
+          300
+        ],
+        [
+          "grafana",
+          505,
+          675,
+          "Grafana",
+          "Platform OIDC client",
+          "grafana",
+          null,
+          false,
+          300
+        ],
+        [
+          "harbor",
+          905,
+          675,
+          "Harbor",
+          "Platform OIDC client",
+          "harbor",
+          null,
+          false,
+          300
+        ],
+        [
+          "app_login",
+          1305,
+          675,
+          "Application",
+          "Validates app tokens",
+          "kubernetes",
+          null,
+          false,
+          300
+        ],
+        [
+          "vault",
+          105,
+          955,
+          "1Password vault",
+          "CloudLab secrets",
+          "1password",
+          "trust",
+          true
+        ],
+        [
+          "eso",
+          685,
+          955,
+          "External Secrets",
+          "Read-only vault identity",
+          "external-secrets"
+        ],
+        [
+          "secret",
+          1265,
+          955,
+          "Kubernetes Secret",
+          "Per-app credentials",
+          "kubernetes"
+        ],
+        [
+          "ambient",
+          105,
+          1310,
+          "Istio ambient",
+          "Service identity / mTLS",
+          "istio"
+        ],
+        [
+          "workload",
+          685,
+          1310,
+          "Application pods",
+          "Authenticated peers",
+          "kubernetes"
+        ],
+        [
+          "authpolicy",
+          1265,
+          1310,
+          "AuthorizationPolicy",
+          "Allowed service calls",
+          "istio"
+        ]
+      ],
+      "edges": [
+        [
+          "passkey",
+          "user",
+          [
+            [
+              451,
+              278
+            ],
+            [
+              679,
+              278
+            ]
+          ],
+          "Passkey",
+          510,
+          245
+        ],
+        [
+          "user",
+          "keycloak",
+          [
+            [
+              1031,
+              278
+            ],
+            [
+              1259,
+              278
+            ]
+          ],
+          "OIDC login",
+          1090,
+          245
+        ],
+        [
+          "keycloak",
+          "postgres",
+          [
+            [
+              1380,
+              337
+            ],
+            [
+              1380,
+              380
+            ],
+            [
+              275,
+              380
+            ],
+            [
+              275,
+              439
+            ]
+          ],
+          "Identity state",
+          430,
+          350,
+          "data"
+        ],
+        [
+          "keycloak",
+          "platform_realm",
+          [
+            [
+              1260,
+              310
+            ],
+            [
+              1140,
+              310
+            ],
+            [
+              1140,
+              405
+            ],
+            [
+              855,
+              405
+            ],
+            [
+              855,
+              439
+            ]
+          ],
+          "Roles / clients",
+          885,
+          343,
+          "trust",
+          true
+        ],
+        [
+          "keycloak",
+          "app_realm",
+          [
+            [
+              1470,
+              337
+            ],
+            [
+              1470,
+              439
+            ]
+          ],
+          "Realm",
+          1490,
+          380,
+          "trust",
+          true
+        ],
+        [
+          "platform_realm",
+          "argo",
+          [
+            [
+              765,
+              557
+            ],
+            [
+              765,
+              600
+            ],
+            [
+              255,
+              600
+            ],
+            [
+              255,
+              669
+            ]
+          ],
+          "",
+          0,
+          0
+        ],
+        [
+          "platform_realm",
+          "grafana",
+          [
+            [
+              825,
+              557
+            ],
+            [
+              825,
+              625
+            ],
+            [
+              655,
+              625
+            ],
+            [
+              655,
+              669
+            ]
+          ],
+          "",
+          0,
+          0
+        ],
+        [
+          "platform_realm",
+          "harbor",
+          [
+            [
+              940,
+              557
+            ],
+            [
+              940,
+              600
+            ],
+            [
+              1055,
+              600
+            ],
+            [
+              1055,
+              669
+            ]
+          ],
+          "",
+          0,
+          0
+        ],
+        [
+          "app_realm",
+          "app_login",
+          [
+            [
+              1455,
+              557
+            ],
+            [
+              1455,
+              669
+            ]
+          ],
+          "OIDC",
+          1475,
+          600
+        ],
+        [
+          "vault",
+          "eso",
+          [
+            [
+              451,
+              1008
+            ],
+            [
+              679,
+              1008
+            ]
+          ],
+          "Scoped read",
+          495,
+          975
+        ],
+        [
+          "eso",
+          "secret",
+          [
+            [
+              1031,
+              1008
+            ],
+            [
+              1259,
+              1008
+            ]
+          ],
+          "Reconcile",
+          1070,
+          975,
+          "trust",
+          true
+        ],
+        [
+          "secret",
+          "app_login",
+          [
+            [
+              1455,
+              949
+            ],
+            [
+              1455,
+              787
+            ]
+          ],
+          "Consume",
+          1475,
+          850,
+          "trust",
+          true
+        ],
+        [
+          "secret",
+          "workload",
+          [
+            [
+              1370,
+              1067
+            ],
+            [
+              1370,
+              1175
+            ],
+            [
+              855,
+              1175
+            ],
+            [
+              855,
+              1304
+            ]
+          ],
+          "Mount credentials",
+          900,
+          1200,
+          "trust",
+          true
+        ],
+        [
+          "ambient",
+          "workload",
+          [
+            [
+              451,
+              1363
+            ],
+            [
+              679,
+              1363
+            ]
+          ],
+          "mTLS",
+          535,
+          1330
+        ],
+        [
+          "authpolicy",
+          "workload",
+          [
+            [
+              1259,
+              1363
+            ],
+            [
+              1031,
+              1363
+            ]
+          ],
+          "Authorize",
+          1080,
+          1330,
+          "trust",
+          true
+        ]
+      ],
+      "notes": [
+        [
+          65,
+          1525,
+          "Personal passkeys and the automation vault are separate. Tailscale keeps its own login.",
+          18
+        ]
+      ]
+    }
+  }
+}
