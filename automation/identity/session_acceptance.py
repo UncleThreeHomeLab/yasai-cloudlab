@@ -127,7 +127,11 @@ def run():
         stream = connection.makefile('rw',encoding='utf-8')
         stream.write(json.dumps(browser_input)+'\n');stream.flush()
         ready = json.loads(stream.readline())
-        if ready.get('ready') is not True: raise RuntimeError('Browser baseline not accepted')
+        if ready.get('ready') is not True:
+            stages = ('input','account enrollment','account session','native Argo SSO','Access SSO')
+            if ready.get('failed_stage') in stages:
+                print(json.dumps({'browser_failed_stage':ready['failed_stage']}),flush=True)
+            raise RuntimeError('Browser baseline not accepted')
         print(json.dumps(ready),flush=True)
         stream.write('{"action":"observe-offboarding"}\n');stream.flush()
         started = time.monotonic()
