@@ -49,6 +49,116 @@ volume.
 | Ansible | Configure hosts and cluster; verify the result |
 | Docker Compose | Run the pinned automation environment |
 
+## Infrastructure
+
+Milestone 03c is being introduced in four reviews: tooling/state foundation,
+Cloudflare adoption, designated GitHub adoption, then retirement and integrated
+acceptance. The declarations are candidates until real import/update certification
+passes. Existing Cloudflare and identity writers remain authoritative. No production
+import or ownership handoff has occurred. GitHub governance runs through independent
+Compose execution, including after infrastructure CI is introduced.
+
+Code remains on GitHub. Encrypted OpenTofu state uses two private, empty GitLab.com
+projects, one per root. These projects contain no code, pipelines or artifacts.
+[GitLab-managed state](https://docs.gitlab.com/user/infrastructure/iac/terraform_state/)
+is available on Free and provides native HTTP locking, encryption at rest and
+version retrieval. Both authorized projects passed isolated backend qualification.
+The client also enforces PBKDF2/AES-GCM encryption for state and saved plans.
+B2 qualification failed conditional lock creation with HTTP 501; routine state
+writes do not use B2. No AWS account or GitHub App permission expansion is required.
+
+The runner pins OpenTofu 1.13.1 and provider versions/checksums. Ordinary initialization
+uses `-lockfile=readonly`. Docker executes `linux/amd64` on every host; Windows Docker
+Desktop is tested. Linux/macOS execution and ARM-host emulation still need evidence.
+Native ARM binaries are not supported by this pin set. Checks need access to pinned
+provider downloads and are not described as offline checks.
+
+```sh
+docker compose run --build --rm infra check cloudflare
+docker compose run --rm infra check github
+docker compose run --rm lab infra check cloudflare
+```
+
+`check` formats, validates and plans public synthetic fixtures with mocked providers,
+without private accounts. `plan`, `drift` and `verify` refresh an accepted root;
+exit 0 means no change, 2 means change, and other exits mean failure. `verify`
+requires an empty plan and the accepted identity inventory. Domain behavior checks
+remain separately required. `apply` requires the exact saved plan hash after private
+review within one hour. It rejects a different revision, source/input/lock/backend binding, changed
+resource inventory, deletion, creation/replacement, repository rename/visibility/
+archival, audience replacement, and changes to existing ruleset scope or review rules.
+Native state locking and stale-plan checks remain active. Drift never approves repair.
+
+Set `INFRA_PRIVATE_DIR` to a protected absolute directory outside this checkout.
+Each accepted root has a `cloudflare/` or `github/` subdirectory containing:
+
+| File | Contract |
+| --- | --- |
+| `desired.tfvars.json` | Complete typed desired inputs; public `fixtures.json` demonstrates the shape. Unknown policy fields are rejected. |
+| `backend.json` | `project_id` for the designated private GitLab project; the state name is `managed`. |
+| `credentials.env` | `TF_HTTP_USERNAME`, `TF_HTTP_PASSWORD`, and only `CLOUDFLARE_API_TOKEN` or `GITHUB_TOKEN` for that root. |
+| `encryption.json` | `passphrase`, independently recoverable from the owning vault item. |
+| `inventory.json` | Exact native resource addresses mapped to accepted existing IDs. |
+| `acceptance.json` | `root` and `status: accepted`, issued only after reviewed import and ownership acceptance. |
+
+Missing files or an unaccepted root stop before live init/plan. Do not create an
+acceptance receipt to bypass handoff. Deployment jobs receive no governance inputs.
+The independent client masks the checkout's `.env` and passes only root credentials
+to OpenTofu. Raw diagnostics, private review text, encrypted plans, backend cache and
+failed-upload recovery state stay in the local `infra_work` Docker volume, outside Git,
+Kubernetes storage and CI artifacts. Restrict access to the host and Docker daemon.
+Never use `docker compose down -v` while recovery material is needed.
+
+```sh
+docker compose run --rm infra plan cloudflare
+# Read /infra-work/cloudflare/review.txt privately before using the reported hash.
+docker compose run --rm infra apply cloudflare --review <reviewed-plan-sha256>
+docker compose run --rm infra verify cloudflare
+docker compose run --rm infra drift cloudflare
+```
+
+Backend bootstrap is external: create separate private GitLab projects, enable their
+Infrastructure feature and give each fine-grained personal token only Terraform State
+Read/Create/Lock/Delete for its designated project. Use 90-day expiry; replace the
+token in the vault/local input before expiry without changing the encryption key.
+Keep `PROJECT_ID`, `USERNAME`, `TOKEN` in `CloudLab/gitlab-state-cloudflare` and
+`CloudLab/gitlab-state-github`. GitLab account recovery and human 1Password access
+must work without lab Kubernetes or Keycloak. Bootstrap creates no paid subscription.
+GitLab's documented 10 GiB Free limit describes repository/LFS storage; it is not
+evidence of a state-version quota. State retention/cost qualification remains a
+handoff gate; do not assume indefinite free storage or enable paid storage automatically.
+
+```sh
+docker compose run --rm --workdir /workspace --entrypoint python lab -m automation.infra.bootstrap
+docker compose run --rm --workdir /workspace --entrypoint python lab -m automation.infra.gitlab_qualification
+docker compose run --rm --workdir /workspace --entrypoint python lab -m automation.infra.gitlab_qualification --cleanup
+```
+
+Encryption bootstrap creates only missing `CloudLab/opentofu-state-cloudflare` and
+`CloudLab/opentofu-state-github` items with concealed `PASSPHRASE`; it preserves existing
+keys and rejects duplicates/incompatible fields. Key provisioning is not yet accepted
+because 1Password request limits currently block it. Keep recovery access independent
+and retain old keys through any separately reviewed encryption-key rotation.
+Qualification uses disposable `terraform_data`, not production provider resources,
+and leaves protected receipts/encrypted versions under `recovery_outputs:/recovery/infra/gitlab`.
+It tests both clients, cross-project/anonymous denial, prior-version independent
+decryption, wrong-key rejection, drift and failed state upload followed by safe resume.
+
+If provider success is followed by upload failure, stop retries. Preserve encrypted
+`errored.tfstate`, diagnostics and the exact configuration/key. Inspect affected IDs
+through the provider and backend before choosing a recovery state. Decrypt an encrypted
+copy with the pinned client in an isolated local-backend directory; keep decrypted
+state in memory and pipe it into native `tofu state push -`. Do not force serial/lineage
+checks or automatically unlock. Confirm preserved IDs and an empty repeat plan.
+Recovering state does not restore provider objects or application data.
+Production import, version pruning and reverse handoff require later reviewed
+maintenance implementations; ordinary commands cannot authorize them.
+
+Dependency maintenance is explicit: `automation.infra.locks` generates formatted
+declarations and signed checksums in `/tmp/infra-lock-review` of its disposable
+container. Review/copy the selected files into a dependency change and rerun checks.
+Never run dependency upgrades as part of ordinary init/apply.
+
 ## Run it
 
 1. Prepare two reachable VMs with automatic time synchronization and Docker Compose. Permit outbound NTP traffic and its replies through upstream firewalls. Apply retries an already active systemd-timesyncd daemon once if the clock is unsynchronized, then waits up to one minute. Verification is read-only; both stop before cluster operations if synchronization fails.

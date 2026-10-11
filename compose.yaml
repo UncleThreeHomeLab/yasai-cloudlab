@@ -16,6 +16,32 @@ services:
         target: /recovery
     command: [apply]
 
+  infra:
+    profiles: [infra]
+    platform: linux/amd64
+    build:
+      context: ./automation/runner
+    entrypoint: [python, -m, automation.infra.command]
+    working_dir: /workspace
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ./.env.example
+        target: /workspace/.env
+        read_only: true
+      - type: bind
+        source: ${INFRA_PRIVATE_DIR:-./.infra-private}
+        target: /inputs
+        read_only: true
+      - type: volume
+        source: infra_work
+        target: /infra-work
+    command: [check, cloudflare]
+
 volumes:
+  infra_work:
   ssh_known_hosts:
   recovery_outputs:

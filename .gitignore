@@ -27,6 +27,11 @@ __pycache__/
 # Terraform / OpenTofu
 .terraform/
 *.tfstate*
+*.tfplan
+*.tfvars
+*.tfvars.json
+/.infra-private/
+/infra-inventory/
 
 # Documentation stays local until explicitly requested.
 /docs/

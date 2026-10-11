@@ -15,6 +15,18 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_infra_dispatch_preserves_native_exit_without_deployment_inputs(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'drift', 'github']), \
+                patch.object(runner, 'dotenv_values') as dotenv, \
+                patch.object(runner, 'playbook') as playbook, \
+                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=2)) as run:
+            with self.assertRaises(SystemExit) as result:
+                runner.main()
+        self.assertEqual(result.exception.code, 2)
+        dotenv.assert_not_called()
+        playbook.assert_not_called()
+        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.infra.command', 'drift', 'github'])
+
     def test_login_guide_never_runs_host_apply(self):
         with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
             playbook = self.invoke('identity-login-guide')

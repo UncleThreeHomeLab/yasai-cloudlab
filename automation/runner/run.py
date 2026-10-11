@@ -34,6 +34,9 @@ def gitops_preflight():
 
 
 def main():
+    if sys.argv[1:2] == ['infra']:
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.infra.command', *sys.argv[2:]],
+                                       cwd='/workspace', check=False).returncode)
     action = sys.argv[1] if len(sys.argv) == 2 else ''
     identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-primary': 'primary', 'identity-scoped': 'scoped', 'identity-health': 'health', 'identity-argo': 'argo', 'identity-recover-startup': 'recover-startup'}.get(action)
     if identity_phase:
