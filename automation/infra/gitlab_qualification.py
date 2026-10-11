@@ -10,6 +10,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -46,6 +47,20 @@ def request(values, url, method='GET', document=None, anonymous=False):
             return response.status, response.read(16 * 1024**2)
     except urllib.error.HTTPError as error:
         return error.code, error.read(16 * 1024)
+
+
+def delete_state(values, url):
+    """GitLab deletion is asynchronous; require observed absence, not acceptance alone."""
+    if request(values, url, 'DELETE')[0] not in (200, 202, 204, 404):
+        return False
+    for _ in range(30):
+        status, _ = request(values, url)
+        if status == 404:
+            return True
+        if status != 200:
+            return False
+        time.sleep(2)
+    return False
 
 
 def write_root(root, generation):
@@ -237,7 +252,7 @@ def qualify(label, values, other):
     destroyed = tofu(primary, env, 'destroy', '-input=false', '-auto-approve', '-lock-timeout=0s')
     results['disposable_destroy'] = destroyed.returncode == 0
     if destroyed.returncode == 0:
-        results['disposable_state_deleted'] = request(values, url, 'DELETE')[0] in (200, 204)
+        results['disposable_state_deleted'] = delete_state(values, url)
     (root / 'result.json').write_text(json.dumps(results, indent=2) + '\n')
     return results
 
@@ -264,7 +279,7 @@ def cleanup_incomplete(label, values):
         env = environment(values, url, (root / 'recovery-passphrase').read_text())
         initialized = tofu(primary, env, 'init', '-input=false', '-reconfigure')
         destroyed = tofu(primary, env, 'destroy', '-input=false', '-auto-approve', '-lock-timeout=0s') if initialized.returncode == 0 else initialized
-        if destroyed.returncode or request(values, url, 'DELETE')[0] not in (200, 204) or request(values, url)[0] != 404:
+        if destroyed.returncode or not delete_state(values, url):
             raise RuntimeError('Recorded fixture cleanup failed; preserve recovery material')
         removed += 1
     return {'root': label, 'recorded_disposable_states_removed': removed, 'production_mutations': 0}

@@ -12,6 +12,17 @@ NAME = 'qualification-' + 'a' * 32
 
 
 class QualificationTests(unittest.TestCase):
+    def test_async_deletion_waits_for_absence_without_unlock(self):
+        with patch.object(subject, 'request', side_effect=[(202, b''), (200, b''), (404, b'')]) as request, \
+                patch.object(subject.time, 'sleep'):
+            self.assertTrue(subject.delete_state(VALUES, subject.address(VALUES, NAME)))
+        self.assertEqual([call.args[2:] for call in request.call_args_list], [('DELETE',), (), ()])
+
+    def test_deletion_refuses_backend_error(self):
+        with patch.object(subject, 'request', return_value=(403, b'')) as request:
+            self.assertFalse(subject.delete_state(VALUES, subject.address(VALUES, NAME)))
+        self.assertEqual(request.call_count, 1)
+
     def test_production_state_and_external_hosts_are_rejected_before_network(self):
         with patch.object(subject.urllib.request, 'build_opener') as opener:
             for url in ('https://attacker.example',
