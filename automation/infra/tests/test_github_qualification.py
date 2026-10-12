@@ -34,6 +34,7 @@ class GitHubQualificationTests(unittest.TestCase):
             self.assertEqual(rule['bypass_actors'], [])
             self.assertEqual(rule['rules'][0]['parameters']['required_approving_review_count'], 1)
             self.assertEqual(rule['rules'][1]['parameters']['required_status_checks'][0]['context'], fixture['name'])
+            self.assertNotIn('integration_id', rule['rules'][1]['parameters']['required_status_checks'][0])
 
     def test_cleanup_rejects_directory_escape_unknown_phase_and_changed_namespace(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -73,7 +73,7 @@ def fixture_rule(fixture):
                 'required_approving_review_count': 1, 'required_review_thread_resolution': True}},
                 {'type': 'required_status_checks', 'parameters': {
                     'strict_required_status_checks_policy': False,
-                    'required_status_checks': [{'context': fixture['name'], 'integration_id': None}]}}]}
+                    'required_status_checks': [{'context': fixture['name']}]}}]}
 
 
 def create_fixture(directory, values):
