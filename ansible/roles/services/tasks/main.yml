@@ -44,7 +44,7 @@
   ansible.builtin.command: python3 -c 'import sys,json;sys.path.insert(0,"/opt/cloudlab");from automation.data.notes_seed import run;print(json.dumps(run()))'
   register: notes_seeded
   changed_when: (notes_seeded.stdout | from_json).changed
-  when: (services_payload.stdout | from_json).values.catalog | selectattr('approval.name', 'equalto', 'notes') | list | length > 0
+  when: (services_payload.stdout | from_json)['values']['catalog'] | selectattr('approval.name', 'equalto', 'notes') | list | length > 0
 
 - name: Create the exposure interface directory
   ansible.builtin.file:
