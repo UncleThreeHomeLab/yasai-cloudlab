@@ -89,6 +89,7 @@ resource "terraform_data" "fixture" { input = var.owner }
                         patch.object(command, 'WORK', Path(temporary) / 'work'), \
                         patch.object(command, 'ciphertext'), patch.object(command, 'maintain'), \
                         patch.object(command, 'validate_inventory'), \
+                        patch('automation.infra.github_adoption.observe') as observe, \
                         patch.object(command, 'environment', side_effect=loopback), \
                         patch.object(command, 'source_binding', return_value={'revision': 'synthetic', 'source_hash': 'synthetic'}):
                     client = command.Client('github')
@@ -115,6 +116,7 @@ resource "terraform_data" "fixture" { input = var.owner }
                     self.assertIsNone(stored['lock'])
                     self.assertIn('encrypted_data', json.loads(stored['state']))
                     self.assertNotIn(b'synthetic-updated', stored['state'])
+                    self.assertEqual(observe.call_count, 4)
         finally:
             server.shutdown()
             server.server_close()

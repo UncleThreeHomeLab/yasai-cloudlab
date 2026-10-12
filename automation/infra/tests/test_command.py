@@ -18,6 +18,18 @@ def plan(kind='github_repository', actions=None, before=None, after=None):
 
 
 class ContractTests(unittest.TestCase):
+    def test_implicit_private_inputs_are_rejected_before_native_calls_and_retained(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'github'
+            directory.mkdir()
+            implicit = directory / 'unreviewed.auto.tfvars.json'
+            implicit.write_text('{"owner":"synthetic-unapproved"}')
+            with patch.object(command, 'WORK', Path(temporary)), patch.object(command.subprocess, 'run') as native:
+                with self.assertRaisesRegex(ValueError, 'Implicit private inputs'):
+                    command.Client('github', check=True)
+            native.assert_not_called()
+            self.assertTrue(implicit.exists())
+
     def test_github_governance_credentials_and_state_are_isolated_from_lab(self):
         services = yaml.safe_load((command.WORKSPACE / 'compose.yaml').read_text())['services']
         github_mounts = services['infra-github']['volumes']

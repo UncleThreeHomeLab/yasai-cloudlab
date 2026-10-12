@@ -102,8 +102,9 @@ def validate_inventory(root, desired, inventory):
             if not saved.get('aud') or not policies or saved.get('policies') != policies:
                 raise ValueError('Private policy identities or audience differ from accepted inventory')
     else:
-        expected = {kind + '[' + json.dumps(key) + ']' for key in desired['repositories']
-                    for kind in ('github_repository.repository', 'github_branch_default.default')}
+        expected = {'github_repository.repository[' + json.dumps(key) + ']' for key in desired['repositories']}
+        expected.update('github_branch_default.default[' + json.dumps(key) + ']'
+                        for key, repository in desired['repositories'].items() if repository['default_branch'] is not None)
         expected.update('github_repository_ruleset.ruleset[' + json.dumps(key) + ']' for key in desired['rulesets'])
     if not expected or set(inventory) != expected:
         raise ValueError('Private declarations differ from accepted resource scope; refused before live plan')
@@ -112,19 +113,24 @@ def validate_inventory(root, desired, inventory):
 def source_binding(root):
     files = list((WORKSPACE / 'automation/infra').glob('*.py'))
     files += list((WORKSPACE / 'infra' / root).rglob('*'))
-    files += list((WORKSPACE / 'automation/runner').glob('*')) + [WORKSPACE / 'compose.yaml']
+    files += list((WORKSPACE / 'automation/runner').glob('*')) + [WORKSPACE / name for name in (
+        'compose.yaml', '.gitignore', '.gitattributes')]
     if root == 'cloudflare':
         files += list((WORKSPACE / 'automation/connectivity').glob('*.py'))
         files += list((WORKSPACE / 'automation/identity').glob('access_*.py'))
+    else:
+        files += list((WORKSPACE / 'automation/gitops').glob('*.py'))
     content = hashlib.sha256()
     for path in sorted(files):
         if path.is_file() and '.terraform' not in path.parts and '__pycache__' not in path.parts:
             content.update(str(path.relative_to(WORKSPACE)).encode() + b'\0' + path.read_bytes())
     revision = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'rev-parse', 'HEAD'],
                               cwd=WORKSPACE, capture_output=True, check=True, text=True).stdout.strip()
-    paths = ['automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml']
+    paths = ['automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml', '.gitignore', '.gitattributes']
     if root == 'cloudflare':
         paths += ['automation/connectivity', 'automation/identity']
+    else:
+        paths += ['automation/gitops']
     dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--', *paths],
                            cwd=WORKSPACE, capture_output=True, check=True).stdout
     if dirty:
@@ -165,10 +171,12 @@ def guarded_changes(plan):
 
 
 class Client:
-    def __init__(self, root, *, check=False):
+    def __init__(self, root, *, check=False, maintenance=False):
         self.root = root
         self.path = WORK / root
         self.path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if any(self.path.glob('*.auto.tfvars')) or any(self.path.glob('*.auto.tfvars.json')):
+            raise ValueError('Implicit private inputs forbidden; inspect protected work files before initialization')
         if not check:
             inputs = PRIVATE / root
             required = ('desired.tfvars.json', 'backend.json', 'credentials.env', 'encryption.json', 'acceptance.json', 'inventory.json')
@@ -181,7 +189,7 @@ class Client:
             path.unlink()
         source = WORKSPACE / 'infra' / root
         for path in source.glob('*'):
-            if path.is_file():
+            if path.is_file() and (path.suffix == '.tf' or path.name in ('.terraform.lock.hcl', 'fixtures.json')):
                 shutil.copy2(path, self.path / path.name)
         shutil.copytree(source / 'tests', self.path / 'tests', dirs_exist_ok=True)
         if check:
@@ -210,7 +218,8 @@ class Client:
         if set(encryption) != {'passphrase'} or not isinstance(encryption['passphrase'], str) or len(encryption['passphrase']) < 32:
             raise ValueError('Independent encryption recovery passphrase required')
         acceptance = json.loads(snapshot['acceptance.json'])
-        if acceptance != {'root': root, 'status': 'accepted'}:
+        statuses = ('accepted', 'prepared', 'importing', 'imported', 'reversing') if maintenance else ('accepted',)
+        if set(acceptance) != {'root', 'status'} or acceptance['root'] != root or acceptance['status'] not in statuses:
             raise ValueError('Ordinary commands require accepted ownership; use reviewed maintenance for adoption')
         self.inventory = json.loads(snapshot['inventory.json'])
         if not isinstance(self.inventory, dict) or not self.inventory or not all(
@@ -260,6 +269,9 @@ class Client:
             raise RuntimeError('Native init failed; private diagnostics retained')
 
     def plan(self, action):
+        if self.root == 'github':
+            from automation.infra.github_adoption import observe
+            observe(self.desired, self.inventory, self.env['GITHUB_TOKEN'])
         self.initialize()
         ciphertext(self.env)
         filename = 'reviewed.tfplan'
@@ -314,6 +326,9 @@ class Client:
         if identities != self.inventory:
             raise ValueError('Resource inventory changed; maintenance review required')
         # Native backend serial/lineage checks reject stale plans after initialization.
+        if self.root == 'github':
+            from automation.infra.github_adoption import observe
+            observe(self.desired, self.inventory, self.env['GITHUB_TOKEN'])
         self.initialize()
         self.unchanged_inputs()
         ciphertext(self.env)

@@ -19,22 +19,7 @@ from automation.infra.gitlab_qualification import address, delete_state, request
 from automation.infra.snapshot import credentials
 from automation.infra.retention import maintain, MAX_VERSIONS
 from automation.infra.cloudflare_adoption import declaration_hash
-
-
-def native(directory, env, *arguments, input_data=None):
-    prefix = 2 if arguments[0] == 'state' else 1
-    result = subprocess.run(['tofu', *arguments[:prefix], '-no-color', *arguments[prefix:]],
-                            cwd=directory, env=env, input=input_data, capture_output=True, timeout=180)
-    with (directory / 'diagnostics.txt').open('ab') as stream:
-        stream.write(result.stderr if arguments[0] == 'show' or arguments[:2] == ('state', 'pull')
-                     else result.stdout + result.stderr)
-    return result
-
-
-def require(result, allowed=(0,)):
-    if result.returncode not in allowed:
-        raise RuntimeError('Native Cloudflare fixture check failed; protected diagnostics retained')
-    return result
+from automation.infra.native import native, require
 
 
 def policy_update_unsupported(result):

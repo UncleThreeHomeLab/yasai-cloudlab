@@ -3,12 +3,27 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from github_setup import MARKER, provision, repository
+from github_setup import GitHub, MARKER, provision, repository
 from publish_snapshot import validate_file
 import publish_snapshot
 
 
 class RepositorySetupTests(unittest.TestCase):
+    def test_successful_delete_accepts_empty_response_without_json_read(self):
+        api = GitHub('synthetic-token')
+        response = Mock(status=204)
+        with patch.object(api.opener, 'open') as request:
+            request.return_value.__enter__.return_value = response
+            self.assertIsNone(api.request('DELETE', 'installation/token'))
+        response.read.assert_not_called()
+
+    def test_suspended_writer_never_recreates_missing_repositories(self):
+        api = Mock()
+        api.request.return_value = None
+        with self.assertRaisesRegex(RuntimeError, 'suspended'):
+            provision(api, [('public-platform', 'example/platform', False)])
+        api.request.assert_called_once_with('GET', 'repos/example/platform', missing=True)
+
     def test_existing_visibility_is_never_changed(self):
         api = Mock()
         api.request.return_value = {'full_name': 'example/platform', 'private': True,
