@@ -1,4 +1,5 @@
 const settings = await fetch('/settings.json').then(r => r.json());
+document.querySelector('#operations').hidden = !settings.operations;
 const status = document.querySelector('#status');
 let token;
 const encode = bytes => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');

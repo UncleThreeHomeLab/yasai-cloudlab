@@ -54,8 +54,8 @@ def main(arguments=None):
         return
     if args.action == 'catalog-propose':
         from automation.services.inputs import validate_catalog
-        from automation.services.source import publish
-        print(json.dumps(publish(validate_catalog(value)), sort_keys=True))
+        from automation.services.source import publish as publish_catalog
+        print(json.dumps(publish_catalog(validate_catalog(value)), sort_keys=True))
         return
     if args.action.startswith('identity-'):
         from automation.identity.service_client import prepare
