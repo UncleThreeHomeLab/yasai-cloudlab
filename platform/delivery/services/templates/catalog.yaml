@@ -125,21 +125,19 @@ spec:
       name: {{ printf "%s-{{.name}}" $a.name | quote }}
     spec:
       project: {{ $a.name }}
+      {{- $helm := dict "valuesObject" $v }}
+      {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
+      {{- $_ := set $helm "valuesObject" .notesValues }}
+      {{- end }}
+      {{- $source := dict "repoURL" $.Values.repository "targetRevision" $.Values.revision "path" ($a.chartPath | default "charts/service") "helm" $helm }}
+      {{- if eq $a.repository $.Values.repository }}
+      source:
+{{ toYaml $source | indent 8 }}
+      {{- else }}
+      {{- $_ := set $helm "valueFiles" (list (printf "$values/%s" $a.valuesPath)) }}
       sources:
-        - repoURL: {{ $.Values.repository | quote }}
-          targetRevision: {{ $.Values.revision | quote }}
-          path: {{ $a.chartPath | default "charts/service" }}
-          helm:
-            valueFiles: [{{ printf "$values/%s" $a.valuesPath | quote }}]
-            valuesObject:
-              {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
-{{ toYaml .notesValues | indent 14 }}
-              {{- else }}
-{{ toYaml $v | indent 14 }}
-              {{- end }}
-        - repoURL: {{ $a.repository | quote }}
-          targetRevision: {{ $a.revision | quote }}
-          ref: values
+{{ toYaml (list $source (dict "repoURL" $a.repository "targetRevision" $a.revision "ref" "values")) | indent 8 }}
+      {{- end }}
       destination:
         server: https://kubernetes.default.svc
         namespace: {{ $namespace }}

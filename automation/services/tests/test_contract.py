@@ -99,6 +99,22 @@ class ContractTests(unittest.TestCase):
                 self.assertEqual(namespace['metadata']['labels']['cloudlab.io/gateway'], exposure)
                 self.assertEqual(any(o['kind'] == 'ExternalSecret' for o in objects), visibility == 'private')
 
+    def test_same_repository_uses_complete_definition_without_conflicting_value_revision(self):
+        value = definition()
+        repository = 'https://github.com/example/platform.git'
+        allowed = dict(approval(), repository=repository, revision='a' * 40)
+        objects = resources(value, allowed, repository, 'b' * 40)
+        spec = next(o for o in objects if o['kind'] == 'ApplicationSet')['spec']['template']['spec']
+        self.assertNotIn('sources', spec)
+        self.assertEqual(spec['source']['targetRevision'], 'b' * 40)
+        self.assertEqual(spec['source']['helm'], {'valuesObject': value})
+        allowed['repository'] = 'https://github.com/example/other.git'
+        objects = resources(value, allowed, repository, 'b' * 40)
+        sources = next(o for o in objects if o['kind'] == 'ApplicationSet')['spec']['template']['spec']['sources']
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(sources[1]['targetRevision'], 'a' * 40)
+        self.assertEqual(sources[0]['helm']['valuesObject'], value)
+
 
 if __name__ == '__main__':
     unittest.main()
