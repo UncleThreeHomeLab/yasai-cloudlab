@@ -21,7 +21,8 @@ class ConfigurationTests(unittest.TestCase):
                  'tls': {'mode': 'Terminate', 'certificateRefs': [
                      {'group': '', 'kind': 'Secret', 'name': 'cloudlab-gateway-tls'}]},
                  'allowedRoutes': {'namespaces': {'from': 'Selector', 'selector': {
-                     'matchLabels': {'cloudlab.io/gateway': exposure}}},
+                     'matchExpressions': [{'key': 'cloudlab.io/gateway', 'operator': 'In',
+                                           'values': [exposure, 'mixed']}] }},
                      'kinds': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute'}]}}
                 for name, host in hosts.items()]}}
         def get(kind, name, namespace):

@@ -109,7 +109,8 @@ def check_gateways(zone):
                         {'group': '', 'kind': 'Secret', 'name': 'cloudlab-gateway-tls'}]}):
                 raise RuntimeError('Gateway listener exposes an unreviewed protocol or certificate')
             if listener['allowedRoutes'] != {
-                    'namespaces': {'from': 'Selector', 'selector': {'matchLabels': {'cloudlab.io/gateway': exposure}}},
+                    'namespaces': {'from': 'Selector', 'selector': {'matchExpressions': [
+                        {'key': 'cloudlab.io/gateway', 'operator': 'In', 'values': [exposure, 'mixed']}]}},
                     'kinds': [{'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute'}]}:
                 raise RuntimeError('Gateway route attachment restriction changed')
         service = get('service', 'cloudlab-istio', ns)
