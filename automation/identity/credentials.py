@@ -82,6 +82,11 @@ def primary_login_items(token, primary, hosts):
                 {'id': 'cloudlab-primary-owner', 'label': 'cloudlab-primary-owner', 'type': 'STRING',
                  'value': primary['ownership_id']},
             ]}
+    return ensure_login_items(token, desired)
+
+
+def ensure_login_items(token, desired):
+    """Create missing Login items; preserve enrolled passkeys and credentials."""
     if not token:
         raise RuntimeError('Missing .env input: OP_PROVISION_SERVICE_ACCOUNT_TOKEN')
     existing = command(['item', 'list', '--vault', 'CloudLab'], token)

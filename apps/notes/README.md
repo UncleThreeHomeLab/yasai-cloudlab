@@ -12,6 +12,16 @@ derives both workloads, callbacks, origins and route paths from that definition.
 Use `reader`, `writer` and `operator` client roles with explicit group mappings.
 Request the existing notes database/bucket through their scoped references.
 
+For the verified lab owner, run `lab identity-owner-credentials`, then
+`identity-owner-stage`, `identity-owner-publish`, and `identity-owner-enroll`.
+Credentials and private publication use the existing scoped provisioning inputs.
+Merge the reviewed private identity PR before enrollment. Staging pauses the sole
+writer before declaring the membership; enrollment creates only the owned applications
+account, then resumes reconciliation. Repeat enrollment preserves credentials.
+Use `keycloak-applications-owner-login` in 1Password to sign in to Notes. Complete
+the required passkey registration in your personal vault. Applications roles grant
+Notes access; they do not grant Keycloak realm administration.
+
 The data owner applies [the schema](schema.sql) and creates a synthetic welcome note
 only when absent. Repeat apply preserves edited notes and existing objects. The web
 pod receives no SQL/S3 credentials; the API receives only its application credentials
