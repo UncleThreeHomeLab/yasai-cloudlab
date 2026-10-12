@@ -11,6 +11,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 MARKER = 'Managed by CloudLab repository setup: '
+# Reviewed source suspends the only replaced writer until native handoff acceptance.
+REPOSITORY_CREATION_SUSPENDED = True
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -32,7 +34,7 @@ class GitHub:
                      'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json'}, method=method)
         try:
             with self.opener.open(request, timeout=60) as response:
-                return json.load(response)
+                return None if response.status == 204 else json.load(response)
         except urllib.error.HTTPError as error:
             if missing and error.code == 404:
                 return None
@@ -79,6 +81,8 @@ def inspect(api, role, repo, private):
 def provision(api, targets):
     # Validate every existing target before creating any missing one.
     existing = [inspect(api, *target) for target in targets]
+    if REPOSITORY_CREATION_SUSPENDED and any(current is None for current in existing):
+        raise RuntimeError('Repository creation is suspended for native ownership handoff; automatic recreation refused')
     changed = 0
     for (role, repo, private), current in zip(targets, existing):
         if current is None:

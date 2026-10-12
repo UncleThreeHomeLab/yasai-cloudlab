@@ -20,7 +20,7 @@ resource "github_repository" "repository" {
 }
 
 resource "github_branch_default" "default" {
-  for_each   = var.repositories
+  for_each   = { for key, repository in var.repositories : key => repository if repository.default_branch != null }
   repository = github_repository.repository[each.key].name
   branch     = each.value.default_branch
   lifecycle { prevent_destroy = true }
