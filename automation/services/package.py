@@ -52,6 +52,10 @@ def build():
     (base / 'artifact.lock.json').write_text(json.dumps(hashes, indent=2) + '\n')
     (ROOT / 'platform/delivery/services/github-app-key.tmpl').write_bytes(
         (ROOT / 'gitops/roots/public/github-app-key.tmpl').read_bytes().replace(b'\r\n', b'\n'))
+    schema_path = ROOT / 'platform/delivery/services/values.schema.json'
+    catalog_schema = json.loads(schema_path.read_text())
+    catalog_schema['definitions']['service'] = json.loads((ROOT / 'charts/service/values.schema.json').read_text())
+    schema_path.write_text(json.dumps(catalog_schema, indent=2) + '\n', newline='\n')
 
 
 def check():

@@ -25,7 +25,7 @@ def main(arguments=None):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('check', 'validate', 'render', 'catalog', 'ready', 'publish', 'retire',
-                                         'catalog-propose', 'identity-provision', 'identity-retire', 'identity-remove', 'identity-rotate'))
+                                         'examples', 'catalog-propose', 'private-fixture', 'identity-provision', 'identity-retire', 'identity-remove', 'identity-rotate'))
     parser.add_argument('input', nargs='?')
     args = parser.parse_args(arguments)
     if args.action == 'check':
@@ -33,7 +33,17 @@ def main(arguments=None):
         print(json.dumps(run(), sort_keys=True))
         return
     if not args.input: raise ValueError('Service command requires an explicit input file')
+    if args.action == 'examples':
+        from automation.services.examples import prepare
+        print(json.dumps(prepare(args.input),sort_keys=True))
+        return
     value = read(args.input)
+    if args.action == 'private-fixture':
+        from automation.gitops.github_setup import inputs
+        from automation.gitops.private_fixture import prepare_service
+        environment, api = inputs()
+        print(json.dumps(prepare_service(api, environment, value), sort_keys=True))
+        return
     if args.action == 'catalog-propose':
         from automation.services.inputs import validate_catalog
         from automation.services.source import publish
