@@ -170,9 +170,14 @@ def inspect(request):
             if status != expected: raise RuntimeError('Anonymous reference API protection failed')
     elif action == 'private-boundary':
         public = get('service', 'cloudlab-istio', 'cloudlab-gateway-public')['spec']['clusterIP']
+        public_route = get('httproute.gateway.networking.k8s.io', 'argocd', 'cloudlab-gateway-public')
+        public_hosts = public_route.get('spec', {}).get('hostnames', []) if public_route else []
+        if len(public_hosts) != 1 or '*' in public_hosts[0]:
+            raise RuntimeError('Public gateway has no exact platform TLS hostname')
         private_exposures = [e for e in [definition['exposure']] + definition.get('additionalExposures', []) if e['class'] == 'private']
         for exposure in private_exposures:
-            status, _ = direct_https('https://' + exposure['hostname'] + exposure['path'], public,
+            # Authenticate public TLS, then test routing of the private HTTP Host.
+            status, _ = direct_https('https://' + public_hosts[0] + exposure['path'], public,
                                      {'Host': exposure['hostname'], 'User-Agent': 'CloudLab-Service-Proof/1.0'})
             if status != 404: raise RuntimeError('Private service is reachable through the public gateway')
         tailnet = get('service', 'cloudlab-tailnet', 'cloudlab-gateway-private')
