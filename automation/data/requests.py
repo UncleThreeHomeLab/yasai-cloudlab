@@ -65,6 +65,39 @@ def resolve(requests, lookup):
     return result
 
 
+def protect(rows, settings):
+    roles = {settings['applicationRole'], settings['migrationRole'], settings['backupRole']}
+    databases = {settings['database']}
+    if settings.get('identity', {}).get('enabled'):
+        roles.add(settings['identity']['role'])
+        databases.add(settings['identity']['database'])
+    for row in rows:
+        database = row.get('database')
+        if database:
+            original = (row['service'] == 'notes' and database['name'] == settings['database'] and
+                        database['applicationRole'] == settings['applicationRole'] and
+                        database['migrationRole'] == settings['migrationRole'] and
+                        database['applicationItem'] == 'cnpg-notes-production' and
+                        database['migrationItem'] == 'cnpg-notes-migration')
+            if not original and (database['name'] in databases or roles & {
+                    database['applicationRole'], database['migrationRole']}):
+                raise ValueError('Service request collides with a platform database or role')
+        bucket = row.get('bucket')
+        if bucket and bucket['name'] == settings['bucket'] and not (
+                row['service'] == 'notes' and bucket['item'] == 's3-notes-production'):
+            raise ValueError('Service request collides with the existing notes bucket owner')
+
+
+def additions(before, after):
+    retained = {row['service']: row for row in before}
+    supplied = {row['service']: row for row in after}
+    if len(retained) != len(before) or len(supplied) != len(after):
+        raise ValueError('Duplicate service data declaration')
+    if any(supplied.get(name) != row for name, row in retained.items()):
+        raise ValueError('Existing service data declarations must retain their exact owners and scope')
+    return [row for row in after if row['service'] not in retained]
+
+
 def reconcile(values, sql, grant, admin):
     changed = False
     for row in values.get('serviceRequests', []):
