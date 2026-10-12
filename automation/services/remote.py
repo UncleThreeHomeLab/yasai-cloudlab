@@ -81,9 +81,16 @@ def inspect(request):
         if not application or application['spec']['project'] != approval['name'] or application['spec']['destination'] != {
                 'server': 'https://kubernetes.default.svc', 'namespace': namespace}:
             raise RuntimeError('Backend lacks its approved GitOps destination')
-        source = application['spec'].get('sources', [])
-        if (len(source) != 2 or source[1].get('repoURL') != approval['repository'] or
-                source[1].get('targetRevision') != approval['revision'] or
+        source = application['spec'].get('sources') or [application['spec'].get('source', {})]
+        catalog = get('application.argoproj.io', 'cloudlab-services', 'argocd')
+        platform = catalog['spec']['source'] if catalog else {}
+        same_repository = approval['repository'] == platform.get('repoURL')
+        if (len(source) != (1 if same_repository else 2) or
+                source[0].get('repoURL') != platform.get('repoURL') or
+                source[0].get('targetRevision') != platform.get('targetRevision') or
+                source[0].get('path') != approval.get('chartPath', 'charts/service') or
+                (not same_repository and (source[1].get('repoURL') != approval['repository'] or
+                                         source[1].get('targetRevision') != approval['revision'])) or
                 application.get('status', {}).get('health', {}).get('status') != 'Healthy' or
                 application.get('status', {}).get('sync', {}).get('status') != 'Synced' or application.get('operation')):
             raise RuntimeError('Backend is not converged at its approved source')

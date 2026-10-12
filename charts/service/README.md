@@ -21,6 +21,10 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `monitoring`, `rollouts` | Disabled until their separately verified integrations exist |
 
 Source visibility (`approval.visibility`) is independent of network exposure.
+The complete reviewed definition supplies Helm values. When the chart and definition
+share the platform repository, one pinned source uses those values directly. A separate
+repository uses its approved immutable values source; the complete definition still
+overrides it. This avoids conflicting revisions of the same Argo repository.
 Public exposure requires an explicit `public`, `human` or `machine` classification.
 Private exposure requires an `internal` hostname and tailnet protection. Confidential
 OIDC clients require a scoped secret reference; public PKCE clients have no secret.
