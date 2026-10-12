@@ -47,6 +47,8 @@ def run(payload):
                 inspect(dict(request, action=action))
             if entry['approval'].get('chartPath') == 'apps/notes': inspect(dict(request, action='api-protection'))
             unauthorized_destination(entry, payload)
+            from automation.services.transport import run as transport_proof
+            transport_proof(entry, payload['proof_image'])
         if entry['definition']['name'].startswith('fixture-'):
             from automation.data.service_proof import run as data_proof
             data_proof(entry)

@@ -15,7 +15,7 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `environment` | Non-secret strings; secret values belong in 1Password |
 | `secrets`, `configMaps` | Approved names and bounded read-only mount paths |
 | `persistence` | Opt-in replicated storage, at most 4 GiB, retained on removal |
-| `exposure`, `additionalExposures` | One hostname/class/access/path/port contract for routes and external consumers |
+| `exposure`, `additionalExposures` | One primary exposure plus optional private views; common hostname/class/access/path/port fields |
 | `data` | Optional database/bucket names, scoped credential references and `retain` policy |
 | `oidc` | Optional applications-realm client, exact callback paths, audience, profile/email scopes and role/group mapping |
 | `monitoring`, `rollouts` | Disabled until their separately verified integrations exist |

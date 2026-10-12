@@ -16,6 +16,8 @@ def command(arguments, token, document=None):
     except (OSError, subprocess.TimeoutExpired):
         raise RuntimeError('1Password provisioning did not complete; inspect item existence before retrying') from None
     if result.returncode:
+        if 'too many requests' in result.stderr.lower():
+            raise RuntimeError('1Password request quota exhausted; wait for its reset before provisioning')
         raise RuntimeError('1Password provisioning failed; verify CloudLab Read Items and Write Items permissions')
     try:
         return json.loads(result.stdout)

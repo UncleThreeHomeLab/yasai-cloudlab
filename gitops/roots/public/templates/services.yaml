@@ -16,6 +16,7 @@ spec:
     - {group: '', kind: ResourceQuota}
     - {group: '', kind: ConfigMap}
     - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: security.istio.io, kind: AuthorizationPolicy}
     - {group: external-secrets.io, kind: ExternalSecret}
     - {group: argoproj.io, kind: AppProject}
     - {group: argoproj.io, kind: ApplicationSet}

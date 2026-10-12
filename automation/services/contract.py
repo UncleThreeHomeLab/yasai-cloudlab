@@ -38,7 +38,8 @@ def validate(definition):
                    for kind in ('requests', 'limits')]
         if amounts[0] > amounts[1]:
             raise ValueError('Resource request exceeds limit')
-        if amounts[0] * value['replicas'] > 1000 or amounts[1] * value['replicas'] > 2000:
+        copies = value['replicas'] + (0 if value['persistence']['enabled'] else 1)
+        if amounts[0] * copies > 1000 or amounts[1] * copies > 2000:
             raise ValueError('Service exceeds its namespace resource budget')
     mounts = value.get('secrets', []) + value.get('configMaps', [])
     if any(m['name'] in ('temporary', 'dependencies', 'data') for m in mounts):
@@ -50,6 +51,8 @@ def validate(definition):
     references = [request['credentialReference'] for request in value['data'].values()]
     if len(set(references)) != len(references): raise ValueError('Data credentials must have distinct scopes')
     exposures = [value['exposure']] + value.get('additionalExposures', [])
+    if value['exposure']['class'] == 'none' and value.get('additionalExposures'):
+        raise ValueError('Private views require an exposed primary service')
     for exposure in exposures:
         if exposure['class'] != 'none':
             zone_name(exposure['hostname'])
@@ -101,6 +104,11 @@ def exposure_request(definition):
     if value['class'] == 'none':
         return None
     return copy.deepcopy(value)
+
+
+def exposure_bindings(definition):
+    return [(value.get('class'), value.get('access'), value.get('hostname')) for value in
+            [definition['exposure']] + definition.get('additionalExposures', [])]
 
 
 def external_route(definition, origin, application=None):

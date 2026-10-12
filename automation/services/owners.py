@@ -96,6 +96,14 @@ class Owners:
         actual = api.request('GET', 'accounts/' + self.client.desired['account_id'] + '/access/apps/' + inventory['id'])
         if actual.get('aud') != inventory['aud'] or actual.get('domain') != exposure['hostname'] or not actual.get('policies'):
             raise RuntimeError('Access protection identity or policy is not verified')
+        policies = api.request('GET', 'accounts/' + self.client.desired['account_id'] + '/access/apps/' + inventory['id'] + '/policies')
+        observed = {policy['id']: policy for policy in policies}
+        if set(observed) != set(inventory['policies']):
+            raise RuntimeError('Access policy identities differ from the platform inventory')
+        for policy in selected['policies'].values():
+            if any(observed[policy['id']].get(field, [] if field in ('include', 'exclude', 'require') else None) != policy[field]
+                   for field in ('decision', 'include', 'exclude', 'require') if field in policy):
+                raise RuntimeError('Access policy decisions or selectors differ from approved protection')
 
     def private_protection(self):
         from automation.tailscale.control import API
@@ -132,6 +140,10 @@ class Owners:
         if len(rows) != 1 or rows[0]['service'] != self.bundle['origin']:
             raise RuntimeError('Tunnel route is not observed at its approved origin')
         request = rows[0].get('originRequest', rows[0].get('origin_request', {}))
+        hostname = definition['exposure']['hostname']
+        if (request.get('originServerName', request.get('origin_server_name')) != hostname or
+                request.get('httpHostHeader', request.get('http_host_header')) != hostname):
+            raise RuntimeError('Observed tunnel route does not preserve approved TLS SNI and hostname')
         if request.get('noTLSVerify', request.get('no_tls_verify', False)) is not False:
             raise RuntimeError('Tunnel origin disables TLS verification')
         if definition['exposure']['access'] != 'public':

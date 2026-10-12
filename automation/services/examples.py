@@ -93,6 +93,10 @@ def bundles(value):
     from automation.gitops.private_fixture import prepare_service
     value = validate_catalog(copy.deepcopy(value))
     environment, api = inputs()
+    from automation.identity.private_source import decode_contents
+    current = api.request('GET', 'repos/' + repository(environment['PRIVATE_CONFIG_REPOSITORY']) +
+                          '/contents/services/catalog.json?ref=main', missing=True)
+    accepted = validate_catalog(json.loads(decode_contents(current)))['catalog'] if current else []
     public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
     revision = subprocess.check_output(['git','-c','safe.directory=/workspace','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     origin = json.loads((ROOT / 'platform/connectivity/access/contract.json').read_text())['cloudflareOrigin']
@@ -100,9 +104,19 @@ def bundles(value):
     target.mkdir(mode=0o700,parents=True,exist_ok=True)
     for entry in value['catalog']:
         if entry['approval'].get('visibility') == 'private':
-            published = prepare_service(api,environment,entry['definition'])
-            entry['approval']['revision'] = published['revision']
-            entry['approval']['valuesPath'] = published['values_path']
+            previous = [row for row in accepted if row['definition'] == entry['definition'] and
+                        dict(row['approval'], revision=None) == dict(entry['approval'], revision=None)]
+            if previous:
+                approved = previous[0]['approval']
+                frozen = api.request('GET', 'repos/' + repository(approved['repository']) + '/contents/' +
+                                     approved['valuesPath'] + '?ref=' + approved['revision'])
+                if yaml.safe_load(decode_contents(frozen)) != entry['definition']:
+                    raise RuntimeError('Approved fixture revision differs; implicit repinning refused')
+                entry['approval'] = copy.deepcopy(approved)
+            else:
+                published = prepare_service(api,environment,entry['definition'])
+                entry['approval']['revision'] = published['revision']
+                entry['approval']['valuesPath'] = published['values_path']
         bundle = {'definition':entry['definition'],'approval':entry['approval'],
                   'platformRepository':public,'platformRevision':revision,'origin':origin,'application':None}
         filename = target / (entry['definition']['name']+'-bundle.json')

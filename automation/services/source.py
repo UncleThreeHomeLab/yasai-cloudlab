@@ -43,6 +43,9 @@ def publish(value, *, expected=None):
         if set(old) - set(new):
             raise ValueError('Service catalog records must remain as explicit retired intent')
         for name, row in old.items():
+            from automation.services.contract import exposure_bindings
+            if row['publication'] == 'published' and exposure_bindings(row['definition']) != exposure_bindings(new[name]['definition']):
+                raise ValueError('Published exposure changes require retirement and explicit migration')
             for kind, request in row['definition']['data'].items():
                 if new[name]['definition']['data'].get(kind) != request:
                     raise ValueError('Existing service data requests must be retained')

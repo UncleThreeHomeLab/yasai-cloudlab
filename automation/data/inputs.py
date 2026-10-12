@@ -31,14 +31,18 @@ def payload():
                         'backupRole': backup['username'], 'bucket': s3['BUCKET'], 'maintenance': False,
                         'hibernated': False}
     public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    if public.get('identity', {}).get('enabled'):
+        keycloak = fields('cnpg-keycloak', ('username', 'database'))
+        result['values']['identity'] = {'enabled': True, 'database': keycloak['database'], 'role': keycloak['username']}
     if public.get('services', {}).get('enabled'):
         from automation.services.inputs import catalog
-        from automation.data.requests import request, resolve
+        from automation.data.requests import request, resolve, protect
         service_catalog = catalog(required=True)
         requests = [request(entry['approval']['name'], entry['definition']['data'], service_catalog['dataApprovals'])
                     for entry in service_catalog['catalog'] if entry['definition']['data']]
         result['values']['serviceConsumers'] = sorted({row['namespace'] for row in requests if 'database' in row})
         resolved = resolve(requests, fields)
+        protect(resolved, result['values'])
         # The original notes database/bucket already have their data-module owner.
         for row in resolved:
             if row.get('database', {}).get('name') == app['database']:
@@ -49,9 +53,6 @@ def payload():
                 if row.pop('bucket')['item'] != 's3-notes-production':
                     raise ValueError('Existing notes bucket scope differs from the approved service request')
         result['values']['serviceRequests'] = [row for row in resolved if set(row) - {'service', 'namespace'}]
-    if public.get('identity', {}).get('enabled'):
-        keycloak = fields('cnpg-keycloak', ('username', 'database'))
-        result['values']['identity'] = {'enabled': True, 'database': keycloak['database'], 'role': keycloak['username']}
     render('configuration', result['values'])
     return {key: result[key] for key in ('repository', 'branch', 'revision', 'values')}
 

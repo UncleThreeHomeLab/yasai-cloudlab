@@ -223,11 +223,22 @@ def configure(payload):
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else {'applications': {}}
         existing = get('application.argoproj.io', APP, 'argocd')
+        from automation.data.requests import additions, protect
+        supplied = payload['values'].get('serviceRequests', [])
+        protect(supplied, payload['values'])
         if existing:
             retained = existing['spec']['source']['helm']['valuesObject'].get('serviceRequests', [])
-            supplied = payload['values'].get('serviceRequests', [])
-            if {row['service'] for row in retained} - {row['service'] for row in supplied}:
-                raise ValueError('Service data declarations cannot disappear on repeat apply; retain their requests')
+            for row in additions(retained, supplied):
+                if 'database' in row and sql('SELECT count(*) FROM pg_database WHERE datname=' +
+                                            "'" + row['database']['name'].replace("'", "''") + "';") != '0':
+                    raise ValueError('New service request cannot adopt an existing database')
+                if 'bucket' in row:
+                    try:
+                        s3().request('HEAD', row['bucket']['name'])
+                    except S3Error as error:
+                        if error.status != 404: raise
+                    else:
+                        raise ValueError('New service request cannot adopt an existing bucket')
         if existing and (existing['spec']['source']['helm']['valuesObject'].get('maintenance')
                          or (BASE / 'cold-maintenance.json').exists()):
             raise RuntimeError('Data capture was interrupted; run data-resume before apply')

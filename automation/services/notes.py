@@ -1,6 +1,6 @@
 """Compile two notes workloads from the reviewed service and identity/data inputs."""
 import copy
-from pathlib import Path
+import hashlib
 
 import yaml
 
@@ -23,6 +23,10 @@ def values(definition, issuer, database_ca):
         raise ValueError('Notes requires one private operations exposure')
     for name in ('web', 'api'):
         value = result[name]
+        files = ('web.py', 'app.js', 'index.html', 'style.css') if name == 'web' else ('api.py', 'requirements.txt', 'lib.zip')
+        # ConfigMap source changes must also change the Deployment template.
+        value['environment']['SOURCE_SHA256'] = hashlib.sha256(b''.join(hashlib.sha256(
+            (ROOT / 'apps/notes' / filename).read_bytes().replace(b'\r\n', b'\n')).digest() for filename in files)).hexdigest()
         for field in ('owner', 'image', 'replicas', 'resources'):
             value[field] = copy.deepcopy(definition[field])
         value['exposure'] = copy.deepcopy(definition['exposure'])
@@ -46,7 +50,7 @@ def values(definition, issuer, database_ca):
     result['databaseCA'] = database_ca
     for kind, budget in (('requests', 1000), ('limits', 2000)):
         for unit, suffix in (('cpu', 1), ('memory', 2)):
-            if 2 * definition['replicas'] * int(definition['resources'][kind][unit][:-suffix]) > budget:
+            if (2 * definition['replicas'] + 1) * int(definition['resources'][kind][unit][:-suffix]) > budget:
                 raise ValueError('Combined notes workloads exceed their namespace budget')
     for name in ('web', 'api'): validate(result[name])
     return result

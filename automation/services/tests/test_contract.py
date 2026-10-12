@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from automation.services.contract import validate, render, identity_request, external_route
+from automation.services.contract import validate, render, identity_request, external_route, exposure_bindings
 from automation.services.gitops import resources
 from automation.services.tests.fixtures import definition, approval
 
@@ -23,6 +23,7 @@ class ContractTests(unittest.TestCase):
     def test_invalid_definitions_fail(self):
         base = definition()
         mutations = [lambda v: v.update(project='default'), lambda v: v.update(destination='other'),
+                     lambda v: v.update(name='default'),
                      lambda v: v.update(image='python:latest'), lambda v: v.update(owner=''),
                      lambda v: v['resources']['requests'].update(cpu='300m'),
                      lambda v: v['health']['readiness'].update(port='undeclared'),
@@ -35,6 +36,25 @@ class ContractTests(unittest.TestCase):
             mutate(value)
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate(value)
+
+    def test_budget_reserves_one_pod_for_a_stateless_rollout(self):
+        value = definition()
+        value['replicas'] = 3
+        value['resources']['limits']['cpu'] = '600m'
+        with self.assertRaisesRegex(ValueError, 'namespace resource budget'): validate(value)
+
+    def test_additional_exposure_is_private_and_part_of_migration_identity(self):
+        value = definition()
+        value['exposure'] = {'class': 'public', 'hostname': 'service.example.invalid',
+                             'access': 'public', 'path': '/', 'port': 8080}
+        value['additionalExposures'] = [{'class': 'private', 'hostname': 'ops.internal.example.invalid',
+                                       'access': 'tailnet', 'path': '/', 'port': 8080}]
+        validate(value)
+        before = exposure_bindings(value)
+        value['additionalExposures'][0]['hostname'] = 'different.internal.example.invalid'
+        self.assertNotEqual(before, exposure_bindings(value))
+        value['additionalExposures'][0].update({'class': 'public', 'access': 'public'})
+        with self.assertRaises(ValueError): validate(value)
 
     def test_single_exposure_supplies_callback_route_and_external_hostname(self):
         value = definition()
@@ -52,10 +72,16 @@ class ContractTests(unittest.TestCase):
     def test_admin_destinations_and_credentials_cannot_be_selected_by_author(self):
         value, allowed = definition(), approval()
         objects = resources(value, allowed, 'https://github.com/example/platform.git', 'b' * 40)
-        appset = objects[-1]['spec']['template']['spec']
+        appset = next(obj for obj in objects if obj['kind'] == 'ApplicationSet')['spec']['template']['spec']
         self.assertEqual(appset['project'], 'synthetic')
         self.assertEqual(appset['destination'], {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-app-synthetic'})
         self.assertEqual(appset['sources'][0]['helm']['valuesObject'], value)
+        policy = next(obj for obj in objects if obj['kind'] == 'AuthorizationPolicy')
+        self.assertEqual(policy['spec']['rules'][0]['from'][0]['source']['principals'],
+                         ['cluster.local/ns/cloudlab-app-synthetic/sa/synthetic'])
+        project = next(obj for obj in objects if obj['kind'] == 'AppProject')
+        self.assertNotIn({'group': 'security.istio.io', 'kind': 'AuthorizationPolicy'},
+                         project['spec']['namespaceResourceWhitelist'])
         for key, changed in [('namespace', 'argocd'), ('revision', 'main'), ('valuesPath', '../values.yaml')]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 resources(value, dict(allowed, **{key: changed}), 'https://github.com/example/platform.git', 'b' * 40)

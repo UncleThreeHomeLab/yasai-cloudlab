@@ -4,9 +4,18 @@ import unittest
 from unittest.mock import Mock, patch
 
 from automation.credentials import provision
+from automation.credentials import vault
 
 
 class ProvisionTests(unittest.TestCase):
+    def test_quota_failure_is_sanitized_and_never_misreported_as_permissions(self):
+        for action in (lambda: provision.command(['item', 'list'], 'fixture'),
+                       lambda: vault.fields('fixture', ['password'])):
+            with patch.object(provision.subprocess, 'run', return_value=Mock(
+                    returncode=1, stderr='too many requests: private diagnostic value')):
+                with self.assertRaisesRegex(RuntimeError, 'quota exhausted') as error: action()
+                self.assertNotIn('private diagnostic', str(error.exception))
+
     def definitions(self):
         return {'test-item': {'password': ('CONCEALED', Mock(return_value='synthetic-secret'))}}
 

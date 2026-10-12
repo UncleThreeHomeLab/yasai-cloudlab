@@ -14,11 +14,14 @@ spec:
     name: {{ .name }}
     creationPolicy: Owner
     deletionPolicy: Retain
-  data:
-    {{- $item := .item }}
-    {{- range .fields }}
-    - secretKey: {{ . }}
-      remoteRef: {key: {{ $item }}, property: {{ . }}}
-    {{- end }}
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      data:
+        {{- range .fields }}
+        {{ . }}: {{ printf "{{ .%s }}" . | quote }}
+        {{- end }}
+  dataFrom:
+    - extract: {key: {{ .item }}}
 {{- end }}
 {{- end }}

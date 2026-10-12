@@ -6,7 +6,7 @@
 {{- range concat (list $v.exposure) ($v.additionalExposures | default list) }}
 {{- if ne .class "none" }}{{ $classes = append $classes .class }}{{- end }}
 {{- end }}
-{{- $classes = $classes | uniq }}
+{{- $classes = $classes | uniq | sortAlpha }}
 {{- if ne $namespace $a.namespace }}
 {{- fail "Service destination must be the administrator-owned namespace" }}
 {{- end }}
@@ -58,11 +58,34 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
+        - ipBlock: {cidr: 169.254.7.127/32}
+        - ipBlock: {cidr: 'fd16:9254:7127:1337:ffff:ffff:ffff:ffff/128'}
+    - from:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ $namespace }}}}
     {{- range $classes }}
     - from:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ printf "cloudlab-gateway-%s" . }}}}
     {{- end }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: platform-workloads, namespace: {{ $namespace }}}
+spec:
+  selector: {}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
+              - {{ printf "cluster.local/ns/%s/sa/notes-web" $namespace | quote }}
+              - {{ printf "cluster.local/ns/%s/sa/notes-api" $namespace | quote }}
+              {{- else }}
+              - {{ printf "cluster.local/ns/%s/sa/%s" $namespace $v.name | quote }}
+              {{- end }}
+              {{- range $classes }}
+              - {{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" . | quote }}
+              {{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
