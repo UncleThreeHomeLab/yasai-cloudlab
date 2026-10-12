@@ -90,8 +90,10 @@ spec:
         namespaces:
           from: Selector
           selector:
-            matchLabels:
-              cloudlab.io/gateway: {{ $exposure }}
+            matchExpressions:
+              - key: cloudlab.io/gateway
+                operator: In
+                values: [{{ $exposure }}, mixed]
         kinds:
           - group: gateway.networking.k8s.io
             kind: HTTPRoute

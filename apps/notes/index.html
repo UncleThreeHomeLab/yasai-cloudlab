@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CloudLab Notes</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body><header><span>YASAI / CLOUDLAB</span><button id="login">Sign in</button></header>
+<main><p class="eyebrow">A small application on a complete platform</p><h1>Notes that stay.</h1>
+<p>PostgreSQL holds the notes. S3 holds the attachments. Your identity controls access.</p>
+<p id="status" role="status">Sign in to read synthetic notes.</p><section id="notes" aria-label="Notes"></section>
+<form id="compose"><label>Title<input name="title" maxlength="120" required></label>
+<label>Note<textarea name="body" maxlength="8192" required></textarea></label><button>Save note</button></form>
+<a href="/operations">Operations view</a></main><footer>Two services · scoped credentials · retained data</footer></body></html>

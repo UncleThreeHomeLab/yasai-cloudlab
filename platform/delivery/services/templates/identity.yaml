@@ -1,0 +1,27 @@
+{{- range .Values.catalog }}
+{{- $oidc := .definition.oidc }}
+{{- if and $oidc.enabled (not $oidc.public) }}
+{{- if not (has $oidc.secretReference .approval.secretReferences) }}{{ fail "Confidential OIDC requires an administrator-approved secret reference" }}{{- end }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $oidc.secretReference }}
+  namespace: {{ .approval.namespace }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ $oidc.secretReference }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      data:
+        client_secret: {{ printf "{{ index (index (.client_secrets | fromJson) %q) %q }}" $oidc.realm $oidc.client | quote }}
+  data:
+    - secretKey: client_secrets
+      remoteRef: {key: keycloak-client-secrets, property: client_secrets}
+{{- end }}
+{{- end }}

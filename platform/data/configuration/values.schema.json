@@ -2,21 +2,155 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["s3Host", "database", "applicationRole", "migrationRole", "backupRole", "bucket", "maintenance", "postgresImage"],
+  "required": [
+    "s3Host",
+    "database",
+    "applicationRole",
+    "migrationRole",
+    "backupRole",
+    "bucket",
+    "maintenance",
+    "postgresImage"
+  ],
   "properties": {
-    "identity": {"type": "object", "additionalProperties": false, "required": ["enabled", "database", "role"], "properties": {
-      "enabled": {"type": "boolean"},
-      "database": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
-      "role": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"}
-    }},
-    "s3Host": {"type": "string", "pattern": "^s3\\.internal\\.[a-z0-9.-]+$", "maxLength": 253},
-    "database": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
-    "applicationRole": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
-    "migrationRole": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
-    "backupRole": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
-    "bucket": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"},
-    "maintenance": {"type": "boolean"},
-    "hibernated": {"type": "boolean"},
-    "postgresImage": {"const": "ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec"}
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "database",
+        "role"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        }
+      }
+    },
+    "s3Host": {
+      "type": "string",
+      "pattern": "^s3\\.internal\\.[a-z0-9.-]+$",
+      "maxLength": 253
+    },
+    "database": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "applicationRole": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "migrationRole": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "backupRole": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "bucket": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+    },
+    "maintenance": {
+      "type": "boolean"
+    },
+    "hibernated": {
+      "type": "boolean"
+    },
+    "postgresImage": {
+      "const": "ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec"
+    },
+    "serviceRequests": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "service": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,30}$"
+          },
+          "namespace": {
+            "type": "string",
+            "pattern": "^cloudlab-app-[a-z0-9-]+$"
+          },
+          "database": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+              },
+              "applicationRole": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+              },
+              "migrationRole": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+              },
+              "applicationItem": {
+                "type": "string",
+                "pattern": "^(cnpg|s3)-[a-z0-9-]+-(production|migration)$"
+              },
+              "migrationItem": {
+                "type": "string",
+                "pattern": "^(cnpg|s3)-[a-z0-9-]+-(production|migration)$"
+              }
+            },
+            "required": [
+              "name",
+              "applicationRole",
+              "migrationRole",
+              "applicationItem",
+              "migrationItem"
+            ]
+          },
+          "bucket": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+              },
+              "item": {
+                "type": "string",
+                "pattern": "^(cnpg|s3)-[a-z0-9-]+-(production|migration)$"
+              }
+            },
+            "required": [
+              "name",
+              "item"
+            ]
+          }
+        },
+        "required": [
+          "service",
+          "namespace"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "serviceConsumers": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^cloudlab-app-[a-z][a-z0-9-]{0,30}$"
+      }
+    }
   }
 }

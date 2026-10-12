@@ -49,7 +49,22 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "routing" {
           aud_tag   = [cloudflare_zero_trust_access_application.application[var.routes[key].application].aud]
         }
       }
-    }], [{ service = "http_status:404" }])
+      }], [for key in sort(keys(var.service_exposures)) : {
+      hostname = var.service_exposures[key].exposure.hostname
+      service  = var.service_exposures[key].origin
+      origin_request = {
+        origin_server_name = var.service_exposures[key].exposure.hostname
+        http_host_header   = var.service_exposures[key].exposure.hostname
+        no_tls_verify      = false
+        connect_timeout    = 10
+        tls_timeout        = 10
+        access = var.service_exposures[key].application == null ? null : {
+          required  = true
+          team_name = var.team_name
+          aud_tag   = [cloudflare_zero_trust_access_application.application[var.service_exposures[key].application].aud]
+        }
+      }
+    } if var.service_exposures[key].routed], [{ service = "http_status:404" }])
   }
   lifecycle { prevent_destroy = true }
 }

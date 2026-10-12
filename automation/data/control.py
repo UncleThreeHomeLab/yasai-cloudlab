@@ -157,7 +157,8 @@ def maintenance(enabled):
     values = settings()
     revision = json.loads((BASE / 'ownership.json').read_text())['revision']
     wait(lambda: application_ready(APP, revision), 'data maintenance convergence')
-    expected_names = {'data-admin'} if enabled else {'data-admin', 'notes'}
+    requested_buckets = {row['service'] for row in values.get('serviceRequests', []) if 'bucket' in row}
+    expected_names = {'data-admin'} if enabled else {'data-admin', 'notes'} | requested_buckets
     wait(lambda: {row['name'] for row in json.loads(secret('cloudlab-s3-config')['seaweedfs_s3_config'])['identities']} == expected_names,
          'maintenance credential synchronization', timeout=420)
     reload_s3()
@@ -168,8 +169,12 @@ def maintenance(enabled):
         except S3Error as error:
             if error.status != 403:
                 raise
-    role_list = ','.join("'" + values[key] + "'" for key in ('applicationRole', 'migrationRole'))
-    wait(lambda: sql(f'SELECT count(*) FROM pg_roles WHERE rolname IN ({role_list}) AND rolcanlogin IS {"false" if enabled else "true"}') == '2',
+    roles = [values[key] for key in ('applicationRole', 'migrationRole')]
+    roles += [row['database'][key] for row in values.get('serviceRequests', []) if 'database' in row
+              for key in ('applicationRole', 'migrationRole')]
+    for role in roles: identity(role)
+    role_list = ','.join("'" + role + "'" for role in roles)
+    wait(lambda: sql(f'SELECT count(*) FROM pg_roles WHERE rolname IN ({role_list}) AND rolcanlogin IS {"false" if enabled else "true"}') == str(len(roles)),
          'database maintenance role convergence')
     if enabled:
         sql(f'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename IN ({role_list}) AND pid <> pg_backend_pid();')
@@ -185,6 +190,8 @@ def reconcile():
     changed = grants(values)
     changed = reload_s3() or changed
     changed = s3().ensure_bucket(values['bucket']) or changed
+    from automation.data.requests import reconcile as service_requests
+    changed = service_requests(values, sql, grants, s3()) or changed
     return changed
 
 
@@ -216,6 +223,11 @@ def configure(payload):
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else {'applications': {}}
         existing = get('application.argoproj.io', APP, 'argocd')
+        if existing:
+            retained = existing['spec']['source']['helm']['valuesObject'].get('serviceRequests', [])
+            supplied = payload['values'].get('serviceRequests', [])
+            if {row['service'] for row in retained} - {row['service'] for row in supplied}:
+                raise ValueError('Service data declarations cannot disappear on repeat apply; retain their requests')
         if existing and (existing['spec']['source']['helm']['valuesObject'].get('maintenance')
                          or (BASE / 'cold-maintenance.json').exists()):
             raise RuntimeError('Data capture was interrupted; run data-resume before apply')
@@ -243,6 +255,13 @@ def configure(payload):
         for name in ('notes-application', 'notes-migration', 'database-backup', 'cloudlab-s3-config', 'data-offsite'):
             wait(lambda: condition(get('externalsecret.external-secrets.io', name, NAMESPACE), 'Ready'), 'data credential readiness')
         primary()
+        for row in payload['values'].get('serviceRequests', []):
+            if 'database' in row:
+                def database_ready():
+                    obj = get('database.postgresql.cnpg.io', row['service'], NAMESPACE)
+                    return bool(obj and obj.get('status', {}).get('applied') is True and
+                                obj['status'].get('observedGeneration') == obj['metadata']['generation'])
+                wait(database_ready, 'service database owner convergence', timeout=600)
         from automation.data.volumes import inventory
         inventory()
         atomic(BASE / 'desired.json', payload['values'])

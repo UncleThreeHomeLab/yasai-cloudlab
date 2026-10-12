@@ -60,6 +60,11 @@ Live operations require private inputs and
 accepted ownership; required fields and write gates belong to the
 [infrastructure client](automation/infra/command.py).
 
+Application onboarding uses the [service contract](charts/service/README.md),
+administrator-controlled ApplicationSets and scoped data/OIDC references. The
+[notes example](apps/notes/README.md) contains the web/API demonstration. Enable
+services only with a reviewed catalog in the designated private configuration repo.
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.

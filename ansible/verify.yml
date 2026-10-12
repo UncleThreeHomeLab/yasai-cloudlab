@@ -81,3 +81,9 @@
         name: application_data
         tasks_from: verify
       when: data_enabled | bool
+
+    - name: Verify configured application services and their authorization boundaries
+      ansible.builtin.include_role:
+        name: services
+        tasks_from: verify
+      when: services_enabled | bool

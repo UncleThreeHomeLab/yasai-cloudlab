@@ -1,0 +1,67 @@
+---
+- name: Resolve the complete committed administrator service catalog
+  ansible.builtin.command: python -m automation.services.payload
+  args:
+    chdir: /workspace
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: services_payload
+
+- name: Create the service owner module directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/automation/services
+    state: directory
+    mode: '0700'
+
+- name: Install versioned service owner checks
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/services/{{ item }}'
+    dest: '/opt/cloudlab/automation/services/{{ item }}'
+    mode: '0600'
+  loop: [bootstrap.py, contract.py, remote.py, verify.py]
+
+- name: Create the approved notes schema directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/apps/notes
+    state: directory
+    mode: '0700'
+
+- name: Install the notes schema from its application owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../apps/notes/schema.sql'
+    dest: /opt/cloudlab/apps/notes/schema.sql
+    mode: '0600'
+
+- name: Install the data owner's creation-only synthetic seed
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/data/notes_seed.py'
+    dest: /opt/cloudlab/automation/data/notes_seed.py
+    mode: '0600'
+
+- name: Seed only the approved notes application and preserve existing data
+  ansible.builtin.command: python3 -c 'import sys,json;sys.path.insert(0,"/opt/cloudlab");from automation.data.notes_seed import run;print(json.dumps(run()))'
+  register: notes_seeded
+  changed_when: (notes_seeded.stdout | from_json).changed
+  when: (services_payload.stdout | from_json).values.catalog | selectattr('approval.name', 'equalto', 'notes') | list | length > 0
+
+- name: Create the exposure interface directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/automation/connectivity
+    state: directory
+    mode: '0700'
+
+- name: Install the exposure owner's validation interface
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/connectivity/contract.py'
+    dest: /opt/cloudlab/automation/connectivity/contract.py
+    mode: '0600'
+
+- name: Reconcile the bounded service catalog Application
+  ansible.builtin.command: python3 /opt/cloudlab/automation/services/bootstrap.py
+  args:
+    stdin: '{{ services_payload.stdout }}'
+  no_log: true
+  register: services_configured
+  changed_when: (services_configured.stdout | from_json).changed

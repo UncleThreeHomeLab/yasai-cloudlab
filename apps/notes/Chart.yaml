@@ -1,0 +1,7 @@
+apiVersion: v2
+name: notes
+description: Synthetic notes frontend and API using the shared service contract.
+version: 0.1.0
+dependencies:
+  - {name: service, alias: web, version: 0.1.0, repository: 'file://../../charts/service'}
+  - {name: service, alias: api, version: 0.1.0, repository: 'file://../../charts/service'}
