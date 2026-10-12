@@ -1,0 +1,24 @@
+{{- range .Values.catalog }}
+{{- $namespace := .approval.namespace }}
+{{- range .dataBindings }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ .name }}
+  namespace: {{ $namespace }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ .name }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    {{- $item := .item }}
+    {{- range .fields }}
+    - secretKey: {{ . }}
+      remoteRef: {key: {{ $item }}, property: {{ . }}}
+    {{- end }}
+{{- end }}
+{{- end }}

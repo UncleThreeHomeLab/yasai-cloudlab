@@ -1,0 +1,4 @@
+apiVersion: v2
+name: service-catalog
+description: Administrator-owned service namespaces, budgets and ApplicationSets.
+version: 0.1.0

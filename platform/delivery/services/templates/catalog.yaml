@@ -1,0 +1,129 @@
+{{- range .Values.catalog }}
+{{- $v := .definition }}
+{{- $a := .approval }}
+{{- $namespace := printf "cloudlab-app-%s" $a.name }}
+{{- $classes := list }}
+{{- range concat (list $v.exposure) ($v.additionalExposures | default list) }}
+{{- if ne .class "none" }}{{ $classes = append $classes .class }}{{- end }}
+{{- end }}
+{{- $classes = $classes | uniq }}
+{{- if ne $namespace $a.namespace }}
+{{- fail "Service destination must be the administrator-owned namespace" }}
+{{- end }}
+{{- range $v.secrets }}
+{{- if not (has .name $a.secretReferences) }}{{ fail "Unapproved service credential" }}{{- end }}
+{{- end }}
+{{- range $v.configMaps }}
+{{- if not (has .name $a.configMaps) }}{{ fail "Unapproved service configuration" }}{{- end }}
+{{- end }}
+{{- range $v.data }}
+{{- if not (has .credentialReference $a.secretReferences) }}{{ fail "Unapproved data credential" }}{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $namespace }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+  labels:
+    cloudlab.io/owner: service-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    istio.io/dataplane-mode: ambient
+    cloudlab.io/service-secrets: approved
+    {{- if $classes }}
+    cloudlab.io/gateway: {{ if gt (len $classes) 1 }}mixed{{ else }}{{ first $classes }}{{ end }}
+    {{- end }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: budget, namespace: {{ $namespace }}}
+spec:
+  hard:
+    requests.cpu: '1'
+    requests.memory: 1Gi
+    limits.cpu: '2'
+    limits.memory: 2Gi
+    pods: '8'
+    persistentvolumeclaims: '2'
+    requests.storage: 4Gi
+    services.loadbalancers: '0'
+    services.nodeports: '0'
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: platform-ingress, namespace: {{ $namespace }}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ $namespace }}}}
+    {{- range $classes }}
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ printf "cloudlab-gateway-%s" . }}}}
+    {{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ $a.name }}
+  namespace: argocd
+spec:
+  sourceRepos: {{ list $.Values.repository $a.repository | uniq | toJson }}
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: {{ $namespace }}}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: '', kind: Service}
+    - {group: '', kind: ServiceAccount}
+    - {group: '', kind: ConfigMap}
+    - {group: '', kind: PersistentVolumeClaim}
+    - {group: apps, kind: Deployment}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: {{ $a.name }}
+  namespace: argocd
+  labels: {cloudlab.io/owner: service-platform}
+spec:
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - list:
+        elements: {{ if eq (.publication | default "ready") "retired" }}[]{{ else }}[{name: {{ $v.name }}}]{{ end }}
+  syncPolicy:
+    applicationsSync: create-update
+    preserveResourcesOnDeletion: true
+  template:
+    metadata:
+      name: {{ printf "%s-{{.name}}" $a.name | quote }}
+    spec:
+      project: {{ $a.name }}
+      sources:
+        - repoURL: {{ $.Values.repository | quote }}
+          targetRevision: {{ $.Values.revision | quote }}
+          path: {{ $a.chartPath | default "charts/service" }}
+          helm:
+            valueFiles: [{{ printf "$values/%s" $a.valuesPath | quote }}]
+            valuesObject:
+              {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
+{{ toYaml .notesValues | indent 14 }}
+              {{- else }}
+              additionalExposures: {{ $v.additionalExposures | default list | toJson }}
+              {{- range $key := list "name" "owner" "exposure" "secrets" "configMaps" "oidc" "data" }}
+              {{ $key }}: {{ index $v $key | toJson }}
+              {{- end }}
+              {{- end }}
+        - repoURL: {{ $a.repository | quote }}
+          targetRevision: {{ $a.revision | quote }}
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: {{ $namespace }}
+      syncPolicy:
+        automated: {prune: false, selfHeal: true, allowEmpty: false}
+        syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+{{- end }}

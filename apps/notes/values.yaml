@@ -1,0 +1,121 @@
+web:
+  name: notes-web
+  owner: platform
+  image: python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+  replicas: 1
+  command:
+  - python
+  - /config/source/web.py
+  initCommand: []
+  ports:
+  - name: http
+    port: 8080
+  health:
+    readiness:
+      path: /ready
+      port: http
+    liveness:
+      path: /live
+      port: http
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  environment:
+    OIDC_ISSUER: https://login.example.invalid/realms/applications
+    OIDC_CLIENT: notes-web
+    OIDC_AUDIENCE: notes-api
+    OPERATIONS_HOST: notes.internal.example.invalid
+  secrets: []
+  configMaps:
+  - name: notes-source
+    mountPath: /config/source
+  persistence:
+    enabled: false
+    size: 1Gi
+    mountPath: /data
+    retention: retain
+  exposure:
+    class: none
+  data: {}
+  oidc:
+    enabled: false
+  monitoring:
+    enabled: false
+  rollouts:
+    enabled: false
+api:
+  name: notes-api
+  owner: platform
+  image: python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+  replicas: 1
+  command:
+  - python
+  - /config/source/api.py
+  initCommand:
+  - python
+  - -m
+  - pip
+  - install
+  - --index-url
+  - https://pypi.org/simple
+  - --disable-pip-version-check
+  - --no-cache-dir
+  - --require-hashes
+  - '--only-binary=:all:'
+  - --target
+  - /dependencies
+  - -r
+  - /config/source/requirements.txt
+  ports:
+  - name: http
+    port: 8080
+  health:
+    readiness:
+      path: /ready
+      port: http
+    liveness:
+      path: /live
+      port: http
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  environment:
+    PYTHONPATH: /dependencies:/config/source/lib.zip
+    OIDC_ISSUER: https://login.example.invalid/realms/applications
+    OIDC_AUDIENCE: notes-api
+    OPERATIONS_HOST: notes.internal.example.invalid
+    PGHOST: cloudlab-postgres-rw.cloudlab-data.svc.cluster.local
+    PGDATABASE: notes
+    PGSSLROOTCERT: /tls/database/ca.crt
+  secrets:
+  - name: notes-database
+    mountPath: /secrets/database
+  - name: notes-objects
+    mountPath: /secrets/objects
+  configMaps:
+  - name: notes-source
+    mountPath: /config/source
+  - name: database-ca
+    mountPath: /tls/database
+  persistence:
+    enabled: false
+    size: 1Gi
+    mountPath: /data
+    retention: retain
+  exposure:
+    class: none
+  data: {}
+  oidc:
+    enabled: false
+  monitoring:
+    enabled: false
+  rollouts:
+    enabled: false

@@ -1,0 +1,38 @@
+name: synthetic
+owner: platform
+image: python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+replicas: 1
+command:
+  - python
+  - -c
+  - |
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    class Health(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            body = b'{"service":"synthetic","ready":true}'
+            self.send_response(200 if self.path == '/' else 404)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+    HTTPServer(('0.0.0.0', 8080), Health).serve_forever()
+initCommand: []
+ports:
+  - {name: http, port: 8080}
+health:
+  readiness: {path: /, port: http}
+  liveness: {path: /, port: http}
+resources:
+  requests: {cpu: 50m, memory: 32Mi}
+  limits: {cpu: 200m, memory: 128Mi}
+environment: {}
+secrets: []
+configMaps: []
+persistence: {enabled: false, size: 1Gi, mountPath: /data, retention: retain}
+exposure: {class: none}
+additionalExposures: []
+data: {}
+oidc: {enabled: false}
+monitoring: {enabled: false}
+rollouts: {enabled: false}

@@ -28,10 +28,11 @@ class CertificateChartTests(unittest.TestCase):
             namespace = route['metadata']['namespace']
             selector = gateways[namespace]['spec']['listeners'][0]['allowedRoutes']['namespaces']
             self.assertEqual(selector['from'], 'Selector')
-            labels = selector['selector']['matchLabels']
-            self.assertTrue(all(namespaces[namespace].get(k) == v for k, v in labels.items()))
+            rules = selector['selector']['matchExpressions']
+            self.assertTrue(all(rule['operator'] == 'In' and namespaces[namespace].get(rule['key']) in rule['values'] for rule in rules))
             other = next(name for name in namespaces if name != namespace)
-            self.assertFalse(all(namespaces[other].get(k) == v for k, v in labels.items()))
+            self.assertFalse(all(namespaces[other].get(rule['key']) in rule['values'] for rule in rules))
+            self.assertFalse(all(None in rule['values'] for rule in rules))
 
     @classmethod
     def setUpClass(cls):

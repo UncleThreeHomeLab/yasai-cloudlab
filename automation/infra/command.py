@@ -50,6 +50,11 @@ SCHEMAS = {
             'strict_status_checks': None, 'status_checks': [{'context': None, 'integration_id': None}]}}}}
 
 
+SCHEMAS['cloudflare']['service_exposures'] = {'*': {
+    'exposure': {'class': None, 'hostname': None, 'access': None, 'path': None, 'port': None},
+    'origin': None, 'application': None, 'routed': None, 'published': None}}
+
+
 def reject_unknown(value, schema):
     """OpenTofu object conversion drops unknown keys; reject them before conversion."""
     if value is None or schema is None:
@@ -90,6 +95,14 @@ def identity(resource, attributes):
     return result
 
 
+def shared_identities(document):
+    # Service DNS has native state identity and an explicit lifecycle; imported
+    # shared infrastructure retains its independent, immutable adoption inventory.
+    return {resource['address']: identity(resource, resource['change'].get('before') or {})
+            for resource in document.get('resource_changes', []) if resource.get('mode') == 'managed'
+            and not resource['address'].startswith('cloudflare_dns_record.service_publication[')}
+
+
 def validate_inventory(root, desired, inventory):
     if root == 'cloudflare':
         expected = {'cloudflare_zero_trust_tunnel_cloudflared_config.routing'}
@@ -117,6 +130,8 @@ def source_binding(root):
         'compose.yaml', '.gitignore', '.gitattributes')]
     if root == 'cloudflare':
         files += list((WORKSPACE / 'automation/connectivity').glob('*.py'))
+        files += list((WORKSPACE / 'automation/services').glob('*.py'))
+        files += list((WORKSPACE / 'charts/service').rglob('*'))
         files += list((WORKSPACE / 'automation/identity').glob('access_*.py'))
     else:
         files += list((WORKSPACE / 'automation/gitops').glob('*.py'))
@@ -128,7 +143,7 @@ def source_binding(root):
                               cwd=WORKSPACE, capture_output=True, check=True, text=True).stdout.strip()
     paths = ['automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml', '.gitignore', '.gitattributes']
     if root == 'cloudflare':
-        paths += ['automation/connectivity', 'automation/identity']
+        paths += ['automation/connectivity', 'automation/identity', 'automation/services', 'charts/service']
     else:
         paths += ['automation/gitops']
     dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--', *paths],
@@ -199,7 +214,9 @@ class Client:
         if source_binding(root) != source_start:
             raise ValueError('Source changed while preparing the private run')
         self.desired = json.loads(snapshot[required[0]])
-        if set(self.desired) != set(SCHEMAS[root]):
+        allowed = set(SCHEMAS[root])
+        required_keys = allowed - ({'service_exposures'} if root == 'cloudflare' else set())
+        if not required_keys <= set(self.desired) <= allowed:
             raise ValueError('Private desired inputs incomplete')
         reject_unknown(self.desired, SCHEMAS[root])
         backend = json.loads(snapshot['backend.json'])
@@ -291,8 +308,7 @@ class Client:
             guarded_changes(document)
         except ValueError as error:
             blocked = str(error)
-        identities = {resource['address']: identity(resource, resource['change'].get('before') or {})
-                      for resource in document.get('resource_changes', []) if resource.get('mode') == 'managed'}
+        identities = shared_identities(document)
         if identities != self.inventory:
             blocked = 'Resource inventory changed; maintenance review required'
         review = self.native('show', filename)
@@ -321,8 +337,7 @@ class Client:
             return shown.returncode
         document = json.loads(shown.stdout)
         guarded_changes(document)
-        identities = {resource['address']: identity(resource, resource['change'].get('before') or {})
-                      for resource in document.get('resource_changes', []) if resource.get('mode') == 'managed'}
+        identities = shared_identities(document)
         if identities != self.inventory:
             raise ValueError('Resource inventory changed; maintenance review required')
         # Native backend serial/lineage checks reject stale plans after initialization.

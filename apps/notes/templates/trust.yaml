@@ -1,0 +1,8 @@
+{{- if .Values.databaseCA }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: database-ca}
+data:
+  ca.crt: |
+{{ .Values.databaseCA | indent 4 }}
+{{- end }}

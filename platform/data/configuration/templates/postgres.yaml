@@ -32,6 +32,24 @@ spec:
         - REVOKE CREATE ON SCHEMA public FROM PUBLIC
   managed:
     roles:
+      {{- range .Values.serviceRequests }}
+      {{- if .database }}
+      {{- range $role := list (dict "name" .database.applicationRole "secret" (printf "%s-application" .service)) (dict "name" .database.migrationRole "secret" (printf "%s-migration" .service)) }}
+      - name: {{ $role.name | quote }}
+        ensure: present
+        login: {{ not $.Values.maintenance }}
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: false
+        connectionLimit: 10
+        inRoles: []
+        passwordSecret: {name: {{ $role.secret }}}
+      {{- end }}
+      {{- end }}
+      {{- end }}
       {{- range $role := list (dict "name" .Values.applicationRole "secret" "notes-application") (dict "name" .Values.migrationRole "secret" "notes-migration") (dict "name" .Values.backupRole "secret" "database-backup") }}
       - name: {{ $role.name | quote }}
         ensure: present
@@ -68,6 +86,14 @@ spec:
       shared_buffers: 256MB
     pg_hba:
       - hostnossl all all all reject
+      {{- range .Values.serviceRequests }}
+      {{- if .database }}
+      {{- $database := .database.name }}
+      {{- range $role := list .database.applicationRole .database.migrationRole }}
+      - {{ printf "hostssl %s %s all scram-sha-256" $database $role | quote }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
       {{- range $name := list .Values.applicationRole .Values.migrationRole .Values.backupRole }}
       - {{ printf "hostssl %s %s all scram-sha-256" $.Values.database $name | quote }}
       {{- end }}
@@ -100,3 +126,13 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: cloudlab-identity}
         {{- end }}
       ports: [{protocol: TCP, port: 5432}]
+    {{- $consumers := .Values.serviceConsumers | default list }}
+    {{- range .Values.serviceRequests }}
+    {{- if .database }}{{ $consumers = append $consumers .namespace }}{{- end }}
+    {{- end }}
+    {{- range $consumers | uniq }}
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ . }}}
+      ports: [{protocol: TCP, port: 5432}]
+    {{- end }}

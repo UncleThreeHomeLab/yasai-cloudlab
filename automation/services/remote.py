@@ -1,0 +1,164 @@
+"""Check actual owner convergence and retire only scoped workload children."""
+import json
+import sys
+
+from automation.mesh.kube import get, condition, application_ready, kube, wait
+from automation.identity.health import direct_https
+
+
+def inspect(request):
+    definition, approval = request['definition'], request['approval']
+    namespace = approval['namespace']
+    action = request['action']
+    name = definition['name']
+    notes = approval.get('chartPath') == 'apps/notes'
+    workload_names = ['notes-web', 'notes-api'] if notes else [name]
+    if action == 'backend':
+        application = get('application.argoproj.io', approval['name'] + '-' + name, 'argocd')
+        if not application or application['spec']['project'] != approval['name'] or application['spec']['destination'] != {
+                'server': 'https://kubernetes.default.svc', 'namespace': namespace}:
+            raise RuntimeError('Backend lacks its approved GitOps destination')
+        source = application['spec'].get('sources', [])
+        if (len(source) != 2 or source[1].get('repoURL') != approval['repository'] or
+                source[1].get('targetRevision') != approval['revision'] or
+                application.get('status', {}).get('health', {}).get('status') != 'Healthy' or
+                application.get('status', {}).get('sync', {}).get('status') != 'Synced' or application.get('operation')):
+            raise RuntimeError('Backend is not converged at its approved source')
+        for workload_name in workload_names:
+            deployed = get('deployment', workload_name, namespace)
+            if (not deployed or deployed.get('status', {}).get('observedGeneration') != deployed['metadata']['generation'] or
+                    deployed.get('status', {}).get('availableReplicas') != definition['replicas'] or
+                    deployed['spec']['template']['spec']['containers'][0]['image'] != definition['image']):
+                raise RuntimeError('Backend is not ready at its pinned image')
+        quota = get('resourcequota', 'budget', namespace)
+        if not quota or quota['spec']['hard'].get('requests.cpu') != '1':
+            raise RuntimeError('Backend lacks its platform resource budget')
+    elif action == 'identity':
+        oidc = definition['oidc']
+        if not oidc['enabled']: return
+        from automation.services.contract import identity_request
+        desired = identity_request(definition, {oidc.get('secretReference'): 'x' * 48})
+        source = get('configmap', 'identity-private-state', 'cloudlab-identity')
+        if not source: raise RuntimeError('Private identity input is unavailable')
+        configuration = json.loads(source['data']['desired_state'])
+        revocations = json.loads(source['data']['revocations'])
+        clients = configuration['realms'].get(oidc['realm'], {}).get('clients', [])
+        if [c for c in clients if c['id'] == oidc['client']] != [desired['client']] or oidc['client'] in revocations['realms'].get(oidc['realm'], {}).get('clients', []):
+            raise RuntimeError('Identity client is not the exact approved contract')
+        private = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd')
+        revision = private.get('status', {}).get('sync', {}).get('revision') if private else None
+        if not revision or not application_ready('cloudlab-identity-private', revision):
+            raise RuntimeError('Private identity source is not converged')
+        from automation.identity.bootstrap import APP, BASE, reconciled
+        state = json.loads((BASE / 'ownership.json').read_text())
+        if state.get('phase') != 'scoped' or not reconciled(state['revision'], state['uid']):
+            raise RuntimeError('Identity writer is not converged')
+    elif action == 'data':
+        for kind, value in definition['data'].items():
+            external = get('externalsecret.external-secrets.io', value['credentialReference'], namespace)
+            secret = get('secret', value['credentialReference'], namespace)
+            if not condition(external, 'Ready') or not secret or not any(
+                    owner.get('uid') == external['metadata']['uid'] for owner in secret['metadata'].get('ownerReferences', [])):
+                raise RuntimeError('Service data credentials are not ready and ESO-owned')
+            fields = set(secret.get('data', {}))
+            expected = {'username', 'password'} if kind == 'database' else {'BUCKET', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY', 'ENDPOINT', 'REGION'}
+            if fields != expected:
+                raise RuntimeError('Service received unexpected or privileged credential fields')
+        for mounted in definition['secrets']:
+            secret = get('secret', mounted['name'], namespace)
+            external = get('externalsecret.external-secrets.io', mounted['name'], namespace)
+            if not condition(external, 'Ready') or not secret or not any(
+                    owner.get('uid') == external['metadata']['uid'] for owner in secret['metadata'].get('ownerReferences', [])):
+                raise RuntimeError('An approved service credential is not owned by ready ESO')
+            if definition['oidc'].get('secretReference') == mounted['name'] and set(secret['data']) != {'client_secret'}:
+                raise RuntimeError('Service OIDC credential contains values outside its client scope')
+    elif action == 'tls':
+        for index, exposure in enumerate([definition['exposure']] + definition.get('additionalExposures', [])):
+            if exposure['class'] == 'none': continue
+            gateway_namespace = 'cloudlab-gateway-' + exposure['class']
+            gateway = get('gateway.gateway.networking.k8s.io', 'cloudlab', gateway_namespace)
+            route_name = workload_names[0] + ('-extra-' + str(index-1) if index else '')
+            route = get('httproute.gateway.networking.k8s.io', route_name, namespace)
+            if not condition(gateway, 'Programmed') or not route or route['spec']['hostnames'] != [exposure['hostname']]:
+                raise RuntimeError('Exact service route or gateway is unavailable')
+            parents = route.get('status', {}).get('parents', [])
+            if not any(all(any(c.get('type') == kind and c.get('status') == 'True' and c.get('observedGeneration') == route['metadata']['generation']
+                               for c in parent.get('conditions', [])) for kind in ('Accepted', 'ResolvedRefs')) for parent in parents):
+                raise RuntimeError('Service route is not accepted at its current generation')
+            address = get('service', 'cloudlab-istio', gateway_namespace)['spec']['clusterIP']
+            status, _ = direct_https('https://' + exposure['hostname'] + exposure['path'], address,
+                                     {'Host': exposure['hostname'], 'User-Agent': 'CloudLab-Service-Proof/1.0'})
+            if status not in (200, 401, 403):
+                raise RuntimeError('TLS origin did not reach the ready backend')
+    elif action == 'api-protection':
+        if not notes: raise ValueError('Reference API check requires the approved notes adapter')
+        exposure = definition['exposure']
+        address = get('service', 'cloudlab-istio', 'cloudlab-gateway-' + exposure['class'])['spec']['clusterIP']
+        for path, expected in (('/api/notes', 401), ('/api/operations', 404)):
+            status, _ = direct_https('https://' + exposure['hostname'] + path, address,
+                                     {'Host': exposure['hostname'], 'User-Agent': 'CloudLab-Service-Proof/1.0'})
+            if status != expected: raise RuntimeError('Anonymous reference API protection failed')
+    elif action == 'private-boundary':
+        public = get('service', 'cloudlab-istio', 'cloudlab-gateway-public')['spec']['clusterIP']
+        private_exposures = [e for e in [definition['exposure']] + definition.get('additionalExposures', []) if e['class'] == 'private']
+        for exposure in private_exposures:
+            status, _ = direct_https('https://' + exposure['hostname'] + exposure['path'], public,
+                                     {'Host': exposure['hostname'], 'User-Agent': 'CloudLab-Service-Proof/1.0'})
+            if status != 404: raise RuntimeError('Private service is reachable through the public gateway')
+        tailnet = get('service', 'cloudlab-tailnet', 'cloudlab-gateway-private')
+        addresses = [row['ip'] for row in tailnet.get('status', {}).get('loadBalancer', {}).get('ingress', []) if row.get('ip') and ':' not in row['ip']]
+        if len(addresses) != 1: raise RuntimeError('Private gateway has no exact tailnet peer')
+        import ipaddress
+        if ipaddress.ip_address(addresses[0]) not in ipaddress.ip_network('100.64.0.0/10'):
+            raise RuntimeError('Private gateway peer is outside the tailnet')
+        return {'privatePeer': addresses[0]}
+    elif action in ('retire-route', 'route-absent', 'retire-workload'):
+        application_name = approval['name'] + '-' + name
+        if action == 'route-absent':
+            routes = get('httproutes.gateway.networking.k8s.io', namespace=namespace)
+            if any(route['metadata']['name'].startswith(tuple(workload_names)) for route in routes['items']):
+                raise RuntimeError('A route still exposes the retired service')
+            return
+        appset = get('applicationset.argoproj.io', approval['name'], 'argocd')
+        if (not appset or appset['spec']['generators'] != [{'list': {'elements': []}}] or
+                not appset['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:')):
+            raise RuntimeError('Retirement requires the converged administrator-owned retired intent')
+        application = get('application.argoproj.io', application_name, 'argocd')
+        if not application: return
+        if application['spec']['project'] != approval['name'] or application['spec']['destination'] != {
+                'server': 'https://kubernetes.default.svc', 'namespace': namespace}:
+            raise RuntimeError('Retirement application has a conflicting scope')
+        kube('patch', 'application.argoproj.io', application_name, '-n', 'argocd', '--type=merge',
+             '-p', json.dumps({'spec': {'syncPolicy': {'automated': {'enabled': False}}}}))
+        children = application.get('status', {}).get('resources', [])
+        allowed = {'HTTPRoute'} if action == 'retire-route' else {'Deployment', 'Service', 'ServiceAccount', 'HTTPRoute', 'ConfigMap'}
+        planned = []
+        groups = {'Deployment': 'apps', 'Service': '', 'ServiceAccount': '', 'HTTPRoute': 'gateway.networking.k8s.io', 'ConfigMap': ''}
+        for child in children:
+            if child['kind'] not in allowed: continue
+            if child.get('group', '') != groups[child['kind']]:
+                raise RuntimeError('Retirement resource API is outside its approved scope')
+            if child.get('namespace') != namespace:
+                raise RuntimeError('Retirement cannot delete shared resources or a foreign namespace')
+            kind = child['kind'] + ('.' + child['group'] if child.get('group') else '')
+            obj = get(kind, child['name'], namespace)
+            if not obj: continue
+            if not obj['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(application_name + ':'):
+                raise RuntimeError('Retirement workload has a conflicting tracking owner')
+            planned.append((kind, child['name']))
+        for kind, child_name in planned:
+            kube('delete', kind, child_name, '-n', namespace, '--wait=true', '--timeout=60s')
+        if action == 'retire-workload':
+            if application['metadata'].get('finalizers'):
+                raise RuntimeError('Retirement refuses an unexpected cascading application finalizer')
+            kube('delete', 'application.argoproj.io', application_name, '-n', 'argocd', '--cascade=orphan', '--wait=true')
+    else:
+        raise ValueError('Unsupported read-only service check')
+
+
+if __name__ == '__main__':
+    try:
+        result = inspect(json.load(sys.stdin)) or {}
+        print(json.dumps(dict(result, ready=True)))
+    except Exception:
+        raise SystemExit('Service owner readiness check failed; values withheld') from None

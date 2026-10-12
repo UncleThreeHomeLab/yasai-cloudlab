@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notes-source
+data:
+  {{- range $path := list "api.py" "web.py" "app.js" "index.html" "style.css" "requirements.txt" }}
+  {{ $path }}: |
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}
+binaryData:
+  lib.zip: {{ .Files.Get "lib.zip" | b64enc }}

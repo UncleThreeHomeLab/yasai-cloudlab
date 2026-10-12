@@ -1,0 +1,22 @@
+{{- if .Values.services.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-services
+  namespace: argocd
+spec:
+  description: Administrator-controlled service namespaces and bounded workload sources.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: argocd}
+    - {server: 'https://kubernetes.default.svc', namespace: 'cloudlab-app-*'}
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+  namespaceResourceWhitelist:
+    - {group: '', kind: ResourceQuota}
+    - {group: '', kind: ConfigMap}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: argoproj.io, kind: AppProject}
+    - {group: argoproj.io, kind: ApplicationSet}
+{{- end }}

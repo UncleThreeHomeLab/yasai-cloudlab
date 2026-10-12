@@ -53,12 +53,20 @@ def playbook(name, *, syntax=False, unchanged=False):
 
 
 def gitops_preflight():
+    sys.path.insert(0, '/workspace')
+    from automation.services.inputs import catalog
+    import yaml
+    settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
+    catalog(required=settings.get('services', {}).get('enabled', False))
     result = subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'preflight'], check=False)
     if result.returncode:
         raise SystemExit('Public GitOps preflight failed before host mutation.')
 
 
 def main():
+    if sys.argv[1:2] == ['service']:
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.services.command', *sys.argv[2:]],
+                                       cwd='/workspace', check=False).returncode)
     if sys.argv[1:2] == ['infra']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.infra.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)
@@ -69,6 +77,9 @@ def main():
         action = 'inspect'
     if action == 'test':
         subprocess.run([sys.executable, '/workspace/automation/runner/test.py'], check=True)
+        return
+    if action == 'service-check':
+        subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
         return
     if action == 'identity-check':
         subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
@@ -120,6 +131,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/connectivity/dns_check.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/data/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
+        subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
@@ -161,6 +173,11 @@ def main():
     for name in ('CLOUDFLARE_ACCESS_HOSTS', 'PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
+    from automation.services.inputs import private_dns_names
+    service_names = private_dns_names()
+    if service_names:
+        os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(sorted(set(
+            json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]') + service_names)))
     import yaml
     public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
     sys.path.insert(0, '/workspace')

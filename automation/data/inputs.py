@@ -31,6 +31,24 @@ def payload():
                         'backupRole': backup['username'], 'bucket': s3['BUCKET'], 'maintenance': False,
                         'hibernated': False}
     public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    if public.get('services', {}).get('enabled'):
+        from automation.services.inputs import catalog
+        from automation.data.requests import request, resolve
+        service_catalog = catalog(required=True)
+        requests = [request(entry['approval']['name'], entry['definition']['data'], service_catalog['dataApprovals'])
+                    for entry in service_catalog['catalog'] if entry['definition']['data']]
+        result['values']['serviceConsumers'] = sorted({row['namespace'] for row in requests if 'database' in row})
+        resolved = resolve(requests, fields)
+        # The original notes database/bucket already have their data-module owner.
+        for row in resolved:
+            if row.get('database', {}).get('name') == app['database']:
+                db = row.pop('database')
+                if db['applicationRole'] != app['username'] or db['migrationRole'] != migration['username']:
+                    raise ValueError('Existing notes database scope differs from the approved service request')
+            if row.get('bucket', {}).get('name') == s3['BUCKET']:
+                if row.pop('bucket')['item'] != 's3-notes-production':
+                    raise ValueError('Existing notes bucket scope differs from the approved service request')
+        result['values']['serviceRequests'] = [row for row in resolved if set(row) - {'service', 'namespace'}]
     if public.get('identity', {}).get('enabled'):
         keycloak = fields('cnpg-keycloak', ('username', 'database'))
         result['values']['identity'] = {'enabled': True, 'database': keycloak['database'], 'role': keycloak['username']}

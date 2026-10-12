@@ -110,7 +110,8 @@ def gateways(zone='example.invalid'):
                 if listener['protocol'] != 'HTTPS' or listener['tls']['mode'] != 'Terminate':
                     raise ValueError('Gateway requires terminating HTTPS listeners')
                 if listener['allowedRoutes']['namespaces'] != {
-                        'from': 'Selector', 'selector': {'matchLabels': {'cloudlab.io/gateway': exposure}}}:
+                        'from': 'Selector', 'selector': {'matchExpressions': [
+                            {'key': 'cloudlab.io/gateway', 'operator': 'In', 'values': [exposure, 'mixed']}]}}:
                     raise ValueError('Gateway route attachment must be restricted by exposure')
     return objects
 

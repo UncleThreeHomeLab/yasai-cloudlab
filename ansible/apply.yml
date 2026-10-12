@@ -90,3 +90,8 @@
         name: application_data
         tasks_from: finalize
       when: data_enabled | bool
+
+    - name: Configure services after scoped data grants and buckets converge
+      ansible.builtin.include_role:
+        name: services
+      when: services_enabled | bool

@@ -25,3 +25,5 @@ data:
   enabled: true
 identity:
   enabled: true
+services:
+  enabled: false

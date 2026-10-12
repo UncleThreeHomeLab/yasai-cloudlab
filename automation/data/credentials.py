@@ -45,6 +45,31 @@ def definitions(endpoint):
     return result
 
 
+def service_definitions(endpoint, service_catalog):
+    from automation.data.requests import request
+    result = {}
+    for entry in service_catalog['catalog']:
+        service = entry['approval']['name']
+        requested = request(service, entry['definition']['data'], service_catalog['dataApprovals'])
+        stem = service.replace('-', '_')
+        if 'database' in requested:
+            value = requested['database']
+            for item, username in ((value['item'], stem + '_app'), (value['migrationItem'], stem + '_migration')):
+                if item in CONTRACT['items']: continue
+                result[item] = {'username': ('STRING', lambda name=username: name),
+                                'database': ('STRING', lambda name=value['name']: name),
+                                'password': ('CONCEALED', lambda: secrets.token_urlsafe(48))}
+        if 'bucket' in requested:
+            value = requested['bucket']
+            if value['item'] in CONTRACT['items']: continue
+            result[value['item']] = {'BUCKET': ('STRING', lambda name=value['name']: name),
+                                     'ENDPOINT': ('STRING', lambda: endpoint.rstrip('/')),
+                                     'REGION': ('STRING', lambda: 'us-east-1'),
+                                     'ACCESS_KEY_ID': ('STRING', lambda: secrets.token_hex(16)),
+                                     'SECRET_ACCESS_KEY': ('CONCEALED', lambda: secrets.token_urlsafe(48))}
+    return result
+
+
 def main():
     values = dotenv_values(ROOT / '.env', interpolate=False)
     token = values.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN')
@@ -59,13 +84,17 @@ def main():
         raise RuntimeError('Data provisioning requires the existing active DNS zone')
     endpoint = 'https://' + CONTRACT['s3_label'] + '.internal.' + zone['name']
     desired = definitions(endpoint)
+    from automation.services.inputs import catalog
+    service_catalog = catalog()
+    if service_catalog:
+        desired.update(service_definitions(endpoint, service_catalog))
     # Shared Compose state serializes concurrent runs from this workstation.
     # Cross-workstation provisioning remains one operator at a time.
     with Path('/state/data-vault-provision.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = ensure_items(token, desired)
         # Verify the existing ESO reader can consume each created or retained item.
-        for name, schema in CONTRACT['items'].items():
+        for name, schema in desired.items():
             fields(name, schema)
         result['reader_verified'] = True
         print(json.dumps(result, sort_keys=True))

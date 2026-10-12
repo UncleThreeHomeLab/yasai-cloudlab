@@ -84,7 +84,7 @@ def name(value):
 
 
 def client(value, secrets):
-    if not isinstance(value, dict) or set(value) - {'id', 'callbacks', 'audience', 'public', 'enabled', 'roles', 'scopes', 'role_groups'}:
+    if not isinstance(value, dict) or set(value) - {'id', 'callbacks', 'audience', 'public', 'enabled', 'roles', 'scopes', 'role_groups', 'web_origins'}:
         raise ValueError('Unsupported private client fields')
     identifier = name(value['id'])
     audience = name(value['audience'])
@@ -94,6 +94,11 @@ def client(value, secrets):
     if not isinstance(callbacks, list) or not 1 <= len(callbacks) <= 8 or len(set(callbacks)) != len(callbacks):
         raise ValueError('Client requires distinct exact callbacks')
     callbacks = [exact_url(url) for url in callbacks]
+    origins = value.get('web_origins', [])
+    callback_origins = {'https://' + urlsplit(url).netloc for url in callbacks}
+    if (not isinstance(origins, list) or len(set(origins)) != len(origins) or
+            any(not isinstance(origin, str) or origin not in callback_origins for origin in origins)):
+        raise ValueError('Web origins must be distinct exact callback origins')
     scopes = value.get('scopes', ['profile'])
     if not isinstance(scopes, list) or not scopes or set(scopes) - {'profile', 'email'}:
         raise ValueError('Only explicit profile/email scopes are supported')
@@ -111,7 +116,7 @@ def client(value, secrets):
         'publicClient': value['public'], 'standardFlowEnabled': True,
         'directAccessGrantsEnabled': False, 'implicitFlowEnabled': False,
         'serviceAccountsEnabled': False, 'fullScopeAllowed': False,
-        'redirectUris': callbacks, 'webOrigins': [],
+        'redirectUris': callbacks, 'webOrigins': origins,
         'attributes': {'pkce.code.challenge.method': 'S256', 'access.token.lifespan': '300',
                        'client.session.idle.timeout': '600', 'client.session.max.lifespan': '600'},
         'defaultClientScopes': ['basic', *scopes], 'optionalClientScopes': [],

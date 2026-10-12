@@ -1,0 +1,753 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repository",
+    "revision",
+    "catalog"
+  ],
+  "properties": {
+    "repository": {
+      "type": "string",
+      "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "catalog": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "approval",
+          "definition"
+        ],
+        "properties": {
+          "approval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "repository",
+              "revision",
+              "valuesPath",
+              "namespace",
+              "secretReferences",
+              "configMaps"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "repository": {
+                "type": "string",
+                "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "valuesPath": {
+                "type": "string",
+                "pattern": "^apps/[a-z0-9/-]+[.]yaml$"
+              },
+              "namespace": {
+                "type": "string",
+                "pattern": "^cloudlab-app-[a-z][a-z0-9-]{0,30}$"
+              },
+              "secretReferences": {
+                "type": "array",
+                "uniqueItems": true,
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                }
+              },
+              "configMaps": {
+                "type": "array",
+                "uniqueItems": true,
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                }
+              },
+              "visibility": {
+                "enum": [
+                  "public",
+                  "private"
+                ]
+              },
+              "chartPath": {
+                "enum": [
+                  "charts/service",
+                  "apps/notes"
+                ]
+              }
+            }
+          },
+          "definition": {
+            "$ref": "#/definitions/service"
+          },
+          "publication": {
+            "enum": [
+              "ready",
+              "published",
+              "retired"
+            ]
+          },
+          "dataBindings": {
+            "type": "array",
+            "maxItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "item",
+                "fields"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "item": {
+                  "type": "string",
+                  "pattern": "^(cnpg|s3)-[a-z0-9-]+-production$"
+                },
+                "fields": {
+                  "oneOf": [
+                    {
+                      "const": [
+                        "username",
+                        "password"
+                      ]
+                    },
+                    {
+                      "const": [
+                        "BUCKET",
+                        "ACCESS_KEY_ID",
+                        "SECRET_ACCESS_KEY",
+                        "ENDPOINT",
+                        "REGION"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "notesValues": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "web",
+              "api",
+              "databaseCA"
+            ],
+            "properties": {
+              "web": {
+                "$ref": "#/definitions/service"
+              },
+              "api": {
+                "$ref": "#/definitions/service"
+              },
+              "databaseCA": {
+                "type": "string",
+                "maxLength": 16384
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "approval": {
+                  "properties": {
+                    "chartPath": {
+                      "const": "apps/notes"
+                    }
+                  },
+                  "required": [
+                    "chartPath"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "notesValues"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,40}$"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,40}$"
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,40}$"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "name",
+              "port"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "health": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^/[A-Za-z0-9/_-]*$"
+                },
+                "port": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                }
+              },
+              "required": [
+                "path",
+                "port"
+              ]
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^/[A-Za-z0-9/_-]*$"
+                },
+                "port": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                }
+              },
+              "required": [
+                "path",
+                "port"
+              ]
+            }
+          },
+          "required": [
+            "readiness",
+            "liveness"
+          ]
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,3}m$"
+                },
+                "memory": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,4}Mi$"
+                }
+              },
+              "required": [
+                "cpu",
+                "memory"
+              ]
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,3}m$"
+                },
+                "memory": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,4}Mi$"
+                }
+              },
+              "required": [
+                "cpu",
+                "memory"
+              ]
+            }
+          },
+          "required": [
+            "requests",
+            "limits"
+          ]
+        },
+        "environment": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,40}$"
+              },
+              "mountPath": {
+                "type": "string",
+                "pattern": "^/(secrets|config|tls)/[a-z0-9-]+$"
+              }
+            },
+            "required": [
+              "name",
+              "mountPath"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "configMaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,40}$"
+              },
+              "mountPath": {
+                "type": "string",
+                "pattern": "^/(secrets|config|tls)/[a-z0-9-]+$"
+              }
+            },
+            "required": [
+              "name",
+              "mountPath"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]?Gi$"
+            },
+            "mountPath": {
+              "type": "string",
+              "pattern": "^/data(/[a-z0-9-]+)?$"
+            },
+            "retention": {
+              "const": "retain"
+            }
+          },
+          "required": [
+            "enabled",
+            "size",
+            "mountPath",
+            "retention"
+          ]
+        },
+        "exposure": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "class": {
+                  "const": "none"
+                }
+              },
+              "required": [
+                "class"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "class": {
+                  "enum": [
+                    "public",
+                    "private"
+                  ]
+                },
+                "hostname": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9.-]+$"
+                },
+                "access": {
+                  "enum": [
+                    "public",
+                    "human",
+                    "machine",
+                    "tailnet"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^/[A-Za-z0-9/_-]*$"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1024,
+                  "maximum": 65535
+                }
+              },
+              "required": [
+                "class",
+                "hostname",
+                "access",
+                "path",
+                "port"
+              ]
+            }
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "database": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "credentialReference": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "retention": {
+                  "const": "retain"
+                }
+              },
+              "required": [
+                "name",
+                "credentialReference",
+                "retention"
+              ]
+            },
+            "bucket": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "credentialReference": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "retention": {
+                  "const": "retain"
+                }
+              },
+              "required": [
+                "name",
+                "credentialReference",
+                "retention"
+              ]
+            }
+          },
+          "required": []
+        },
+        "oidc": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "const": false
+                }
+              },
+              "required": [
+                "enabled"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "const": true
+                },
+                "realm": {
+                  "const": "applications"
+                },
+                "client": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "public": {
+                  "type": "boolean"
+                },
+                "callbackPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^/[A-Za-z0-9/_-]*$"
+                  },
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true
+                },
+                "audience": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "profile",
+                      "email"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "uniqueItems": true
+                },
+                "roleMapping": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "maxProperties": 8,
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                  },
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "platform-admin",
+                        "developer",
+                        "viewer"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 3,
+                    "uniqueItems": true
+                  }
+                },
+                "secretReference": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                }
+              },
+              "required": [
+                "enabled",
+                "realm",
+                "client",
+                "public",
+                "callbackPaths",
+                "audience",
+                "scopes",
+                "roleMapping"
+              ]
+            }
+          ]
+        },
+        "monitoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "const": false
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        },
+        "rollouts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "const": false
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        },
+        "initCommand": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string"
+          }
+        },
+        "global": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "additionalExposures": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "class": {
+                    "const": "none"
+                  }
+                },
+                "required": [
+                  "class"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "class": {
+                    "enum": [
+                      "public",
+                      "private"
+                    ]
+                  },
+                  "hostname": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9.-]+$"
+                  },
+                  "access": {
+                    "enum": [
+                      "public",
+                      "human",
+                      "machine",
+                      "tailnet"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/[A-Za-z0-9/_-]*$"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "class",
+                  "hostname",
+                  "access",
+                  "path",
+                  "port"
+                ]
+              }
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "name",
+        "owner",
+        "image",
+        "replicas",
+        "command",
+        "ports",
+        "health",
+        "resources",
+        "environment",
+        "secrets",
+        "configMaps",
+        "persistence",
+        "exposure",
+        "data",
+        "oidc",
+        "monitoring",
+        "rollouts",
+        "initCommand"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  }
+}

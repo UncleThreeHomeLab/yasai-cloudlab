@@ -1,0 +1,38 @@
+{{- range .Values.serviceRequests }}
+{{- $service := .service }}
+{{- if .database }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ $service }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  name: {{ .database.name | quote }}
+  owner: {{ .database.migrationRole | quote }}
+  cluster: {name: cloudlab-postgres}
+  databaseReclaimPolicy: retain
+{{- range $entry := list (dict "name" (printf "%s-application" $service) "item" .database.applicationItem) (dict "name" (printf "%s-migration" $service) "item" .database.migrationItem) }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $entry.name }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ $entry.name }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: kubernetes.io/basic-auth
+      metadata: {labels: {cnpg.io/reload: 'true'}}
+  data:
+    - secretKey: username
+      remoteRef: {key: {{ $entry.item }}, property: username}
+    - secretKey: password
+      remoteRef: {key: {{ $entry.item }}, property: password}
+{{- end }}
+{{- end }}
+{{- end }}
