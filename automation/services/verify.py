@@ -46,6 +46,9 @@ def run(payload):
                 inspect(dict(request, action=action))
             if entry['approval'].get('chartPath') == 'apps/notes': inspect(dict(request, action='api-protection'))
             unauthorized_destination(entry, payload)
+        if entry['definition']['name'].startswith('fixture-'):
+            from automation.data.service_proof import run as data_proof
+            data_proof(entry)
         checked += 1
     return {'services_checked': checked, 'owner_convergence': True, 'unauthorized_destinations_denied': True,
             'data_removal': False}
