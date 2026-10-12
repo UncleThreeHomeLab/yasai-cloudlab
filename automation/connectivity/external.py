@@ -1,6 +1,7 @@
 """Verify the accepted native owner after existing access workloads converge."""
 import json
 import os
+from contextlib import redirect_stdout
 from pathlib import Path
 import sys
 
@@ -42,7 +43,10 @@ def run():
         state = receipts.load('external') or {}
         accepted(state)
         from automation.infra.command import main as infra
-        if infra(['verify', 'cloudflare']) != 0:
+        # Ansible consumes exactly one JSON result on stdout; native events stay diagnostic.
+        with redirect_stdout(sys.stderr):
+            verified = infra(['verify', 'cloudflare'])
+        if verified != 0:
             raise RuntimeError('Owned Cloudflare infrastructure verification failed; review an independent plan')
     print(json.dumps({'changed': False, 'configured': True, 'infra_owner': 'cloudflare'}))
 
