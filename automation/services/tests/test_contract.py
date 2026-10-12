@@ -55,6 +55,7 @@ class ContractTests(unittest.TestCase):
         appset = objects[-1]['spec']['template']['spec']
         self.assertEqual(appset['project'], 'synthetic')
         self.assertEqual(appset['destination'], {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-app-synthetic'})
+        self.assertEqual(appset['sources'][0]['helm']['valuesObject'], value)
         for key, changed in [('namespace', 'argocd'), ('revision', 'main'), ('valuesPath', '../values.yaml')]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 resources(value, dict(allowed, **{key: changed}), 'https://github.com/example/platform.git', 'b' * 40)

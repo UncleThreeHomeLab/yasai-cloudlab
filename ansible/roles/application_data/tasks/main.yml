@@ -30,7 +30,7 @@
     src: '{{ playbook_dir }}/../automation/data/{{ item }}'
     dest: '/opt/cloudlab/automation/data/{{ item }}'
     mode: '0600'
-  loop: [control.py, requests.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py, rotation.py, volumes.py, physical.py]
+  loop: [control.py, requests.py, service_proof.py, s3.py, capture.py, remote.py, backup.py, restore.py, verify.py, rotation.py, volumes.py, physical.py]
 
 - name: Install identity hooks for the shared monthly capture and restore boundary
   ansible.builtin.copy:

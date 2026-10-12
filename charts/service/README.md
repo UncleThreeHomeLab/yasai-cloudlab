@@ -45,14 +45,17 @@ Privileged data credentials and migration credentials never reach application po
    with the existing GitHub writer supplied through standard input if needed.
 3. For OIDC, run `service identity-provision <bundle>` through the same Compose
    entry point. Merge its scoped identity PR, then run `lab identity-scoped`.
-   Provision missing data items with `lab data-credentials`; existing values persist.
-4. Enable `services.enabled` in the public root and run `lab apply`. Argo deploys
+4. Enable `services.enabled` in the public root. Provision missing data items with
+   `lab data-credentials`; existing values persist. Then run `lab apply`. Argo deploys
    the reviewed catalog and workloads; data owners reconcile requests and grants.
 5. Run `service ready <bundle>`, then `service publish <bundle>`. The bundle contains
    `definition`, `approval`, `platformRepository`, `platformRevision`, `origin` and
    `application` (null for public access). Backend, client, scoped credentials and
    TLS must converge before protection/tunnel checks and DNS publication.
 6. Run `docker compose run --build --rm lab prove` and the service lifecycle checks.
+   Use `service fixture-proof <bundle>` only for the designated disposable fixture;
+   it publishes twice, retires reachability/workload, and verifies retained SQL,
+   S3, volume contents, credentials and shared resource identities.
 
 Private catalog reads use the existing scoped GitHub App. A local file under
 `docs/local` may stage a proposal; it is not required by a clean checkout. Missing

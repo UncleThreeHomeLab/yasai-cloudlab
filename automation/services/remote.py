@@ -13,7 +13,68 @@ def inspect(request):
     name = definition['name']
     notes = approval.get('chartPath') == 'apps/notes'
     workload_names = ['notes-web', 'notes-api'] if notes else [name]
-    if action == 'backend':
+    if action.startswith('fixture-'):
+        from automation.data.service_proof import fixture
+        fixture({'definition': definition, 'approval': approval})
+        if action == 'fixture-data':
+            from automation.data.service_proof import run
+            return run({'definition': definition, 'approval': approval})
+        if action == 'fixture-snapshot':
+            import hashlib
+            retained = [('namespace', namespace, None), ('resourcequota', 'budget', namespace),
+                        ('pvc', name, namespace), ('cluster.postgresql.cnpg.io', 'cloudlab-postgres', 'cloudlab-data')]
+            retained += [('gateway.gateway.networking.k8s.io', 'cloudlab', 'cloudlab-gateway-' + exposure)
+                         for exposure in ('public', 'private')]
+            result = {}
+            for kind, identifier, ns in retained:
+                obj = get(kind, identifier, ns)
+                if not obj: raise RuntimeError('A retained fixture or shared owner is missing')
+                result[kind + ':' + identifier + ':' + str(ns)] = obj['metadata']['uid']
+            for value in definition['data'].values():
+                obj = get('secret', value['credentialReference'], namespace)
+                result[value['credentialReference']] = [obj['metadata']['uid'], hashlib.sha256(
+                    json.dumps(obj['data'], sort_keys=True).encode()).hexdigest()]
+            return {'retained': result}
+        if action == 'fixture-volume':
+            import hashlib
+            import uuid
+            if get('deployment', name, namespace):
+                raise RuntimeError('Retained volume proof requires the retired fixture workload')
+            claim = get('pvc', name, namespace)
+            if (not claim or claim.get('status', {}).get('phase') != 'Bound' or
+                    not claim['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(
+                        approval['name'] + '-' + name + ':')):
+                raise RuntimeError('Retained fixture volume has a conflicting owner')
+            nonce = uuid.uuid4().hex[:12]
+            pod_name = 'retained-proof-' + nonce
+            pod = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': pod_name, 'namespace': namespace,
+                   'labels': {'cloudlab.io/fixture': nonce}}, 'spec': {'restartPolicy': 'Never',
+                   'automountServiceAccountToken': False, 'securityContext': {'runAsNonRoot': True,
+                   'runAsUser': 10001, 'runAsGroup': 10001, 'fsGroup': 10001, 'seccompProfile': {'type': 'RuntimeDefault'}},
+                   'containers': [{'name': 'proof', 'image': definition['image'],
+                   'command': ['python', '-c', "import hashlib;print(hashlib.sha256(open('/data/sentinel','rb').read()).hexdigest())"],
+                   'resources': {'requests': {'cpu': '25m', 'memory': '32Mi'}, 'limits': {'cpu': '100m', 'memory': '64Mi'}},
+                   'securityContext': {'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True,
+                                       'capabilities': {'drop': ['ALL']}},
+                   'volumeMounts': [{'name': 'data', 'mountPath': '/data', 'readOnly': True}]}],
+                   'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': name, 'readOnly': True}}]}}
+            kube('create', '-f', '-', document=pod)
+            uid = get('pod', pod_name, namespace)['metadata']['uid']
+            try:
+                wait(lambda: get('pod', pod_name, namespace).get('status', {}).get('phase') in ('Succeeded', 'Failed'),
+                     'retained fixture volume read', timeout=300)
+                actual = get('pod', pod_name, namespace)
+                digest = kube('logs', pod_name, '-n', namespace).strip()
+                if actual['status']['phase'] != 'Succeeded' or digest != hashlib.sha256(b'cloudlab retained service fixture\n').hexdigest():
+                    raise RuntimeError('Retained fixture volume content differs')
+            finally:
+                actual = get('pod', pod_name, namespace)
+                if actual and (actual['metadata']['uid'] != uid or actual['metadata'].get('labels', {}).get('cloudlab.io/fixture') != nonce):
+                    raise RuntimeError('Retained-volume proof ownership changed; cleanup refused')
+                if actual: kube('delete', 'pod', pod_name, '-n', namespace, '--wait=true')
+            return {'retained_volume_read': True}
+        raise ValueError('Unsupported disposable fixture check')
+    elif action == 'backend':
         application = get('application.argoproj.io', approval['name'] + '-' + name, 'argocd')
         if not application or application['spec']['project'] != approval['name'] or application['spec']['destination'] != {
                 'server': 'https://kubernetes.default.svc', 'namespace': namespace}:

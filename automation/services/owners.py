@@ -35,6 +35,11 @@ class Owners:
         os.environ['VM_PORT'] = values.get('VM_PORT') or '22'
         os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
         os.environ['TAILSCALE_ADMIN_LOGIN'] = values.get('TAILSCALE_ADMIN_LOGIN') or ''
+        from automation.services.inputs import catalog
+        approved = [row for row in catalog(required=True)['catalog']
+                    if row['definition'] == definition and row['approval'] == self.approval]
+        if len(approved) != 1:
+            raise ValueError('Service operation requires its exact current administrator catalog approval')
         if definition['exposure']['class'] == 'public':
             self.client = Client('cloudflare')
 
@@ -44,7 +49,8 @@ class Owners:
         source = (ROOT / 'automation/services/remote.py').read_text()
         request = json.dumps({'action': action, 'definition': self.definition, 'approval': self.approval})
         code = "import sys;sys.path.insert(0,'/opt/cloudlab');" + source
-        output = ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code), input=request, timeout=90)
+        output = ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code), input=request,
+                     timeout=660 if action in ('fixture-data', 'fixture-volume') else 90)
         result = json.loads(output)
         if result.get('ready') is not True:
             raise RuntimeError('Service owner readiness was not confirmed')
@@ -162,7 +168,7 @@ class Owners:
         from automation.services.publication import set_intent, private_dns
         private = [e for e in [definition['exposure']] + definition.get('additionalExposures', []) if e['class'] == 'private']
         if private:
-            set_intent(definition, 'ready')
+            set_intent(definition, 'retired')
             for exposure in private: private_dns(dict(definition, exposure=exposure), published=False)
 
     def routing_withdraw(self, definition):

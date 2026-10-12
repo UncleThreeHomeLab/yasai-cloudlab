@@ -112,10 +112,7 @@ spec:
               {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
 {{ toYaml .notesValues | indent 14 }}
               {{- else }}
-              additionalExposures: {{ $v.additionalExposures | default list | toJson }}
-              {{- range $key := list "name" "owner" "exposure" "secrets" "configMaps" "oidc" "data" }}
-              {{ $key }}: {{ index $v $key | toJson }}
-              {{- end }}
+{{ toYaml $v | indent 14 }}
               {{- end }}
         - repoURL: {{ $a.repository | quote }}
           targetRevision: {{ $a.revision | quote }}

@@ -92,7 +92,7 @@ Deployment still depends on inputs and verification.
 | Builds | BuildKit | Rootless image builds | Planned |
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
 | Policy | Kyverno | Admission and image policies | Planned |
-| GitOps | ApplicationSet | Generate app deployments | Planned |
+| GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Enabled |
 | Releases | Argo Rollouts | Canary releases and previews | Planned |
 | Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Planned |
 | Logs | Grafana Alloy + Loki | Collect and store logs | Planned |
