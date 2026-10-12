@@ -1,13 +1,12 @@
 """Host-backed access receipts, locked for the entire provider transaction.
 
-The existing server is authoritative. Compose state is only an initial migration
-source, so another clean checkout can resume without inventing provider owners.
+The existing server is authoritative, so another clean checkout resumes without
+inventing provider owners or restoring a superseded local ownership cache.
 No credential or browser session belongs in these receipts.
 """
 from contextlib import contextmanager
 import json
 import os
-from pathlib import Path
 import select
 import shlex
 import subprocess
@@ -62,14 +61,7 @@ class Receipts:
             raise RuntimeError('Host receipt failed durable readback')
 
     def load(self, name):
-        value = self.request(name, 'load')
-        if value is None:
-            # One-time migration of already verified local ownership/evidence.
-            local = Path('/state/connectivity') / (name + '.json')
-            if local.exists():
-                value = json.loads(local.read_text())
-                self.save(name, value)
-        return value
+        return self.request(name, 'load')
 
 
 @contextmanager

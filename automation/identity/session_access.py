@@ -28,7 +28,7 @@ def configure(api, account, state, save, hostname, values, request):
     binding = {'nonce': nonce, 'account': account, 'provider': owner['id'], 'external': state['binding']}
     if prior and (prior.get('binding') != binding or prior.get('desired') != wanted):
         raise RuntimeError('Session canary identity changed; overwrite refused')
-    reconciler = Reconciler(api, api, state, save)
+    reconciler = Reconciler(state, save)
     actual = reconciler.ensure(api, 'identity-session-canary', 'accounts/'+account+'/access/apps', wanted,
         lambda row: row.get('domain') == wanted['domain'] or row.get('name') == wanted['name'])
     if not actual.get('aud'):

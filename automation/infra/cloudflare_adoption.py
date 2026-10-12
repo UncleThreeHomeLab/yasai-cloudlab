@@ -290,7 +290,7 @@ def advance(inputs):
 
 
 def reverse(inputs):
-    """Withdraw ordinary acceptance, remove state ownership only, then resume the unchanged legacy writer."""
+    """Withdraw acceptance and state ownership; source restoration resumes the retired writer."""
     from automation.infra.snapshot import credentials
     from automation.infra.cloudflare_qualification import native, require
     from automation.infra.retention import ciphertext
@@ -343,7 +343,8 @@ def reverse(inputs):
         receipts.save('external', state)
         checkpoint['phase'] = 'reversed'
         write_json(checkpoint_path, checkpoint)
-    print(json.dumps({'reverse_handoff_complete': True, 'remote_changes': 0, 'protected_recovery_retained': True}))
+    print(json.dumps({'reverse_handoff_complete': True, 'remote_changes': 0, 'protected_recovery_retained': True,
+                      'legacy_writer_still_suspended': True, 'resume_legacy_requires_reviewed_source_change': True}))
 
 
 def main():

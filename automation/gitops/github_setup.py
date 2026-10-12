@@ -1,4 +1,4 @@
-"""Explicit repository provisioning; never changes existing visibility or contents."""
+"""Shared GitHub transport and retained repository/content-owner validation."""
 import json
 from pathlib import Path
 import re
@@ -11,8 +11,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 MARKER = 'Managed by CloudLab repository setup: '
-# Reviewed source suspends the only replaced writer until native handoff acceptance.
-REPOSITORY_CREATION_SUSPENDED = True
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -78,25 +76,6 @@ def inspect(api, role, repo, private):
     return current
 
 
-def provision(api, targets):
-    # Validate every existing target before creating any missing one.
-    existing = [inspect(api, *target) for target in targets]
-    if REPOSITORY_CREATION_SUSPENDED and any(current is None for current in existing):
-        raise RuntimeError('Repository creation is suspended for native ownership handoff; automatic recreation refused')
-    changed = 0
-    for (role, repo, private), current in zip(targets, existing):
-        if current is None:
-            owner, name = repo.split('/')
-            api.request('POST', 'orgs/' + owner + '/repos', {
-                'name': name, 'private': private, 'description': MARKER + role,
-                'auto_init': False, 'has_issues': False, 'has_projects': False,
-                'has_wiki': False, 'has_discussions': False})
-            if inspect(api, role, repo, private) is None:
-                raise RuntimeError('Created repository could not be verified')
-            changed += 1
-    return {'repositories_verified': len(targets), 'repositories_created': changed}
-
-
 def inputs():
     values = dotenv_values(ROOT / '.env', interpolate=False)
     # Optional stdin injection lets an existing local gh login avoid storing a
@@ -105,11 +84,3 @@ def inputs():
     if not token and not sys.stdin.isatty():
         token = sys.stdin.readline().strip()
     return values, GitHub(token)
-
-
-if __name__ == '__main__':
-    try:
-        values, api = inputs()
-        print(json.dumps(provision(api, configuration(values))))
-    except Exception as error:
-        raise SystemExit(str(error) if isinstance(error, RuntimeError) else 'Repository setup failed; private diagnostics withheld') from None

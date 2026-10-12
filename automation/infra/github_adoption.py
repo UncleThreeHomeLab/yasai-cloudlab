@@ -139,8 +139,9 @@ def preserved(checkpoint, token, *, history=True):
 
 def prepare(destination):
     from automation.credentials.vault import fields
-    from automation.gitops.github_setup import REPOSITORY_CREATION_SUSPENDED
-    if REPOSITORY_CREATION_SUSPENDED is not True:
+    from automation.gitops import github_setup
+    if (hasattr(github_setup, 'provision') and
+            getattr(github_setup, 'REPOSITORY_CREATION_SUSPENDED', False) is not True):
         raise ValueError('Legacy repository creation must be suspended by reviewed source before native import')
     if (destination / 'handoff.json').exists():
         raise ValueError('Existing handoff must be resumed; preparation cannot replace it')

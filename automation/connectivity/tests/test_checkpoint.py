@@ -6,9 +6,16 @@ import sys
 import tempfile
 import unittest
 from automation.connectivity.checkpoint import SERVER, Receipts
+from unittest.mock import Mock
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_absent_authoritative_receipt_does_not_restore_local_ownership_cache(self):
+        receipts = Receipts(Mock())
+        receipts.request = Mock(return_value=None)
+        self.assertIsNone(receipts.load('external'))
+        receipts.request.assert_called_once_with('external', 'load')
+
     def test_durable_resume_and_concurrent_owner_rejection(self):
         with tempfile.TemporaryDirectory() as folder:
             script = SERVER.replace("'/var/lib/cloudlab/connectivity/receipts'", repr(folder))

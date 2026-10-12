@@ -333,13 +333,19 @@ class RunnerTests(unittest.TestCase):
                 playbook.assert_not_called()
 
 
-    def test_repository_setup_is_independent_of_vm_and_vault_credentials(self):
+    def test_retained_repository_content_and_access_commands_need_no_vm_credentials(self):
         self.values = {}
-        for action, module in (('repository-setup', 'github_setup.py'), ('publish-platform', 'publish_snapshot.py'), ('github-app-check', 'github_app.py'), ('private-fixture-prepare', 'private_fixture.py')):
+        for action, module in (('publish-platform', 'publish_snapshot.py'), ('github-app-check', 'github_app.py'), ('private-fixture-prepare', 'private_fixture.py')):
             with self.subTest(action=action), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
                 playbook = self.invoke(action)
                 playbook.assert_not_called()
                 self.assertEqual(command.call_args.args[0][-1], '/workspace/automation/gitops/' + module)
+
+    def test_retired_repository_creator_has_no_runner_dispatch(self):
+        with patch.object(runner.subprocess, 'run') as command:
+            with self.assertRaisesRegex(SystemExit, 'Unknown action'):
+                self.invoke('repository-setup')
+        command.assert_not_called()
 
 
 if __name__ == '__main__':
