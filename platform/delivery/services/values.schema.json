@@ -669,59 +669,40 @@
           "type": "array",
           "maxItems": 4,
           "items": {
-            "oneOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "class": {
-                    "const": "none"
-                  }
-                },
-                "required": [
-                  "class"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "class": {
+                "const": "private"
+              },
+              "hostname": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]+$"
+              },
+              "access": {
+                "enum": [
+                  "public",
+                  "human",
+                  "machine",
+                  "tailnet"
                 ]
               },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "class": {
-                    "enum": [
-                      "public",
-                      "private"
-                    ]
-                  },
-                  "hostname": {
-                    "type": "string",
-                    "pattern": "^[a-z0-9.-]+$"
-                  },
-                  "access": {
-                    "enum": [
-                      "public",
-                      "human",
-                      "machine",
-                      "tailnet"
-                    ]
-                  },
-                  "path": {
-                    "type": "string",
-                    "pattern": "^/[A-Za-z0-9/_-]*$"
-                  },
-                  "port": {
-                    "type": "integer",
-                    "minimum": 1024,
-                    "maximum": 65535
-                  }
-                },
-                "required": [
-                  "class",
-                  "hostname",
-                  "access",
-                  "path",
-                  "port"
-                ]
+              "path": {
+                "type": "string",
+                "pattern": "^/[A-Za-z0-9/_-]*$"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
               }
+            },
+            "required": [
+              "class",
+              "hostname",
+              "access",
+              "path",
+              "port"
             ]
           },
           "uniqueItems": true
@@ -747,7 +728,29 @@
         "rollouts",
         "initCommand"
       ],
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "exposure": {
+                "properties": {
+                  "class": {
+                    "const": "none"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "additionalExposures": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

@@ -6,6 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from automation.mesh.kube import get, contains, kube, application_ready, wait
+from automation.services.contract import exposure_bindings
 
 APP = 'cloudlab-services'
 OWNER = 'service-platform'
@@ -46,8 +47,7 @@ def configure(payload):
             for row in after:
                 previous = old.get(row['approval']['name'])
                 if previous:
-                    a, b = previous['definition']['exposure'], row['definition']['exposure']
-                    if any(a.get(key) != b.get(key) for key in ('class', 'access', 'hostname')):
+                    if exposure_bindings(previous['definition']) != exposure_bindings(row['definition']):
                         raise ValueError('Exposure changes require explicit migration; catalog apply cannot perform cutover')
         changed = not current or not contains(current, desired)
         if changed:

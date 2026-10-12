@@ -51,6 +51,8 @@ def validate(definition):
     references = [request['credentialReference'] for request in value['data'].values()]
     if len(set(references)) != len(references): raise ValueError('Data credentials must have distinct scopes')
     exposures = [value['exposure']] + value.get('additionalExposures', [])
+    if value['exposure']['class'] == 'none' and value.get('additionalExposures'):
+        raise ValueError('Private views require an exposed primary service')
     for exposure in exposures:
         if exposure['class'] != 'none':
             zone_name(exposure['hostname'])
@@ -102,6 +104,11 @@ def exposure_request(definition):
     if value['class'] == 'none':
         return None
     return copy.deepcopy(value)
+
+
+def exposure_bindings(definition):
+    return [(value.get('class'), value.get('access'), value.get('hostname')) for value in
+            [definition['exposure']] + definition.get('additionalExposures', [])]
 
 
 def external_route(definition, origin, application=None):

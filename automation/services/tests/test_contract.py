@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from automation.services.contract import validate, render, identity_request, external_route
+from automation.services.contract import validate, render, identity_request, external_route, exposure_bindings
 from automation.services.gitops import resources
 from automation.services.tests.fixtures import definition, approval
 
@@ -41,6 +41,19 @@ class ContractTests(unittest.TestCase):
         value['replicas'] = 3
         value['resources']['limits']['cpu'] = '600m'
         with self.assertRaisesRegex(ValueError, 'namespace resource budget'): validate(value)
+
+    def test_additional_exposure_is_private_and_part_of_migration_identity(self):
+        value = definition()
+        value['exposure'] = {'class': 'public', 'hostname': 'service.example.invalid',
+                             'access': 'public', 'path': '/', 'port': 8080}
+        value['additionalExposures'] = [{'class': 'private', 'hostname': 'ops.internal.example.invalid',
+                                       'access': 'tailnet', 'path': '/', 'port': 8080}]
+        validate(value)
+        before = exposure_bindings(value)
+        value['additionalExposures'][0]['hostname'] = 'different.internal.example.invalid'
+        self.assertNotEqual(before, exposure_bindings(value))
+        value['additionalExposures'][0].update({'class': 'public', 'access': 'public'})
+        with self.assertRaises(ValueError): validate(value)
 
     def test_single_exposure_supplies_callback_route_and_external_hostname(self):
         value = definition()
