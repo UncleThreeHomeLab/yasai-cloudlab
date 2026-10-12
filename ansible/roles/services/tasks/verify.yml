@@ -10,7 +10,11 @@
 
 - name: Verify real service readiness, credential scope and destination denial
   ansible.builtin.command: python3 /opt/cloudlab/automation/services/verify.py
-  args: {stdin: '{{ services_verification_payload.stdout }}'}
+  args:
+    stdin: >-
+      {{ (services_verification_payload.stdout | from_json)
+         | combine({'proof_image': (lookup('ansible.builtin.file', playbook_dir + '/../charts/service/values.yaml') | from_yaml).image})
+         | to_json }}
   changed_when: false
   no_log: true
   register: services_verified

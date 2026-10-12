@@ -23,6 +23,7 @@ class ContractTests(unittest.TestCase):
     def test_invalid_definitions_fail(self):
         base = definition()
         mutations = [lambda v: v.update(project='default'), lambda v: v.update(destination='other'),
+                     lambda v: v.update(name='default'),
                      lambda v: v.update(image='python:latest'), lambda v: v.update(owner=''),
                      lambda v: v['resources']['requests'].update(cpu='300m'),
                      lambda v: v['health']['readiness'].update(port='undeclared'),
@@ -71,10 +72,16 @@ class ContractTests(unittest.TestCase):
     def test_admin_destinations_and_credentials_cannot_be_selected_by_author(self):
         value, allowed = definition(), approval()
         objects = resources(value, allowed, 'https://github.com/example/platform.git', 'b' * 40)
-        appset = objects[-1]['spec']['template']['spec']
+        appset = next(obj for obj in objects if obj['kind'] == 'ApplicationSet')['spec']['template']['spec']
         self.assertEqual(appset['project'], 'synthetic')
         self.assertEqual(appset['destination'], {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-app-synthetic'})
         self.assertEqual(appset['sources'][0]['helm']['valuesObject'], value)
+        policy = next(obj for obj in objects if obj['kind'] == 'AuthorizationPolicy')
+        self.assertEqual(policy['spec']['rules'][0]['from'][0]['source']['principals'],
+                         ['cluster.local/ns/cloudlab-app-synthetic/sa/synthetic'])
+        project = next(obj for obj in objects if obj['kind'] == 'AppProject')
+        self.assertNotIn({'group': 'security.istio.io', 'kind': 'AuthorizationPolicy'},
+                         project['spec']['namespaceResourceWhitelist'])
         for key, changed in [('namespace', 'argocd'), ('revision', 'main'), ('valuesPath', '../values.yaml')]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 resources(value, dict(allowed, **{key: changed}), 'https://github.com/example/platform.git', 'b' * 40)

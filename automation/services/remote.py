@@ -22,6 +22,8 @@ def inspect(request):
         if action == 'fixture-snapshot':
             import hashlib
             retained = [('namespace', namespace, None), ('resourcequota', 'budget', namespace),
+                        ('networkpolicy', 'platform-ingress', namespace),
+                        ('authorizationpolicy.security.istio.io', 'platform-workloads', namespace),
                         ('pvc', name, namespace), ('cluster.postgresql.cnpg.io', 'cloudlab-postgres', 'cloudlab-data')]
             retained += [('gateway.gateway.networking.k8s.io', 'cloudlab', 'cloudlab-gateway-' + exposure)
                          for exposure in ('public', 'private')]

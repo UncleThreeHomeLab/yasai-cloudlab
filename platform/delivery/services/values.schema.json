@@ -199,7 +199,10 @@
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9-]{0,40}$"
+          "pattern": "^[a-z][a-z0-9-]{0,40}$",
+          "not": {
+            "const": "default"
+          }
         },
         "owner": {
           "type": "string",
