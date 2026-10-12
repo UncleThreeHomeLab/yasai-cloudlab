@@ -43,7 +43,11 @@
 - name: Seed only the approved notes application and preserve existing data
   ansible.builtin.command: python3 -c 'import sys,json;sys.path.insert(0,"/opt/cloudlab");from automation.data.notes_seed import run;print(json.dumps(run()))'
   register: notes_seeded
-  changed_when: (notes_seeded.stdout | from_json).changed
+  changed_when: notes_seeded.rc == 0 and (notes_seeded.stdout | from_json).changed
+  failed_when: notes_seeded.rc != 0 and 'Another application-data operation holds the owner lock' not in notes_seeded.stderr
+  until: notes_seeded.rc == 0 or 'Another application-data operation holds the owner lock' not in notes_seeded.stderr
+  retries: 12
+  delay: 10
   when: (services_payload.stdout | from_json)['values']['catalog'] | selectattr('approval.name', 'equalto', 'notes') | list | length > 0
 
 - name: Create the exposure interface directory
