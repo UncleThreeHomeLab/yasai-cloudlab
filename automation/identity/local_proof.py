@@ -89,7 +89,7 @@ class LoginForm(HTMLParser):
             self.action = values.get('action')
 
 
-def login(password, client_id='reference', secret=None, invalid_verifier=False):
+def login(password, client_id='reference', secret=None, invalid_verifier=False, username='fixture-reader'):
     state, nonce, verifier = [secrets.token_urlsafe(48) for _ in range(3)]
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     callback = 'https://reference.example.invalid/callback'
@@ -105,7 +105,7 @@ def login(password, client_id='reference', secret=None, invalid_verifier=False):
         raise RuntimeError('Reference login did not return a trusted form')
     try:
         opener.open(urllib.request.Request(form.action,
-            urllib.parse.urlencode({'username': 'fixture-reader', 'password': password}).encode()), timeout=20)
+            urllib.parse.urlencode({'username': username, 'password': password}).encode()), timeout=20)
         raise RuntimeError('Reference login failed to return an authorization code')
     except urllib.error.HTTPError as redirect:
         location = redirect.headers.get('Location', '')
