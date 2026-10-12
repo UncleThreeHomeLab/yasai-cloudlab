@@ -1,5 +1,6 @@
 """Certify pinned imports and updates on recorded disposable Cloudflare resources."""
 import copy
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 import uuid
 
 from automation.connectivity.cloudflare import API
@@ -15,6 +17,8 @@ from automation.infra.backend import environment
 from automation.infra.command import guarded_changes
 from automation.infra.gitlab_qualification import address, delete_state, request
 from automation.infra.snapshot import credentials
+from automation.infra.retention import maintain, MAX_VERSIONS
+from automation.infra.cloudflare_adoption import declaration_hash
 
 
 def native(directory, env, *arguments, input_data=None):
@@ -61,7 +65,7 @@ def document_plan(directory, env, filename):
     return result.returncode, document
 
 
-def review_import(document, identities):
+def review_import(document, identities, policy_ids=None):
     resources = {resource['address']: resource for resource in document.get('resource_changes', [])}
     if set(resources) != set(identities):
         raise ValueError('Fixture import scope differs from recorded identities')
@@ -69,6 +73,11 @@ def review_import(document, identities):
         change = resource['change']
         if change['actions'] != ['no-op'] or change.get('after', {}).get('id') != identities[name]:
             raise ValueError('Fixture import proposed an unintended remote change')
+        if resource.get('type') == 'cloudflare_zero_trust_access_application' and policy_ids is not None:
+            policies = change['after'].get('policies') or []
+            if {policy['id'] for policy in policies} != set(policy_ids) or any(
+                    policy.get('reusable') is not False for policy in policies):
+                raise ValueError('Fixture import changed legacy policy ownership')
 
 
 def remote(admin, dns, bundle, identities):
@@ -84,7 +93,8 @@ def preserved(before, after):
         raise ValueError('Disposable Access identity or audience changed')
     if any(before['app'].get(key) != after['app'].get(key) for key in (
             'name', 'domain', 'allowed_idps', 'app_launcher_visible', 'auto_redirect_to_identity',
-            'enable_binding_cookie', 'options_preflight_bypass')):
+            'enable_binding_cookie', 'options_preflight_bypass', 'http_only_cookie_attribute',
+            'eager_redirect_cookie_setting', 'destinations', 'self_hosted_domains', 'tags')):
         raise ValueError('Existing Access authentication settings changed')
     policies = lambda value: {policy['id']: policy for policy in value['app']['policies']}
     old, new = policies(before), policies(after)
@@ -112,7 +122,19 @@ def state_identities(document):
     return result
 
 
+def legacy_policy_ids(document):
+    return {policy['id'] for resource in document.get('resources', [])
+            if resource['type'] == 'cloudflare_zero_trust_access_application'
+            for instance in resource.get('instances', []) for policy in instance['attributes'].get('policies') or []
+            if policy.get('reusable') is False}
+
+
 def upload_recovery(directory, env, bundle, identities, desired, imports):
+    recovery = directory / 'errored.tfstate'
+    if recovery.exists():
+        if 'encrypted_data' not in json.loads(recovery.read_bytes()):
+            raise ValueError('Existing recovery file is not protected; retain it and inspect before resuming')
+        recovery.replace(directory / ('errored-' + uuid.uuid4().hex + '.encrypted'))
     url = address(bundle['backend'], directory.name)
     class UploadFailure(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -139,7 +161,6 @@ def upload_recovery(directory, env, bundle, identities, desired, imports):
         _, document = document_plan(directory, faulty, 'failed-upload.tfplan')
         guarded_changes(document)
         failed = native(directory, faulty, 'apply', '-input=false', '-lock-timeout=0s', 'failed-upload.tfplan')
-        recovery = directory / 'errored.tfstate'
         if failed.returncode == 0 or not recovery.exists() or 'encrypted_data' not in json.loads(recovery.read_bytes()):
             raise RuntimeError('Failed upload did not retain protected recovery state')
         dns = API(bundle['dns']['API_TOKEN'])
@@ -154,12 +175,17 @@ def upload_recovery(directory, env, bundle, identities, desired, imports):
     decrypt.mkdir(mode=0o700, exist_ok=True)
     protected = decrypt / 'recovery.encrypted'
     shutil.copyfile(recovery, protected)
+    provider = json.loads(Path('/workspace/automation/runner/cloudflare-provider.lock.json').read_text())
     (decrypt / 'main.tf.json').write_text(json.dumps({'terraform': {
-        'required_version': '= 1.13.1', 'backend': {'local': {'path': str(protected)}}}}))
+        'required_version': '= 1.13.1', 'backend': {'local': {'path': str(protected)}},
+        'required_providers': {'cloudflare': {'source': 'cloudlab/cloudflare', 'version': '= ' + provider['version']}}}}))
+    shutil.copyfile(directory / '.terraform.lock.hcl', decrypt / '.terraform.lock.hcl')
     local_env = {key: value for key, value in env.items() if not key.startswith('TF_HTTP_')}
-    require(native(decrypt, local_env, 'init', '-input=false'))
+    require(native(decrypt, local_env, 'init', '-input=false', '-lockfile=readonly'))
     decrypted = require(native(decrypt, local_env, 'state', 'pull')).stdout
-    if state_identities(json.loads(decrypted)) != imports:
+    recovered = json.loads(decrypted)
+    if state_identities(recovered) != imports or legacy_policy_ids(recovered) != {
+            identities['primary'], identities['unrelated']}:
         raise ValueError('Recovery identities differ; state push refused')
     require(native(directory, env, 'init', '-input=false', '-lockfile=readonly', '-reconfigure'))
     require(native(directory, env, 'state', 'push', '-', input_data=decrypted))
@@ -188,6 +214,52 @@ def retention_probe(directory, env, bundle):
         return {'version_delete_preserves_current': True, 'measured_encrypted_state_bytes': len(raw),
                 'proposed_max_versions': 32, 'proposed_max_state_bytes': 8 * 1024**2}
     raise RuntimeError('No historical version available for retention qualification')
+
+
+def bounded_retention_probe(directory, env, bundle):
+    current = json.loads(require(native(directory, env, 'state', 'pull')).stdout)
+    first = current['serial']
+    # Disposable bookkeeping only: preserve every resource attribute and native lineage.
+    for _ in range(MAX_VERSIONS + 1):
+        current['serial'] += 1
+        require(native(directory, env, 'state', 'push', '-', input_data=json.dumps(current).encode()))
+        current = json.loads(require(native(directory, env, 'state', 'pull')).stdout)
+    client = SimpleNamespace(path=directory, env=env,
+                             native=lambda *arguments: native(directory, env, *arguments))
+    maintain(client)
+    url = address(bundle['backend'], directory.name)
+    if request(bundle['backend'], url + '/versions/' + str(first))[0] != 404:
+        raise RuntimeError('Old fixture version retained beyond the enforced bound')
+    status, raw = request(bundle['backend'], url + '/versions/' + str(current['serial']))
+    if status != 200 or 'encrypted_data' not in json.loads(raw):
+        raise RuntimeError('Newest encrypted version lost during bounded retention')
+    if document_plan(directory, env, 'retained-repeat.tfplan')[0] != 0:
+        raise RuntimeError('Version retention changed provider identities or desired state')
+    return {'bounded_version_retention': True, 'maximum_versions': MAX_VERSIONS}
+
+
+def concurrent_apply_probe(directory, env, bundle):
+    independent = directory / 'independent-client'
+    independent.mkdir(mode=0o700, exist_ok=True)
+    for source in directory.iterdir():
+        if source.is_file() and (source.suffix == '.tf' or source.name in ('.terraform.lock.hcl', 'desired.tfvars.json')):
+            shutil.copyfile(source, independent / source.name)
+    require(native(independent, env, 'init', '-input=false', '-lockfile=readonly'))
+    url = address(bundle['backend'], directory.name) + '/lock'
+    lock = {'ID': str(uuid.uuid4()), 'Operation': 'OperationTypeApply', 'Info': 'Disposable independent apply',
+            'Who': 'independent-compose', 'Version': '1.13.1', 'Path': directory.name,
+            'Created': datetime.now(timezone.utc).isoformat()}
+    if request(bundle['backend'], url, 'POST', lock)[0] not in (200, 201):
+        raise RuntimeError('Disposable lock acquisition failed; never force unlock')
+    try:
+        failed = native(independent, env, 'apply', '-input=false', '-lock-timeout=0s',
+                        str(directory / 'retained-repeat.tfplan'))
+        if failed.returncode == 0 or b'Error acquiring the state lock' not in failed.stdout + failed.stderr:
+            raise RuntimeError('Independent native Cloudflare apply did not reject the owned lock')
+    finally:
+        if request(bundle['backend'], url, 'DELETE', lock)[0] not in (200, 204):
+            raise RuntimeError('Owned fixture lock release failed; never force unlock')
+    return {'concurrent_apply_rejected': True}
 
 
 def fixture_scope(name, identities, observed, tunnel):
@@ -303,6 +375,8 @@ def qualify(baseline, bundle):
                'routes': {'human': {'hostname': hostname, 'service': 'https://localhost:9443',
                                     'application': 'human', 'dns_comment': 'qualification-bootstrap'}}}
     desired['applications']['human']['policies'] = {'primary': primary, 'unrelated': unrelated}
+    for key, policy in desired['applications']['human']['policies'].items():
+        policy['id'] = identities[key]
     (directory / 'desired.tfvars.json').write_text(json.dumps(desired))
     return exercise(directory, bundle)
 
@@ -327,8 +401,6 @@ def exercise(directory, bundle):
     imports = {'cloudflare_zero_trust_access_application.application["human"]': identities['app'],
                'cloudflare_zero_trust_tunnel_cloudflared_config.routing': identities['tunnel'],
                'cloudflare_dns_record.publication["human"]': identities['dns']}
-    imports.update({'cloudflare_zero_trust_access_policy.policy["human:' + key + '"]': identities[key]
-                    for key in ('primary', 'unrelated')})
     (directory / 'imports.tf.json').write_text(json.dumps({'import': [
         {'to': name, 'id': (zone if name.startswith('cloudflare_dns_record') else
                            'accounts/' + account if name.startswith('cloudflare_zero_trust_access_application') else account) + '/' + identity}
@@ -340,11 +412,12 @@ def exercise(directory, bundle):
     status, _ = request(bundle['backend'], url)
     if status == 404:
         _, document = document_plan(directory, env, 'imports.tfplan')
-        review_import(document, imports)
+        review_import(document, imports, {identities['primary'], identities['unrelated']})
         require(native(directory, env, 'apply', '-input=false', '-lock-timeout=0s', 'imports.tfplan'))
     elif status == 200:
         current = json.loads(require(native(directory, env, 'state', 'pull')).stdout)
-        if state_identities(current) != imports:
+        if state_identities(current) != imports or legacy_policy_ids(current) != {
+                identities['primary'], identities['unrelated']}:
             raise ValueError('Interrupted fixture identities differ; resume refused')
     else:
         raise RuntimeError('Fixture backend unavailable; resume refused')
@@ -383,10 +456,14 @@ def exercise(directory, bundle):
     upload_recovery(directory, env, bundle, identities, desired, imports)
     preserved(before, remote(admin, dns, bundle, identities))
     retention = retention_probe(directory, env, bundle)
+    retention.update(bounded_retention_probe(directory, env, bundle))
+    retention.update(concurrent_apply_probe(directory, env, bundle))
+    provider = json.loads(Path('/workspace/automation/runner/cloudflare-provider.lock.json').read_text())
     (directory / 'result.json').write_text(json.dumps({'native_import': True,
         'dns_tunnel_application_update': True, 'legacy_policy_update_supported': not policy_unsupported,
         'repeat_plan_empty': True, 'identity_audience_selectors_preserved': True,
-        'disposable_drift_detected_repaired': True, 'provider_success_failed_upload_recovery': True, **retention}))
+        'disposable_drift_detected_repaired': True, 'provider_success_failed_upload_recovery': True,
+        'provider_package_sha256': provider['package_sha256'], 'declaration_hash': declaration_hash(), **retention}))
     return directory
 
 
@@ -396,7 +473,8 @@ def main():
     if not baselines:
         raise ValueError('Private existing-owner snapshot required')
     if sys.argv[1:] in (['--resume'], ['--cleanup']):
-        fixtures = sorted(Path('/recovery/infra/cloudflare').glob('qualification-*'), key=lambda path: path.stat().st_mtime)
+        fixtures = sorted((path for path in Path('/recovery/infra/cloudflare').glob('qualification-*')
+                           if not (path / 'inline-probe.json').exists()), key=lambda path: path.stat().st_mtime)
         if not fixtures:
             raise ValueError('Recorded disposable fixture required for resume')
         directory = cleanup(fixtures[-1], credentials()) if sys.argv[1:] == ['--cleanup'] else exercise(fixtures[-1], credentials())

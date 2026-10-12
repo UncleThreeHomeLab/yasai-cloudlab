@@ -7,6 +7,32 @@ from automation.connectivity.tests.fixtures import Provider
 
 
 class ReconcileTests(unittest.TestCase):
+    def test_transferred_scope_blocks_old_writer_but_preserves_separate_fixtures(self):
+        self.run_apply()
+        self.state['infra_owner'] = {'phase': 'suspended', 'binding': self.state['binding'],
+                                    'objects': copy.deepcopy(self.state['objects'])}
+        self.api.writes.clear()
+        with self.assertRaises(RuntimeError):
+            self.run_apply()
+        client = Reconciler(self.api, self.api, self.state, lambda value: None)
+        with self.assertRaises(RuntimeError):
+            client.ensure(self.api, 'app:human.example.invalid', 'accounts/account/access/apps', {}, lambda value: True)
+        self.assertEqual(self.api.writes, [])
+        client.ensure(self.api, 'identity-canary', 'accounts/account/access/apps',
+                      {'name': 'fixture', 'domain': 'canary.example.invalid'},
+                      lambda value: value.get('domain') == 'canary.example.invalid')
+        self.assertEqual(len(self.api.writes), 1)
+
+    def test_invalid_ownership_marker_never_reactivates_old_writer(self):
+        for owner in ({}, None, False):
+            self.state = {'infra_owner': owner}
+            with self.assertRaises(RuntimeError):
+                self.run_apply()
+            with self.assertRaises(RuntimeError):
+                Reconciler(self.api, self.api, self.state, lambda value: None).ensure(
+                    self.api, 'app:human.example.invalid', 'accounts/account/access/apps', {}, lambda value: True)
+        self.assertEqual(self.api.writes, [])
+
     def test_central_provider_repeat_preserves_machine_identity_and_does_zero_writes(self):
         self.run_apply()
         before = copy.deepcopy(self.state)

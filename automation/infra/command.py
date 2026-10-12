@@ -15,6 +15,7 @@ import time
 
 from dotenv import dotenv_values
 from automation.infra.backend import environment
+from automation.infra.retention import ciphertext, maintain, MAX_BYTES
 
 WORKSPACE = Path('/workspace')
 PRIVATE = Path('/inputs')
@@ -27,7 +28,7 @@ SCHEMAS = {
             'name': None, 'domain': None, 'session_duration': None, 'allowed_idps': [None],
             'app_launcher_visible': None, 'auto_redirect_to_identity': None,
             'enable_binding_cookie': None, 'options_preflight_bypass': None,
-            'policies': {'*': {'name': None, 'decision': None, 'precedence': None,
+            'policies': {'*': {'id': None, 'name': None, 'decision': None, 'precedence': None,
                           'include': [{'email': {'email': None}, 'service_token': {'token_id': None}}],
                           'exclude': [{'email': {'email': None}}],
                           'require': [{'login_method': {'id': None}, 'oidc': {
@@ -83,21 +84,48 @@ def identity(resource, attributes):
         keys += ['repo_id', 'node_id']
     if resource['type'] == 'cloudflare_zero_trust_access_application':
         keys += ['aud']
-    return {key: attributes.get(key) for key in keys}
+    result = {key: attributes.get(key) for key in keys}
+    if resource['type'] == 'cloudflare_zero_trust_access_application':
+        result['policies'] = {policy['id']: policy.get('reusable') for policy in attributes.get('policies') or []}
+    return result
+
+
+def validate_inventory(root, desired, inventory):
+    if root == 'cloudflare':
+        expected = {'cloudflare_zero_trust_tunnel_cloudflared_config.routing'}
+        for kind, values in (('cloudflare_dns_record.publication', desired['routes']),
+                             ('cloudflare_zero_trust_access_application.application', desired['applications'])):
+            expected.update(kind + '[' + json.dumps(key) + ']' for key in values)
+        for key, app in desired['applications'].items():
+            saved = inventory.get('cloudflare_zero_trust_access_application.application[' + json.dumps(key) + ']', {})
+            policies = {policy['id']: False for policy in app['policies'].values()}
+            if not saved.get('aud') or not policies or saved.get('policies') != policies:
+                raise ValueError('Private policy identities or audience differ from accepted inventory')
+    else:
+        expected = {kind + '[' + json.dumps(key) + ']' for key in desired['repositories']
+                    for kind in ('github_repository.repository', 'github_branch_default.default')}
+        expected.update('github_repository_ruleset.ruleset[' + json.dumps(key) + ']' for key in desired['rulesets'])
+    if not expected or set(inventory) != expected:
+        raise ValueError('Private declarations differ from accepted resource scope; refused before live plan')
 
 
 def source_binding(root):
     files = list((WORKSPACE / 'automation/infra').glob('*.py'))
     files += list((WORKSPACE / 'infra' / root).rglob('*'))
     files += list((WORKSPACE / 'automation/runner').glob('*')) + [WORKSPACE / 'compose.yaml']
+    if root == 'cloudflare':
+        files += list((WORKSPACE / 'automation/connectivity').glob('*.py'))
+        files += list((WORKSPACE / 'automation/identity').glob('access_*.py'))
     content = hashlib.sha256()
     for path in sorted(files):
         if path.is_file() and '.terraform' not in path.parts and '__pycache__' not in path.parts:
             content.update(str(path.relative_to(WORKSPACE)).encode() + b'\0' + path.read_bytes())
     revision = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'rev-parse', 'HEAD'],
                               cwd=WORKSPACE, capture_output=True, check=True, text=True).stdout.strip()
-    dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--',
-                            'automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml'],
+    paths = ['automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml']
+    if root == 'cloudflare':
+        paths += ['automation/connectivity', 'automation/identity']
+    dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--', *paths],
                            cwd=WORKSPACE, capture_output=True, check=True).stdout
     if dirty:
         raise ValueError('Live commands require committed infrastructure sources')
@@ -176,6 +204,8 @@ class Client:
             credential_keys.add('TF_VAR_dns_api_token')
         if set(credentials) != credential_keys or not all(credentials.values()):
             raise ValueError('Use separate scoped backend and governance credentials')
+        if root == 'cloudflare' and credentials['CLOUDFLARE_API_TOKEN'] == credentials['TF_VAR_dns_api_token']:
+            raise ValueError('Cloudflare management and DNS credentials must remain separate')
         encryption = json.loads(snapshot['encryption.json'])
         if set(encryption) != {'passphrase'} or not isinstance(encryption['passphrase'], str) or len(encryption['passphrase']) < 32:
             raise ValueError('Independent encryption recovery passphrase required')
@@ -186,9 +216,10 @@ class Client:
         if not isinstance(self.inventory, dict) or not self.inventory or not all(
                 isinstance(key, str) and isinstance(value, dict) and
                 isinstance(value.get('id'), str) and value['id'] and
-                not set(value) - {'id', 'aud', 'repo_id', 'node_id'}
+                not set(value) - {'id', 'aud', 'repo_id', 'node_id', 'policies'}
                 for key, value in self.inventory.items()):
             raise ValueError('Accepted private resource identity inventory required')
+        validate_inventory(root, self.desired, self.inventory)
         url = 'https://gitlab.com/api/v4/projects/' + str(backend['project_id']) + '/terraform/state/managed'
         self.env = environment({'USERNAME': credentials['TF_HTTP_USERNAME'], 'TOKEN': credentials['TF_HTTP_PASSWORD']},
                                url, encryption['passphrase'])
@@ -230,6 +261,7 @@ class Client:
 
     def plan(self, action):
         self.initialize()
+        ciphertext(self.env)
         filename = 'reviewed.tfplan'
         result = self.native('plan', '-input=false', '-detailed-exitcode', '-lock-timeout=0s',
                              '-var-file=desired.tfvars.json', '-out=' + filename)
@@ -239,6 +271,8 @@ class Client:
         if shown.returncode:
             return shown.returncode
         document = json.loads(shown.stdout)
+        if len(shown.stdout) > MAX_BYTES // 2:
+            raise ValueError('Private plan exceeds the bounded state review size; maintenance required')
         count = sum(resource['change']['actions'] != ['no-op'] for resource in document.get('resource_changes', []))
         blocked = None
         try:
@@ -282,9 +316,12 @@ class Client:
         # Native backend serial/lineage checks reject stale plans after initialization.
         self.initialize()
         self.unchanged_inputs()
+        ciphertext(self.env)
         result = self.native('apply', '-input=false', '-lock-timeout=0s', 'reviewed.tfplan')
         print(json.dumps({'root': self.root, 'native_apply_exit': result.returncode,
                           'recovery_directory': str(self.path)}))
+        if result.returncode == 0:
+            maintain(self)
         return result.returncode
 
 

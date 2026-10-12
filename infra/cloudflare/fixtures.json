@@ -14,11 +14,11 @@
       "enable_binding_cookie": false,
       "options_preflight_bypass": false,
       "policies": {
-        "z_human": {"name": "synthetic-allow", "decision": "allow", "precedence": 1,
+        "z_human": {"id": "00000000-0000-4000-8000-000000000006", "name": "synthetic-allow", "decision": "allow", "precedence": 1,
           "include": [{"email": {"email": "allowed@example.invalid"}}], "exclude": [],
           "require": [{"login_method": {"id": "00000000-0000-4000-8000-000000000004"}},
             {"oidc": {"claim_name": "groups", "claim_value": "synthetic-members", "identity_provider_id": "00000000-0000-4000-8000-000000000004"}}]},
-        "a_machine": {"name": "synthetic-machine", "decision": "non_identity", "precedence": 2,
+        "a_machine": {"id": "00000000-0000-4000-8000-000000000007", "name": "synthetic-machine", "decision": "non_identity", "precedence": 2,
           "include": [{"service_token": {"token_id": "00000000-0000-4000-8000-000000000005"}}], "exclude": [], "require": []}
       }
     }

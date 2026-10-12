@@ -1,0 +1,15 @@
+{
+    "version":  "5.27.0-cloudlab.1",
+    "source":  {
+                   "url":  "https://codeload.github.com/cloudflare/terraform-provider-cloudflare/tar.gz/46e69b7239fce198d66bdfa84083367e14156aff",
+                   "sha256":  "ed88b36c8604e9a143b5173bc2c86005eb218179e2971446bd49a198b1782232",
+                   "commit":  "46e69b7239fce198d66bdfa84083367e14156aff"
+               },
+    "go":  {
+               "version":  "1.27.2",
+               "url":  "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz",
+               "sha256":  "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5"
+           },
+    "patch_sha256":  "7ee628d9fb90f3a8ffa4e44c4c19015de8d487fa0fa72f2a7e330b7be9279a27",
+    "package_sha256":  "1e8c7224414f37d291fb36ccb26f30f927e02f65db72bff9d79f98913500d3cc"
+}

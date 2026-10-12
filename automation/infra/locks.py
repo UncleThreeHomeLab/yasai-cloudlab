@@ -10,10 +10,14 @@ def main():
     for name in ('cloudflare', 'github'):
         root = destination / name
         (root / '.terraform.lock.hcl').unlink(missing_ok=True)
-        for arguments in (('fmt', '-recursive'), ('providers', 'lock', '-platform=linux_amd64'),
+        mirror = ('-fs-mirror=/opt/providers',) if name == 'cloudflare' else ()
+        for arguments in (('fmt', '-recursive'), ('providers', 'lock', *mirror, '-platform=linux_amd64'),
                           ('init', '-backend=false', '-input=false', '-lockfile=readonly'),
                           ('validate', '-no-color')):
-            subprocess.run(['tofu', *arguments], cwd=root, check=True)
+            from automation.infra.backend import environment
+            subprocess.run(['tofu', *arguments], cwd=root,
+                           env=environment({'USERNAME': 'synthetic', 'TOKEN': 'synthetic'},
+                                           'https://example.invalid', 'synthetic-lock-review-passphrase'), check=True)
 
 
 if __name__ == '__main__':

@@ -35,6 +35,12 @@ class Reconciler:
 
     def ensure(self, client, key, path, desired, selector):
         """Persist create intent before POST; recover an interrupted create only exactly."""
+        if 'infra_owner' in self.state:
+            owner = self.state['infra_owner']
+            if (not isinstance(owner, dict) or not isinstance(owner.get('objects'), dict) or
+                    not owner['objects'] or owner.get('binding') != self.state.get('binding') or
+                    key in owner['objects']):
+                raise RuntimeError('Selected Cloudflare objects belong to infrastructure maintenance; old writer suspended')
         objects = client.collection(path)
         selected = [obj for obj in objects if selector(obj)]
         entry = self.state.setdefault('objects', {}).get(key)
@@ -82,6 +88,8 @@ class Reconciler:
         return actual
 
     def run(self, *, account, zone_id, zone, tunnel, rules, team, human_email, identity_provider, service_token_id, add_identity_protocol=False, identity_group=None):
+        if 'infra_owner' in self.state:
+            raise RuntimeError('Cloudflare ownership transferred or suspended; old writer cannot reconcile')
         # Validate all declarations before the first mutation.
         rules = host_rules(rules, zone)
         binding = digest({'account': account, 'zone': zone_id, 'tunnel': tunnel, 'rules': rules})

@@ -5,6 +5,7 @@ import os
 
 def environment(values, url, passphrase):
     result = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}
+    result['TF_CLI_CONFIG_FILE'] = '/opt/runner/providers.tfrc'
     result.update(TF_HTTP_ADDRESS=url, TF_HTTP_LOCK_ADDRESS=url + '/lock',
                   TF_HTTP_UNLOCK_ADDRESS=url + '/lock', TF_HTTP_LOCK_METHOD='POST',
                   TF_HTTP_UNLOCK_METHOD='DELETE', TF_HTTP_USERNAME=values['USERNAME'],

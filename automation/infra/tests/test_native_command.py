@@ -87,6 +87,8 @@ resource "terraform_data" "fixture" { input = var.owner }
                 with patch.object(command, 'WORKSPACE', workspace), \
                         patch.object(command, 'PRIVATE', private.parent), \
                         patch.object(command, 'WORK', Path(temporary) / 'work'), \
+                        patch.object(command, 'ciphertext'), patch.object(command, 'maintain'), \
+                        patch.object(command, 'validate_inventory'), \
                         patch.object(command, 'environment', side_effect=loopback), \
                         patch.object(command, 'source_binding', return_value={'revision': 'synthetic', 'source_hash': 'synthetic'}):
                     client = command.Client('github')

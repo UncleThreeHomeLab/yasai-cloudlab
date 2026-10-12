@@ -16,6 +16,14 @@ from automation.connectivity.cloudflare import access_application
 
 
 class AccessCutoverTests(unittest.TestCase):
+    def test_identity_cutover_cannot_mutate_transferred_access_scope(self):
+        for phase in ('suspended', 'accepted'):
+            state = {'infra_owner': {'phase': phase}}
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(RuntimeError, 'reverse handoff required'):
+                prepare(state, 'previous', {})
+            self.assertEqual(state, before)
+
     def test_native_contract_uses_declared_hostname_and_rejects_unsafe_or_revoked_clients(self):
         client = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
                       ['https://cd.internal.example.invalid'])['client']
