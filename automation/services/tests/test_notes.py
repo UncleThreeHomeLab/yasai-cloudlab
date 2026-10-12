@@ -29,6 +29,19 @@ def encode(raw):
 
 
 class NotesTests(unittest.TestCase):
+    def test_api_source_change_triggers_only_its_workload_rollout(self):
+        from automation.services.examples import definitions
+        from automation.services.notes import values
+        definition = definitions('example.invalid','https://github.com/example/public.git','a'*40,
+                                 'https://github.com/example/private.git','abcdef123456','notes','notes')['catalog'][0]['definition']
+        original = Path.read_bytes
+        issuer = 'https://login.example.invalid/realms/applications'
+        before = values(definition, issuer, '-----BEGIN CERTIFICATE-----\nfixture')
+        with patch.object(Path, 'read_bytes', lambda path: b'changed fixture source' if path.name == 'api.py' else original(path)):
+            after = values(definition, issuer, '-----BEGIN CERTIFICATE-----\nfixture')
+        self.assertNotEqual(before['api']['environment']['SOURCE_SHA256'], after['api']['environment']['SOURCE_SHA256'])
+        self.assertEqual(before['web']['environment']['SOURCE_SHA256'], after['web']['environment']['SOURCE_SHA256'])
+
     def test_chart_and_shared_code_match_authoritative_sources(self):
         self.assertEqual(run()['notes_services'], 2)
 
