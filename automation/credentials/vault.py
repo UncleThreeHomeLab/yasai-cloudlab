@@ -7,6 +7,8 @@ def fields(item, required):
     result = subprocess.run(['op', 'item', 'get', item, '--vault', 'CloudLab', '--format', 'json'],
                             capture_output=True, text=True, timeout=60)
     if result.returncode:
+        if 'too many requests' in result.stderr.lower():
+            raise RuntimeError('1Password request quota exhausted; wait for its reset before reading required items')
         raise RuntimeError('Cannot read required CloudLab item: ' + item)
     document = json.loads(result.stdout)
     values = {}
