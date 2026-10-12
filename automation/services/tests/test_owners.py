@@ -9,6 +9,22 @@ from automation.services.tests.fixtures import definition, approval
 
 
 class OwnerInputTests(unittest.TestCase):
+    def test_bundle_cannot_replace_platform_source_or_shared_gateway(self):
+        import json
+        import yaml
+        from automation.services.owners import ROOT
+        repository = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
+        origin = json.loads((ROOT / 'platform/connectivity/access/contract.json').read_text())['cloudflareOrigin']
+        bundle = {'definition': definition(), 'approval': approval(), 'platformRepository': repository,
+                  'platformRevision': 'a' * 40, 'origin': origin, 'application': None}
+        with patch('automation.services.owners.resources') as resources:
+            Owners(bundle)
+            resources.assert_called_once()
+            for field, wrong in (('platformRepository', 'https://github.com/example/unapproved.git'),
+                                 ('origin', 'https://unapproved.example.invalid')):
+                with self.assertRaises(ValueError): Owners(dict(bundle, **{field: wrong}))
+            self.assertEqual(resources.call_count, 1)
+
     def test_observed_access_selectors_must_match_approved_platform_protection(self):
         value = definition()
         value['exposure'] = {'class': 'public', 'hostname': 'service.example.invalid',
