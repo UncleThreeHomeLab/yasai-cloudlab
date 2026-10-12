@@ -7,6 +7,27 @@ from automation.services.tests.fixtures import definition, approval
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_private_host_denial_uses_verified_public_tls_and_requires_http_404(self):
+        value = definition()
+        value['exposure'] = {'class': 'private', 'hostname': 'service.internal.example.invalid',
+                             'access': 'tailnet', 'path': '/', 'port': 8080}
+        def get(kind, name=None, namespace=None):
+            if kind.startswith('httproute.'):
+                return {'spec': {'hostnames': ['cd.example.invalid']}}
+            if name == 'cloudlab-istio': return {'spec': {'clusterIP': '10.43.0.1'}}
+            if name == 'cloudlab-tailnet':
+                return {'status': {'loadBalancer': {'ingress': [{'ip': '100.64.0.1'}]}}}
+            raise AssertionError((kind, name))
+        request = {'action': 'private-boundary', 'definition': value, 'approval': approval()}
+        with patch('automation.services.remote.get', side_effect=get), \
+                patch('automation.services.remote.direct_https', return_value=(404, b'')) as https:
+            self.assertEqual(inspect(request), {'privatePeer': '100.64.0.1'})
+            self.assertEqual(https.call_args.args[0], 'https://cd.example.invalid/')
+            self.assertEqual(https.call_args.args[2]['Host'], value['exposure']['hostname'])
+            for status in (200, 401, 403):
+                https.return_value = (status, b'')
+                with self.assertRaisesRegex(RuntimeError, 'reachable'): inspect(request)
+
     def test_pinned_parent_source_and_exact_external_source_are_required(self):
         value, allowed = definition(), approval()
         platform = {'repoURL': 'https://github.com/example/platform.git', 'targetRevision': 'b' * 40}
