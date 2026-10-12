@@ -29,7 +29,7 @@ def private_dns(definition, *, published):
     baseline = private_names(json.loads(values.get('PRIVATE_ACCESS_HOSTS') or '[]'))
     helper = (ROOT / 'automation/connectivity/service_dns.py').read_text()
     # The existing DNS owner serializes and validates its complete generation.
-    code = "import sys;sys.path.insert(0,'/opt/cloudlab');\n" + helper
+    code = "import sys;sys.path.insert(0,'/var/lib/cloudlab/private-dns');\n" + helper
     code += "\nimport json,fcntl\nfrom pathlib import Path\nsys.path.insert(0,'/var/lib/cloudlab/private-dns')\nimport dns_host\n"
     code += "request=json.load(sys.stdin)\nwith (dns_host.STATE/'lock').open('a') as lock:\n fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)\n payload=json.loads((dns_host.STATE/'inputs.json').read_text())\n result=dns_host.configure(desired(payload,request['exposure'],request['baseline'],published=request['published']))\nprint(json.dumps({'dns_ready':result['dns_ready']}))\n"
     for prefix in ('VM', 'VM2'):
