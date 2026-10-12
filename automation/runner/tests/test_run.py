@@ -1,10 +1,13 @@
 """Check input isolation and proof failures without contacting real VMs."""
 
 import importlib.util
+import os
 import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch, Mock
 
@@ -16,6 +19,22 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_real_ansible_workdir_imports_workspace_before_missing_input_gate(self):
+        code = '''import importlib.util,sys
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('runner','/opt/runner/run.py')
+runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
+sys.argv=['run.py','inspect']
+with patch.object(runner,'dotenv_values',return_value={}):
+ try: runner.main()
+ except (SystemExit,ValueError,RuntimeError): print('input gate reached')
+ else: raise AssertionError('Missing inputs must stop before VM access')
+'''
+        result = subprocess.run([sys.executable, '-c', code], cwd='/workspace/ansible',
+                                env=dict(os.environ, PYTHONPATH=''), capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('input gate reached', result.stdout)
+
     def test_infra_dispatch_preserves_native_exit_without_deployment_inputs(self):
         with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'drift', 'github']), \
                 patch.object(runner, 'dotenv_values') as dotenv, \
