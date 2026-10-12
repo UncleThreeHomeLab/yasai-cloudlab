@@ -10,6 +10,11 @@ IDENTIFIER = 'cloudlab-demo-welcome'
 
 
 def run():
+    with control.locked():
+        return seed()
+
+
+def seed():
     values = control.settings()
     migration = control.identity(values['migrationRole'])
     schema = (Path(__file__).resolve().parents[2] / 'apps/notes/schema.sql').read_text()
