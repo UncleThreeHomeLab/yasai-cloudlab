@@ -3,7 +3,10 @@ import base64
 import json
 from pathlib import Path
 
-from github_setup import inputs, inspect, repository
+try:
+    from .github_setup import inputs, inspect, repository
+except ImportError:
+    from github_setup import inputs, inspect, repository
 
 
 def prepare(api, values):
@@ -20,6 +23,30 @@ def prepare(api, values):
     api.request('PUT', path, {'message': 'Add isolated GitOps verification fixture',
                             'content': base64.b64encode(expected).decode()})
     return {'fixture_published': True}
+
+
+def prepare_service(api, values, definition):
+    """Create only one validated synthetic values file in the designated fixture repo."""
+    import yaml
+    from automation.services.contract import validate
+    definition = validate(definition)
+    if not definition['name'].startswith('fixture-'):
+        raise ValueError('Service fixture requires its explicit disposable name')
+    repo = repository(values.get('PRIVATE_TEST_REPOSITORY'))
+    if inspect(api, 'private-fixture', repo, True) is None:
+        raise RuntimeError('Designated private service fixture repository is missing')
+    filename = 'apps/' + definition['name'] + '.yaml'
+    path = 'repos/' + repo + '/contents/' + filename
+    expected = yaml.safe_dump(definition, sort_keys=True).encode()
+    current = api.request('GET', path, missing=True)
+    if current:
+        if base64.b64decode(current.get('content', '')) != expected:
+            raise RuntimeError('Existing service fixture differs; overwrite refused')
+    else:
+        api.request('PUT', path, {'message': 'Add scoped disposable service definition',
+                                 'content': base64.b64encode(expected).decode(), 'branch': 'main'})
+    revision = api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+    return {'fixture_published': current is None, 'revision': revision, 'values_path': filename}
 
 
 if __name__ == '__main__':
