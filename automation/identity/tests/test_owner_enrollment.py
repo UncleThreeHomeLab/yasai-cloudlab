@@ -95,7 +95,7 @@ class OwnerEnrollmentTests(unittest.TestCase):
                     patch('automation.mesh.kube.application_ready', return_value=True), \
                     patch('automation.mesh.kube.wait', side_effect=lambda predicate, *a, **k: self.assertTrue(predicate())), \
                     patch('automation.mesh.kube.kube') as kube, \
-                    patch('automation.identity.bootstrap.writer_idle', return_value=True), \
+                    patch('automation.identity.bootstrap.writer_idle', return_value=True) as idle, \
                     patch('automation.identity.bootstrap.reconciled', return_value=True), \
                     patch('automation.identity.bootstrap.private_inputs', return_value=(self.source, self.revoked, 'revision')), \
                     patch('automation.identity.configuration.compile_state', return_value={'users': []}), \
@@ -104,6 +104,7 @@ class OwnerEnrollmentTests(unittest.TestCase):
                     patch('automation.identity.emergency.phase_sync_patches', return_value=[{}, {'op': 'add', 'path': '/operation', 'value': {}}]):
                 result = enroll({'nonce': 'a' * 32}, stage=True, application_owner=True)
             self.assertTrue(result['normal_writers_paused'])
+            self.assertEqual(idle.call_count, 2)
             self.assertEqual(result['realm_changes'], 0)
             patches = json.loads(kube.call_args.args[-1])
             self.assertEqual(next(row['value'] for row in patches if row['path'].endswith('/valuesObject/operation')),
