@@ -1,9 +1,14 @@
 import copy
+import json
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from automation.identity.configuration import initialize_primary
 from automation.identity.owner_enrollment import membership
 from automation.identity.chart import render
+from automation.identity.session_fixture import enroll
 
 
 class OwnerEnrollmentTests(unittest.TestCase):
@@ -64,3 +69,42 @@ class OwnerEnrollmentTests(unittest.TestCase):
         staged = render(dict(values, operation=dict(values['operation'], action='prepare-owner')))
         self.assertFalse(any(o['kind'] == 'Job' for o in staged))
         with self.assertRaises(ValueError): render(dict(values, operation=dict(values['operation'], realm='platform')))
+
+    def test_staging_can_create_delivery_before_independent_secret_exists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': 'b' * 40}))
+            app = {'metadata': {'uid': 'owned', 'resourceVersion': '1', 'labels': {'cloudlab.io/owner': 'identity-bootstrap'}},
+                   'spec': {'source': {'targetRevision': 'b' * 40, 'helm': {'valuesObject': {
+                       'bootstrapAdminEnabled': False, 'loginHost': 'login.example.invalid',
+                       'adminHost': 'identity-admin.internal.example.invalid'}}}}}
+            from automation.identity.maintenance import OWNER
+            app['metadata']['labels']['cloudlab.io/owner'] = OWNER
+            def get(kind, name=None, namespace=None):
+                if name == 'cloudlab-keycloak': return {'metadata': {'generation': 1}}
+                if name == 'cloudlab-identity-private': return {'spec': {'source': {'repoURL': 'private'}}}
+                if name == 'cloudlab-identity': return app
+                return None
+            def secret(name):
+                return {'keycloak-client-secrets': {'client_secrets': '{}'},
+                        'keycloak-primary-admin': {'platform_username': 'operator-owner'},
+                        'keycloak-realm-writers': {'applications_client_secret': 'scoped'}}[name]
+            with patch('automation.identity.maintenance.BASE', root), \
+                    patch('automation.mesh.kube.get', side_effect=get), \
+                    patch('automation.mesh.kube.condition', return_value=True), \
+                    patch('automation.mesh.kube.application_ready', return_value=True), \
+                    patch('automation.mesh.kube.wait', side_effect=lambda predicate, *a, **k: self.assertTrue(predicate())), \
+                    patch('automation.mesh.kube.kube') as kube, \
+                    patch('automation.identity.bootstrap.writer_idle', return_value=True), \
+                    patch('automation.identity.bootstrap.reconciled', return_value=True), \
+                    patch('automation.identity.bootstrap.private_inputs', return_value=(self.source, self.revoked, 'revision')), \
+                    patch('automation.identity.configuration.compile_state', return_value={'users': []}), \
+                    patch('automation.identity.emergency.vault_secret', side_effect=secret), \
+                    patch('automation.identity.configuration.private_request', side_effect=lambda url, **k: [] if '/users?' in url else {'access_token': 'scoped'}), \
+                    patch('automation.identity.emergency.phase_sync_patches', return_value=[{}, {'op': 'add', 'path': '/operation', 'value': {}}]):
+                result = enroll({'nonce': 'a' * 32}, stage=True, application_owner=True)
+            self.assertTrue(result['normal_writers_paused'])
+            self.assertEqual(result['realm_changes'], 0)
+            patches = json.loads(kube.call_args.args[-1])
+            self.assertEqual(next(row['value'] for row in patches if row['path'].endswith('/valuesObject/operation')),
+                             {'action': 'prepare-owner', 'realm': 'applications', 'nonce': 'a' * 32})

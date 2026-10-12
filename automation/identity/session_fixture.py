@@ -130,13 +130,28 @@ def enroll(request, *, stage=False, application_owner=False):
             'private_repository': private['spec']['source']['repoURL']})
         credentials = json.loads(vault_secret('keycloak-client-secrets')['client_secrets'])
         state = compile_state(realm, values['loginHost'], source, credentials, revoked)
-        username = vault_secret(secret)['username'] if application_owner else 'proof-' + nonce
         if application_owner:
             from automation.identity.owner_enrollment import membership
-            owner_credentials = vault_secret(secret)
+            if get('secret', secret, NAMESPACE):
+                owner_credentials = vault_secret(secret)
+            elif stage:
+                username = vault_secret('keycloak-primary-admin')['platform_username']
+                platform = source['realms']['platform']['memberships']
+                declared = [row for row in platform if row['username'] == username]
+                if len(declared) != 1:
+                    raise RuntimeError('Applications staging requires the verified private platform owner')
+                # Staging creates credential delivery, not a user. The creation job
+                # later validates the real independent password and ownership marker.
+                owner_credentials = {'username': username, 'email': declared[0]['profile']['email'],
+                                     'password': 'x' * 48, 'ownership_id': nonce}
+            else:
+                raise RuntimeError('Stage the applications owner credential delivery before enrollment')
             if owner_credentials.get('ownership_id') != nonce:
                 raise RuntimeError('Applications enrollment marker changed')
             membership(source, revoked, owner_credentials)
+            username = owner_credentials['username']
+        else:
+            username = 'proof-' + nonce
         members = [row for row in state.get('users', []) if row.get('username') == username]
         if not stage and (len(members) != 1 or members[0].get('enabled') is False):
             raise RuntimeError('Publish the exact active private disposable membership first')
