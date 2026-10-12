@@ -1,159 +1,91 @@
-"""Exercise interruption, drift repair, collisions and stable external identities."""
+"""Retained fixture behavior; native publication has no imperative writer."""
 import copy
 import unittest
 
+from automation.connectivity.cloudflare import access_application
 from automation.connectivity.reconcile import Reconciler
 from automation.connectivity.tests.fixtures import Provider
 
 
 class ReconcileTests(unittest.TestCase):
-    def test_transferred_scope_blocks_old_writer_but_preserves_separate_fixtures(self):
-        self.run_apply()
-        self.state['infra_owner'] = {'phase': 'suspended', 'binding': self.state['binding'],
-                                    'objects': copy.deepcopy(self.state['objects'])}
+    def setUp(self):
+        self.api, self.state, self.saved = Provider(), {'binding': 'fixture'}, []
+        self.desired = access_application({'hostname': 'canary.example.invalid', 'access': 'human'},
+            human_email='admin@example.invalid', identity_provider='otp')
+
+    def ensure(self, desired=None, key='identity-canary'):
+        client = Reconciler(self.state, lambda value: self.saved.append(value))
+        result = client.ensure(self.api, key, 'accounts/account/access/apps', desired or self.desired,
+                               lambda value: value.get('domain') == 'canary.example.invalid')
+        return client, result
+
+    def test_repeat_apply_preserves_ids_and_performs_zero_writes(self):
+        _, created = self.ensure()
+        before = copy.deepcopy(self.state)
         self.api.writes.clear()
-        with self.assertRaises(RuntimeError):
-            self.run_apply()
-        client = Reconciler(self.api, self.api, self.state, lambda value: None)
-        with self.assertRaises(RuntimeError):
-            client.ensure(self.api, 'app:human.example.invalid', 'accounts/account/access/apps', {}, lambda value: True)
+        client, repeated = self.ensure()
+        self.assertFalse(client.changed)
+        self.assertEqual(repeated['id'], created['id'])
         self.assertEqual(self.api.writes, [])
-        client.ensure(self.api, 'identity-canary', 'accounts/account/access/apps',
-                      {'name': 'fixture', 'domain': 'canary.example.invalid'},
-                      lambda value: value.get('domain') == 'canary.example.invalid')
+        self.assertEqual(self.state, before)
+
+    def test_interrupted_create_resumes_without_duplicate_identity(self):
+        self.api.interrupt_create = True
+        with self.assertRaises(RuntimeError):
+            self.ensure()
+        self.assertEqual(len(self.api.objects), 1)
+        self.assertIn('intent', self.saved[-1]['objects']['identity-canary'])
+        self.ensure()
+        self.assertEqual(len(self.api.objects), 1)
+
+    def test_drift_repair_removes_unauthorized_rules_and_preserves_ids(self):
+        _, created = self.ensure()
+        path = next(iter(self.api.objects))
+        self.api.objects[path]['policies'][0]['include'].append({'everyone': {}})
+        client, repaired = self.ensure()
+        self.assertTrue(client.changed)
+        self.assertEqual(repaired['id'], created['id'])
+        self.assertEqual(repaired['aud'], created['aud'])
+        self.assertEqual(repaired['policies'], self.desired['policies'])
+
+    def test_external_deletion_does_not_recreate_identity(self):
+        self.ensure()
+        self.api.objects.clear()
+        self.api.writes.clear()
+        with self.assertRaisesRegex(RuntimeError, 'identity'):
+            self.ensure()
+        self.assertEqual(self.api.writes, [])
+
+    def test_unowned_hostname_is_not_adopted(self):
+        self.api.objects['accounts/account/access/apps/other'] = {'id': 'other', 'domain': 'canary.example.invalid'}
+        with self.assertRaisesRegex(RuntimeError, 'Unowned'):
+            self.ensure()
+        self.assertEqual(self.api.writes, [])
+
+    def test_transferred_scope_blocks_old_writer_but_preserves_separate_fixtures(self):
+        self.state['infra_owner'] = {'phase': 'accepted', 'binding': self.state['binding'],
+                                    'objects': {'app:production.example.invalid': {'id': 'native'}}}
+        with self.assertRaises(RuntimeError):
+            self.ensure(key='app:production.example.invalid')
+        self.assertEqual(self.api.writes, [])
+        self.ensure()
         self.assertEqual(len(self.api.writes), 1)
 
     def test_invalid_ownership_marker_never_reactivates_old_writer(self):
         for owner in ({}, None, False):
             self.state = {'infra_owner': owner}
             with self.assertRaises(RuntimeError):
-                self.run_apply()
-            with self.assertRaises(RuntimeError):
-                Reconciler(self.api, self.api, self.state, lambda value: None).ensure(
-                    self.api, 'app:human.example.invalid', 'accounts/account/access/apps', {}, lambda value: True)
+                self.ensure()
         self.assertEqual(self.api.writes, [])
 
-    def test_central_provider_repeat_preserves_machine_identity_and_does_zero_writes(self):
-        self.run_apply()
-        before = copy.deepcopy(self.state)
-        machine = copy.deepcopy(next(v for v in self.api.objects.values() if v.get('domain') == 'machine.example.invalid'))
-        self.inputs.update(identity_provider='dedicated', identity_group='/platform-admin')
-        self.assertTrue(self.run_apply()['changed'])
-        self.assertEqual(self.state['binding'], before['binding'])
-        self.assertEqual(self.state['objects'], before['objects'])
-        self.assertEqual(next(v for v in self.api.objects.values() if v.get('domain') == 'machine.example.invalid'), machine)
-        self.api.writes.clear()
-        self.assertFalse(self.run_apply()['changed'])
-        self.assertEqual(self.api.writes, [])
-
-    def setUp(self):
-        self.api, self.state, self.saved = Provider(), {}, []
-        self.inputs = dict(account='account', zone_id='zone', zone='example.invalid', tunnel='tunnel',
-                           rules=[{'name': 'human', 'access': 'human'}, {'name': 'machine', 'access': 'machine'}],
-                           team='fixture', human_email='admin@example.invalid', identity_provider='otp', service_token_id='token')
-
-    def run_apply(self):
-        return Reconciler(self.api, self.api, self.state, lambda value: self.saved.append(value)).run(**self.inputs)
-
-    def test_repeat_apply_preserves_ids_and_performs_zero_writes(self):
-        self.assertTrue(self.run_apply()['changed'])
-        before = copy.deepcopy(self.state)
-        self.api.writes.clear()
-        self.assertFalse(self.run_apply()['changed'])
-        self.assertEqual(self.api.writes, [])
-        self.assertEqual(self.state, before)
-        self.assertFalse(self.run_apply()['acceptance_passed'])
-
-    def test_unused_api_managed_tunnel_can_have_null_configuration(self):
-        self.api.config = {'config': None}
-        self.assertTrue(self.run_apply()['configured'])
-
-    def test_interrupted_create_resumes_without_duplicate_identity(self):
-        self.api.interrupt_create = True
-        with self.assertRaises(RuntimeError):
-            self.run_apply()
-        self.assertEqual(len(self.api.objects), 1)
-        self.assertIn('intent', next(iter(self.saved[-1]['objects'].values())))
-        self.run_apply()
-        self.assertEqual(len(self.api.objects), 4)
-
-    def test_drift_repair_removes_unauthorized_rules_and_preserves_ids(self):
-        self.run_apply()
-        path = next(k for k in self.api.objects if '/apps/' in k)
-        identity = self.api.objects[path]['id']
-        self.api.objects[path]['policies'][0]['include'].append({'everyone': {}})
-        self.assertTrue(self.run_apply()['changed'])
-        self.assertEqual(self.api.objects[path]['id'], identity)
-        self.assertEqual(len(self.api.objects[path]['policies'][0]['include']), 1)
-
-    def test_external_deletion_does_not_recreate_identity(self):
-        self.run_apply()
-        del self.api.objects[next(k for k in self.api.objects if '/apps/' in k)]
-        self.api.writes.clear()
-        with self.assertRaisesRegex(RuntimeError, 'identity'):
-            self.run_apply()
-        self.assertEqual(self.api.writes, [])
-
-    def test_identity_protocol_addition_preserves_existing_protection_and_ids(self):
-        self.run_apply()
-        before = copy.deepcopy(self.state['objects'])
-        self.inputs['rules'].append({'name': 'login', 'access': 'public'})
-        with self.assertRaisesRegex(RuntimeError, 'migration'): self.run_apply()
-        self.inputs['add_identity_protocol'] = True
-        self.assertTrue(self.run_apply()['configured'])
-        self.assertEqual({key: self.state['objects'][key] for key in before}, before)
-        self.assertEqual(len(self.state['objects']), len(before) + 1)
-        protocol = next(rule for rule in self.api.config['config']['ingress'] if rule.get('hostname') == 'login.example.invalid')
-        self.assertNotIn('access', protocol['originRequest'])
-        self.api.writes.clear()
-        self.assertFalse(self.run_apply()['changed'])
-        self.assertEqual(self.api.writes, [])
-
-    def test_identity_extension_cannot_change_existing_host_or_external_identity(self):
-        self.run_apply()
-        self.inputs['rules'].append({'name': 'login', 'access': 'public'})
-        self.inputs['add_identity_protocol'] = True
-        self.inputs['rules'][0]['access'] = 'public'
-        self.api.writes.clear()
-        with self.assertRaisesRegex(RuntimeError, 'migration'): self.run_apply()
-        self.assertEqual(self.api.writes, [])
-        self.inputs['rules'][0]['access'] = 'human'
-        self.inputs['tunnel'] = 'different'
-        with self.assertRaisesRegex(RuntimeError, 'migration'): self.run_apply()
-        self.assertEqual(self.api.writes, [])
-
-    def test_classification_change_does_not_remove_protection(self):
-        self.run_apply()
-        self.inputs['rules'][0]['access'] = 'public'
-        self.api.writes.clear()
-        with self.assertRaisesRegex(RuntimeError, 'migration'):
-            self.run_apply()
-        self.assertEqual(self.api.writes, [])
-
-    def test_unowned_tunnel_routes_are_preserved(self):
-        self.api.config['config']['ingress'].insert(0, {'hostname': 'other.example.invalid', 'service': 'http://other'})
-        with self.assertRaisesRegex(RuntimeError, 'unowned'):
-            self.run_apply()
-        self.assertEqual(self.api.writes, [])
-
-    def test_unowned_hostname_is_not_adopted(self):
-        self.api.objects['accounts/account/access/apps/other'] = {'id': 'other', 'domain': 'human.example.invalid'}
-        with self.assertRaisesRegex(RuntimeError, 'Unowned'):
-            self.run_apply()
-        self.assertEqual(self.api.writes, [])
-
-    def test_dns_publishes_only_after_protection_and_tunnel(self):
-        self.run_apply()
-        writes = self.api.writes
-        self.assertTrue(all('/apps' in path for _, path in writes[:2]))
-        self.assertTrue(writes[2][1].endswith('/configurations'))
-        self.assertTrue(all('/dns_records' in path for _, path in writes[3:]))
-
-    def test_invalid_late_rule_prevents_all_mutation(self):
-        self.inputs['rules'].append({'name': 'internal', 'access': 'public'})
-        with self.assertRaises(ValueError):
-            self.run_apply()
-        self.assertEqual(self.api.writes, [])
+    def test_app_updates_preserve_existing_nested_policy_id(self):
+        self.ensure()
+        path = next(iter(self.api.objects))
+        self.api.objects[path]['policies'][0]['id'] = 'retained-policy'
+        desired = copy.deepcopy(self.desired)
+        desired['session_duration'] = '15m'
+        _, updated = self.ensure(desired)
+        self.assertEqual(updated['policies'][0]['id'], 'retained-policy')
 
 
 if __name__ == '__main__':

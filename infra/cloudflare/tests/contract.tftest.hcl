@@ -24,4 +24,16 @@ run "synthetic_contract" {
     condition     = cloudflare_zero_trust_access_application.application["fixture"].policies[0].id == jsondecode(file("fixtures.json")).applications.fixture.policies.z_human.id
     error_message = "Legacy policy updates must retain the designated existing policy ID."
   }
+  assert {
+    condition     = cloudflare_zero_trust_tunnel_cloudflared_config.routing.config.ingress[0].origin_request.access.required && length(cloudflare_zero_trust_tunnel_cloudflared_config.routing.config.ingress[0].origin_request.access.aud_tag) == 1
+    error_message = "Protected routes must require the application audience at the origin."
+  }
+  assert {
+    condition     = !cloudflare_zero_trust_tunnel_cloudflared_config.routing.config.ingress[0].origin_request.no_tls_verify
+    error_message = "Origin TLS verification must remain enabled."
+  }
+  assert {
+    condition     = cloudflare_zero_trust_tunnel_cloudflared_config.routing.config.ingress[length(cloudflare_zero_trust_tunnel_cloudflared_config.routing.config.ingress) - 1].service == "http_status:404"
+    error_message = "Unknown hosts must end at the terminal deny route."
+  }
 }

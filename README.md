@@ -53,7 +53,10 @@ Running the configuration again preserves existing secrets and data.
 
 Check external infrastructure declarations independently with
 `docker compose --profile infra run --build --rm infra check cloudflare`
-or replace `cloudflare` with `github`. Live operations require private inputs and
+or `docker compose run --build --rm infra-github check github`.
+Verify GitHub governance separately with `docker compose run --rm infra-github verify github`
+alongside `prove`; its credentials and state remain outside deployment jobs.
+Live operations require private inputs and
 accepted ownership; required fields and write gates belong to the
 [infrastructure client](automation/infra/command.py).
 

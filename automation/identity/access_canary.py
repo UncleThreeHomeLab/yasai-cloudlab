@@ -42,7 +42,7 @@ def configure(api, account, state, save, hostname, email):
         raise RuntimeError('Dispose the previous canary before changing its host or owner')
     if not state.get('objects', {}).get('dns:' + hostname, {}).get('id'):
         raise RuntimeError('Canary must use an already owned public hostname')
-    client = Reconciler(api, api, state, save)
+    client = Reconciler(state, save)
     actual = client.ensure(api, 'identity-canary', 'accounts/' + account + '/access/apps', wanted,
                           lambda row: row.get('domain') == wanted['domain'] or row.get('name') == wanted['name'])
     if not actual.get('aud'):

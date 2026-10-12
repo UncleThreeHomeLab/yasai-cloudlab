@@ -3,7 +3,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from github_setup import GitHub, MARKER, provision, repository
+from github_setup import GitHub, MARKER, inspect, repository
+import github_setup
 from publish_snapshot import validate_file
 import publish_snapshot
 
@@ -17,11 +18,11 @@ class RepositorySetupTests(unittest.TestCase):
             self.assertIsNone(api.request('DELETE', 'installation/token'))
         response.read.assert_not_called()
 
-    def test_suspended_writer_never_recreates_missing_repositories(self):
+    def test_retired_creator_never_recreates_missing_repositories(self):
         api = Mock()
         api.request.return_value = None
-        with self.assertRaisesRegex(RuntimeError, 'suspended'):
-            provision(api, [('public-platform', 'example/platform', False)])
+        self.assertFalse(hasattr(github_setup, 'provision'))
+        self.assertIsNone(inspect(api, 'public-platform', 'example/platform', False))
         api.request.assert_called_once_with('GET', 'repos/example/platform', missing=True)
 
     def test_existing_visibility_is_never_changed(self):
@@ -29,21 +30,21 @@ class RepositorySetupTests(unittest.TestCase):
         api.request.return_value = {'full_name': 'example/platform', 'private': True,
                                     'description': MARKER + 'public-platform'}
         with self.assertRaisesRegex(RuntimeError, 'adoption refused'):
-            provision(api, [('public-platform', 'example/platform', False)])
+            inspect(api, 'public-platform', 'example/platform', False)
         self.assertTrue(all(call.args[0] == 'GET' for call in api.request.call_args_list))
 
-    def test_validation_of_all_targets_precedes_creation(self):
+    def test_retained_content_owner_rejects_unrelated_repository(self):
         api = Mock()
-        api.request.side_effect = [None, {'full_name': 'example/config', 'private': True, 'description': 'unrelated'}]
+        api.request.return_value = {'full_name': 'example/config', 'private': True, 'description': 'unrelated'}
         with self.assertRaises(RuntimeError):
-            provision(api, [('public-platform', 'example/platform', False), ('private-config', 'example/config', True)])
+            inspect(api, 'private-config', 'example/config', True)
         self.assertTrue(all(call.args[0] == 'GET' for call in api.request.call_args_list))
 
     def test_repeat_keeps_existing_repositories_unchanged(self):
         api = Mock()
         api.request.return_value = {'full_name': 'example/platform', 'private': False,
                                     'description': MARKER + 'public-platform'}
-        self.assertEqual(provision(api, [('public-platform', 'example/platform', False)])['repositories_created'], 0)
+        self.assertEqual(inspect(api, 'public-platform', 'example/platform', False)['full_name'], 'example/platform')
         api.request.assert_called_once()
 
     def test_repository_inputs_reject_credentials_and_external_hosts(self):
