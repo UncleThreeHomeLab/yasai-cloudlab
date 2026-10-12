@@ -34,5 +34,5 @@ class ReadinessTests(unittest.TestCase):
                 application = copy.deepcopy(original)
             allowed['repository'] = platform['repoURL']
             application['spec'].pop('sources')
-            application['spec']['source'] = source
+            application['spec']['source'] = copy.deepcopy(original['spec']['sources'][0])
             inspect(request)
