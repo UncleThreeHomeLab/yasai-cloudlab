@@ -85,3 +85,30 @@ def prepare(nonce):
     destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n')
     destination.chmod(0o600)
     return {'prepared':True,'private_output':str(destination),'fixture_nonce':nonce,'live_mutations':0}
+
+
+def bundles(value):
+    from automation.services.inputs import validate_catalog
+    from automation.gitops.github_setup import inputs, repository
+    from automation.gitops.private_fixture import prepare_service
+    value = validate_catalog(copy.deepcopy(value))
+    environment, api = inputs()
+    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
+    revision = subprocess.check_output(['git','-c','safe.directory=/workspace','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+    origin = json.loads((ROOT / 'platform/connectivity/access/contract.json').read_text())['cloudflareOrigin']
+    target = Path('/recovery/services')
+    target.mkdir(mode=0o700,parents=True,exist_ok=True)
+    for entry in value['catalog']:
+        if entry['approval'].get('visibility') == 'private':
+            published = prepare_service(api,environment,entry['definition'])
+            entry['approval']['revision'] = published['revision']
+            entry['approval']['valuesPath'] = published['values_path']
+        bundle = {'definition':entry['definition'],'approval':entry['approval'],
+                  'platformRepository':public,'platformRevision':revision,'origin':origin,'application':None}
+        filename = target / (entry['definition']['name']+'-bundle.json')
+        filename.write_text(json.dumps(bundle,sort_keys=True))
+        filename.chmod(0o600)
+    proposal = target / 'catalog-proposal.json'
+    proposal.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n')
+    proposal.chmod(0o600)
+    return {'prepared_bundles':len(value['catalog']),'private_output':str(proposal),'secret_values_logged':False}

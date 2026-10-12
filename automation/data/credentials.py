@@ -85,7 +85,9 @@ def main():
     endpoint = 'https://' + CONTRACT['s3_label'] + '.internal.' + zone['name']
     desired = definitions(endpoint)
     from automation.services.inputs import catalog
-    service_catalog = catalog()
+    import yaml
+    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    service_catalog = catalog(required=public.get('services', {}).get('enabled', False))
     if service_catalog:
         desired.update(service_definitions(endpoint, service_catalog))
     # Shared Compose state serializes concurrent runs from this workstation.

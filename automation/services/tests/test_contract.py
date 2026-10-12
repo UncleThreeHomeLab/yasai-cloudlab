@@ -15,6 +15,8 @@ class ContractTests(unittest.TestCase):
             self.assertEqual({o['kind'] for o in objects},
                              {'Deployment', 'ServiceAccount', 'Service'} | ({'PersistentVolumeClaim'} if persistent else set()))
             if persistent:
+                deployment = next(o for o in objects if o['kind'] == 'Deployment')
+                self.assertEqual(deployment['spec']['strategy'], {'type': 'Recreate'})
                 claim = next(o for o in objects if o['kind'] == 'PersistentVolumeClaim')
                 self.assertEqual(claim['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
 
