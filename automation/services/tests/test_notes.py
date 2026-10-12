@@ -22,6 +22,9 @@ sys.path.insert(0, str(ROOT / 'apps/notes/lib.zip'))
 spec = importlib.util.spec_from_file_location('notes_api', ROOT / 'apps/notes/api.py')
 api = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(api)
+web_spec = importlib.util.spec_from_file_location('notes_web', ROOT / 'apps/notes/web.py')
+web = importlib.util.module_from_spec(web_spec)
+web_spec.loader.exec_module(web)
 
 
 def encode(raw):
@@ -29,6 +32,27 @@ def encode(raw):
 
 
 class NotesTests(unittest.TestCase):
+    def test_operations_navigation_requires_private_host_without_publishing_its_address(self):
+        environment = {'OIDC_ISSUER': 'https://login.example.invalid/realms/applications',
+                       'OIDC_CLIENT': 'notes-web', 'OIDC_AUDIENCE': 'notes-api',
+                       'OPERATIONS_HOST': 'notes.internal.example.invalid'}
+        server = web.ThreadingHTTPServer(('127.0.0.1', 0), web.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.dict(os.environ, environment):
+                for host, allowed in (('notes.example.invalid', False), ('notes.internal.example.invalid', True)):
+                    request = urllib.request.Request('http://127.0.0.1:' + str(server.server_port) + '/settings.json',
+                                                     headers={'Host': host})
+                    with urllib.request.urlopen(request, timeout=5) as response:
+                        raw = response.read()
+                        self.assertEqual(json.loads(raw)['operations'], allowed)
+                        self.assertNotIn(environment['OPERATIONS_HOST'].encode(), raw)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_api_source_change_triggers_only_its_workload_rollout(self):
         from automation.services.examples import definitions
         from automation.services.notes import values

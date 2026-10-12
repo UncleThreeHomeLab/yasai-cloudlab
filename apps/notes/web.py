@@ -25,7 +25,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/settings.json':
             body = json.dumps({'issuer': os.environ['OIDC_ISSUER'], 'client': os.environ['OIDC_CLIENT'],
                                'audience': os.environ['OIDC_AUDIENCE'],
-                               'scopes': os.environ.get('OIDC_SCOPES', 'openid profile').split()}).encode()
+                               'scopes': os.environ.get('OIDC_SCOPES', 'openid profile').split(),
+                               'operations': self.headers.get('Host') == os.environ.get('OPERATIONS_HOST')}).encode()
             kind = 'application/json'
         elif path in ('/', '/callback', '/operations'):
             body, kind = (ROOT / 'index.html').read_bytes(), 'text/html; charset=utf-8'
