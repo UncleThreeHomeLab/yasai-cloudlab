@@ -46,13 +46,19 @@ class OwnerEnrollmentTests(unittest.TestCase):
             'groups': ['/platform-admin'], 'email': self.profile['email'], 'emailVerified': True}]}
         values = {'applications_username': self.values['username'], 'applications_password': self.values['password'],
                   'ownership_id': self.values['ownership_id'], 'email': self.values['email'], 'email_verified': 'true'}
-        result = initialize_primary(state, [], values)
+        result = initialize_primary(state, [], values, email_matches=[])
         self.assertEqual(result['users'][0]['requiredActions'], ['webauthn-register'])
         self.assertNotIn('realmRoles', result['users'][0])
-        self.assertEqual(initialize_primary(state, result['users'], values), state)
-        with self.assertRaises(ValueError): initialize_primary(state, [{'username': 'operator-owner'}], values)
-        state['users'][0]['enabled'] = False
+        self.assertEqual(result['users'][0]['credentials'][0]['userLabel'], 'initial')
+        self.assertEqual(initialize_primary(state, result['users'], values, email_matches=result['users']), state)
+        with self.assertRaises(ValueError): initialize_primary(state, [{'username': 'operator-owner'}], values, email_matches=[])
         with self.assertRaises(ValueError): initialize_primary(state, [], values)
+        with self.assertRaises(ValueError): initialize_primary(state, [], values, email_matches=[{'username': 'another-owner', 'id': 'foreign'}])
+        with self.assertRaises(ValueError): initialize_primary(state, [{'username': 'another-owner'}], values, email_matches=[])
+        with self.assertRaises(ValueError): initialize_primary(state, [dict(result['users'][0], id='owned')], values,
+            email_matches=[dict(result['users'][0], id='foreign')])
+        state['users'][0]['enabled'] = False
+        with self.assertRaises(ValueError): initialize_primary(state, [], values, email_matches=[])
 
     def test_chart_uses_only_applications_writer_after_lease_and_retains_eso(self):
         values = {'enabled': True, 'reconciliationEnabled': True, 'privateStateEnabled': True,
