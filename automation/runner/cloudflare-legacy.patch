@@ -1,0 +1,93 @@
+--- a/main.go
++++ b/main.go
+@@ -22,7 +22,7 @@
+ 	flag.Parse()
+ 
+ 	opts := providerserver.ServeOpts{
+-		Address: "registry.terraform.io/cloudflare/cloudflare",
++		Address: "registry.opentofu.org/cloudlab/cloudflare",
+ 		Debug:   debug,
+ 	}
+ 
+--- a/internal/services/zero_trust_access_application/model.go
++++ b/internal/services/zero_trust_access_application/model.go
+@@ -234,6 +234,7 @@
+ }
+ 
+ type ZeroTrustAccessApplicationPoliciesModel struct {
++	Reusable types.Bool `tfsdk:"reusable" json:"reusable,computed"`
+ 	ID              types.String                                                                `tfsdk:"id" json:"id,optional"`
+ 	Precedence      types.Int64                                                                 `tfsdk:"precedence" json:"precedence,computed_optional"`
+ 	Decision        types.String                                                                `tfsdk:"decision" json:"decision,optional"`
+--- a/internal/services/zero_trust_access_application/schema.go
++++ b/internal/services/zero_trust_access_application/schema.go
+@@ -16,6 +16,7 @@
+ 	"github.com/hashicorp/terraform-plugin-framework/resource"
+ 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+ 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+ 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+ 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+ 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+@@ -689,11 +690,16 @@
+ 				NestedObject: schema.NestedAttributeObject{
+ 					Attributes: map[string]schema.Attribute{
+ 						"id": schema.StringAttribute{
+-							Description: "The UUID of the policy",
++							Description: "The UUID of the existing policy; selectors update that same policy.",
+ 							Optional:    true,
+ 							Validators: []validator.String{
+-								stringvalidator.ExactlyOneOf(path.MatchRelative().AtParent().AtName("include")),
+-							},
++								stringvalidator.AtLeastOneOf(path.MatchRelative().AtParent().AtName("include")),
++							},
++						},
++						"reusable": schema.BoolAttribute{
++							Description: "Whether the policy has an independent account-level lifecycle.",
++							Computed: true,
++							PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+ 						},
+ 						"precedence": schema.Int64Attribute{
+ 							Description: "The order of execution for this policy. Must be unique for each policy within an app.",
+--- a/internal/services/zero_trust_access_application/normalizations.go
++++ b/internal/services/zero_trust_access_application/normalizations.go
+@@ -299,7 +299,7 @@
+ 	if data.Policies != nil {
+ 		for i := range *data.Policies {
+ 			policy := &(*data.Policies)[i]
+-			if !policy.ID.IsNull() && !policy.ID.IsUnknown() {
++			if policy.Reusable.ValueBool() {
+ 				policy.Decision = types.StringNull()
+ 				policy.Name = types.StringNull()
+ 				policy.Include = customfield.NullObjectSet[ZeroTrustAccessApplicationPoliciesIncludeModel](ctx)
+--- /dev/null
++++ b/internal/services/zero_trust_access_application/legacy_import_test.go
+@@ -0,0 +1,28 @@
++package zero_trust_access_application
++
++import (
++    "bytes"
++    "context"
++    "testing"
++    "github.com/cloudflare/terraform-provider-cloudflare/internal/apijson"
++)
++
++func TestLegacyImportPreservesIDAndSelectors(t *testing.T) {
++    data := new(ZeroTrustAccessApplicationModel)
++    raw := []byte(`{"policies":[{"id":"00000000-0000-4000-8000-000000000001","reusable":false,"name":"legacy","decision":"allow","precedence":1,"include":[{"email":{"email":"allowed@example.invalid"}}],"require":[{"oidc":{"claim_name":"groups","claim_value":"members","identity_provider_id":"00000000-0000-4000-8000-000000000002"}}]}]}`)
++    if err := apijson.Unmarshal(raw, data); err != nil { t.Fatal(err) }
++    if diags := normalizeImportZeroTrustAccessApplicationAPIData(context.Background(), data); diags.HasError() { t.Fatal(diags) }
++    policy := (*data.Policies)[0]
++    if policy.ID.ValueString() != "00000000-0000-4000-8000-000000000001" || policy.Name.ValueString() != "legacy" || len(policy.Include.Elements()) != 1 || len(policy.Require.Elements()) != 1 || policy.Reusable.ValueBool() { t.Fatal("legacy import discarded identity or selectors") }
++    body, err := apijson.MarshalRoot(policy)
++    if err != nil { t.Fatal(err) }
++    if !bytes.Contains(body, []byte(`"id"`)) || !bytes.Contains(body, []byte(`"include"`)) || bytes.Contains(body, []byte(`"reusable"`)) { t.Fatal("request must preserve policy ID and omit computed lifecycle metadata") }
++}
++
++func TestReusableImportKeepsReferenceOwnership(t *testing.T) {
++    data := new(ZeroTrustAccessApplicationModel)
++    if err := apijson.Unmarshal([]byte(`{"policies":[{"id":"00000000-0000-4000-8000-000000000001","reusable":true,"name":"external","decision":"allow","include":[{"email":{"email":"allowed@example.invalid"}}]}]}`), data); err != nil { t.Fatal(err) }
++    if diags := normalizeImportZeroTrustAccessApplicationAPIData(context.Background(), data); diags.HasError() { t.Fatal(diags) }
++    policy := (*data.Policies)[0]
++    if policy.ID.IsNull() || !policy.Include.IsNull() || !policy.Name.IsNull() || !policy.Reusable.ValueBool() { t.Fatal("reusable policy must retain independent ownership") }
++}

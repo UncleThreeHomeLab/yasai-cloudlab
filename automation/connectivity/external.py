@@ -54,6 +54,18 @@ def run():
     with (state_dir / 'external.lock').open('a') as lock, transaction() as receipts:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = receipts.load('external') or {}
+        if 'infra_owner' in state:
+            owner = state['infra_owner']
+            if (not isinstance(owner, dict) or owner.get('phase') != 'accepted' or
+                    owner.get('binding') != state.get('binding') or not isinstance(owner.get('objects'), dict) or
+                    not owner['objects'] or owner['objects'] != {
+                        key: state.get('objects', {}).get(key) for key in owner['objects']}):
+                raise RuntimeError('Cloudflare ownership maintenance incomplete; neither writer may mutate')
+            from automation.infra.command import main as infra
+            if infra(['verify', 'cloudflare']) != 0:
+                raise RuntimeError('Owned Cloudflare infrastructure verification failed; review an independent plan')
+            print(json.dumps({'changed': False, 'configured': True, 'infra_owner': 'cloudflare'}))
+            return
         from automation.identity.access_cutover import approved_email, selection
         selected_provider, identity_group = selection(state, os.environ['CLOUDFLARE_IDP_ID'])
 

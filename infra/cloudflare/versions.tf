@@ -2,8 +2,8 @@ terraform {
   required_version = "= 1.13.1"
   required_providers {
     cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "= 5.27.0"
+      source  = "cloudlab/cloudflare"
+      version = "= 5.27.0-cloudlab.1"
     }
   }
   backend "http" {}

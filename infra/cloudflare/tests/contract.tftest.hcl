@@ -20,4 +20,8 @@ run "synthetic_contract" {
     condition     = cloudflare_zero_trust_access_application.application["fixture"].policies[0].precedence == 1
     error_message = "Policy precedence must not depend on logical key ordering."
   }
+  assert {
+    condition     = cloudflare_zero_trust_access_application.application["fixture"].policies[0].id == jsondecode(file("fixtures.json")).applications.fixture.policies.z_human.id
+    error_message = "Legacy policy updates must retain the designated existing policy ID."
+  }
 }

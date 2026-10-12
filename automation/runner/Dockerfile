@@ -1,3 +1,9 @@
+FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed AS provider-build
+COPY debian.sources /etc/apt/sources.list.d/debian.sources
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+COPY cloudflare-provider.lock.json cloudflare-legacy.patch build_cloudflare.py /opt/provider-build/
+RUN --mount=type=cache,target=/root/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build python /opt/provider-build/build_cloudflare.py
+
 FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
 
 COPY debian.sources /etc/apt/sources.list.d/debian.sources
@@ -10,6 +16,8 @@ COPY helm.lock.json install_helm.py /opt/runner/
 RUN python /opt/runner/install_helm.py
 COPY tools.lock.json install_tools.py /opt/runner/
 RUN python /opt/runner/install_tools.py
+COPY --from=provider-build /provider-mirror /opt/providers
+COPY providers.tfrc /opt/runner/providers.tfrc
 COPY run.py /opt/runner/run.py
 ENV ANSIBLE_CONFIG=/workspace/ansible/ansible.cfg \
     PYTHONDONTWRITEBYTECODE=1

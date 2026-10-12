@@ -147,6 +147,8 @@ def validate_provider(state, previous, contract):
 
 
 def prepare(state, previous, contract):
+    if 'infra_owner' in state:
+        raise RuntimeError('Access policy ownership is suspended or transferred; reverse handoff required before identity cutover')
     owner = validate_provider(state, previous, contract)
     wanted = {'phase': 'prepared', 'binding': state['binding'], 'provider': owner['id'],
               'previous': previous, 'group': '/platform-admin', 'human_email': contract['human_email']}

@@ -14,6 +14,13 @@ services:
       - type: volume
         source: recovery_outputs
         target: /recovery
+      - type: bind
+        source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/cloudflare
+        target: /inputs/cloudflare
+        read_only: true
+      - type: volume
+        source: infra_work
+        target: /infra-work
     command: [apply]
 
   infra:
@@ -41,15 +48,49 @@ services:
         target: /workspace/compose.yaml
         read_only: true
       - type: bind
-        source: ${INFRA_PRIVATE_DIR:-./.infra-private}
-        target: /inputs
+        source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/cloudflare
+        target: /inputs/cloudflare
         read_only: true
       - type: volume
         source: infra_work
         target: /infra-work
     command: [check, cloudflare]
 
+  infra-github:
+    profiles: [infra]
+    platform: linux/amd64
+    build:
+      context: ./automation/runner
+    entrypoint: [python, -m, automation.infra.command]
+    working_dir: /workspace
+    volumes:
+      - type: bind
+        source: ./automation
+        target: /workspace/automation
+        read_only: true
+      - type: bind
+        source: ./infra
+        target: /workspace/infra
+        read_only: true
+      - type: bind
+        source: ./.git
+        target: /workspace/.git
+        read_only: true
+      - type: bind
+        source: ./compose.yaml
+        target: /workspace/compose.yaml
+        read_only: true
+      - type: bind
+        source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/github
+        target: /inputs/github
+        read_only: true
+      - type: volume
+        source: github_infra_work
+        target: /infra-work
+    command: [check, github]
+
 volumes:
   infra_work:
+  github_infra_work:
   ssh_known_hosts:
   recovery_outputs:

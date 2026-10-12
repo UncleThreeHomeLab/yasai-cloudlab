@@ -109,9 +109,10 @@ def disruption(component, probe):
             'failure_mode': 'container-sigkill' if 'crashed_container' in deletion else 'pod-replacement'}
 
 
-def _run(*, failures=True, keep=False):
-    from automation.connectivity.external import run as reconcile_external
-    reconcile_external()
+def _run(*, failures=True, keep=False, reconcile=True):
+    if reconcile:
+        from automation.connectivity.external import run as reconcile_external
+        reconcile_external()
     runtime = remote('runtime')
     rules = host_rules(json.loads(os.environ['CLOUDFLARE_ACCESS_HOSTS']), runtime['zone'])
     protocol = 'login.' + runtime['zone']
@@ -225,13 +226,13 @@ def _run(*, failures=True, keep=False):
             remote('cleanup')
 
 
-def run(*, failures=True, keep=False):
+def run(*, failures=True, keep=False, reconcile=True):
     import fcntl
     directory = Path('/state/connectivity')
     directory.mkdir(mode=0o700, exist_ok=True)
     with (directory / 'verification.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        result = _run(failures=failures, keep=keep)
+        result = _run(failures=failures, keep=keep, reconcile=reconcile)
         if failures and not keep:
             identities = remote('identities')
             with transaction() as receipts:

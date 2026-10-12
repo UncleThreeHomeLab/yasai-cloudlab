@@ -26,7 +26,10 @@ variable "applications" {
     allowed_idps              = set(string)
     app_launcher_visible      = bool
     auto_redirect_to_identity = bool
+    enable_binding_cookie     = bool
+    options_preflight_bypass  = bool
     policies = map(object({
+      id         = string
       name       = string
       decision   = string
       precedence = number
@@ -49,7 +52,8 @@ variable "applications" {
     condition = alltrue([for key, app in var.applications :
       can(regex("^[a-z][a-z0-9_-]*$", key)) && length(app.policies) > 0 &&
       length(distinct([for p in app.policies : p.precedence])) == length(app.policies) &&
-      alltrue([for policy_key, p in app.policies : can(regex("^[a-z][a-z0-9_-]*$", policy_key)) && contains(["allow", "non_identity", "deny"], p.decision) && length(p.include) > 0 && p.precedence >= 1 && floor(p.precedence) == p.precedence])
+      length(distinct([for p in app.policies : p.id])) == length(app.policies) &&
+      alltrue([for policy_key, p in app.policies : can(regex("^[a-z][a-z0-9_-]*$", policy_key)) && can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", p.id)) && contains(["allow", "non_identity", "deny"], p.decision) && length(p.include) > 0 && p.precedence >= 1 && floor(p.precedence) == p.precedence])
     ])
     error_message = "Use stable logical keys and explicit existing policies."
   }

@@ -1,19 +1,8 @@
 locals {
-  policies = merge([for app_key, app in var.applications : {
-    for policy_key, policy in app.policies : "${app_key}:${policy_key}" => policy
-  }]...)
-}
-
-resource "cloudflare_zero_trust_access_policy" "policy" {
-  for_each   = local.policies
-  account_id = var.account_id
-  name       = each.value.name
-  decision   = each.value.decision
-  include    = each.value.include
-  exclude    = each.value.exclude
-  require    = each.value.require
-  # Existing non-reusable IDs must pass account-endpoint import/update certification before handoff.
-  lifecycle { prevent_destroy = true }
+  ordered_policies = { for key, app in var.applications : key => [
+    for ordered in sort([for policy_key, policy in app.policies : format("%020d:%s", policy.precedence, policy_key)]) :
+    app.policies[split(":", ordered)[1]]
+  ] }
 }
 
 resource "cloudflare_zero_trust_access_application" "application" {
@@ -23,12 +12,19 @@ resource "cloudflare_zero_trust_access_application" "application" {
   domain                    = each.value.domain
   type                      = "self_hosted"
   session_duration          = each.value.session_duration
-  allowed_idps              = each.value.allowed_idps
+  allowed_idps              = length(each.value.allowed_idps) == 0 ? null : each.value.allowed_idps
   app_launcher_visible      = each.value.app_launcher_visible
   auto_redirect_to_identity = each.value.auto_redirect_to_identity
-  policies = [for ordered in sort([for key, policy in each.value.policies : format("%020d:%s", policy.precedence, key)]) : {
-    id         = cloudflare_zero_trust_access_policy.policy["${each.key}:${split(":", ordered)[1]}"].id
-    precedence = each.value.policies[split(":", ordered)[1]].precedence
+  enable_binding_cookie     = each.value.enable_binding_cookie
+  options_preflight_bypass  = each.value.options_preflight_bypass
+  policies = [for policy in local.ordered_policies[each.key] : {
+    id         = policy.id
+    name       = policy.name
+    decision   = policy.decision
+    include    = policy.include
+    exclude    = length(policy.exclude) == 0 ? null : policy.exclude
+    require    = length(policy.require) == 0 ? null : policy.require
+    precedence = policy.precedence
   }]
   lifecycle { prevent_destroy = true }
 }

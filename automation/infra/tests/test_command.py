@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import yaml
+
 from automation.infra import command
 
 
@@ -16,6 +18,17 @@ def plan(kind='github_repository', actions=None, before=None, after=None):
 
 
 class ContractTests(unittest.TestCase):
+    def test_github_governance_credentials_and_state_are_isolated_from_lab(self):
+        services = yaml.safe_load((command.WORKSPACE / 'compose.yaml').read_text())['services']
+        github_mounts = services['infra-github']['volumes']
+        github_inputs = next(volume['source'] for volume in github_mounts if volume['target'] == '/inputs/github')
+        github_state = next(volume['source'] for volume in github_mounts if volume['target'] == '/infra-work')
+        for name in ('lab', 'infra'):
+            mounts = services[name]['volumes']
+            self.assertFalse(any(volume['source'] in (github_inputs, github_state) for volume in mounts))
+            self.assertFalse(any(volume['target'] in ('/inputs', '/inputs/github') for volume in mounts))
+        self.assertTrue(github_inputs.startswith('${INFRA_PRIVATE_DIR:-../'))
+
     def inputs(self, directory, root):
         private = Path(directory) / root
         private.mkdir()
@@ -26,6 +39,21 @@ class ContractTests(unittest.TestCase):
                      'inventory.json': {'synthetic.fixture': {'id': 'synthetic-id'}}}
         for name, document in documents.items():
             (private / name).write_text(json.dumps(document))
+        if root == 'cloudflare':
+            inventory = {'cloudflare_zero_trust_tunnel_cloudflared_config.routing': {'id': 'synthetic-tunnel'}}
+            inventory.update({'cloudflare_dns_record.publication[' + json.dumps(key) + ']': {'id': 'synthetic-dns'}
+                              for key in desired['routes']})
+            inventory.update({'cloudflare_zero_trust_access_application.application[' + json.dumps(key) + ']': {
+                'id': 'synthetic-app', 'aud': 'synthetic-audience',
+                'policies': {policy['id']: False for policy in app['policies'].values()}}
+                for key, app in desired['applications'].items()})
+        else:
+            inventory = {kind + '[' + json.dumps(key) + ']': {'id': 'synthetic-id'}
+                         for key in desired['repositories']
+                         for kind in ('github_repository.repository', 'github_branch_default.default')}
+            inventory.update({'github_repository_ruleset.ruleset[' + json.dumps(key) + ']': {'id': 'synthetic-ruleset'}
+                              for key in desired['rulesets']})
+        (private / 'inventory.json').write_text(json.dumps(inventory))
         credential = 'CLOUDFLARE_API_TOKEN=synthetic-management\nTF_VAR_dns_api_token=synthetic-dns' if root == 'cloudflare' else 'GITHUB_TOKEN=synthetic-governance'
         (private / 'credentials.env').write_text('TF_HTTP_USERNAME=synthetic\nTF_HTTP_PASSWORD=synthetic-state\n' + credential + '\n')
         return private, desired
@@ -88,6 +116,16 @@ class ContractTests(unittest.TestCase):
             command.guarded_changes(plan('github_repository_ruleset', before={'bypass_actors': []},
                                          after={'bypass_actors': [{'actor_id': 1}]}))
 
+    def test_inline_policy_replacement_and_reusable_conversion_rejected(self):
+        before = {'id': 'app', 'aud': 'audience', 'policies': [{'id': 'policy', 'reusable': False}]}
+        for policies in ([], [{'id': 'replacement', 'reusable': False}], [{'id': 'policy', 'reusable': True}]):
+            with self.assertRaises(ValueError):
+                command.guarded_changes(plan('cloudflare_zero_trust_access_application',
+                    before=before, after=dict(before, policies=policies)))
+        after = dict(before, policies=[dict(before['policies'][0], name='updated')])
+        self.assertEqual(command.guarded_changes(plan('cloudflare_zero_trust_access_application',
+            before=before, after=after)), 1)
+
     def test_unknown_nested_policy_is_not_silently_discarded(self):
         fixture = json.loads((command.WORKSPACE / 'infra/cloudflare/fixtures.json').read_text())
         command.reject_unknown(fixture, command.SCHEMAS['cloudflare'])
@@ -104,6 +142,19 @@ class ContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'before live init or plan'):
                 command.Client('github')
             native.assert_not_called()
+
+    def test_partial_private_scope_rejected_before_live_plan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private, desired = self.inputs(temporary, 'cloudflare')
+            desired['applications'] = {}
+            (private / 'desired.tfvars.json').write_text(json.dumps(desired))
+            with patch.object(command, 'PRIVATE', private.parent), \
+                    patch.object(command, 'WORK', Path(temporary) / 'work'), \
+                    patch.object(command, 'source_binding', return_value={'revision': 'synthetic', 'source_hash': 'synthetic'}), \
+                    patch.object(command.subprocess, 'run') as native:
+                with self.assertRaisesRegex(ValueError, 'before live plan'):
+                    command.Client('cloudflare')
+                native.assert_not_called()
 
     def test_changed_binding_rejects_apply_before_native_initialization(self):
         with tempfile.TemporaryDirectory() as temporary:
