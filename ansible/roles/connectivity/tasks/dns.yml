@@ -40,7 +40,7 @@
     src: '{{ playbook_dir }}/../automation/connectivity/{{ item }}'
     dest: '/var/lib/cloudlab/private-dns/{{ item }}'
     mode: '0600'
-  loop: [dns.py, dns_wire.py, dns_host.py]
+  loop: [dns.py, dns_wire.py, dns_host.py, contract.py]
 
 - name: Create the private access automation directory on each host
   ansible.builtin.file:

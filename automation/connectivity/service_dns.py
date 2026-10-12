@@ -1,7 +1,10 @@
 """Service labels use the existing independent DNS owner, never public DNS."""
 import copy
 
-from automation.connectivity.contract import dns_label, zone_name
+try:
+    from .contract import dns_label, zone_name
+except ImportError:
+    from contract import dns_label, zone_name
 
 
 def desired(payload, exposure, baseline, *, published):
