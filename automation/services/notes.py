@@ -50,7 +50,7 @@ def values(definition, issuer, database_ca):
     result['databaseCA'] = database_ca
     for kind, budget in (('requests', 1000), ('limits', 2000)):
         for unit, suffix in (('cpu', 1), ('memory', 2)):
-            if 2 * definition['replicas'] * int(definition['resources'][kind][unit][:-suffix]) > budget:
+            if (2 * definition['replicas'] + 1) * int(definition['resources'][kind][unit][:-suffix]) > budget:
                 raise ValueError('Combined notes workloads exceed their namespace budget')
     for name in ('web', 'api'): validate(result[name])
     return result

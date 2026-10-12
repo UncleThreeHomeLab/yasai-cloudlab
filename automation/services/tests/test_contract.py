@@ -36,6 +36,12 @@ class ContractTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate(value)
 
+    def test_budget_reserves_one_pod_for_a_stateless_rollout(self):
+        value = definition()
+        value['replicas'] = 3
+        value['resources']['limits']['cpu'] = '600m'
+        with self.assertRaisesRegex(ValueError, 'namespace resource budget'): validate(value)
+
     def test_single_exposure_supplies_callback_route_and_external_hostname(self):
         value = definition()
         value['exposure'] = {'class': 'public', 'hostname': 'notes.example.invalid', 'access': 'public', 'path': '/', 'port': 8080}
