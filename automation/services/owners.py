@@ -6,6 +6,7 @@ import shlex
 import sys
 import urllib.error
 import urllib.request
+import yaml
 
 from automation.infra.command import Client
 from automation.services import native
@@ -18,6 +19,10 @@ class Owners:
     def __init__(self, bundle):
         if set(bundle) != {'definition', 'approval', 'platformRepository', 'platformRevision', 'origin', 'application'}:
             raise ValueError('Service operation requires its complete reviewed private bundle')
+        platform = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
+        origin = json.loads((ROOT / 'platform/connectivity/access/contract.json').read_text())['cloudflareOrigin']
+        if bundle['platformRepository'] != platform or bundle['origin'] != origin:
+            raise ValueError('Service operation cannot select a different platform repository or shared gateway origin')
         self.bundle = bundle
         self.definition, self.approval = bundle['definition'], bundle['approval']
         resources(self.definition, self.approval, bundle['platformRepository'], bundle['platformRevision'])
