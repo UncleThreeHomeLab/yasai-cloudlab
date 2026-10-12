@@ -25,7 +25,7 @@ from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('runner','/opt/runner/run.py')
 runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
 sys.argv=['run.py','inspect']
-with patch.object(runner,'dotenv_values',return_value={}):
+with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_values',return_value={}):
  try: runner.main()
  except (SystemExit,ValueError,RuntimeError): print('input gate reached')
  else: raise AssertionError('Missing inputs must stop before VM access')
@@ -126,11 +126,32 @@ with patch.object(runner,'dotenv_values',return_value={}):
         self.assertTrue(run.call_args.kwargs['check'])
 
     def setUp(self):
+        service_dns = patch('automation.services.inputs.private_dns_names', return_value=[])
+        service_dns.start()
+        self.addCleanup(service_dns.stop)
+        service_catalog = patch('automation.services.inputs.catalog', return_value={'catalog': []})
+        service_catalog.start()
+        self.addCleanup(service_catalog.stop)
         self.values = {
             'VM_HOST': 'server.example', 'VM_USER': 'root', 'VM_PASSWORD': 'literal${PASSWORD}',
             'VM2_HOST': 'worker.example', 'VM2_USER': 'root', 'VM2_PASSWORD': 'second-secret',
             'OP_SERVICE_ACCOUNT_TOKEN': 'literal${TOKEN}',
         }
+
+    def test_published_private_service_names_extend_existing_dns_inputs(self):
+        self.values['PRIVATE_ACCESS_HOSTS'] = '["cd", "notes"]'
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('automation.services.inputs.private_dns_names', return_value=['notes', 'fixture']):
+            self.invoke()
+            self.assertEqual(set(json.loads(os.environ['PRIVATE_ACCESS_HOSTS'])),
+                             {'cd', 'fixture', 'notes', 'identity-admin'})
+
+    def test_missing_required_private_catalog_stops_before_public_preflight(self):
+        with patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog missing')), \
+                patch('yaml.safe_load', return_value={'services': {'enabled': True}}), \
+                patch.object(runner.subprocess, 'run') as command:
+            with self.assertRaisesRegex(ValueError, 'Private catalog missing'): runner.gitops_preflight()
+            command.assert_not_called()
 
     def invoke(self, action='inspect'):
         with patch.object(runner.sys, 'argv', ['run.py', action]), \
