@@ -410,7 +410,7 @@ def prepare_master(directory, admin_host, bootstrap_directory=None):
     path.chmod(0o600)
 
 
-def initialize_primary(state, current, values):
+def initialize_primary(state, current, values, *, email_matches=None):
     """Credentials are creation-only; existing people must never be adopted."""
     realm = state['realm']
     if realm not in ('master', 'platform', 'applications'):
@@ -422,6 +422,10 @@ def initialize_primary(state, current, values):
         raise ValueError('Primary initialization requires complete verified private vault inputs')
     if not isinstance(current, list) or len(current) > 1 or any(row.get('username') != username for row in current):
         raise ValueError('Primary account lookup is ambiguous')
+    if realm == 'applications' and (not isinstance(email_matches, list) or len(email_matches) > 1 or any(
+            row.get('username') != username or not current or row.get('id') != current[0].get('id')
+            for row in email_matches)):
+        raise ValueError('Application enrollment cannot adopt an email-matched account')
     result = copy.deepcopy(state)
     member = next((user for user in result.get('users', []) if user['username'] == username), None)
     if realm in ('platform', 'applications') and (not member or '/platform-admin' not in member.get('groups', []) or member.get('enabled') is False):
@@ -437,7 +441,7 @@ def initialize_primary(state, current, values):
         result.setdefault('users', []).append(member)
     member.update(enabled=True, email=email, emailVerified=member.get('emailVerified', True),
                   requiredActions=['webauthn-register'], attributes={'cloudlab-primary-owner': [marker]},
-                  credentials=[{'type': 'password', 'value': password, 'temporary': False}])
+                  credentials=[{'type': 'password', 'value': password, 'temporary': False, 'userLabel': 'initial'}])
     return result
 
 
@@ -573,13 +577,16 @@ def prepare_application_owner(directory, nonce, admin_host):
             verified[0].get('email') != values['email'] or verified[0].get('emailVerified') is not True):
         raise ValueError('Applications enrollment requires the verified private platform owner')
     endpoint = origin + '/admin/realms/applications'
+    # Match config-cli's exact search, including collisions in profile fields.
     current = private_request(endpoint + '/users?' + urlencode({
-        'username': values['username'], 'exact': 'true', 'max': 2}), token=token)
+        'search': values['username'], 'exact': 'true', 'max': 2}), token=token)
+    email_matches = private_request(endpoint + '/users?' + urlencode({
+        'email': values['email'], 'exact': 'true', 'max': 2}), token=token)
     state = primary_profile(state, private_request(endpoint + '/users/profile', token=token),
                             private_request(endpoint, token=token).get('attributes', {}))
     document = initialize_primary(state, current, {
         'applications_username': values['username'], 'applications_password': values['password'],
-        'email': values['email'], 'email_verified': 'true', 'ownership_id': nonce})
+        'email': values['email'], 'email_verified': 'true', 'ownership_id': nonce}, email_matches=email_matches)
     # This operation owns one human and its marker schema, never other realm objects.
     users = [] if current else [row for row in document['users'] if row['username'] == values['username']]
     document = {key: document[key] for key in ('realm', 'attributes', 'userProfile')}

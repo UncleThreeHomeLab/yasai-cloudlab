@@ -201,6 +201,7 @@ def enroll(request, *, stage=False, application_owner=False):
             wait(writer_idle, 'normal writer release before private fixture publication', timeout=300)
             set_operation(preparation, owner['revision'])
             wait(ready, 'paused writer before private fixture publication', timeout=900)
+            wait(writer_idle, 'writer drain after the schedule is suspended', timeout=300)
             return {'normal_writers_paused': True, 'server_stopped': False, 'realm_changes': 0}
         if not before:
             wait(writer_idle, 'disposable enrollment writer idle', timeout=300)
