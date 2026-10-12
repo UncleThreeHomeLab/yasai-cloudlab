@@ -69,16 +69,16 @@ def provision(request):
     return {'disposable_credentials_ready': True, 'created': bool(result['created']), 'messages_sent': 0}
 
 
-def retained_delivery_patches(external, nonce, application):
+def retained_delivery_patches(external, nonce, application, *, name='keycloak-proof', item=None):
     """Retain only the exact completed fixture delivery without masking spec drift."""
     if not external:
         return []
     metadata, spec = external['metadata'], external['spec']
-    tracking = application + ':external-secrets.io/ExternalSecret:cloudlab-identity/keycloak-proof'
+    tracking = application + ':external-secrets.io/ExternalSecret:cloudlab-identity/' + name
     if (metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id') != tracking or
             metadata.get('ownerReferences') or metadata.get('deletionTimestamp') or
-            spec.get('dataFrom') != [{'extract': {'key': 'keycloak-proof-' + nonce}}] or
-            spec.get('target') != {'name': 'keycloak-proof', 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain'}):
+            spec.get('dataFrom') != [{'extract': {'key': item or 'keycloak-proof-' + nonce}}] or
+            spec.get('target') != {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain'}):
         raise RuntimeError('Disposable credential delivery ownership changed')
     wanted = {'argocd.argoproj.io/compare-options': 'IgnoreExtraneous',
               'argocd.argoproj.io/sync-options': 'Prune=false'}
@@ -89,7 +89,7 @@ def retained_delivery_patches(external, nonce, application):
             if any(metadata['annotations'].get(key) != value for key, value in wanted.items()) else [])
 
 
-def enroll(request, *, stage=False):
+def enroll(request, *, stage=False, application_owner=False):
     from automation.identity.bootstrap import private_inputs, writer_idle, reconciled
     from automation.identity.configuration import compile_state, private_request
     from automation.identity.emergency import phase_sync_patches, vault_secret
@@ -97,8 +97,10 @@ def enroll(request, *, stage=False):
     from automation.data.control import atomic
     from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
     nonce = scope(request)
-    operation = {'action': 'initialize-proof', 'realm': 'platform', 'nonce': nonce}
-    preparation = dict(operation, action='prepare-proof')
+    realm = 'applications' if application_owner else 'platform'
+    secret = 'keycloak-applications-owner' if application_owner else 'keycloak-proof'
+    operation = {'action': 'initialize-owner' if application_owner else 'initialize-proof', 'realm': realm, 'nonce': nonce}
+    preparation = dict(operation, action='prepare-owner' if application_owner else 'prepare-proof')
     with (BASE / 'owner.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         owner = json.loads((BASE / 'ownership.json').read_text())
@@ -127,8 +129,15 @@ def enroll(request, *, stage=False):
         source, revoked, _ = private_inputs({'values': values,
             'private_repository': private['spec']['source']['repoURL']})
         credentials = json.loads(vault_secret('keycloak-client-secrets')['client_secrets'])
-        state = compile_state('platform', values['loginHost'], source, credentials, revoked)
-        members = [row for row in state.get('users', []) if row.get('username') == 'proof-' + nonce]
+        state = compile_state(realm, values['loginHost'], source, credentials, revoked)
+        username = vault_secret(secret)['username'] if application_owner else 'proof-' + nonce
+        if application_owner:
+            from automation.identity.owner_enrollment import membership
+            owner_credentials = vault_secret(secret)
+            if owner_credentials.get('ownership_id') != nonce:
+                raise RuntimeError('Applications enrollment marker changed')
+            membership(source, revoked, owner_credentials)
+        members = [row for row in state.get('users', []) if row.get('username') == username]
         if not stage and (len(members) != 1 or members[0].get('enabled') is False):
             raise RuntimeError('Publish the exact active private disposable membership first')
         record = json.loads(checkpoint.read_text()) if checkpoint.exists() else {
@@ -141,11 +150,11 @@ def enroll(request, *, stage=False):
         record['revision'] = owner['revision']
         atomic(checkpoint, record)
         origin = 'https://' + values['adminHost']
-        endpoint = origin + '/admin/realms/platform/users?' + urlencode({'username': 'proof-' + nonce, 'exact': 'true', 'max': 2})
+        endpoint = origin + '/admin/realms/' + realm + '/users?' + urlencode({'username': username, 'exact': 'true', 'max': 2})
         def current():
-            bearer = private_request(origin + '/realms/platform/protocol/openid-connect/token', form={
+            bearer = private_request(origin + '/realms/' + realm + '/protocol/openid-connect/token', form={
                 'grant_type': 'client_credentials', 'client_id': 'realm-writer',
-                'client_secret': vault_secret('keycloak-realm-writers')['platform_client_secret']})['access_token']
+                'client_secret': vault_secret('keycloak-realm-writers')[realm + '_client_secret']})['access_token']
             return private_request(endpoint, token=bearer)
         before = current()
         if before and (len(before) != 1 or before[0].get('attributes', {}).get('cloudlab-primary-owner') != [nonce]):
@@ -188,9 +197,10 @@ def enroll(request, *, stage=False):
                 raise RuntimeError('Disposable enrollment did not create its exact owned identity')
             record.update(user_id=created[0]['id'], phase='created')
             atomic(checkpoint, record)
-        patches = retained_delivery_patches(get('externalsecret.external-secrets.io', 'keycloak-proof', NAMESPACE), nonce, APP)
+        patches = retained_delivery_patches(get('externalsecret.external-secrets.io', secret, NAMESPACE), nonce, APP,
+            name=secret, item=secret if application_owner else None)
         if patches:
-            kube('patch', 'externalsecret.external-secrets.io', 'keycloak-proof', '-n', NAMESPACE,
+            kube('patch', 'externalsecret.external-secrets.io', secret, '-n', NAMESPACE,
                  '--type=json', '--field-manager=' + OWNER, '-p', json.dumps(patches))
         if resume_null or resume_created or get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject'].get('operation') == operation:
             wait(writer_idle, 'disposable enrollment writer release', timeout=300)

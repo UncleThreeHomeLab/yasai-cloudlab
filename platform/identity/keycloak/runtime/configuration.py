@@ -413,8 +413,8 @@ def prepare_master(directory, admin_host, bootstrap_directory=None):
 def initialize_primary(state, current, values):
     """Credentials are creation-only; existing people must never be adopted."""
     realm = state['realm']
-    if realm not in ('master', 'platform'):
-        raise ValueError('Primary initialization requires master or platform')
+    if realm not in ('master', 'platform', 'applications'):
+        raise ValueError('Primary initialization requires an owned realm')
     username = name(values[realm + '_username'])
     password, marker, email = values[realm + '_password'], values['ownership_id'], values['email']
     if (not isinstance(password, str) or len(password) < 32 or not re.fullmatch('[a-f0-9]{32}', marker) or
@@ -424,7 +424,7 @@ def initialize_primary(state, current, values):
         raise ValueError('Primary account lookup is ambiguous')
     result = copy.deepcopy(state)
     member = next((user for user in result.get('users', []) if user['username'] == username), None)
-    if realm == 'platform' and (not member or '/platform-admin' not in member.get('groups', []) or member.get('enabled') is False):
+    if realm in ('platform', 'applications') and (not member or '/platform-admin' not in member.get('groups', []) or member.get('enabled') is False):
         raise ValueError('Primary platform membership must be active and explicitly declared in the private source')
     if member is not None and 'email' in member:
         email = member['email']
@@ -545,6 +545,45 @@ def prepare_proof_user(directory, nonce, admin_host):
     current = private_request(origin + '/admin/realms/platform/users?' + urlencode({
         'username': 'proof-' + nonce, 'exact': 'true', 'max': 2}), token=token)
     document = proof_user(state, current, values, nonce)
+    target = Path(directory, 'proof.json')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(document, sort_keys=True))
+    target.chmod(0o600)
+
+
+def prepare_application_owner(directory, nonce, admin_host):
+    """Creation-only enrollment through the existing applications realm writer."""
+    from urllib.parse import urlencode
+    values = {key: Path('/proof-credentials', key).read_text()
+              for key in ('username', 'password', 'email', 'ownership_id')}
+    if values['ownership_id'] != nonce:
+        raise ValueError('Application owner credential ownership changed')
+    origin = exact_url('https://' + admin_host + '/')[:-1]
+    token = private_request(origin + '/realms/applications/protocol/openid-connect/token', form={
+        'grant_type': 'client_credentials', 'client_id': 'realm-writer',
+        'client_secret': Path('/credentials/applications_client_secret').read_text()})['access_token']
+    source = json.loads(Path('/private/desired_state').read_text())
+    revoked = json.loads(Path('/private/revocations').read_text())
+    credentials = json.loads(Path('/private/client_secrets').read_text())
+    state = compile_state('applications', 'validation.invalid', source, credentials, revoked)
+    platform = compile_state('platform', 'validation.invalid', source, credentials, revoked)
+    verified = [row for row in platform.get('users', []) if row.get('username') == values['username']]
+    if (len(verified) != 1 or verified[0].get('enabled') is False or
+            '/platform-admin' not in verified[0].get('groups', []) or
+            verified[0].get('email') != values['email'] or verified[0].get('emailVerified') is not True):
+        raise ValueError('Applications enrollment requires the verified private platform owner')
+    endpoint = origin + '/admin/realms/applications'
+    current = private_request(endpoint + '/users?' + urlencode({
+        'username': values['username'], 'exact': 'true', 'max': 2}), token=token)
+    state = primary_profile(state, private_request(endpoint + '/users/profile', token=token),
+                            private_request(endpoint, token=token).get('attributes', {}))
+    document = initialize_primary(state, current, {
+        'applications_username': values['username'], 'applications_password': values['password'],
+        'email': values['email'], 'email_verified': 'true', 'ownership_id': nonce})
+    # This operation owns one human and its marker schema, never other realm objects.
+    users = [] if current else [row for row in document['users'] if row['username'] == values['username']]
+    document = {key: document[key] for key in ('realm', 'attributes', 'userProfile')}
+    document['users'] = users
     target = Path(directory, 'proof.json')
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(document, sort_keys=True))

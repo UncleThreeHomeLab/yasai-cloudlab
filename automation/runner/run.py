@@ -10,6 +10,10 @@ import sys
 from dotenv import dotenv_values
 
 IDENTITY_COMMANDS = {
+    'identity-owner-credentials': ('owner_enrollment', 'provision'),
+    'identity-owner-stage': ('owner_enrollment', '--stage'),
+    'identity-owner-publish': ('owner_enrollment', 'publish'),
+    'identity-owner-enroll': ('owner_enrollment', 'local'),
     'identity-private-publish': ('operations', '--publish'),
     'identity-access-prepare': ('access_provider',),
     'identity-access-cutover': ('access_cutover',),
