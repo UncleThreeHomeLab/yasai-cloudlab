@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "roots": ["cloudflare", "github"],
+  "actions": ["apply", "drift", "verify"],
+  "fields": ["revision", "started_at", "completed_at", "result", "failure", "changes", "last_success_at"],
+  "results": ["running", "success", "drift", "failure", "unavailable"],
+  "failure_categories": ["none", "operation", "interrupted", "authentication", "backend", "lock", "verification"],
+  "clock": "Finite UTC Unix seconds; future evidence is unavailable",
+  "maximum_observation_age_seconds": 86400,
+  "maximum_running_age_seconds": 3600,
+  "history": "One atomic current snapshot per root; preserve each action's last successful completion across failures",
+  "redaction": "No endpoints, private IDs, resource names, plans, provider diagnostics, credentials or exception text",
+  "producer": "06a trusted workflows must publish running and terminal results, including failures before apply; interrupted running evidence expires",
+  "export": "metrics() exports only allowlisted bounded series; exporter and scheduling are not active",
+  "alerts": "Failure, drift, unavailable, missing and stale evidence require explicit root/action workflow_enabled=1",
+  "unconfigured": "No enabled workflow means unavailable evidence, never automatic monitoring or successful infrastructure",
+  "delivery": "Lab alerts cannot replace independent public outage monitoring"
+}

@@ -3,8 +3,26 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import urllib.request
 
 ROOT = Path(__file__).resolve().parent
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+
+
+def dependency_ready():
+    try:
+        # Fixed in-cluster peer; user input cannot select the dependency.
+        request = urllib.request.Request('http://notes-api:8080/ready')
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        with opener.open(request, timeout=8) as response:
+            raw = response.read(1025)
+            return response.status == 200 and len(raw) <= 1024 and json.loads(raw) == {'ready': True}
+    except Exception:
+        return False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -20,7 +38,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/operations' and self.headers.get('Host') != os.environ.get('OPERATIONS_HOST'):
             self.send_error(404)
             return
-        if path in ('/live', '/ready'):
+        if path == '/monitoring-proof/failed':
+            body = b'{"ready":false}'
+            self.send_response(503)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == '/health':
+            healthy = dependency_ready()
+            body = b'{"ready":true}' if healthy else b'{"ready":false}'
+            self.send_response(200 if healthy else 503)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path in ('/live', '/ready', '/monitoring-proof/ready'):
             body, kind = b'{"ready":true}', 'application/json'
         elif path == '/settings.json':
             body = json.dumps({'issuer': os.environ['OIDC_ISSUER'], 'client': os.environ['OIDC_CLIENT'],

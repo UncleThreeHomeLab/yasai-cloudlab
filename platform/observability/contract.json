@@ -1,0 +1,38 @@
+{
+  "owners": {
+    "dashboards_and_data_sources": "Git file provisioning",
+    "metric_scraping": "Prometheus",
+    "alert_rules_and_routing": "Git PrometheusRule and Alertmanager configuration",
+    "logs_and_otlp": "Alloy",
+    "identity": "Retained serialized Keycloak config-cli",
+    "independent_monitoring": "Independent Compose client and UptimeRobot Free"
+  },
+  "grafana_provider": {
+    "disposition": "retain",
+    "reason": "Required dashboards, data sources, SSO settings and Prometheus alerts have native Git owners; no required API-only object identified",
+    "adoption": false,
+    "qualification": "No provider capability or live OSS acceptance claimed until pinned fixture tests pass"
+  },
+  "telemetry": {
+    "storage": "Local Longhorn PVCs",
+    "offsite_backup": false,
+    "b2_traffic": false,
+    "s3_backend": false,
+    "secret_policy": "Export only allowlisted fields; no tokens, passwords, request bodies, query strings or event representations"
+  },
+  "independent_monitoring": {
+    "vault_item": "uptimerobot-management",
+    "fields": ["API_KEY"],
+    "credential_scope": "Account-wide Main API key; local management only, never sent to lab workloads",
+    "contact": "One active Email contact matching the registered account email",
+    "interval_seconds": 300,
+    "timeout_seconds": 15,
+    "api_requests_per_minute": 10,
+    "owner_prefix": "cloudlab-owned:",
+    "monitors": ["notes-health", "notification-proof"],
+    "endpoint": "Uncached public /health checks web, API, SQL and S3; private services and human authentication need separate checks",
+    "fixture": "Only /monitoring-proof/ready and /monitoring-proof/failed; never stop production to demonstrate an outage",
+    "notification_delivery": "Provider status alone is insufficient; confirm failure and recovery emails before acceptance",
+    "tailnet": "Hosted public monitoring has no private identity; private probes require separately authorized independent execution"
+  }
+}
