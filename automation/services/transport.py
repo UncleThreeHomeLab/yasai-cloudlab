@@ -14,7 +14,8 @@ def policy(entry):
     expected += ['cluster.local/ns/cloudlab-gateway-' + exposure + '/sa/cloudlab-istio' for exposure in classes]
     actual = get('authorizationpolicy.security.istio.io', 'platform-workloads', namespace)
     if (not actual or not actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:') or
-            actual['spec'] != {'selector': {}, 'action': 'ALLOW', 'rules': [{'from': [{'source': {'principals': expected}}]}]}):
+            actual['spec'] != {'selector': {'matchLabels': {'cloudlab.io/owner': definition['owner']}},
+                               'action': 'ALLOW', 'rules': [{'from': [{'source': {'principals': expected}}]}]}):
         raise RuntimeError('Workload policy differs from its exact platform-owned identities')
     return accounts[0]
 

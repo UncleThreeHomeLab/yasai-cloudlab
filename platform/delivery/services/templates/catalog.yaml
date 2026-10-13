@@ -71,7 +71,8 @@ apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata: {name: platform-workloads, namespace: {{ $namespace }}}
 spec:
-  selector: {}
+  selector:
+    matchLabels: {cloudlab.io/owner: {{ $v.owner | quote }}}
   action: ALLOW
   rules:
     - from:

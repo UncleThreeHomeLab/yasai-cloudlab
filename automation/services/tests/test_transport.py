@@ -7,6 +7,13 @@ from automation.services.tests.fixtures import definition, approval
 
 
 class TransportTests(unittest.TestCase):
+    def test_rendered_platform_policy_selects_the_owned_workload_labels(self):
+        from automation.services.gitops import resources
+        value, allowed = definition(), approval()
+        objects = resources(value, allowed, 'https://github.com/example/platform.git', 'a' * 40)
+        selected = next(obj for obj in objects if obj['kind'] == 'AuthorizationPolicy')
+        self.assertEqual(selected['spec']['selector'], {'matchLabels': {'cloudlab.io/owner': value['owner']}})
+
     def test_live_capture_precedes_allowed_and_denied_probes_and_cleanup(self):
         entry = {'definition': definition(), 'approval': approval()}
         namespace = entry['approval']['namespace']
@@ -51,12 +58,15 @@ class TransportTests(unittest.TestCase):
     def test_workload_policy_rejects_extra_principals_or_an_author_owner(self):
         entry = {'definition': definition(), 'approval': approval()}
         obj = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-services:owned'}},
-               'spec': {'selector': {}, 'action': 'ALLOW', 'rules': [{'from': [{'source': {
+               'spec': {'selector': {'matchLabels': {'cloudlab.io/owner': entry['definition']['owner']}}, 'action': 'ALLOW', 'rules': [{'from': [{'source': {
                    'principals': ['cluster.local/ns/cloudlab-app-synthetic/sa/synthetic']}}]}]}}
         with patch('automation.services.transport.get', return_value=obj):
             self.assertEqual(policy(entry), 'synthetic')
             obj['spec']['rules'][0]['from'][0]['source']['principals'].append('*')
             with self.assertRaises(RuntimeError): policy(entry)
             obj['spec']['rules'][0]['from'][0]['source']['principals'].pop()
+            obj['spec']['selector'] = {}
+            with self.assertRaises(RuntimeError): policy(entry)
+            obj['spec']['selector'] = {'matchLabels': {'cloudlab.io/owner': entry['definition']['owner']}}
             obj['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'synthetic-synthetic:owned'
             with self.assertRaises(RuntimeError): policy(entry)
