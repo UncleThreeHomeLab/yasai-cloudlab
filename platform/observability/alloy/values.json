@@ -1,0 +1,80 @@
+{
+  "alloy": {
+    "fullnameOverride": "cloudlab-alloy",
+    "image": {
+      "registry": "docker.io",
+      "repository": "grafana/alloy",
+      "digest": "sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f"
+    },
+    "crds": {
+      "create": false
+    },
+    "controller": {
+      "type": "deployment",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxSurge": 0,
+          "maxUnavailable": 1
+        }
+      }
+    },
+    "configReloader": {
+      "enabled": false
+    },
+    "serviceAccount": {
+      "name": "cloudlab-alloy"
+    },
+    "alloy": {
+      "enableReporting": false,
+      "resources": {
+        "requests": {
+          "cpu": "50m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "cpu": "250m",
+          "memory": "384Mi"
+        }
+      },
+      "configMap": {
+        "create": false,
+        "name": "cloudlab-alloy",
+        "key": "config.alloy"
+      },
+      "extraPorts": [
+        {
+          "name": "otlp-http",
+          "port": 4318,
+          "targetPort": 4318,
+          "protocol": "TCP"
+        }
+      ]
+    },
+    "rbac": {
+      "create": true,
+      "namespaces": [
+        "cloudlab-app-notes",
+        "cloudlab-identity"
+      ],
+      "clusterRules": [],
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods",
+            "pods/log"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    }
+  }
+}

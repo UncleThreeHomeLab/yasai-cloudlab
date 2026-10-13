@@ -184,8 +184,14 @@ def reconcile(api, key, url, identifier, *, apply=False, allow_fixture_change=Fa
             api.request('POST', 'monitors', target)
         else:
             api.request('PATCH', 'monitors/' + str(current['id']), target)
-        observed = owned(monitors(api), key)
-        if observed is None or normalized(observed) != target or observed.get('status') == 'PAUSED':
+        # Provider reads can lag a successful write. Observe; never repeat creates.
+        converged = False
+        for attempt in range(3):
+            observed = owned(monitors(api), key)
+            if observed is not None and normalized(observed) == target and observed.get('status') != 'PAUSED':
+                converged = True
+                break
+        if not converged:
             raise RuntimeError('Independent monitor configuration did not converge')
     return {'configured': not changed or apply, 'changes': int(changed), 'notifications': 'registered-email-only',
             'interval_seconds': 300, 'automatic_lab_dependency': False}

@@ -1,0 +1,140 @@
+logging { level = "warn" }
+discovery.kubernetes "safe" {
+  role = "pod"
+  namespaces { names = ["cloudlab-app-notes", "cloudlab-identity"] }
+  selectors { role = "pod"
+    label = "cloudlab.io/telemetry=safe" }
+}
+discovery.relabel "safe" {
+  targets = discovery.kubernetes.safe.targets
+  rule { source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    target_label = "service" }
+  rule {
+    action = "labelkeep"
+    regex = "__.*|service" }
+}
+loki.source.kubernetes "safe" {
+  targets = discovery.relabel.safe.output
+  forward_to = [loki.process.redacted.receiver]
+}
+loki.process "redacted" {
+  stage.json {
+    expressions = { kind = "kind", trace_id = "trace_id", service = "service", route = "route", status = "status", duration = "duration_ms", realm = "realm", type = "type", operation = "operationType", resource = "resourceType", time = "time", healthy = "healthy", observed = "observed", incomplete = "incomplete" }
+  }
+  stage.template {
+    source = "safe_line"
+    template = "{{ if and (eq .kind \"request\") (regexMatch \"^[a-f0-9]{32}$\" (printf \"%v\" .trace_id)) (regexMatch \"^notes-(web|api)$\" (printf \"%v\" .service)) (regexMatch \"^(/|/health|/ready|/live|/api/notes|/api/release/notes|/api/operations|other)$\" (printf \"%v\" .route)) (regexMatch \"^[1-5][0-9]{2}$\" (printf \"%v\" .status)) (regexMatch \"^[0-9]+([.][0-9]+)?$\" (printf \"%v\" .duration)) }}{\"kind\":\"request\",\"service\":\"{{ .service }}\",\"route\":\"{{ .route }}\",\"status\":{{ .status }},\"duration_ms\":{{ .duration }},\"trace_id\":\"{{ .trace_id }}\"}{{ else if and (eq .kind \"identity-audit\") (regexMatch \"^(platform|applications)$\" (printf \"%v\" .realm)) }}{{ if regexMatch \"^(LOGIN|LOGIN_ERROR|LOGOUT|LOGOUT_ERROR|REGISTER|REGISTER_ERROR|UPDATE_CREDENTIAL|REMOVE_CREDENTIAL|CODE_TO_TOKEN|CODE_TO_TOKEN_ERROR|REFRESH_TOKEN|REFRESH_TOKEN_ERROR)$\" (printf \"%v\" .type) }}{\"kind\":\"identity-audit\",\"service\":\"identity-audit\",\"realm\":\"{{ .realm }}\",\"type\":\"{{ .type }}\"}{{ else if regexMatch \"^(CREATE|UPDATE|DELETE|ACTION)$\" (printf \"%v\" .operation) }}{\"kind\":\"identity-audit\",\"service\":\"identity-audit\",\"realm\":\"{{ .realm }}\",\"operation\":\"{{ .operation }}\"}{{ end }}{{ else if and (eq .kind \"identity-health\") (regexMatch \"^(platform|applications)$\" (printf \"%v\" .realm)) (eq (printf \"%v\" .healthy) \"1\") (regexMatch \"^[0-9]{10}$\" (printf \"%v\" .observed)) (regexMatch \"^[01]$\" (printf \"%v\" .incomplete)) }}{\"kind\":\"identity-health\",\"service\":\"identity-audit\",\"realm\":\"{{ .realm }}\",\"observed\":{{ .observed }},\"incomplete\":{{ .incomplete }}}{{ end }}"
+  }
+  stage.drop { source = "safe_line"
+    expression = "^$" }
+  stage.static_labels { values = { pipeline = "redacted" } }
+  stage.label_keep { values = ["pipeline"] }
+  stage.json {
+    source = "safe_line"
+    expressions = { safe_kind = "kind", safe_service = "service", safe_realm = "realm", safe_type = "type", safe_operation = "operation", safe_observed = "observed", safe_incomplete = "incomplete" }
+  }
+  stage.labels { values = { kind = "safe_kind", service = "safe_service", realm = "safe_realm", type = "safe_type", operation = "safe_operation" } }
+  stage.match {
+    selector = "{kind=\"identity-audit\",type=\"LOGIN_ERROR\"}"
+    stage.metrics { metric.counter { name = "keycloak_login_failures_total"
+    prefix = "cloudlab_"
+    description = "Observed redacted login errors"
+    match_all = true
+    action = "inc"
+    max_idle_duration = "1h" } }
+  }
+  stage.match {
+    selector = "{kind=\"identity-audit\",operation=~\"CREATE|UPDATE|DELETE|ACTION\"}"
+    stage.metrics { metric.counter { name = "keycloak_admin_events_total"
+    prefix = "cloudlab_"
+    description = "Observed redacted admin events"
+    match_all = true
+    action = "inc"
+    max_idle_duration = "1h" } }
+  }
+  stage.match {
+    selector = "{kind=\"identity-health\"}"
+    stage.metrics {
+      metric.gauge {
+        name = "keycloak_health_last_success_seconds"
+        prefix = "cloudlab_"
+        description = "Last complete redacted realm health poll"
+        source = "safe_observed"
+        action = "set"
+        max_idle_duration = "24h"
+      }
+      metric.gauge {
+        name = "keycloak_audit_incomplete"
+        prefix = "cloudlab_"
+        description = "Latest bounded realm audit batch may be truncated"
+        source = "safe_incomplete"
+        action = "set"
+        max_idle_duration = "24h"
+      }
+    }
+  }
+  stage.output { source = "safe_line" }
+  forward_to = [loki.write.local.receiver]
+}
+loki.write "local" {
+  endpoint { url = "http://cloudlab-loki:3100/loki/api/v1/push"
+    batch_size = "64KiB"
+    batch_wait = "1s" }
+}
+
+otelcol.receiver.otlp "notes" {
+  http { endpoint = "0.0.0.0:4318"
+    max_request_body_size = "1MiB" }
+  output { traces = [otelcol.processor.memory_limiter.bounded.input] }
+}
+otelcol.processor.memory_limiter "bounded" {
+  check_interval = "1s"
+  limit = "192MiB"
+  spike_limit = "48MiB"
+  output { traces = [otelcol.processor.filter.notes.input] }
+}
+otelcol.processor.filter "notes" {
+  error_mode = "propagate"
+  traces { span = ["resource.attributes[\"service.name\"] != \"notes-web\" and resource.attributes[\"service.name\"] != \"notes-api\"", "name != \"notes.web\" and name != \"notes.api\" and name != \"notes.database\" and name != \"notes.objects\""] }
+  output { traces = [otelcol.processor.transform.redacted.input] }
+}
+otelcol.processor.transform "redacted" {
+  error_mode = "propagate"
+  trace_statements {
+    context = "resource"
+    statements = ["keep_keys(attributes, [\"service.name\"])"]
+  }
+  trace_statements {
+    context = "span"
+    statements = [
+      "keep_keys(attributes, [\"http.route\", \"http.request.method\", \"http.response.status_code\", \"cloudlab.traffic\"])",
+      "delete_key(attributes, \"http.route\") where attributes[\"http.route\"] != nil and not IsMatch(attributes[\"http.route\"], \"^(/|/health|/ready|/live|/api/notes|/api/release/notes|/api/operations|other)$\")",
+      "delete_key(attributes, \"http.request.method\") where attributes[\"http.request.method\"] != nil and not IsMatch(attributes[\"http.request.method\"], \"^(GET|POST)$\")",
+      "delete_key(attributes, \"cloudlab.traffic\") where attributes[\"cloudlab.traffic\"] != nil and not IsMatch(attributes[\"cloudlab.traffic\"], \"^(user|release|synthetic)$\")",
+      "delete_key(attributes, \"http.response.status_code\") where attributes[\"http.response.status_code\"] != nil and (not IsInt(attributes[\"http.response.status_code\"]) or attributes[\"http.response.status_code\"] < 100 or attributes[\"http.response.status_code\"] > 599)",
+      "set(status.message, \"\")", "set(trace_state, \"\")", "set(links, nil)", "set(events, nil)",
+      "set(instrumentation_scope.name, \"cloudlab.notes\")", "set(instrumentation_scope.version, \"\")", "keep_keys(instrumentation_scope.attributes, [])",
+    ]
+  }
+  trace_statements {
+    context = "spanevent"
+    statements = ["keep_keys(attributes, [])", "set(name, \"redacted\")"]
+  }
+  output { traces = [otelcol.processor.batch.bounded.input] }
+}
+otelcol.processor.batch "bounded" {
+
+    timeout = "1s"
+  send_batch_size = 64
+  send_batch_max_size = 128
+  output { traces = [otelcol.exporter.otlphttp.local.input] }
+}
+otelcol.exporter.otlphttp "local" {
+  client { endpoint = "http://cloudlab-tempo:4318"
+    timeout = "5s" }
+  sending_queue { enabled = true
+    queue_size = 64
+    num_consumers = 1 }
+  retry_on_failure { enabled = true
+    max_elapsed_time = "30s" }
+}

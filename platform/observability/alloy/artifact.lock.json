@@ -1,0 +1,8 @@
+{
+  "chart": "alloy",
+  "version": "1.13.1",
+  "appVersion": "v1.20.1",
+  "url": "https://github.com/grafana/helm-charts/releases/download/alloy-1.13.1/alloy-1.13.1.tgz",
+  "sha256": "6c2b7df23e39438bb11f1e1fcf19eb9eb7c8bfeab7d49b7c975b6212abd0f99a",
+  "archive": "charts/alloy-1.13.1.tgz"
+}

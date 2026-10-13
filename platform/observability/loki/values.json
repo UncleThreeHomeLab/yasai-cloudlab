@@ -1,0 +1,113 @@
+{
+  "loki": {
+    "fullnameOverride": "cloudlab-loki",
+    "deploymentMode": "SingleBinary",
+    "loki": {
+      "image": {
+        "registry": "docker.io",
+        "repository": "grafana/loki",
+        "digest": "sha256:2483b71b28b15dee230f85512cae2b20c4b5f6e98a6eabe686cbccfa5ea3ba4a"
+      },
+      "auth_enabled": false,
+      "analytics": {
+        "reporting_enabled": false
+      },
+      "commonConfig": {
+        "replication_factor": 1
+      },
+      "storage": {
+        "type": "filesystem"
+      },
+      "schemaConfig": {
+        "configs": [
+          {
+            "from": "2026-01-01",
+            "store": "tsdb",
+            "object_store": "filesystem",
+            "schema": "v13",
+            "index": {
+              "prefix": "index_",
+              "period": "24h"
+            }
+          }
+        ]
+      },
+      "limits_config": {
+        "retention_period": "72h",
+        "retention_stream": [
+          {
+            "selector": "{kind=\"identity-audit\"}",
+            "priority": 1,
+            "period": "168h"
+          }
+        ],
+        "ingestion_rate_mb": 0.02,
+        "ingestion_burst_size_mb": 0.1,
+        "max_global_streams_per_user": 128,
+        "max_line_size": 4096,
+        "max_query_lookback": "168h",
+        "max_entries_limit_per_query": 1000,
+        "reject_old_samples": true,
+        "reject_old_samples_max_age": "168h",
+        "allow_structured_metadata": false
+      },
+      "compactor": {
+        "working_directory": "/var/loki/compactor",
+        "retention_enabled": true,
+        "delete_request_store": "filesystem",
+        "retention_delete_delay": "15m",
+        "compaction_interval": "10m"
+      }
+    },
+    "singleBinary": {
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "256Mi"
+        },
+        "limits": {
+          "cpu": "400m",
+          "memory": "768Mi"
+        }
+      },
+      "persistence": {
+        "enabled": true,
+        "storageClass": "cloudlab-telemetry",
+        "size": "20Gi"
+      }
+    },
+    "read": {
+      "replicas": 0
+    },
+    "write": {
+      "replicas": 0
+    },
+    "backend": {
+      "replicas": 0
+    },
+    "gateway": {
+      "enabled": false
+    },
+    "lokiCanary": {
+      "enabled": false
+    },
+    "test": {
+      "enabled": false
+    },
+    "chunksCache": {
+      "enabled": false
+    },
+    "resultsCache": {
+      "enabled": false
+    },
+    "sidecar": {
+      "rules": {
+        "enabled": false
+      }
+    },
+    "serviceAccount": {
+      "automountServiceAccountToken": false
+    }
+  }
+}

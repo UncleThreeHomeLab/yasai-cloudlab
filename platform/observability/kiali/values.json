@@ -1,0 +1,57 @@
+{
+  "kiali-server": {
+    "login_token": {
+      "signing_key": "secret:kiali-signing-key:key"
+    },
+    "auth": {
+      "strategy": "openid",
+      "openid": {
+        "client_id": "kiali",
+        "issuer_uri": "https://login.example.invalid/realms/platform",
+        "username_claim": "sub",
+        "disable_rbac": true
+      }
+    },
+    "deployment": {
+      "image_version": "082246cfc99f69667f10e56cecd6b92d6c614908d29b123d93a0cd0173d0905f",
+      "image_digest": "sha256",
+      "cluster_wide_access": false,
+      "view_only_mode": true,
+      "resources": {
+        "requests": {
+          "cpu": "20m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "200m",
+          "memory": "384Mi"
+        }
+      },
+      "network_policy": {
+        "enabled": false
+      }
+    },
+    "clustering": {
+      "autodetect_secrets": {
+        "enabled": false
+      }
+    },
+    "external_services": {
+      "prometheus": {
+        "url": "http://cloudlab-prometheus:9090"
+      },
+      "grafana": {
+        "enabled": true,
+        "internal_url": "http://cloudlab-grafana",
+        "external_url": "https://grafana.internal.example.invalid"
+      },
+      "tracing": {
+        "enabled": true,
+        "provider": "tempo",
+        "internal_url": "http://cloudlab-tempo:3200",
+        "use_grpc": false
+      }
+    },
+    "istio_namespace": "istio-system"
+  }
+}

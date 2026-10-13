@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cloudlab-tempo
+version: 0.1.0
+dependencies:
+- name: tempo
+  version: 3.1.0
+  repository: ''

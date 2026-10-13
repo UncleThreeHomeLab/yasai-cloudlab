@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cloudlab-kiali
+version: 0.1.0
+dependencies:
+- name: kiali-server
+  version: 2.33.0
+  repository: ''

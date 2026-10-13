@@ -7,6 +7,22 @@ from automation.observability.tests.fixtures import FakeAPI, existing
 
 
 class IndependentTests(unittest.TestCase):
+    def test_eventually_consistent_reads_do_not_repeat_create(self):
+        api = FakeAPI()
+        original = api.request
+        stale_reads = 0
+        def lagged(method, path, value=None):
+            nonlocal stale_reads
+            result = original(method, path, value)
+            if method == 'GET' and path.startswith('monitors?') and api.writes and stale_reads < 2:
+                stale_reads += 1
+                return {'data': [], 'nextLink': None}
+            return result
+        with patch.object(api, 'request', side_effect=lagged):
+            result = reconcile(api, 'notes-health', 'https://notes.example.com/health', 7, apply=True)
+        self.assertTrue(result['configured'])
+        self.assertEqual(len(api.writes), 1)
+
     def test_fixture_failure_requires_observed_up_baseline_before_mutation(self):
         from automation.observability.command import main
         api = FakeAPI()

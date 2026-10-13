@@ -12,6 +12,15 @@ import urllib.parse
 import urllib.request
 
 
+EVENT_TYPES = frozenset(('LOGIN', 'LOGIN_ERROR', 'LOGOUT', 'LOGOUT_ERROR', 'REGISTER', 'REGISTER_ERROR',
+    'UPDATE_CREDENTIAL', 'REMOVE_CREDENTIAL', 'CODE_TO_TOKEN', 'CODE_TO_TOKEN_ERROR',
+    'REFRESH_TOKEN', 'REFRESH_TOKEN_ERROR'))
+OPERATIONS = frozenset(('CREATE', 'UPDATE', 'DELETE', 'ACTION'))
+RESOURCE_TYPES = frozenset(('REALM', 'USER', 'GROUP', 'CLIENT', 'CLIENT_ROLE', 'REALM_ROLE',
+    'IDENTITY_PROVIDER', 'AUTHENTICATION_FLOW', 'AUTHENTICATOR_CONFIG', 'REQUIRED_ACTION',
+    'USER_SESSION', 'COMPONENT', 'REALM_ROLE_MAPPING', 'CLIENT_ROLE_MAPPING', 'USER_GROUP_MEMBERSHIP'))
+
+
 def redact(events, admin=False):
     if not isinstance(events, list) or len(events) > 1000:
         raise ValueError('Audit batch exceeds the bounded projection')
@@ -21,9 +30,10 @@ def redact(events, admin=False):
         timestamp = event.get('time')
         if type(timestamp) is int and timestamp >= 0:
             row['time'] = timestamp
-        for key in (('operationType', 'resourceType') if admin else ('type', 'error')):
+        for key, allowed in ((('operationType', OPERATIONS), ('resourceType', RESOURCE_TYPES)) if admin else
+                             (('type', EVENT_TYPES),)):
             value = event.get(key)
-            if isinstance(value, str) and re.fullmatch('[A-Za-z_]{1,64}', value):
+            if isinstance(value, str) and value in allowed:
                 row[key] = value
         # Drop IPs, IDs, usernames, paths, client metadata and event representations.
         result.append(row)
@@ -152,12 +162,15 @@ def run(login_host, admin_host):
                          form={'grant_type': 'client_credentials', 'client_id': 'realm-health', 'client_secret': secret})
         root = 'https://' + admin_host + '/admin/realms/' + realm
         cutoff = int((time.time() - 300) * 1000)
-        projected = {}
+        incomplete = False
         for path, admin in (('/events?max=100', False), ('/admin-events?max=100', True)):
             events = json_get(root + path, token=token['access_token'])
-            projected['admin' if admin else 'login'] = [e for e in redact(events, admin) if e.get('time', 0) >= cutoff]
-        print(json.dumps({'realm': realm, 'health': status, 'audit': projected,
-                          'audit_limit': 'Latest 100 events per category; full audit pipeline belongs to milestone 05'}, sort_keys=True))
+            incomplete = incomplete or len(events) >= 100
+            for event in redact(events, admin):
+                if event.get('time', 0) >= cutoff and ('type' in event or 'operationType' in event):
+                    print(json.dumps(dict(event, kind='identity-audit', realm=realm), sort_keys=True), flush=True)
+        print(json.dumps({'kind': 'identity-health', 'realm': realm, 'healthy': 1,
+                          'observed': str(int(time.time())), 'incomplete': int(incomplete)}, sort_keys=True), flush=True)
 
 
 if __name__ == '__main__':

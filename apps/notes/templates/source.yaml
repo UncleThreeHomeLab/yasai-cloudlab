@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: notes-source
 data:
-  {{- range $path := list "api.py" "web.py" "app.js" "index.html" "style.css" "requirements.txt" }}
+  {{- range $path := list "api.py" "web.py" "telemetry.py" "telemetry-requirements.txt" "app.js" "index.html" "style.css" "requirements.txt" }}
   {{ $path }}: |
 {{ $.Files.Get $path | indent 4 }}
   {{- end }}
