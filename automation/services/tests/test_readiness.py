@@ -1,4 +1,7 @@
 import copy
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -7,6 +10,42 @@ from automation.services.tests.fixtures import definition, approval
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_identity_follows_current_public_source_without_reusing_bootstrap_revision(self):
+        from automation.services.contract import identity_request
+        value = definition()
+        value['exposure'] = {'class': 'public', 'hostname': 'notes.example.invalid', 'access': 'public', 'path': '/', 'port': 8080}
+        value['oidc'] = {'enabled': True, 'realm': 'applications', 'client': 'notes-web', 'public': True,
+                         'audience': 'notes-api', 'callbackPaths': ['/callback'], 'scopes': ['profile'],
+                         'roleMapping': {'reader': ['viewer']}}
+        desired = identity_request(value, {})['client']
+        source = {'repoURL': 'https://github.com/example/platform.git', 'targetRevision': 'main'}
+        root = {'spec': {'source': source}, 'status': {'sync': {'revision': 'b' * 40}}}
+        identity = {'spec': {'source': dict(source, path='platform/identity/keycloak')}}
+        def get(kind, name=None, namespace=None):
+            if name == 'identity-private-state':
+                return {'data': {'desired_state': json.dumps({'realms': {'applications': {'clients': [desired]}}}),
+                                 'revocations': json.dumps({'realms': {}})}}
+            if name == 'cloudlab-identity-private': return {'status': {'sync': {'revision': 'private'}}}
+            if name == 'cloudlab-public-root': return root
+            if name == 'cloudlab-identity': return identity
+            raise AssertionError(name)
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': 'a' * 40}))
+            with patch('automation.services.remote.get', side_effect=get), \
+                    patch('automation.services.remote.application_ready', return_value=True), \
+                    patch('automation.identity.bootstrap.BASE', Path(folder)), \
+                    patch('automation.identity.bootstrap.reconciled', return_value=True) as reconciled:
+                request = {'definition': value, 'approval': approval(), 'action': 'identity'}
+                inspect(request)
+                reconciled.assert_called_once_with('b' * 40, 'owned')
+                for field, wrong in (('repoURL', 'https://github.com/example/unapproved.git'), ('targetRevision', 'other'), ('path', 'other')):
+                    original = identity['spec']['source'][field]
+                    identity['spec']['source'][field] = wrong
+                    with self.assertRaises(RuntimeError): inspect(request)
+                    identity['spec']['source'][field] = original
+                reconciled.return_value = False
+                with self.assertRaises(RuntimeError): inspect(request)
+
     def test_private_host_denial_uses_verified_public_tls_and_requires_http_404(self):
         value = definition()
         value['exposure'] = {'class': 'private', 'hostname': 'service.internal.example.invalid',
