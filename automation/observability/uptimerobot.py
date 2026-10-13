@@ -71,7 +71,8 @@ def contact(api, expected=None):
 
 
 def public_url(value):
-    if not isinstance(value, str) or not value.isascii() or any(c.isspace() for c in value):
+    if (not isinstance(value, str) or not value.isascii() or
+            any(ord(c) <= 32 or ord(c) == 127 or c in '*\\' for c in value)):
         raise ValueError('Monitor requires an exact public HTTPS URL')
     try:
         parsed = urllib.parse.urlsplit(value)
@@ -95,6 +96,30 @@ def public_url(value):
     if '.internal.' in parsed.hostname:
         raise ValueError('Hosted monitor cannot access private services')
     return value
+
+
+def probe(url, expected_status):
+    """Require the real uncached endpoint before enabling hosted notifications."""
+    public_url(url)
+    request = urllib.request.Request(url, headers={'User-Agent': 'CloudLab-Independent-Preflight/1.0'})
+    opener = urllib.request.build_opener(NoRedirect())
+    try:
+        response = opener.open(request, timeout=15)
+    except urllib.error.HTTPError as error:
+        response = error
+    except (urllib.error.URLError, TimeoutError):
+        raise RuntimeError('Public monitor endpoint unavailable; no monitor mutation') from None
+    with response:
+        raw = response.read(1025)
+        try:
+            value = json.loads(raw) if len(raw) <= 1024 else None
+        except ValueError:
+            value = None
+        if (response.code != expected_status or value != {'ready': expected_status == 200} or
+                response.headers.get('Cache-Control') != 'no-store' or
+                str(response.headers.get('CF-Cache-Status', '')).upper() in ('HIT', 'STALE', 'UPDATING', 'REVALIDATED')):
+            raise RuntimeError('Public monitor endpoint is not the expected uncached health response; no monitor mutation')
+    return {'public_endpoint': True, 'uncached': True}
 
 
 def desired(key, url, identifier):

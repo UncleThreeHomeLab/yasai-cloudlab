@@ -8,8 +8,9 @@
     "independent_monitoring": "Independent Compose client and UptimeRobot Free"
   },
   "grafana_provider": {
-    "disposition": "retain",
-    "reason": "Required dashboards, data sources, SSO settings and Prometheus alerts have native Git owners; no required API-only object identified",
+    "disposition": "retain native Git provisioning; API-only lifecycle qualification pending",
+    "reason": "Dashboards, data sources, SSO settings and Prometheus alerts have native Git owners",
+    "api_only_objects": "Evaluate a separate root for required machine service-account/token lifecycle; choose its owner only after pinned OSS/provider and secret-custody proof",
     "adoption": false,
     "qualification": "No provider capability or live OSS acceptance claimed until pinned fixture tests pass"
   },

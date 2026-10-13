@@ -1,11 +1,59 @@
 import copy
 import unittest
+from unittest.mock import MagicMock, patch
 
-from automation.observability.uptimerobot import contact, desired, reconcile, remove_fixture, public_url
+from automation.observability.uptimerobot import contact, desired, reconcile, remove_fixture, public_url, probe
 from automation.observability.tests.fixtures import FakeAPI, existing
 
 
 class IndependentTests(unittest.TestCase):
+    def test_fixture_failure_requires_observed_up_baseline_before_mutation(self):
+        from automation.observability.command import main
+        api = FakeAPI()
+        with patch('automation.observability.command.environment', return_value=api), \
+                patch('automation.observability.command.notes_origin', return_value='https://notes.example.com'), \
+                patch('automation.observability.command.probe'):
+            with self.assertRaises(RuntimeError): main(['fixture-fail'])
+            self.assertFalse(api.writes)
+            api.rows = [existing('notification-proof', 'https://notes.example.com/monitoring-proof/ready')]
+            with patch('builtins.print'):
+                main(['fixture-fail'])
+            self.assertEqual(api.writes[0][0], 'PATCH')
+            self.assertEqual(api.rows[0]['url'], 'https://notes.example.com/monitoring-proof/failed')
+
+    def test_uncertain_create_is_observed_on_repeat_without_duplicate_creation(self):
+        api = FakeAPI()
+        original = api.request
+        def interrupted(method, path, value=None):
+            result = original(method, path, value)
+            if method == 'POST': raise RuntimeError('Response lost after provider creation')
+            return result
+        with patch.object(api, 'request', side_effect=interrupted):
+            with self.assertRaises(RuntimeError):
+                reconcile(api, 'notes-health', 'https://notes.example.com/health', 7, apply=True)
+        result = reconcile(api, 'notes-health', 'https://notes.example.com/health', 7, apply=True)
+        self.assertEqual(result['changes'], 0)
+        self.assertEqual(len(api.writes), 1)
+
+    def test_preflight_requires_generic_uncached_response_and_exact_status(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.code = 200
+        response.headers = {'Cache-Control': 'no-store', 'CF-Cache-Status': 'DYNAMIC'}
+        response.read.return_value = b'{"ready":true}'
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch('automation.observability.uptimerobot.urllib.request.build_opener', return_value=opener):
+            self.assertTrue(probe('https://notes.example.com/health', 200)['uncached'])
+            for changed in ('cached', 'redirect', 'oversized', 'secret', 'missing_cache'):
+                response.code = 302 if changed == 'redirect' else 200
+                response.read.return_value = b'x' * 1025 if changed == 'oversized' else (
+                    b'{"ready":true,"secret":"hidden"}' if changed == 'secret' else b'{"ready":true}')
+                response.headers = {'Cache-Control': 'max-age=300' if changed == 'missing_cache' else 'no-store',
+                                    'CF-Cache-Status': 'HIT' if changed == 'cached' else 'DYNAMIC'}
+                with self.subTest(changed=changed), self.assertRaises(RuntimeError):
+                    probe('https://notes.example.com/health', 200)
+
     def test_account_contact_is_exact_active_registered_email_only(self):
         api = FakeAPI()
         self.assertEqual(contact(api), 7)
