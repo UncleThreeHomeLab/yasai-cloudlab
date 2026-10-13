@@ -225,9 +225,8 @@ class Owners:
         from automation.services.payload import payload
         from automation.connectivity.preflight import ssh
         set_intent(self.definition, 'retired')
-        source = (ROOT / 'automation/services/bootstrap.py').read_text()
-        code = "import sys;sys.path.insert(0,'/opt/cloudlab');\n" + source
-        ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code), input=json.dumps(payload()), timeout=660)
+        ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/automation/services/bootstrap.py',
+            input=json.dumps(payload()), timeout=660)
 
     def data_retained(self, definition):
         self.read('data')
