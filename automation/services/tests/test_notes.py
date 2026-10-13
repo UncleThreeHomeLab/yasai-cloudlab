@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import urllib.error
 import urllib.request
 
@@ -32,6 +32,44 @@ def encode(raw):
 
 
 class NotesTests(unittest.TestCase):
+    def test_dependency_health_accepts_only_bounded_generic_readiness(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status = 200
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch.object(web.urllib.request, 'build_opener', return_value=opener):
+            for raw, expected in ((b'{"ready":true}', True), (b'{"ready":false}', False),
+                                  (b'{"ready":true,"secret":"hidden"}', False), (b'x' * 1025, False)):
+                response.read.return_value = raw
+                self.assertEqual(web.dependency_ready(), expected)
+            self.assertEqual(opener.open.call_args.args[0].full_url, 'http://notes-api:8080/ready')
+            self.assertEqual(opener.open.call_args.kwargs['timeout'], 8)
+
+    def test_public_monitoring_proof_is_uncached_and_health_fails_closed(self):
+        server = web.ThreadingHTTPServer(('127.0.0.1', 0), web.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.object(web.urllib.request, 'build_opener', side_effect=TimeoutError('secret fixture')):
+                opener = urllib.request.OpenerDirector()
+                opener.add_handler(urllib.request.HTTPHandler())
+                opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
+                opener.add_handler(urllib.request.HTTPErrorProcessor())
+                for path, expected in (('/health', 503), ('/monitoring-proof/failed', 503), ('/monitoring-proof/ready', 200)):
+                    try:
+                        response = opener.open('http://127.0.0.1:' + str(server.server_port) + path, timeout=5)
+                    except urllib.error.HTTPError as error:
+                        response = error
+                    with response:
+                        self.assertEqual(response.code, expected)
+                        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                        self.assertNotIn(b'secret', response.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_operations_navigation_requires_private_host_without_publishing_its_address(self):
         environment = {'OIDC_ISSUER': 'https://login.example.invalid/realms/applications',
                        'OIDC_CLIENT': 'notes-web', 'OIDC_AUDIENCE': 'notes-api',

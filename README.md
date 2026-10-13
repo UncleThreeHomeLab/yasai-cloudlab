@@ -65,6 +65,14 @@ administrator-controlled ApplicationSets and scoped data/OIDC references. The
 [notes example](apps/notes/README.md) contains the web/API demonstration. Enable
 services only with a reviewed catalog in the designated private configuration repo.
 
+Independent public monitoring uses the [monitoring contract](platform/observability/contract.json).
+Keep `CloudLab/uptimerobot-management/API_KEY` in 1Password. Run
+`docker compose run --build --rm lab observe external-check` before `external-apply`.
+Only the account's active registered-email contact receives notifications. Disposable
+`fixture-ready`, `fixture-fail`, `fixture-status` and `fixture-remove` commands test
+delivery without interrupting production. Confirm outage and recovery email receipt;
+provider status alone does not prove delivery.
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.

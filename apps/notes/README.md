@@ -28,6 +28,10 @@ pod receives no SQL/S3 credentials; the API receives only its application creden
 and the existing public database CA. Shared operators and Secret values are never
 installed by this chart.
 
+Public `/health` checks the API's SQL/S3 readiness without credentials or caching.
+`/monitoring-proof/ready` and `/monitoring-proof/failed` return generic 200/503
+responses for disposable external notification checks; they do not change app state.
+
 Python and dependency wheels are pinned. The API installs hash-checked wheels into
 a bounded ephemeral volume during startup. Regenerate first-party artifacts with
 `python -m automation.services.package build`; `lab service-check` verifies source
