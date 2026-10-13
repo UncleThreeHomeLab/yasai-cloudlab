@@ -6,6 +6,14 @@ from automation.services.tests.fixtures import definition, approval
 
 
 class RetentionTests(unittest.TestCase):
+    def test_removed_routes_accept_empty_response_and_reject_any_remaining_service_route(self):
+        request = {'action': 'route-absent', 'definition': definition(), 'approval': approval()}
+        for response in (None, {'items': []}):
+            with self.subTest(response=response), patch.object(remote, 'get', return_value=response):
+                remote.inspect(request)
+        with patch.object(remote, 'get', return_value={'items': [{'metadata': {'name': 'synthetic'}}]}):
+            with self.assertRaisesRegex(RuntimeError, 'still exposes'): remote.inspect(request)
+
     def test_retirement_never_deletes_pvc_secret_namespace_or_shared_resources(self):
         allowed = approval()
         app_name = allowed['name'] + '-synthetic'

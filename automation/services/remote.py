@@ -190,7 +190,7 @@ def inspect(request):
     elif action in ('retire-route', 'route-absent', 'retire-workload'):
         application_name = approval['name'] + '-' + name
         if action == 'route-absent':
-            routes = get('httproutes.gateway.networking.k8s.io', namespace=namespace)
+            routes = get('httproutes.gateway.networking.k8s.io', namespace=namespace) or {'items': []}
             if any(route['metadata']['name'].startswith(tuple(workload_names)) for route in routes['items']):
                 raise RuntimeError('A route still exposes the retired service')
             return
