@@ -7,7 +7,7 @@ import sys
 
 from dotenv import dotenv_values
 
-from automation.observability.uptimerobot import API, contact, reconcile, remove_fixture, owned, monitors
+from automation.observability.uptimerobot import API, contact, reconcile, remove_fixture, owned, monitors, probe
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -57,6 +57,11 @@ def main(arguments=None):
         fixture = args.action.startswith('fixture-')
         url = origin + ('/monitoring-proof/failed' if args.action == 'fixture-fail' else
                         '/monitoring-proof/ready' if fixture else '/health')
+        probe(url, 503 if args.action == 'fixture-fail' else 200)
+        if args.action == 'fixture-fail':
+            row = owned(monitors(api), 'notification-proof')
+            if row is None or (row.get('url') != url and row.get('status') != 'UP'):
+                raise RuntimeError('Notification proof must first observe its disposable ready endpoint UP')
         result = reconcile(api, 'notification-proof' if fixture else 'notes-health', url, identifier,
                            apply=args.action != 'external-check', allow_fixture_change=fixture)
     print(json.dumps(result, sort_keys=True))
