@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cloudlab-loki
+version: 0.1.0
+dependencies:
+- name: loki
+  version: 7.3.0
+  repository: ''

@@ -11,6 +11,7 @@ import urllib.request
 
 from tokens import validated_claims
 from s3 import S3
+import telemetry
 
 MAX_BODY = 65536
 KEYS = {'expires': 0, 'document': {'keys': []}}
@@ -98,10 +99,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/live':
                 return self.respond(200, {'live': True})
             if self.path == '/ready':
-                with database() as connection:
+                with telemetry.dependency('database'), database() as connection:
                     connection.execute('SELECT 1 FROM public.notes LIMIT 1')
                 bucket = credential(os.environ.get('S3_SECRETS', '/secrets/objects'), 'BUCKET')
-                objects().request('HEAD', bucket)
+                with telemetry.dependency('objects'):
+                    objects().request('HEAD', bucket)
                 return self.respond(200, {'ready': True})
             role = 'operator' if self.path == '/api/operations' else 'reader'
             if self.path == '/api/operations' and self.headers.get('Host') != os.environ.get('OPERATIONS_HOST'):
@@ -109,8 +111,8 @@ class Handler(BaseHTTPRequestHandler):
             status = authorize(self.headers.get('Authorization'), role)
             if status != 200:
                 return self.respond(status, {'error': 'unauthorized' if status == 401 else 'forbidden'})
-            if self.path == '/api/notes':
-                with database() as connection:
+            if self.path in ('/api/notes', '/api/release/notes'):
+                with telemetry.dependency('database'), database() as connection:
                     rows = connection.execute('SELECT id, title, body, attachment_key FROM public.notes ORDER BY id LIMIT 100').fetchall()
                 return self.respond(200, {'notes': [dict(zip(('id', 'title', 'body', 'attachment'), row)) for row in rows]})
             if self.path == '/api/operations':
@@ -140,8 +142,9 @@ class Handler(BaseHTTPRequestHandler):
             raw = value['body'].encode()
             key = 'notes/' + hashlib.sha256(raw).hexdigest() + '.txt'
             bucket = credential(os.environ.get('S3_SECRETS', '/secrets/objects'), 'BUCKET')
-            objects().request('PUT', bucket, key, data=raw)
-            with database() as connection:
+            with telemetry.dependency('objects'):
+                objects().request('PUT', bucket, key, data=raw)
+            with telemetry.dependency('database'), database() as connection:
                 connection.execute('INSERT INTO public.notes(id,title,body,attachment_key) VALUES (%s,%s,%s,%s) '
                                    'ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,attachment_key=excluded.attachment_key',
                                    (value['id'], value['title'], value['body'], key))
@@ -153,6 +156,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    telemetry.start('notes-api')
+    telemetry.instrument(Handler, 'notes-api')
     server = ThreadingHTTPServer(('0.0.0.0', 8080), Handler)
     server.daemon_threads = True
     server.serve_forever()

@@ -7,7 +7,7 @@ import yaml
 from automation.services.contract import ROOT, validate
 
 
-def values(definition, issuer, database_ca):
+def values(definition, issuer, database_ca, telemetry=False):
     definition = validate(definition)
     if definition['name'] != 'notes' or not definition['oidc']['enabled'] or not definition['oidc']['public']:
         raise ValueError('Notes requires its approved public PKCE client')
@@ -24,6 +24,7 @@ def values(definition, issuer, database_ca):
     for name in ('web', 'api'):
         value = result[name]
         files = ('web.py', 'app.js', 'index.html', 'style.css') if name == 'web' else ('api.py', 'requirements.txt', 'lib.zip')
+        files += ('telemetry.py', 'telemetry-requirements.txt')
         # ConfigMap source changes must also change the Deployment template.
         value['environment']['SOURCE_SHA256'] = hashlib.sha256(b''.join(hashlib.sha256(
             (ROOT / 'apps/notes' / filename).read_bytes().replace(b'\r\n', b'\n')).digest() for filename in files)).hexdigest()
@@ -48,6 +49,16 @@ def values(definition, issuer, database_ca):
         {'name': definition['data']['database']['credentialReference'], 'mountPath': '/secrets/database'},
         {'name': definition['data']['bucket']['credentialReference'], 'mountPath': '/secrets/objects'}]
     result['databaseCA'] = database_ca
+    if telemetry:
+        for name in ('web', 'api'):
+            value = result[name]
+            value['ports'].append({'name': 'metrics', 'port': 9091})
+            value['environment'].update(OTEL_ENABLED='1', PYTHONPATH='/dependencies:/config/source',
+                OTEL_EXPORTER_OTLP_TRACES_ENDPOINT='http://cloudlab-alloy.cloudlab-observability.svc:4318/v1/traces')
+        result['api']['initCommand'] += ['-r', '/config/source/telemetry-requirements.txt']
+        result['web']['initCommand'] = ['python', '-m', 'pip', 'install', '--index-url', 'https://pypi.org/simple',
+            '--disable-pip-version-check', '--no-cache-dir', '--require-hashes', '--only-binary=:all:',
+            '--target', '/dependencies', '-r', '/config/source/telemetry-requirements.txt']
     for kind, budget in (('requests', 1000), ('limits', 2000)):
         for unit, suffix in (('cpu', 1), ('memory', 2)):
             if (2 * definition['replicas'] + 1) * int(definition['resources'][kind][unit][:-suffix]) > budget:

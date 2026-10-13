@@ -1,0 +1,8 @@
+{
+  "chart": "kiali-server",
+  "version": "2.33.0",
+  "appVersion": "v2.33.0",
+  "url": "https://kiali.org/helm-charts/kiali-server-2.33.0.tgz",
+  "sha256": "6d0c1b4e6ccc30b210b3784b3b257440161e5ec39e97bef93f0f41124d5320bd",
+  "archive": "charts/kiali-server-2.33.0.tgz"
+}

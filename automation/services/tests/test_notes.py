@@ -19,6 +19,7 @@ from automation.services.check import run
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'apps/notes/lib.zip'))
+sys.path.insert(0, str(ROOT / 'apps/notes'))
 spec = importlib.util.spec_from_file_location('notes_api', ROOT / 'apps/notes/api.py')
 api = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(api)

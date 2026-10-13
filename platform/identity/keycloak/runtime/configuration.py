@@ -84,7 +84,7 @@ def name(value):
 
 
 def client(value, secrets):
-    if not isinstance(value, dict) or set(value) - {'id', 'callbacks', 'audience', 'public', 'enabled', 'roles', 'scopes', 'role_groups', 'web_origins'}:
+    if not isinstance(value, dict) or set(value) - {'id', 'callbacks', 'logout_callbacks', 'audience', 'public', 'enabled', 'roles', 'scopes', 'role_groups', 'web_origins'}:
         raise ValueError('Unsupported private client fields')
     identifier = name(value['id'])
     audience = name(value['audience'])
@@ -94,6 +94,13 @@ def client(value, secrets):
     if not isinstance(callbacks, list) or not 1 <= len(callbacks) <= 8 or len(set(callbacks)) != len(callbacks):
         raise ValueError('Client requires distinct exact callbacks')
     callbacks = [exact_url(url) for url in callbacks]
+    logout_callbacks = value.get('logout_callbacks', [])
+    if (not isinstance(logout_callbacks, list) or len(logout_callbacks) > 8 or
+            len(set(logout_callbacks)) != len(logout_callbacks)):
+        raise ValueError('Logout callbacks must be bounded and distinct')
+    logout_callbacks = [exact_url(url) for url in logout_callbacks]
+    if any(urlsplit(url).netloc not in {urlsplit(callback).netloc for callback in callbacks} for url in logout_callbacks):
+        raise ValueError('Logout callbacks must stay on approved callback origins')
     origins = value.get('web_origins', [])
     callback_origins = {'https://' + urlsplit(url).netloc for url in callbacks}
     if (not isinstance(origins, list) or len(set(origins)) != len(origins) or
@@ -139,6 +146,8 @@ def client(value, secrets):
         result['secret'] = secret
     elif identifier in secrets:
         raise ValueError('Public clients must not have secrets')
+    if logout_callbacks:
+        result['attributes']['post.logout.redirect.uris'] = '##'.join(logout_callbacks)
     return result
 
 

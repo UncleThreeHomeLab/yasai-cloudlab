@@ -1,0 +1,100 @@
+{
+  "apiVersion": "monitoring.coreos.com/v1",
+  "kind": "PrometheusRule",
+  "metadata": {
+    "name": "notes-user-slo",
+    "namespace": "cloudlab-observability"
+  },
+  "spec": {
+    "groups": [
+      {
+        "name": "notes-user-slo",
+        "interval": "30s",
+        "rules": [
+          {
+            "alert": "NotesAvailabilityBurn1h",
+            "expr": "((1 - ((sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\"}[1h])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[1h])))) / 0.001000000 > 3.36) and ((1 - ((sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\"}[5m])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[5m])))) / 0.001000000 > 3.36) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[1h])) >= 100) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[5m])) >= 10)",
+            "for": "2m",
+            "labels": {
+              "service": "notes-api",
+              "severity": "critical",
+              "indicator": "availability"
+            },
+            "annotations": {
+              "summary": "Availability error budget burns in both 1h and 5m",
+              "description": "Inspect private Notes request dashboard and correlated trace. Release and synthetic traffic are excluded."
+            }
+          },
+          {
+            "alert": "NotesAvailabilityBurn6h",
+            "expr": "((1 - ((sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\"}[6h])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[6h])))) / 0.001000000 > 1.4) and ((1 - ((sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\"}[30m])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[30m])))) / 0.001000000 > 1.4) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[6h])) >= 1000) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[30m])) >= 10)",
+            "for": "2m",
+            "labels": {
+              "service": "notes-api",
+              "severity": "warning",
+              "indicator": "availability"
+            },
+            "annotations": {
+              "summary": "Availability error budget burns in both 6h and 30m",
+              "description": "Inspect private Notes request dashboard and correlated trace. Release and synthetic traffic are excluded."
+            }
+          },
+          {
+            "alert": "NotesLatencyBurn1h",
+            "expr": "((1 - ((sum(increase(cloudlab_http_duration_seconds_bucket{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\",le=\"0.5\"}[1h])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[1h])))) / 0.010000000 > 3.36) and ((1 - ((sum(increase(cloudlab_http_duration_seconds_bucket{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\",le=\"0.5\"}[5m])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[5m])))) / 0.010000000 > 3.36) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[1h])) >= 100) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[5m])) >= 10)",
+            "for": "2m",
+            "labels": {
+              "service": "notes-api",
+              "severity": "critical",
+              "indicator": "latency"
+            },
+            "annotations": {
+              "summary": "Latency error budget burns in both 1h and 5m",
+              "description": "Inspect private Notes request dashboard and correlated trace. Release and synthetic traffic are excluded."
+            }
+          },
+          {
+            "alert": "NotesLatencyBurn6h",
+            "expr": "((1 - ((sum(increase(cloudlab_http_duration_seconds_bucket{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\",le=\"0.5\"}[6h])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[6h])))) / 0.010000000 > 1.4) and ((1 - ((sum(increase(cloudlab_http_duration_seconds_bucket{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\",le=\"0.5\"}[30m])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[30m])))) / 0.010000000 > 1.4) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[6h])) >= 1000) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[30m])) >= 10)",
+            "for": "2m",
+            "labels": {
+              "service": "notes-api",
+              "severity": "warning",
+              "indicator": "latency"
+            },
+            "annotations": {
+              "summary": "Latency error budget burns in both 6h and 30m",
+              "description": "Inspect private Notes request dashboard and correlated trace. Release and synthetic traffic are excluded."
+            }
+          },
+          {
+            "alert": "NotesSLOEvidenceUnavailable",
+            "expr": "(sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[7d])) < 10000) or absent(sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[7d])))",
+            "for": "24h",
+            "labels": {
+              "service": "notes-api",
+              "severity": "warning"
+            },
+            "annotations": {
+              "summary": "Notes SLO has insufficient user samples",
+              "description": "Do not report compliance while evidence is unavailable or below the sample minimum."
+            }
+          },
+          {
+            "alert": "NotesMetricsStale",
+            "expr": "absent_over_time(cloudlab_http_requests_total{service=\"notes-api\"}[5m])",
+            "for": "5m",
+            "labels": {
+              "service": "notes-api",
+              "severity": "warning"
+            },
+            "annotations": {
+              "summary": "Notes request metrics unavailable",
+              "description": "Missing metrics are unknown availability, never success. Check app and Prometheus scrape targets."
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

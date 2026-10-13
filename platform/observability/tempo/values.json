@@ -1,0 +1,52 @@
+{
+  "tempo": {
+    "fullnameOverride": "cloudlab-tempo",
+    "tempo": {
+      "repository": "grafana/tempo",
+      "tag": "3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd",
+      "reportingEnabled": false,
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "256Mi"
+        },
+        "limits": {
+          "cpu": "400m",
+          "memory": "768Mi"
+        }
+      },
+      "retention": "24h",
+      "receivers": {
+        "otlp": {
+          "protocols": {
+            "http": {
+              "endpoint": "0.0.0.0:4318"
+            }
+          }
+        }
+      },
+      "overrides": {
+        "defaults": {
+          "ingestion": {
+            "rate_limit_bytes": 60000,
+            "burst_size_bytes": 120000
+          },
+          "global": {
+            "max_bytes_per_trace": 65536
+          }
+        }
+      }
+    },
+    "tempoQuery": {
+      "enabled": false
+    },
+    "serviceAccount": {
+      "automountServiceAccountToken": false
+    },
+    "persistence": {
+      "enabled": true,
+      "storageClassName": "cloudlab-telemetry",
+      "size": "15Gi"
+    }
+  }
+}

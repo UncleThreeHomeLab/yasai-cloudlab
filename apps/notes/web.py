@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import urllib.request
+import telemetry
 
 ROOT = Path(__file__).resolve().parent
 
@@ -16,7 +17,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def dependency_ready():
     try:
         # Fixed in-cluster peer; user input cannot select the dependency.
-        request = urllib.request.Request('http://notes-api:8080/ready')
+        request = urllib.request.Request('http://notes-api:8080/ready', headers=telemetry.headers())
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         with opener.open(request, timeout=8) as response:
             raw = response.read(1025)
@@ -86,4 +87,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    telemetry.start('notes-web')
+    telemetry.instrument(Handler, 'notes-web')
     ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()

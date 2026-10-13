@@ -1,0 +1,8 @@
+{
+  "chart": "loki",
+  "version": "7.3.0",
+  "appVersion": "3.6.12",
+  "url": "https://github.com/grafana/helm-charts/releases/download/helm-loki-7.3.0/loki-7.3.0.tgz",
+  "sha256": "04a339f712d770a1f599f05fc0a5a3cde18e43914e49ae6a49f7171be86bcc09",
+  "archive": "charts/loki-7.3.0.tgz"
+}

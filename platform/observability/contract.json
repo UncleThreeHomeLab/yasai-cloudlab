@@ -8,11 +8,15 @@
     "independent_monitoring": "Independent Compose client and UptimeRobot Free"
   },
   "grafana_provider": {
-    "disposition": "retain native Git provisioning; API-only lifecycle qualification pending",
+    "disposition": "retain native Git provisioning; retain bounded API lifecycle for machine credentials",
     "reason": "Dashboards, data sources, SSO settings and Prometheus alerts have native Git owners",
-    "api_only_objects": "Evaluate a separate root for required machine service-account/token lifecycle; choose its owner only after pinned OSS/provider and secret-custody proof",
+    "api_only_objects": "Machine Viewer service account and expiring token use a scoped native API owner with vault custody; no dashboard, data source or alert resources",
     "adoption": false,
-    "qualification": "No provider capability or live OSS acceptance claimed until pinned fixture tests pass"
+    "provider_version": "4.49.0",
+    "oss_version": "13.2.4",
+    "capabilities": {"service_account_import": true, "role_drift_repair": true, "viewer_write_denied": true, "token_import": false, "token_inventory_retrieval": false, "token_in_state": true, "expiry": true},
+    "machine_lifecycle_active": false,
+    "custody": "Vault owns issued tokens; interrupted issuance fails closed and requires explicit rotation"
   },
   "telemetry": {
     "storage": "Local Longhorn PVCs",
