@@ -49,18 +49,19 @@ print('allowed' if success else 'denied')
                'nodeSelector': {'kubernetes.io/hostname': other}, 'serviceAccountName': account if allowed else 'default',
                'automountServiceAccountToken': False, 'securityContext': {'runAsNonRoot': True, 'runAsUser': 10001,
                'runAsGroup': 10001, 'seccompProfile': {'type': 'RuntimeDefault'}}, 'containers': [{'name': 'proof',
-               'image': image, 'command': ['python', '-c', code],
+               'image': image, 'command': ['sleep', '3600'],
                'resources': {'requests': {'cpu': '10m', 'memory': '16Mi'}, 'limits': {'cpu': '50m', 'memory': '32Mi'}},
                'securityContext': {'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True,
                                    'capabilities': {'drop': ['ALL']}}}]}}
         kube('create', '-f', '-', document=obj)
         uid = get('pod', name, namespace)['metadata']['uid']
         try:
-            wait(lambda: get('pod', name, namespace).get('status', {}).get('phase') in ('Succeeded', 'Failed'),
-                 'application workload identity proof', timeout=120)
+            wait(lambda: condition(get('pod', name, namespace), 'Ready') and
+                 get('pod', name, namespace)['metadata'].get('annotations', {}).get('ambient.istio.io/redirection') == 'enabled',
+                 'live application workload identity capture', timeout=120)
             actual = get('pod', name, namespace)
-            if (actual['status']['phase'] != 'Succeeded' or actual['metadata'].get('annotations', {}).get('ambient.istio.io/redirection') != 'enabled' or
-                    kube('logs', name, '-n', namespace).strip() != ('allowed' if allowed else 'denied')):
+            if (actual['status']['phase'] != 'Running' or actual['metadata'].get('annotations', {}).get('ambient.istio.io/redirection') != 'enabled' or
+                    kube('exec', '-n', namespace, name, '--', 'python', '-c', code).strip() != ('allowed' if allowed else 'denied')):
                 raise RuntimeError('Authorized or unauthorized workload identity behavior failed')
         finally:
             actual = get('pod', name, namespace)
