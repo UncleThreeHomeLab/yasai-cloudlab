@@ -9,6 +9,23 @@ from automation.services.tests.fixtures import definition, approval
 
 
 class OwnerInputTests(unittest.TestCase):
+    def test_retirement_calls_the_installed_catalog_owner_with_complete_inputs(self):
+        import os
+        import json
+        owner = Owners.__new__(Owners)
+        owner.definition = definition()
+        complete = {'repository': 'https://github.com/example/platform.git',
+                    'revision': 'a' * 40, 'values': {'catalog': []}}
+        with patch.dict(os.environ, {'VM_HOST': 'fixture'}), \
+                patch('automation.services.publication.set_intent') as intent, \
+                patch('automation.services.payload.payload', return_value=complete), \
+                patch('automation.connectivity.preflight.ssh') as ssh:
+            owner.retire_catalog()
+            intent.assert_called_once_with(owner.definition, 'retired')
+            ssh.assert_called_once_with('VM', 'fixture',
+                'python3 /opt/cloudlab/automation/services/bootstrap.py',
+                input=json.dumps(complete), timeout=660)
+
     def test_bundle_cannot_replace_platform_source_or_shared_gateway(self):
         import json
         import yaml
