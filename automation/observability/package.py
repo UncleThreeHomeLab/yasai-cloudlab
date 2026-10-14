@@ -1,4 +1,4 @@
-"""Retain monitoring CRDs without changing upstream chart behavior."""
+"""Rebuild checksum-locked chart patches for declarative monitoring owners."""
 import gzip
 import hashlib
 import io
@@ -48,6 +48,55 @@ def retained(raw):
     return output.getvalue()
 
 
+def kiali_declarative(raw):
+    output, changes = io.BytesIO(), 0
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as source:
+        with gzip.GzipFile(fileobj=output, mode='wb', filename='', mtime=0) as zipped:
+            with tarfile.open(fileobj=zipped, mode='w') as target:
+                for original in source:
+                    if not original.isfile() or original.name.startswith('/') or '..' in Path(original.name).parts:
+                        raise ValueError('Unexpected Kiali chart member')
+                    data = source.extractfile(original).read()
+                    if original.name == 'kiali-server/templates/_helpers.tpl':
+                        start = data.index(b'{{- define "kiali-server.accessible-namespaces" -}}')
+                        end = data.index(b'\n{{/*', start)
+                        # Argo Helm rendering has no live lookup; exact namespace inputs remain declarative.
+                        replacement = b'''{{- define "kiali-server.accessible-namespaces" -}}
+{{- $namespaces := list .Release.Namespace -}}
+{{- range .Values.deployment.discovery_selectors.default -}}
+{{- $selected := list -}}
+{{- if .matchLabels -}}
+{{- if ne (len .matchLabels) 1 }}{{ fail "Kiali requires exact namespace selectors" }}{{ end -}}
+{{- $selected = list (index .matchLabels "kubernetes.io/metadata.name") -}}
+{{- else -}}
+{{- if ne (len (.matchExpressions | default list)) 1 }}{{ fail "Kiali requires exact namespace selectors" }}{{ end -}}
+{{- $expression := index .matchExpressions 0 -}}
+{{- if or (ne $expression.key "kubernetes.io/metadata.name") (ne $expression.operator "In") }}{{ fail "Kiali requires exact namespace selectors" }}{{ end -}}
+{{- $selected = $expression.values -}}
+{{- end -}}
+{{- range $name := $selected -}}
+{{- if not (has $name (list "cloudlab-observability" "cloudlab-app-notes" "istio-system")) }}{{ fail "Kiali namespace outside approved scope" }}{{ end -}}
+{{- if not (has $name $namespaces) }}{{ $namespaces = append $namespaces $name }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $namespaces -}}
+{{- end -}}
+'''
+                        data = data[:start] + replacement + data[end:]
+                        changes += 1
+                    if original.name == 'kiali-server/templates/role-viewer.yaml':
+                        for block in (b'- apiGroups: [""]\n  resources:\n  - pods/portforward\n  verbs:\n  - create\n',
+                                      b'- apiGroups: ["authentication.k8s.io"]\n  resources:\n  - tokenreviews\n  verbs:\n  - create\n'):
+                            if data.count(block) != 1: raise ValueError('Pinned Kiali viewer RBAC changed')
+                            data = data.replace(block, b'')
+                            changes += 1
+                    member = tarfile.TarInfo(original.name)
+                    member.mode, member.size = 0o644, len(data)
+                    target.addfile(member, io.BytesIO(data))
+    if changes != 3: raise ValueError('Pinned Kiali declarative patch changed')
+    return output.getvalue()
+
+
 def build():
     from automation.observability.values import values
     from automation.observability.slo import build as build_slo
@@ -59,11 +108,11 @@ def build():
     for name in ('prometheus', 'loki', 'tempo', 'alloy', 'kiali'):
         path = BASE / name
         lock = json.loads((path / 'artifact.lock.json').read_text())
-        if name == 'prometheus':
+        if name in ('prometheus', 'kiali'):
             raw = (path / 'upstream.tgz').read_bytes()
             if hashlib.sha256(raw).hexdigest() != lock['upstream_sha256']:
                 raise ValueError('Upstream monitoring chart checksum mismatch')
-            data = retained(raw)
+            data = retained(raw) if name == 'prometheus' else kiali_declarative(raw)
             (path / lock['archive']).write_bytes(data)
             lock['sha256'] = hashlib.sha256(data).hexdigest()
             (path / 'artifact.lock.json').write_text(json.dumps(lock, indent=2) + '\n')

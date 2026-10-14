@@ -1,0 +1,6 @@
+enabled: false
+monitoringEnabled: false
+grafanaHost: grafana.internal.example.invalid
+kialiHost: kiali.internal.example.invalid
+loginHost: login.example.invalid
+apiPeers: []

@@ -1,0 +1,37 @@
+{{- if (.Values.observability | default dict).enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-observability
+  namespace: argocd
+spec:
+  description: Administrator-owned private telemetry with local disposable storage.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations:
+    {{- range $namespace := list "cloudlab-observability" "cloudlab-app-notes" "cloudlab-identity" "istio-system" }}
+    - {server: 'https://kubernetes.default.svc', namespace: {{ $namespace }}}
+    {{- end }}
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+    - {group: storage.k8s.io, kind: StorageClass}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+  namespaceResourceWhitelist:
+    {{- range $kind := list "ConfigMap" "Secret" "Service" "ServiceAccount" "PersistentVolumeClaim" "ResourceQuota" }}
+    - {group: '', kind: {{ $kind }}}
+    {{- end }}
+    {{- range $kind := list "Deployment" "StatefulSet" "DaemonSet" }}
+    - {group: apps, kind: {{ $kind }}}
+    {{- end }}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: security.istio.io, kind: AuthorizationPolicy}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+    {{- range $kind := list "Prometheus" "Alertmanager" "PrometheusRule" "ServiceMonitor" "PodMonitor" }}
+    - {group: monitoring.coreos.com, kind: {{ $kind }}}
+    {{- end }}
+{{- end }}

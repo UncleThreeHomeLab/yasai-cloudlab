@@ -1,0 +1,79 @@
+{{- if .Values.enabled }}
+{{- $policy := .Files.Get "policy.json" | fromJson }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: telemetry-boundary, namespace: {{ $policy.namespace }}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {}}]
+    - from:
+        - ipBlock: {cidr: 169.254.7.127/32}
+        - ipBlock: {cidr: 'fd16:9254:7127:1337:ffff:ffff:ffff:ffff/128'}
+  egress:
+    - to: [{podSelector: {}}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    # Scrapes, never arbitrary application/data ports.
+    - to: [{namespaceSelector: {}}]
+      ports:
+        {{- range $port := list 8080 9091 9100 9153 9187 9327 15020 15090 }}
+        - {protocol: TCP, port: {{ $port }}}
+        {{- end }}
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-public}}}]
+      ports: [{protocol: TCP, port: 443}]
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: istio-system}}}]
+      ports: [{protocol: TCP, port: 15014}]
+    {{- range $peer := .Values.apiPeers }}
+    - to: [{ipBlock: {cidr: {{ $peer | quote }}}}]
+      ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 6443}, {protocol: TCP, port: 10250}, {protocol: TCP, port: 9100}]
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: private-dashboard-ingress, namespace: {{ $policy.namespace }}}
+spec:
+  podSelector:
+    matchExpressions: [{key: app.kubernetes.io/name, operator: In, values: [grafana, kiali]}]
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}}}]
+      ports: [{protocol: TCP, port: 3000}, {protocol: TCP, port: 20001}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: application-traces, namespace: {{ $policy.namespace }}}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: alloy}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-app-notes}}
+          podSelector: {matchLabels: {cloudlab.io/telemetry: safe}}
+      ports: [{protocol: TCP, port: 4318}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: prometheus-scrapes, namespace: cloudlab-app-notes}
+spec:
+  podSelector: {matchLabels: {cloudlab.io/telemetry: safe}}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ $policy.namespace }}}}}]
+      ports: [{protocol: TCP, port: 9091}]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: prometheus-scrapes, namespace: cloudlab-app-notes}
+spec:
+  selector: {matchLabels: {cloudlab.io/telemetry: safe}}
+  action: ALLOW
+  rules:
+    - from:
+        - source: {principals: [{{ printf "cluster.local/ns/%s/sa/cloudlab-prometheus" $policy.namespace | quote }}]}
+      to:
+        - operation: {ports: ['9091']}
+{{- end }}

@@ -34,7 +34,9 @@ services:
     tmpfs: ["/tmp:mode=1777,size=32m"]
     read_only: true
     depends_on: {prepare: {condition: service_completed_successfully}}
-    networks: [fixture]
+    networks:
+      fixture:
+        aliases: [cloudlab-alloy.cloudlab-observability.svc]
     mem_limit: 384m
     cpus: 0.25
     cap_drop: [ALL]
@@ -52,6 +54,41 @@ services:
     tmpfs: ["/tmp:mode=1777,size=128m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+  alert-fixture:
+    build: {context: ../../apps/notes, dockerfile: ../../automation/observability/proof.Dockerfile}
+    entrypoint: [python, -m, automation.observability.alert_fixture]
+    working_dir: /workspace
+    volumes: ["../..:/workspace:ro"]
+    networks: [fixture]
+    mem_limit: 128m
+    cpus: 0.1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.15.0-distroless@sha256:b2a413d5a03ea6a76782a508d1c7947440bba3b973931a25676e278431891b01
+    command: [--config.file=/fixture/prometheus.yaml, --storage.tsdb.path=/tmp/prometheus, --storage.tsdb.retention.time=1h, --storage.tsdb.retention.size=128MB]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/tmp:mode=1777,size=256m"]
+    depends_on: {prepare: {condition: service_completed_successfully}, alert-fixture: {condition: service_started}}
+    networks: [fixture]
+    mem_limit: 384m
+    cpus: 0.25
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  alertmanager:
+    image: quay.io/prometheus/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    command: [--config.file=/fixture/alertmanager.yaml, --storage.path=/tmp/alertmanager, --cluster.listen-address=]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/tmp:mode=1777,size=32m"]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks: [fixture]
+    mem_limit: 128m
+    cpus: 0.1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
   proof:
     build: {context: ../../apps/notes, dockerfile: ../../automation/observability/proof.Dockerfile}
     entrypoint: [python, -m, automation.observability.native_proof, verify]
@@ -62,6 +99,8 @@ services:
       tempo: {condition: service_started}
       alloy: {condition: service_started}
       promtool: {condition: service_completed_successfully}
+      prometheus: {condition: service_started}
+      alertmanager: {condition: service_started}
     networks: [fixture]
     mem_limit: 256m
     cpus: 0.25

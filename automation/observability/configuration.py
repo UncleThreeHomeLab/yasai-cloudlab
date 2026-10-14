@@ -43,7 +43,8 @@ def grafana(identity_issuer, origin):
                        'scopes': ['profile', 'email']},
             'ini': {
                 'server': {'root_url': origin},
-                'security': {'cookie_secure': True, 'cookie_samesite': 'lax', 'disable_gravatar': True},
+                'security': {'cookie_secure': True, 'cookie_samesite': 'lax', 'disable_gravatar': True,
+                             'secret_key': '$__file{/etc/secrets/grafana-emergency/secret_key}'},
                 'users': {'allow_sign_up': False},
                 'analytics': {'reporting_enabled': False, 'check_for_updates': False, 'check_for_plugin_updates': False},
                 'plugins': {'preinstall_disabled': True, 'preinstall': '', 'preinstall_sync': '',
@@ -62,3 +63,11 @@ def grafana(identity_issuer, origin):
                     'allow_assign_grafana_admin': False, 'skip_org_role_sync': False},
                 'unified_alerting': {'enabled': False}, 'alerting': {'enabled': False},
             }}
+
+
+def kiali(identity_issuer, origin):
+    issuer(identity_issuer)
+    callback = exact_url(origin + '/kiali')
+    if urlsplit(callback).path != '/kiali' or '.internal.' not in urlsplit(origin).hostname:
+        raise ValueError('Kiali requires its exact private HTTPS origin')
+    return {'id': 'kiali', 'public': False, 'audience': 'kiali', 'callbacks': [callback], 'scopes': ['profile', 'email']}

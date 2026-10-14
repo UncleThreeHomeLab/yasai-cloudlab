@@ -3,6 +3,7 @@ enabled: false
 operatorEnabled: true
 serverEnabled: true
 reconciliationEnabled: false
+telemetryEnabled: false
 bootstrapMode: false
 maintenance: false
 bootstrapAdminEnabled: true

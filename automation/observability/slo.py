@@ -25,7 +25,8 @@ def expressions(indicator, window):
 
 def rules():
     policy = definition()
-    result = []
+    result = [{'record': 'notes:slo_evidence:present',
+               'expr': '(min(up{namespace="cloudlab-app-notes",job="notes-api"}) or vector(0)) == bool 1'}]
     for indicator in ('availability', 'latency'):
         budget = 1 - policy[indicator + '_target']
         for windows in policy['burn_windows']:
@@ -43,10 +44,11 @@ def rules():
                     'description': 'Inspect private Notes request dashboard and correlated trace. Release and synthetic traffic are excluded.'}})
     count, _ = expressions('availability', policy['window'])
     result.append({'alert': 'NotesSLOEvidenceUnavailable',
-        'expr': '(' + count + ' < ' + str(policy['minimum_window_samples']) + ') or absent(' + count + ')',
+        'expr': '(' + count + ' < ' + str(policy['minimum_window_samples']) + ') or absent(' + count +
+                ') or (' + coverage() + ' < ' + str(policy['window_seconds'] // 30 - 1) + ')',
         'for': policy['evaluation_duration'], 'labels': {'service': policy['service'], 'severity': 'warning'},
-        'annotations': {'summary': 'Notes SLO has insufficient user samples',
-                        'description': 'Do not report compliance while evidence is unavailable or below the sample minimum.'}})
+        'annotations': {'summary': 'Notes SLO lacks complete window evidence',
+                        'description': 'Compliance requires sufficient user samples and a complete retained scrape window. Missing, stale or truncated evidence is unavailable.'}})
     result.append({'alert': 'NotesMetricsStale', 'expr': 'absent_over_time(cloudlab_http_requests_total{service="notes-api"}[5m])',
         'for': '5m', 'labels': {'service': policy['service'], 'severity': 'warning'},
         'annotations': {'summary': 'Notes request metrics unavailable',
@@ -54,12 +56,17 @@ def rules():
     return {'groups': [{'name': 'notes-user-slo', 'interval': '30s', 'rules': result}]}
 
 
+def coverage():
+    return '(sum_over_time(notes:slo_evidence:present[' + definition()['window'] + ']) or vector(0))'
+
+
 def dashboard():
     policy = definition()
     panels = []
     for indicator in ('availability', 'latency'):
         count, bad = expressions(indicator, policy['window'])
-        expression = '(1 - ' + bad + ') and (' + count + ' >= ' + str(policy['minimum_window_samples']) + ')'
+        expression = ('(1 - ' + bad + ') and (' + count + ' >= ' + str(policy['minimum_window_samples']) +
+                      ') and (' + coverage() + ' >= ' + str(policy['window_seconds'] // 30 - 1) + ')')
         panels.append({'id': len(panels) + 1, 'title': indicator.title() + ' (' + policy['window'] + ')',
             'type': 'stat', 'datasource': {'type': 'prometheus', 'uid': 'metrics'},
             'gridPos': {'x': 12 * (len(panels) % 2), 'y': 0, 'w': 12, 'h': 6},
@@ -79,7 +86,7 @@ def dashboard():
         'targets': [{'refId': 'A', 'expr': 'ALERTS{service="notes-api"}', 'instant': True, 'format': 'table'}]})
     return {'uid': 'notes-user-slo', 'title': 'Notes user SLO', 'schemaVersion': 41, 'version': 1,
         'editable': False, 'refresh': '30s', 'time': {'from': 'now-6h', 'to': 'now'},
-        'description': 'User reads only. 7d window; 10000 samples minimum. Missing evidence is UNAVAILABLE. Release traffic is separate.',
+        'description': 'User reads only. Complete 7d scrape window and 10000 samples required. Missing or truncated evidence is UNAVAILABLE. Release traffic is separate.',
         'panels': panels}
 
 

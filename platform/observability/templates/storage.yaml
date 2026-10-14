@@ -1,0 +1,53 @@
+{{- if .Values.enabled }}
+{{- $policy := .Files.Get "policy.json" | fromJson }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $policy.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-30'
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    cloudlab.io/owner: observability-platform
+    cloudlab.io/service-secrets: approved
+    cloudlab.io/gateway: private
+    istio-injection: disabled
+    istio.io/dataplane-mode: ambient
+    # Host-network node exporters require this administrator-only namespace.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: v1.36
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ $policy.storage_class }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    storageclass.kubernetes.io/is-default-class: 'false'
+  labels: {cloudlab.io/owner: observability-platform, cloudlab.io/offsite-backup: 'false'}
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: '2'
+  staleReplicaTimeout: '30'
+  dataLocality: disabled
+  fsType: ext4
+  recurringJobSelector: '[{"name":"telemetry-disposable","isGroup":true}]'
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: telemetry-budget
+  namespace: {{ $policy.namespace }}
+spec:
+  hard:
+    requests.cpu: '2'
+    limits.cpu: {{ printf "%dm" ($policy.cpu_limit_millicores | int) | quote }}
+    requests.memory: 3Gi
+    limits.memory: {{ printf "%dMi" ($policy.memory_limit_mib | int) | quote }}
+    requests.storage: {{ printf "%dGi" ($policy.storage_limit_gib | int) | quote }}
+    persistentvolumeclaims: '4'
+    pods: '16'
+{{- end }}

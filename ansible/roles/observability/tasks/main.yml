@@ -1,0 +1,38 @@
+---
+- name: Resolve committed telemetry policy and retained private peers
+  ansible.builtin.command: python -m automation.observability.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: telemetry_payload
+
+- name: Create the telemetry owner module directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/automation/observability
+    state: directory
+    mode: '0700'
+
+- name: Install the bounded telemetry bootstrap from its owner
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/observability/bootstrap.py'
+    dest: /opt/cloudlab/automation/observability/bootstrap.py
+    mode: '0600'
+
+- name: Reconcile only declared telemetry Applications
+  ansible.builtin.command: python3 /opt/cloudlab/automation/observability/bootstrap.py
+  args: {stdin: '{{ telemetry_payload.stdout }}'}
+  register: telemetry_applied
+  changed_when: telemetry_applied.rc == 0 and (telemetry_applied.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require telemetry convergence
+  ansible.builtin.assert:
+    that: telemetry_applied.rc == 0
+    fail_msg: Telemetry bootstrap incomplete; existing credentials, volumes and controllers retained.
+
+- name: Report the redacted telemetry owner result
+  ansible.builtin.debug:
+    msg: '{{ telemetry_applied.stdout | from_json }}'

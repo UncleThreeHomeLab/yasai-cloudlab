@@ -36,7 +36,12 @@ spec:
     matchLabels: {app.kubernetes.io/name: {{ .Values.name }}}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: {{ .Values.name }}, cloudlab.io/owner: {{ .Values.owner | quote }}}
+      labels:
+        app.kubernetes.io/name: {{ .Values.name }}
+        cloudlab.io/owner: {{ .Values.owner | quote }}
+        {{- if eq (index .Values.environment "OTEL_ENABLED" | default "") "1" }}
+        cloudlab.io/telemetry: safe
+        {{- end }}
     spec:
       serviceAccountName: {{ .Values.name }}
       automountServiceAccountToken: false

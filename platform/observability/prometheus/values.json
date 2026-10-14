@@ -199,6 +199,7 @@
       }
     },
     "grafana": {
+      "fullnameOverride": "cloudlab-grafana",
       "image": {
         "registry": "docker.io",
         "repository": "grafana/grafana",
@@ -250,6 +251,12 @@
           "secretName": "grafana-oidc",
           "mountPath": "/etc/secrets/grafana-oidc",
           "readOnly": true
+        },
+        {
+          "name": "grafana-emergency",
+          "secretName": "grafana-emergency",
+          "mountPath": "/etc/secrets/grafana-emergency",
+          "readOnly": true
         }
       ],
       "grafana.ini": {
@@ -259,7 +266,8 @@
         "security": {
           "cookie_secure": true,
           "cookie_samesite": "lax",
-          "disable_gravatar": true
+          "disable_gravatar": true,
+          "secret_key": "$__file{/etc/secrets/grafana-emergency/secret_key}"
         },
         "users": {
           "allow_sign_up": false
