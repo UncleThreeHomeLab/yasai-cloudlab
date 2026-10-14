@@ -8,6 +8,21 @@ from automation.observability.bootstrap import application, seed, run, COMPONENT
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_cold_configuration_can_resolve_secrets_before_backend_routes_become_healthy(self):
+        payload = self.payload()
+        current = application(payload, 'configuration')
+        self.assertNotIn('valueFiles', current['spec']['source']['helm'])
+        self.assertNotIn('valuesObject', application(payload, 'loki')['spec']['source']['helm'])
+        current['status'] = {'health': {'status': 'Degraded'}, 'operationState': {'phase': 'Succeeded'},
+            'sync': {'status': 'Synced', 'revision': payload['revision'],
+                     'comparedTo': {'source': current['spec']['source']}}}
+        def wait(predicate, *_args, **_kwargs): self.assertTrue(predicate())
+        with patch('automation.observability.bootstrap.get', return_value=current), \
+                patch('automation.observability.bootstrap.kube') as mutate, \
+                patch('automation.observability.bootstrap.wait', side_effect=wait):
+            self.assertFalse(seed(payload, 'configuration'))
+        mutate.assert_not_called()
+
     def payload(self):
         return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
                 'configuration': {'enabled': True}, 'components': {name: {} for name in COMPONENTS}}
