@@ -17,13 +17,15 @@ COMPONENTS = ('prometheus', 'loki', 'tempo', 'alloy', 'kiali')
 def application(payload, name):
     configuration = name == 'configuration'
     values = payload['configuration'] if configuration else payload['components'][name]
+    helm = {'releaseName': 'cloudlab-observability' if configuration else 'cloudlab-' + name}
+    if not configuration: helm['valueFiles'] = ['values.json']
+    if values: helm['valuesObject'] = values
     return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
         'metadata': {'name': 'cloudlab-observability' if configuration else 'cloudlab-' + name,
                      'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
         'spec': {'project': 'cloudlab-observability', 'source': {'repoURL': payload['repository'],
             'targetRevision': payload['revision'], 'path': 'platform/observability' + ('' if configuration else '/' + name),
-            'helm': {'releaseName': 'cloudlab-observability' if configuration else 'cloudlab-' + name,
-                     'valueFiles': [] if configuration else ['values.json'], 'valuesObject': values}},
+            'helm': helm},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE},
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                 'syncOptions': ['FailOnSharedResource=true', 'ServerSideApply=true', 'DisableClientSideApplyMigration=true'],
@@ -42,7 +44,16 @@ def seed(payload, name):
         raise RuntimeError('Telemetry Application ownership conflicts; adoption refused')
     changed = not current or not contains(current, desired)
     if changed: kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
-    wait(lambda: application_ready(desired['metadata']['name'], payload['revision']), 'telemetry chart convergence', timeout=900)
+    def ready():
+        if name != 'configuration': return application_ready(desired['metadata']['name'], payload['revision'])
+        # Private routes cannot resolve backend references before child charts exist.
+        actual = get('application.argoproj.io', desired['metadata']['name'], 'argocd') or {}
+        return (actual.get('status', {}).get('sync', {}).get('status') == 'Synced' and
+                actual.get('status', {}).get('sync', {}).get('revision') == payload['revision'] and
+                contains(actual.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {}), desired['spec']['source']) and
+                actual.get('status', {}).get('operationState', {}).get('phase') == 'Succeeded' and not actual.get('operation') and
+                not any(condition['type'].endswith('Error') for condition in actual.get('status', {}).get('conditions', [])))
+    wait(ready, 'telemetry chart convergence', timeout=900)
     return changed
 
 
@@ -68,6 +79,8 @@ def run(payload):
         if not payload['configuration']['monitoringEnabled']:
             payload['configuration']['monitoringEnabled'] = True
             changed = seed(payload, 'configuration') or changed
+        wait(lambda: application_ready('cloudlab-observability', payload['revision']),
+             'complete telemetry boundaries', timeout=300)
         return {'changed': changed, 'owner': 'argocd', 'components': len(COMPONENTS), 'offsite_backup': False}
 
 

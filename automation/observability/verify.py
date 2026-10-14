@@ -39,7 +39,8 @@ def http(service, port, path):
     if not peer.is_private: raise RuntimeError('Telemetry inspection requires local service peers')
     authority = '[' + address + ']' if peer.version == 6 else address
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    with opener.open('http://' + authority + ':' + str(port) + path, timeout=10) as response:
+    request = urllib.request.Request('http://' + authority + ':' + str(port) + path, headers={'Accept': 'application/json'})
+    with opener.open(request, timeout=10) as response:
         raw = response.read(1024 * 1024 + 1)
     if len(raw) > 1024 * 1024: raise RuntimeError('Telemetry inspection response exceeds its bound')
     return json.loads(raw)

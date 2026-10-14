@@ -9,10 +9,10 @@ metadata:
   name: {{ $entry.name }}
   namespace: {{ $policy.namespace }}
 spec:
-  parentRefs: [{name: cloudlab, namespace: cloudlab-gateway-private, sectionName: https}]
+  parentRefs: [{group: gateway.networking.k8s.io, kind: Gateway, name: cloudlab, namespace: cloudlab-gateway-private, sectionName: https}]
   hostnames: [{{ $entry.host | quote }}]
   rules:
     - matches: [{path: {type: PathPrefix, value: /}}]
-      backendRefs: [{name: {{ $entry.service }}, port: {{ $entry.port }}}]
+      backendRefs: [{group: '', kind: Service, name: {{ $entry.service }}, port: {{ $entry.port }}, weight: 1}]
 {{- end }}
 {{- end }}
