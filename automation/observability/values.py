@@ -34,7 +34,7 @@ def values(name):
             'crds': {'annotations': {'argocd.argoproj.io/sync-options': 'ServerSideApply=true,Prune=false,Delete=false'}},
             'kubeControllerManager': {'enabled': False}, 'kubeScheduler': {'enabled': False},
             'kubeEtcd': {'enabled': False}, 'kubeProxy': {'enabled': False},
-            'coreDns': {'serviceMonitor': {'authorization': None}},
+            'coreDns': {'enabled': False, 'serviceMonitor': {'authorization': None}},
             'kubelet': {'serviceMonitor': {'authorization': None,
                 'bearerTokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token',
                 'tlsConfig': {'caFile': '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt', 'insecureSkipVerify': False}}},
