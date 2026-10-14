@@ -31,7 +31,11 @@ spec:
       backoffLimit: 0
       template:
         metadata:
-          labels: {cloudlab.io/identity-health: 'true'}
+          labels:
+            cloudlab.io/identity-health: 'true'
+            {{- if .Values.telemetryEnabled }}
+            cloudlab.io/telemetry: safe
+            {{- end }}
         spec:
           serviceAccountName: identity-health
           automountServiceAccountToken: false

@@ -73,6 +73,13 @@ Only the account's active registered-email contact receives notifications. Dispo
 delivery without interrupting production. Confirm outage and recovery email receipt;
 provider status alone does not prove delivery.
 
+Private telemetry uses the same [monitoring contract](platform/observability/contract.json).
+Run `lab observe credentials` through Compose with the local vault writer, then
+`gh auth token | docker compose run -T --rm lab observe identity-prepare`.
+Merge the returned private client PR before enabling `observability.enabled` in
+the public root. Add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`. Apply with
+`prove`. Dashboards require Keycloak; telemetry PVCs exclude off-site backups.
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.

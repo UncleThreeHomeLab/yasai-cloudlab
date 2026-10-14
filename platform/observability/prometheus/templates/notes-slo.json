@@ -12,6 +12,10 @@
         "interval": "30s",
         "rules": [
           {
+            "record": "notes:slo_evidence:present",
+            "expr": "(min(up{namespace=\"cloudlab-app-notes\",job=\"notes-api\"}) or vector(0)) == bool 1"
+          },
+          {
             "alert": "NotesAvailabilityBurn1h",
             "expr": "((1 - ((sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\"}[1h])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[1h])))) / 0.001000000 > 3.36) and ((1 - ((sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..\"}[5m])) or vector(0)) / sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[5m])))) / 0.001000000 > 3.36) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[1h])) >= 100) and (sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[5m])) >= 10)",
             "for": "2m",
@@ -69,15 +73,15 @@
           },
           {
             "alert": "NotesSLOEvidenceUnavailable",
-            "expr": "(sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[7d])) < 10000) or absent(sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[7d])))",
+            "expr": "(sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[7d])) < 10000) or absent(sum(increase(cloudlab_http_requests_total{service=\"notes-api\",route=\"/api/notes\",traffic=\"user\",status=~\"2..|5..\"}[7d]))) or ((sum_over_time(notes:slo_evidence:present[7d]) or vector(0)) < 20159)",
             "for": "24h",
             "labels": {
               "service": "notes-api",
               "severity": "warning"
             },
             "annotations": {
-              "summary": "Notes SLO has insufficient user samples",
-              "description": "Do not report compliance while evidence is unavailable or below the sample minimum."
+              "summary": "Notes SLO lacks complete window evidence",
+              "description": "Compliance requires sufficient user samples and a complete retained scrape window. Missing, stale or truncated evidence is unavailable."
             }
           },
           {

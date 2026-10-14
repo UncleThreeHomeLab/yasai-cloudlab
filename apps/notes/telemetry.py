@@ -2,17 +2,19 @@
 from contextlib import contextmanager, nullcontext
 import json
 import os
+import re
 import time
 
 TRACER = None
 REQUESTS = None
 DURATION = None
 PROPAGATOR = None
+REVISION = None
 ROUTES = {'/', '/health', '/ready', '/live', '/api/notes', '/api/release/notes', '/api/operations'}
 
 
 def start(service):
-    global TRACER, REQUESTS, DURATION, PROPAGATOR
+    global TRACER, REQUESTS, DURATION, PROPAGATOR, REVISION
     if os.environ.get('OTEL_ENABLED') != '1': return
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
@@ -25,12 +27,15 @@ def start(service):
     endpoint = os.environ['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']
     if endpoint != 'http://cloudlab-alloy.cloudlab-observability.svc:4318/v1/traces':
         raise ValueError('Telemetry must use the local approved collector')
+    REVISION = os.environ.get('SOURCE_SHA256', '')
+    if not re.fullmatch('[a-f0-9]{64}', REVISION):
+        raise ValueError('Telemetry requires its immutable source revision')
     provider = TracerProvider(resource=Resource({'service.name': service}))
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, timeout=2),
         max_queue_size=256, max_export_batch_size=64, schedule_delay_millis=1000, export_timeout_millis=2000))
     TRACER = provider.get_tracer('cloudlab.notes')
     PROPAGATOR = TraceContextTextMapPropagator()
-    labels = ('service', 'route', 'method', 'status', 'traffic')
+    labels = ('service', 'route', 'method', 'status', 'traffic', 'revision')
     REQUESTS = Counter('cloudlab_http_requests', 'Completed bounded application requests', labels)
     DURATION = Histogram('cloudlab_http_duration_seconds', 'Application response duration', labels,
                          buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10))
@@ -75,7 +80,7 @@ def request(handler, service):
                 current.set_attribute('http.response.status_code', status)
                 if status >= 500: current.set_status(Status(StatusCode.ERROR))
                 elapsed = max(0, time.monotonic() - started)
-                labels = (service, route, handler.command, str(status), traffic)
+                labels = (service, route, handler.command, str(status), traffic, REVISION)
                 exemplar = {'trace_id': format(current.get_span_context().trace_id, '032x')}
                 REQUESTS.labels(*labels).inc(exemplar=exemplar)
                 DURATION.labels(*labels).observe(elapsed, exemplar=exemplar)

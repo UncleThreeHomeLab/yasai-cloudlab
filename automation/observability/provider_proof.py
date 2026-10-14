@@ -56,6 +56,9 @@ def main():
     os.umask(0o077)
     AUTH = 'fixture-admin:' + Path('/fixture/grafana_password').read_text()
     wait(lambda: request('/api/health').get('database') == 'ok')
+    plugins = {row['id'] for row in request('/api/plugins')}
+    if not {'prometheus', 'loki', 'tempo'} <= plugins:
+        raise RuntimeError('Pinned offline Grafana lacks a required data-source plugin')
     account = request('/api/serviceaccounts', 'POST', {'name': 'cloudlab-fixture-machine', 'role': 'Viewer'}, expected=201)
     identifier = account['id']
     configuration = {'provider': {'grafana': {'url': 'http://grafana:3000', 'auth': AUTH}},
@@ -114,7 +117,7 @@ def main():
             row['name'] == 'unrelated-fixture' for row in inventory['serviceAccounts']):
         raise RuntimeError('Pinned scoped destroy changed unrelated Grafana accounts')
     print(json.dumps({'oss_version': '13.2.4', 'provider_version': '4.49.0', 'service_account_import': True,
-        'repeat_plan_empty': True, 'drift_repair': True, 'viewer_write_denied': True,
+        'repeat_plan_empty': True, 'drift_repair': True, 'viewer_write_denied': True, 'offline_core_plugins': True,
         'token_import_supported': False, 'token_inventory_retrieval': False, 'token_in_state': True,
         'token_expiry_denied': True, 'emergency_password_rotation': True, 'unrelated_account_preserved': True}))
 

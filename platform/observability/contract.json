@@ -10,13 +10,29 @@
   "grafana_provider": {
     "disposition": "retain native Git provisioning; retain bounded API lifecycle for machine credentials",
     "reason": "Dashboards, data sources, SSO settings and Prometheus alerts have native Git owners",
-    "api_only_objects": "Machine Viewer service account and expiring token use a scoped native API owner with vault custody; no dashboard, data source or alert resources",
+    "api_only_objects": "Qualified candidate: Viewer service account and expiring token. No active machine consumer; no production API objects or provider root required",
     "adoption": false,
     "provider_version": "4.49.0",
     "oss_version": "13.2.4",
     "capabilities": {"service_account_import": true, "role_drift_repair": true, "viewer_write_denied": true, "token_import": false, "token_inventory_retrieval": false, "token_in_state": true, "expiry": true},
     "machine_lifecycle_active": false,
     "custody": "Vault owns issued tokens; interrupted issuance fails closed and requires explicit rotation"
+  },
+  "human_access": {
+    "issuer": "Keycloak platform realm",
+    "grafana_roles": {"/platform-admin": "Admin", "/developer": "Editor", "/viewer": "Viewer"},
+    "unmapped": "Denied",
+    "server_admin_from_sso": false,
+    "paid_team_sync": false,
+    "session_seconds": 300,
+    "offboarding": "Disable user and revoke Keycloak sessions; Grafana session expiry bounds retained access to 300 seconds",
+    "emergency": "Independent local Grafana server administrator; vault password and stable encryption key",
+    "machine_access": "Separate expiring Viewer service-account token; never reuse human OIDC credentials"
+  },
+  "credentials": {
+    "grafana-emergency": ["username", "password", "secret_key"],
+    "kiali-signing-key": ["key"],
+    "keycloak-client-secrets": "client_secrets JSON: platform.grafana and platform.kiali; retained identity owner"
   },
   "telemetry": {
     "storage": "Local Longhorn PVCs",

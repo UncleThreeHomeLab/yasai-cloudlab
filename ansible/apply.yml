@@ -95,3 +95,8 @@
       ansible.builtin.include_role:
         name: services
       when: services_enabled | bool
+
+    - name: Reconcile telemetry after retained identity and service owners
+      ansible.builtin.include_role:
+        name: observability
+      when: observability_enabled | bool

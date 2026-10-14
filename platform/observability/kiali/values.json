@@ -13,6 +13,7 @@
       }
     },
     "deployment": {
+      "instance_name": "cloudlab-kiali",
       "image_version": "082246cfc99f69667f10e56cecd6b92d6c614908d29b123d93a0cd0173d0905f",
       "image_digest": "sha256",
       "cluster_wide_access": false,
@@ -26,6 +27,25 @@
           "cpu": "200m",
           "memory": "384Mi"
         }
+      },
+      "discovery_selectors": {
+        "default": [
+          {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "cloudlab-app-notes"
+            }
+          },
+          {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "istio-system"
+            }
+          },
+          {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "cloudlab-observability"
+            }
+          }
+        ]
       },
       "network_policy": {
         "enabled": false

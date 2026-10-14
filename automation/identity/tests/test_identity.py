@@ -1244,6 +1244,9 @@ class IdentityTests(unittest.TestCase):
             self.assertFalse(spec['source']['helm']['valuesObject']['operatorEnabled'])
             self.assertEqual(spec['source']['helm']['valuesObject']['bootstrapMode'], phase in ('bootstrap', 'primary'))
             self.assertEqual(spec['source']['helm']['valuesObject']['primaryAdminEnabled'], phase == 'primary')
+            self.assertFalse(spec['source']['helm']['valuesObject']['telemetryEnabled'])
+        payload['telemetry_enabled'] = True
+        self.assertTrue(application(payload, 'scoped')['spec']['source']['helm']['valuesObject']['telemetryEnabled'])
         for unsafe in ('10.0.0.0/8', '0.0.0.0/0', '203.0.114.0/24'):
             payload['values']['trustedProxyAddresses'] = [unsafe]
             with self.assertRaises(ValueError): application(payload, 'server')

@@ -7,6 +7,10 @@ from automation.services.inputs import catalog
 
 def payload():
     source = committed_payload()
+    import yaml
+    from automation.services.contract import ROOT
+    settings = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    telemetry = settings.get('observability', {}).get('enabled', False)
     value = catalog(required=True)
     from automation.data.requests import request
     for entry in value['catalog']:
@@ -23,7 +27,7 @@ def payload():
             script = "import sys,json,base64;sys.path.insert(0,'/opt/cloudlab');from automation.mesh.kube import get;app=get('application.argoproj.io','cloudlab-identity','argocd');ca=get('secret','cloudlab-postgres-ca','cloudlab-data');print(json.dumps({'issuer':'https://'+app['spec']['source']['helm']['valuesObject']['loginHost']+'/realms/applications','ca':base64.b64decode(ca['data']['ca.crt']).decode()}))"
             import shlex
             metadata = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script), timeout=60))
-            entry['notesValues'] = notes_values(entry['definition'], metadata['issuer'], metadata['ca'])
+            entry['notesValues'] = notes_values(entry['definition'], metadata['issuer'], metadata['ca'], telemetry=telemetry)
     return {'repository': source['repository'], 'revision': source['revision'], 'values': {
         'repository': source['repository'], 'revision': source['revision'], 'catalog': value['catalog']}}
 

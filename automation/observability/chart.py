@@ -8,7 +8,7 @@ import subprocess
 import yaml
 
 from automation.gitops.render import images
-from automation.observability.package import retained
+from automation.observability.package import retained, kiali_declarative
 from automation.observability.values import values
 from automation.observability.configuration import POLICY
 
@@ -16,13 +16,26 @@ BASE = Path(__file__).resolve().parents[2] / 'platform/observability'
 COMPONENTS = ('prometheus', 'loki', 'tempo', 'alloy', 'kiali')
 
 
-def render(name):
+def render(name, runtime=None):
     command = ['helm', 'template', 'cloudlab-' + name, str(BASE / name), '-n', POLICY['namespace'],
                '--kube-version', '1.36.5', '--include-crds', '-f', str(BASE / name / 'values.json')]
-    results = [subprocess.run(command, capture_output=True, text=True, timeout=90) for _ in range(2)]
+    if runtime is not None:
+        command += ['-f', '-']
+    results = [subprocess.run(command, input=yaml.safe_dump(runtime) if runtime is not None else None,
+                              capture_output=True, text=True, timeout=90) for _ in range(2)]
     if any(r.returncode for r in results) or results[0].stdout != results[1].stdout:
         raise ValueError('Telemetry chart failed or is nondeterministic: ' + name)
     return [o for o in yaml.safe_load_all(results[0].stdout) if o]
+
+
+def configuration(enabled=False):
+    result = subprocess.run(['helm', 'template', 'cloudlab-observability', str(BASE),
+        '-n', POLICY['namespace'], '--kube-version', '1.36.5', '--set', 'enabled=' + str(enabled).lower(),
+        '--set', 'monitoringEnabled=' + str(enabled).lower()],
+        capture_output=True, text=True, timeout=90)
+    if result.returncode:
+        raise ValueError('Telemetry boundary chart failed')
+    return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
 
 
 def check():
@@ -38,6 +51,10 @@ def check():
             raise ValueError('Telemetry chart artifact checksum mismatch')
         if name == 'prometheus' and retained((path / 'upstream.tgz').read_bytes()) != raw:
             raise ValueError('Telemetry CRD patch differs from pinned upstream')
+        if name == 'kiali':
+            upstream = (path / 'upstream.tgz').read_bytes()
+            if hashlib.sha256(upstream).hexdigest() != lock['upstream_sha256'] or kiali_declarative(upstream) != raw:
+                raise ValueError('Kiali declarative patch differs from pinned upstream')
         if json.loads((path / 'values.json').read_text()) != {lock['chart']: values(name)}:
             raise ValueError('Telemetry settings differ from their policy compiler')
         objects = render(name)

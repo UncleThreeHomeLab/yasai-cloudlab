@@ -153,6 +153,7 @@ def application(payload, phase, retired=False, retired_item=''):
     desired = dict(values, enabled=True, operatorEnabled=False, serverEnabled=True,
                    maintenance=False, reconciliationEnabled=phase != 'server', bootstrapMode=phase in ('bootstrap', 'primary'),
                    primaryAdminEnabled=phase == 'primary', privateStateEnabled=phase != 'server', bootstrapAdminEnabled=not retired)
+    desired['telemetryEnabled'] = payload.get('telemetry_enabled', False)
     if retired:
         desired['retiredEmergencyItem'] = retired_item
     return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',

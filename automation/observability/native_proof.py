@@ -6,6 +6,8 @@ import subprocess
 import sys
 import time
 import secrets
+import os
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -57,6 +59,17 @@ def prepare():
     compiled = rules()
     compiled['groups'].extend(audit_rules()['groups'])
     (FIXTURE / 'slo-rules.json').write_text(json.dumps(compiled))
+    (FIXTURE / 'prometheus.yaml').write_text(yaml.safe_dump({
+        'global': {'scrape_interval': '2s', 'evaluation_interval': '30s'},
+        'rule_files': ['/fixture/slo-rules.json'],
+        'alerting': {'alertmanagers': [{'static_configs': [{'targets': ['alertmanager:9093']}]}]},
+        'scrape_configs': [{'job_name': 'notes-api', 'static_configs': [{
+            'targets': ['alert-fixture:8085'], 'labels': {'namespace': 'cloudlab-app-notes'}}]}]}))
+    (FIXTURE / 'alertmanager.yaml').write_text(yaml.safe_dump({
+        'route': {'receiver': 'fixture', 'group_by': ['alertname'],
+                  'group_wait': '1s', 'group_interval': '5s', 'repeat_interval': '1h'},
+        'receivers': [{'name': 'fixture', 'webhook_configs': [
+            {'url': 'http://alert-fixture:8085/alerts', 'send_resolved': True}]}]}))
     base = '{service="notes-api",route="/api/notes",traffic="user",status="'
     series = [
         {'series': 'cloudlab_http_requests_total' + base + '200"}', 'values': '0+90x69 6310+100x140'},
@@ -65,7 +78,9 @@ def prepare():
         {'series': 'cloudlab_http_requests_total{service="notes-api",route="/api/release/notes",traffic="release",status="500"}',
          'values': '0+1000x210'}]
     cases = []
-    for rule in compiled['groups'][0]['rules'][:4]:
+    for rule in compiled['groups'][0]['rules']:
+        if 'Burn' not in rule.get('alert', ''):
+            continue
         cases.extend([{'eval_time': '20m', 'alertname': rule['alert'],
                        'exp_alerts': [{'exp_labels': rule['labels'], 'exp_annotations': rule['annotations']}]},
                       {'eval_time': '140m', 'alertname': rule['alert'], 'exp_alerts': []}])
@@ -157,13 +172,41 @@ def verify():
             'cloudlab_keycloak_admin_events_total', 'cloudlab_keycloak_health_last_success_seconds',
             'cloudlab_keycloak_audit_incomplete')):
         raise RuntimeError('Pinned bounded audit metrics unavailable')
+    # Exercise the actual app middleware, rather than only hand-created SDK spans.
+    sys.path.insert(0, str(ROOT / 'apps/notes'))
+    import telemetry
+    import web
+    from http.server import ThreadingHTTPServer
+    os.environ.update(OTEL_ENABLED='1', SOURCE_SHA256='0' * 64,
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT='http://cloudlab-alloy.cloudlab-observability.svc:4318/v1/traces')
+    telemetry.start('notes-web')
+    telemetry.instrument(web.Handler, 'notes-web')
+    server = ThreadingHTTPServer(('127.0.0.1', 0), web.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        request = urllib.request.Request('http://127.0.0.1:' + str(server.server_port) + '/ready?password=fixture-secret-do-not-export',
+            headers={'traceparent': carrier['traceparent'], 'Authorization': 'Bearer fixture-secret-do-not-export'})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            if response.status != 200: raise RuntimeError('Real app fixture readiness failed')
+        request_metrics = urllib.request.Request('http://127.0.0.1:9091/metrics',
+            headers={'Accept': 'application/openmetrics-text;version=1.0.0'})
+        with urllib.request.urlopen(request_metrics, timeout=5) as response: exported = response.read().decode()
+        if ('fixture-secret-do-not-export' in exported or 'traffic="synthetic"' not in exported or
+                'revision="' + '0' * 64 + '"' not in exported or trace_id not in exported):
+            raise RuntimeError('Real app metrics, source revision, propagation or redaction failed')
+    finally:
+        server.shutdown()
+        server.server_close()
     receipt = json.loads((FIXTURE / 'retention.json').read_text())
     if (receipt != {'loki_retention': '72h', 'loki_audit_retention': '168h', 'loki_retention_enabled': True,
                    'tempo_storage': 'local', 'tempo_retention': '24h'}):
         raise RuntimeError('Pinned local retention settings differ')
     print(json.dumps({'otlp_sdk_to_alloy_to_tempo': True, 'parent_child_trace': True,
                       'redacted_logs_to_loki': True, 'trace_log_correlation': True,
-                      'configured_local_retention': True, 'b2_connections': 0}))
+                      'configured_local_retention': True, 'real_app_middleware_and_metrics': True,
+                      'audit_projection_and_metrics': True, 'b2_connections': 0}))
+    from automation.observability.alert_fixture import verify as verify_alerts
+    print(json.dumps(verify_alerts()))
 
 
 if __name__ == '__main__':

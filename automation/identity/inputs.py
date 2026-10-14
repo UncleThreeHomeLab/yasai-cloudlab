@@ -63,7 +63,8 @@ def payload():
     if private_name == public_name or private_name.split('/')[0] != public_name.split('/')[0]:
         raise RuntimeError('Identity private source must be a distinct designated configuration repository')
     result = {key: result[key] for key in ('repository', 'branch', 'revision')} | {
-        'private_repository': private, 'private_branch': 'main'}
+        'private_repository': private, 'private_branch': 'main',
+        'telemetry_enabled': bool(public.get('observability', {}).get('enabled', False))}
     if os.environ.get('LAB_IDENTITY_PHASE') == 'argo':
         result['argo'] = native_argo(values)
     return result

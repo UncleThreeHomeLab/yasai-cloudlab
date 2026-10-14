@@ -27,3 +27,5 @@ identity:
   enabled: true
 services:
   enabled: true
+observability:
+  enabled: false
