@@ -34,7 +34,7 @@ from automation.identity.maintenance import APP,NAMESPACE,BASE
 from automation.mesh.kube import get,wait
 from automation.identity.bootstrap import reconciled
 from urllib.parse import urlencode
-request=json.load(sys.stdin);nonce=scope(request)
+request=json.load(sys.stdin);nonce=scope(request);realm=request.get('realm','platform')
 owner=json.loads((BASE/'ownership.json').read_text())
 app=get('application.argoproj.io',APP,'argocd');values=app['spec']['source']['helm']['valuesObject']
 if owner['phase']!='scoped' or owner['uid']!=app['metadata']['uid'] or values.get('operation') or values.get('maintenance'):
@@ -44,11 +44,11 @@ app=get('application.argoproj.io',APP,'argocd');values=app['spec']['source']['he
 if json.loads((BASE/'ownership.json').read_text())!=owner or app['metadata']['uid']!=owner['uid'] or values.get('operation') or values.get('maintenance'):
  raise RuntimeError('Session observation ownership changed during convergence')
 checkpoint=json.loads((BASE/('proof-'+nonce+'.json')).read_text())
-if checkpoint.get('phase')!='enrolled' or checkpoint.get('application_uid')!=owner['uid']: raise RuntimeError('Disposable enrollment is incomplete')
-origin='https://'+values['adminHost'];root=origin+'/admin/realms/platform'
-token=private_request(origin+'/realms/platform/protocol/openid-connect/token',form={'grant_type':'client_credentials','client_id':'realm-writer','client_secret':vault_secret('keycloak-realm-writers')['platform_client_secret']})['access_token']
+if checkpoint.get('phase')!='enrolled' or checkpoint.get('application_uid')!=owner['uid'] or checkpoint.get('realm','platform')!=realm: raise RuntimeError('Disposable enrollment is incomplete')
+origin='https://'+values['adminHost'];root=origin+'/admin/realms/'+realm
+token=private_request(origin+'/realms/'+realm+'/protocol/openid-connect/token',form={'grant_type':'client_credentials','client_id':'realm-writer','client_secret':vault_secret('keycloak-realm-writers')[realm+'_client_secret']})['access_token']
 rows=private_request(root+'/users?'+urlencode({'username':'proof-'+nonce,'exact':'true','max':2}),token=token)
-if len(rows)!=1 or rows[0]['id']!=checkpoint['user_id'] or rows[0].get('attributes',{}).get('cloudlab-primary-owner')!=[nonce]: raise RuntimeError('Disposable identity changed')
+if len(rows)!=1 or rows[0]['id']!=checkpoint['user_id'] or rows[0].get('username')!='proof-'+nonce or rows[0].get('attributes',{}).get('cloudlab-primary-owner')!=[nonce]: raise RuntimeError('Disposable identity changed')
 user=rows[0];other={}
 for first in range(0,10000,100):
  batch=private_request(root+'/users?first='+str(first)+'&max=100',token=token)
@@ -59,9 +59,9 @@ for first in range(0,10000,100):
    other[row['id']]={'user':row,'credentials':private_request(path+'/credentials',token=token),'roles':private_request(path+'/role-mappings',token=token)}
  if len(batch)<100:break
 else:raise RuntimeError('Preservation inventory exceeds bounds')
-keys=private_request('https://'+values['loginHost']+'/realms/platform/protocol/openid-connect/certs')
+keys=private_request('https://'+values['loginHost']+'/realms/'+realm+'/protocol/openid-connect/certs')
 fingerprint=hashlib.sha256(json.dumps({'users':other,'keys':keys},sort_keys=True).encode()).hexdigest()
-print(json.dumps({'realm':'platform','username':user['username'],'user_id':user['id'],'email':user['email'],'enabled':user['enabled'],'preservation':fingerprint,'groups':[r['path'] for r in private_request(root+'/users/'+user['id']+'/groups',token=token)]}))
+print(json.dumps({'realm':realm,'username':user['username'],'user_id':user['id'],'email':user['email'],'enabled':user['enabled'],'preservation':fingerprint,'groups':[r['path'] for r in private_request(root+'/users/'+user['id']+'/groups',token=token)]}))
 '''
 
 

@@ -21,25 +21,31 @@ try {
       !/^https:\/\/[a-z0-9.-]+\/realms\/applications$/.test(input.issuer)) throw new Error('Invalid scope');
   browser = await chromium.launch();
   const context = await browser.newContext();
+  context.setDefaultTimeout(60000);
+  // Tailnet split DNS resolves the canonical issuer to a private address.
+  await context.grantPermissions(['local-network-access'], {origin: input.origin});
   const page = await context.newPage();
   // The browser login must not manufacture user SLO samples.
   await page.route(input.origin + '/api/notes', route => route.fulfill({
     status: 200, contentType: 'application/json', body: '{"notes":[]}'}));
   page.on('dialog', dialog => dialog.accept('disposable-release-viewer'));
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', {options: {protocol: 'ctap2', transport: 'internal',
-    hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true}});
   const issued = page.waitForResponse(response => response.url() === input.issuer + '/protocol/openid-connect/token' &&
     response.request().method() === 'POST', {timeout: 120000});
   stage = 'canonical application';
   await page.goto(input.origin);
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
-  stage = 'disposable MFA';
+  stage = 'disposable password';
   await page.getByLabel('Username', {exact: false}).fill(input.username);
   await page.getByLabel('Password', {exact: true}).fill(input.password);
   await page.getByRole('button', {name: 'Sign In', exact: true}).click();
+  stage = 'disposable MFA';
+  await page.waitForLoadState('domcontentloaded');
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', {options: {protocol: 'ctap2', transport: 'internal',
+    hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true}});
   await page.getByRole('button', {name: /Register/}).click();
+  stage = 'code exchange';
   const response = await issued;
   if (response.status() !== 200) throw new Error('Code exchange rejected');
   const result = await response.json();

@@ -3,26 +3,70 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from automation.observability.baseline import cleanup, result
+from automation.observability.baseline import cleanup, prepare, result, retire, wait_private_source
 from automation.observability.slo import definition
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
+    def test_prepare_resumes_native_enrollment_and_keeps_failed_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory, 'fixture.json')
+            request = {'nonce': 'a' * 32, 'realm': 'applications'}
+            checkpoint.write_text(json.dumps(request))
+            api = Mock()
+            api.request.return_value = {'object': {'sha': 'b' * 40}}
+            with (patch('automation.observability.baseline.CHECKPOINT', checkpoint),
+                  patch('automation.observability.baseline.inputs', return_value=(
+                      {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/fixture/private.git'}, api, {}, {})),
+                  patch('automation.observability.baseline.environment'),
+                  patch('automation.observability.baseline.provision'),
+                  patch('automation.observability.baseline.wait_private_source') as wait_source,
+                  patch('automation.observability.baseline.publish') as publish,
+                  patch('automation.observability.baseline.local') as local):
+                local.side_effect = [RuntimeError('stage refused'), RuntimeError('resume refused')]
+                with self.assertRaises(RuntimeError): prepare()
+                self.assertTrue(checkpoint.exists())
+                publish.assert_not_called()
+                local.reset_mock()
+                local.side_effect = [RuntimeError('stage refused'), {'existing_credentials_preserved': True}]
+                self.assertTrue(prepare()['disposable_applications_viewer'])
+                self.assertEqual(local.call_args_list[0].kwargs, {'stage': True})
+                self.assertEqual(local.call_args_list[1].args, (request,))
+                wait_source.assert_called_with('b' * 40)
+                publish.assert_not_called()
+                local.reset_mock()
+                local.side_effect = [RuntimeError('stage refused')]
+                wait_source.side_effect = RuntimeError('private source unavailable')
+                with self.assertRaises(RuntimeError): prepare()
+                self.assertEqual(local.call_count, 1)
+                self.assertTrue(checkpoint.exists())
+
+    def test_private_source_wait_rejects_mutable_or_malformed_revisions_before_ssh(self):
+        with patch('automation.connectivity.preflight.ssh') as ssh:
+            for revision in (None, 'main', 'x' * 40, 'a' * 40 + '\n'):
+                with self.assertRaises(ValueError): wait_private_source(revision)
+            ssh.assert_not_called()
+
     def test_failed_viewer_cleanup_requires_exact_applications_ownership(self):
+        from automation.identity.lifecycle import offboard_scope
         nonce = 'a' * 32
         with tempfile.TemporaryDirectory() as directory:
             checkpoint = Path(directory, 'fixture.json')
             request = {'nonce': nonce, 'realm': 'applications'}
             checkpoint.write_text(json.dumps(request))
             credentials = {'username': 'proof-' + nonce, 'ownership_id': nonce}
+            identity = {'realm': 'applications', 'username': credentials['username'],
+                        'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid',
+                        'enabled': False, 'preservation': 'unchanged'}
             with (patch('automation.observability.baseline.CHECKPOINT', checkpoint),
                   patch('automation.observability.baseline.inputs', return_value=({}, object(), {}, {})),
                   patch('automation.observability.baseline.environment'),
                   patch('automation.observability.baseline.fields', return_value=credentials) as vault,
+                  patch('automation.identity.session_acceptance.remote_state', return_value=identity),
                   patch('automation.identity.session_acceptance.offboard_inputs') as tombstone,
-                  patch('automation.identity.lifecycle.local_offboard') as revoke):
+                  patch('automation.identity.lifecycle.local_offboard', side_effect=offboard_scope) as revoke):
                 for invalid in (dict(credentials, ownership_id='b' * 32), dict(credentials, username='primary')):
                     vault.return_value = invalid
                     with self.assertRaises(ValueError): cleanup()
@@ -35,8 +79,32 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 tombstone.assert_not_called()
                 checkpoint.write_text(json.dumps(request))
                 self.assertTrue(cleanup()['disposable_viewer_offboarded'])
-                revoke.assert_called_once_with({'realm': 'applications', 'username': 'proof-' + nonce})
+                revoke.assert_called_once_with({key: identity[key] for key in ('realm', 'username', 'user_id', 'email')})
                 self.assertFalse(checkpoint.exists())
+
+    def test_logout_waits_for_native_disable_and_preserves_checkpoint_on_drift(self):
+        from automation.identity.lifecycle import offboard_scope
+        active = {'realm': 'applications', 'username': 'proof-' + 'a' * 32,
+                  'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid',
+                  'enabled': True, 'preservation': 'unchanged'}
+        disabled = dict(active, enabled=False)
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory, 'fixture.json')
+            with (patch('automation.observability.baseline.CHECKPOINT', checkpoint),
+                  patch('automation.identity.session_acceptance.remote_state') as state,
+                  patch('automation.identity.session_acceptance.offboard_inputs'),
+                  patch('automation.identity.lifecycle.local_offboard', side_effect=offboard_scope) as revoke,
+                  patch('automation.observability.baseline.time.sleep') as sleep):
+                checkpoint.write_text('{}')
+                state.side_effect = [active, dict(disabled, user_id='foreign')]
+                with self.assertRaises(RuntimeError): retire(object(), {}, {'nonce': 'a' * 32, 'realm': 'applications'})
+                revoke.assert_not_called()
+                self.assertTrue(checkpoint.exists())
+                state.side_effect = [active, disabled]
+                retire(object(), {}, {'nonce': 'a' * 32, 'realm': 'applications'})
+                revoke.assert_called_once_with({key: active[key] for key in ('realm', 'username', 'user_id', 'email')})
+                self.assertFalse(checkpoint.exists())
+                self.assertEqual(sleep.call_count, 2)
 
     def test_only_redacted_bounded_measurements_can_pass_release_gate(self):
         policy = definition()['release']

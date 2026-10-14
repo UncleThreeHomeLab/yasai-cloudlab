@@ -22,8 +22,12 @@ class SessionAcceptanceTests(unittest.TestCase):
             (base/'ownership.json').write_text(json.dumps(owner))
             (base/('proof-'+nonce+'.json')).write_text(json.dumps(
                 {'phase':'enrolled','application_uid':'owned','user_id':'disposable'}))
-            for outcome in ('converged','failed','maintenance','owner'):
+            for realm,outcome in [('platform',case) for case in ('converged','failed','maintenance','owner')] + [
+                    ('applications',case) for case in ('converged','wrong-realm','renamed')]:
                 (base/'ownership.json').write_text(json.dumps(owner))
+                (base/('proof-'+nonce+'.json')).write_text(json.dumps(
+                    {'phase':'enrolled','application_uid':'owned','user_id':'disposable',
+                     'realm':'platform' if outcome=='wrong-realm' else realm}))
                 app={'metadata':{'uid':'owned'},'spec':{'source':{'helm':{'valuesObject':
                     {'adminHost':'admin.fixture.invalid','loginHost':'login.fixture.invalid'}}}}}
                 calls=[]
@@ -34,9 +38,10 @@ class SessionAcceptanceTests(unittest.TestCase):
                     if outcome=='maintenance':app['spec']['source']['helm']['valuesObject']['maintenance']=True
                     if outcome=='owner':(base/'ownership.json').write_text(json.dumps(dict(owner,uid='foreign')))
                     return len(calls)>1
-                user={'id':'disposable','username':'proof-'+nonce,'email':'viewer@fixture.invalid',
+                user={'id':'disposable','username':'foreign' if outcome=='renamed' else 'proof-'+nonce,'email':'viewer@fixture.invalid',
                       'enabled':False,'attributes':{'cloudlab-primary-owner':[nonce]}}
                 def request(url,**kwargs):
+                    self.assertIn('/realms/'+realm+'/',url)
                     if url.endswith('/token'):return {'access_token':'fixture'}
                     if '/users?' in url:return [user]
                     if url.endswith('/certs'):return {'keys':[]}
@@ -46,16 +51,18 @@ class SessionAcceptanceTests(unittest.TestCase):
                         patch('automation.mesh.kube.get',return_value=app), \
                         patch('automation.identity.bootstrap.reconciled',side_effect=ready), \
                         patch('automation.mesh.kube.time.sleep'), \
-                        patch('automation.identity.emergency.vault_secret',return_value={'platform_client_secret':'fixture'}), \
+                        patch('automation.identity.emergency.vault_secret',return_value={realm+'_client_secret':'fixture'}), \
                         patch('automation.identity.configuration.private_request',side_effect=request) as api, \
-                        patch('sys.stdin',io.StringIO(json.dumps({'nonce':nonce}))), redirect_stdout(io.StringIO()) as output:
+                        patch('sys.stdin',io.StringIO(json.dumps(dict(nonce=nonce,realm=realm)))), redirect_stdout(io.StringIO()) as output:
                     if outcome=='converged':
                         exec(REMOTE,{})
                         self.assertFalse(json.loads(output.getvalue())['enabled'])
+                        self.assertEqual(json.loads(output.getvalue())['realm'],realm)
                         self.assertEqual(len(calls),2)
                     else:
                         with self.assertRaises(RuntimeError):exec(REMOTE,{})
-                        api.assert_not_called()
+                        if outcome=='renamed':self.assertEqual(api.call_count,2)
+                        else:api.assert_not_called()
 
     def test_deadline_includes_private_delivery_and_session_expiry(self):
         policy=json.loads((Path(__file__).resolve().parents[3]/'platform/identity/keycloak/contract.json').read_text())['sessions']
