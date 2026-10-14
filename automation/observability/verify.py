@@ -10,10 +10,15 @@ import urllib.request
 import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from automation.mesh.kube import get, application_ready, wait
+from automation.mesh.kube import get, application_ready, condition, wait
 from automation.identity.health import direct_https
 
 NAMESPACE = 'cloudlab-observability'
+
+
+def backend_ready(resource):
+    if not all(condition(resource, name) for name in ('Available', 'Reconciled')):
+        raise RuntimeError('Telemetry backend is unavailable or reconciliation failed')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -55,6 +60,8 @@ def run(payload):
                 not application_ready('cloudlab-' + name, payload['revision'])):
             raise RuntimeError('Telemetry Applications have not converged at their committed revision')
     claims = get('persistentvolumeclaims', namespace=NAMESPACE)['items']
+    for kind in ('prometheus', 'alertmanager'):
+        backend_ready(get(kind + '.monitoring.coreos.com', 'cloudlab', NAMESPACE))
     volumes = {claim['spec']['volumeName']: get('volumes.longhorn.io', claim['spec']['volumeName'], 'longhorn-system') for claim in claims}
     storage(claims, volumes)
     collector = get('configmap', 'cloudlab-alloy', NAMESPACE)['data']['config.alloy']

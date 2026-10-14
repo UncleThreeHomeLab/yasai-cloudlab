@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -8,6 +9,17 @@ from automation.observability.chart import check, configuration, render
 
 
 class ChartTests(unittest.TestCase):
+    def test_rendered_alert_routes_reference_declared_receivers(self):
+        secret = next(obj for obj in render('prometheus') if obj['kind'] == 'Secret' and
+                      obj['metadata']['name'] == 'alertmanager-cloudlab')
+        config = yaml.safe_load(base64.b64decode(secret['data']['alertmanager.yaml'], validate=True))
+        receivers = {row['name'] for row in config['receivers']}
+        routes = [config['route']]
+        while routes:
+            route = routes.pop()
+            if 'receiver' in route: self.assertIn(route['receiver'], receivers)
+            routes.extend(route.get('routes', []))
+
     def test_private_routes_resolve_to_pinned_backend_services(self):
         services = {obj['metadata']['name']: {port['port'] for port in obj['spec']['ports']}
                     for name in ('prometheus', 'kiali') for obj in render(name) if obj['kind'] == 'Service'}

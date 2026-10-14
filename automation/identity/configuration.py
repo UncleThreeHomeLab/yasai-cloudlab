@@ -516,7 +516,7 @@ def prepare_primary(directory, credentials_directory, bootstrap_directory, admin
 def proof_user(state, current, values, nonce):
     """Create only the privately declared disposable viewer; never reset people."""
     if (not isinstance(nonce, str) or not re.fullmatch('[a-f0-9]{32}', nonce) or
-            not isinstance(values, dict) or state.get('realm') != 'platform' or
+            not isinstance(values, dict) or state.get('realm') not in REALMS or
             set(values) != {'username', 'password', 'email', 'ownership_id'} or
             values['username'] != 'proof-' + nonce or values['ownership_id'] != nonce or
             not isinstance(values['password'], str) or len(values['password']) < 48 or
@@ -534,28 +534,29 @@ def proof_user(state, current, values, nonce):
             for row in current)):
         raise ValueError('Disposable enrollment cannot adopt an unrelated account')
     if current:
-        return {'realm': 'platform', 'users': []}
+        return {'realm': state['realm'], 'users': []}
     user = copy.deepcopy(members[0])
     user.update(enabled=True, firstName='Fixture', lastName='Viewer', requiredActions=['webauthn-register'],
                 attributes={'cloudlab-primary-owner': [nonce]},
                 credentials=[{'type': 'password', 'value': values['password'], 'temporary': False}])
-    return {'realm': 'platform', 'users': [user]}
+    return {'realm': state['realm'], 'users': [user]}
 
 
-def prepare_proof_user(directory, nonce, admin_host):
+def prepare_proof_user(directory, nonce, admin_host, realm='platform'):
     """Read-only validation; the serialized CLI performs the sole user write."""
     from urllib.parse import urlencode
+    if realm not in REALMS: raise ValueError('Disposable enrollment requires a managed realm')
     values = {key: Path('/proof-credentials', key).read_text()
               for key in ('username', 'password', 'email', 'ownership_id')}
     origin = exact_url('https://' + admin_host + '/')[:-1]
-    token = private_request(origin + '/realms/platform/protocol/openid-connect/token', form={
+    token = private_request(origin + '/realms/' + realm + '/protocol/openid-connect/token', form={
         'grant_type': 'client_credentials', 'client_id': 'realm-writer',
-        'client_secret': Path('/credentials/platform_client_secret').read_text()})['access_token']
+        'client_secret': Path('/credentials/' + realm + '_client_secret').read_text()})['access_token']
     source = json.loads(Path('/private/desired_state').read_text())
     revoked = json.loads(Path('/private/revocations').read_text())
     credentials = json.loads(Path('/private/client_secrets').read_text())
-    state = compile_state('platform', 'validation.invalid', source, credentials, revoked)
-    current = private_request(origin + '/admin/realms/platform/users?' + urlencode({
+    state = compile_state(realm, 'validation.invalid', source, credentials, revoked)
+    current = private_request(origin + '/admin/realms/' + realm + '/users?' + urlencode({
         'username': 'proof-' + nonce, 'exact': 'true', 'max': 2}), token=token)
     document = proof_user(state, current, values, nonce)
     target = Path(directory, 'proof.json')

@@ -65,11 +65,14 @@ def prepare():
         'alerting': {'alertmanagers': [{'static_configs': [{'targets': ['alertmanager:9093']}]}]},
         'scrape_configs': [{'job_name': 'notes-api', 'static_configs': [{
             'targets': ['alert-fixture:8085'], 'labels': {'namespace': 'cloudlab-app-notes'}}]}]}))
-    (FIXTURE / 'alertmanager.yaml').write_text(yaml.safe_dump({
-        'route': {'receiver': 'fixture', 'group_by': ['alertname'],
-                  'group_wait': '1s', 'group_interval': '5s', 'repeat_interval': '1h'},
-        'receivers': [{'name': 'fixture', 'webhook_configs': [
-            {'url': 'http://alert-fixture:8085/alerts', 'send_resolved': True}]}]}))
+    secret = next(o for o in render('prometheus') if o['kind'] == 'Secret' and
+                  o['metadata']['name'] == 'alertmanager-cloudlab')
+    alertmanager = yaml.safe_load(base64.b64decode(secret['data']['alertmanager.yaml'], validate=True))
+    # Keep rendered routing; only fixture timing and notification transport differ.
+    alertmanager['route'].update(group_wait='1s', group_interval='5s', repeat_interval='1h')
+    alertmanager['receivers'][0]['webhook_configs'] = [
+        {'url': 'http://alert-fixture:8085/alerts', 'send_resolved': True}]
+    (FIXTURE / 'alertmanager.yaml').write_text(yaml.safe_dump(alertmanager))
     base = '{service="notes-api",route="/api/notes",traffic="user",status="'
     series = [
         {'series': 'cloudlab_http_requests_total' + base + '200"}', 'values': '0+90x69 6310+100x140'},

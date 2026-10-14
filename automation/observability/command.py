@@ -34,12 +34,14 @@ def notes_origin():
 def main(arguments=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('external-check', 'external-apply', 'fixture-ready', 'fixture-fail',
-                                         'fixture-status', 'fixture-remove', 'charts', 'credentials', 'identity-prepare'))
+                                         'fixture-status', 'fixture-remove', 'charts', 'credentials', 'identity-prepare', 'baseline-prepare', 'baseline-cleanup'))
     args = parser.parse_args(arguments)
     from automation.observability.chart import check
     from automation.observability.credentials import provision
     from automation.observability.control import identity_prepare
-    local = {'charts': check, 'credentials': provision, 'identity-prepare': identity_prepare}
+    from automation.observability.baseline import prepare, cleanup
+    local = {'charts': check, 'credentials': provision, 'identity-prepare': identity_prepare,
+             'baseline-prepare': prepare, 'baseline-cleanup': cleanup}
     if args.action in local:
         print(json.dumps(local[args.action](), sort_keys=True))
         return

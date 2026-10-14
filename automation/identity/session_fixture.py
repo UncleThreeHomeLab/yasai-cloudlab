@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT))
 
 
 def scope(request):
-    if (not isinstance(request, dict) or set(request) != {'nonce'} or
+    if (not isinstance(request, dict) or set(request) not in ({'nonce'}, {'nonce', 'realm'}) or
+            request.get('realm', 'platform') not in ('platform', 'applications') or
             not isinstance(request['nonce'], str) or not re.fullmatch('[a-f0-9]{32}', request['nonce'])):
         raise ValueError('Session fixture requires one exact disposable ownership nonce')
     return request['nonce']
@@ -23,14 +24,15 @@ def scope(request):
 def membership(source, revoked, values, request):
     """Prepare one private viewer input without granting or reviving privilege."""
     nonce = scope(request)
+    realm = request.get('realm', 'platform')
     if (values.get('username') != 'proof-' + nonce or values.get('ownership_id') != nonce or
             not isinstance(values.get('email'), str) or
             not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', values['email'])):
         raise ValueError('Disposable membership requires its exact private vault identity')
-    if values['username'] in revoked['realms'].get('platform', {}).get('users', []):
+    if values['username'] in revoked['realms'].get(realm, {}).get('users', []):
         raise ValueError('Offboarded disposable membership cannot be re-enabled')
     result = copy.deepcopy(source)
-    rows = result['realms'].setdefault('platform', {}).setdefault('memberships', [])
+    rows = result['realms'].setdefault(realm, {}).setdefault('memberships', [])
     desired = {'username': values['username'], 'groups': ['viewer'],
                'profile': {'email': values['email'], 'verified': True}}
     current = [row for row in rows if row['username'] == desired['username']]
@@ -97,7 +99,7 @@ def enroll(request, *, stage=False, application_owner=False):
     from automation.data.control import atomic
     from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
     nonce = scope(request)
-    realm = 'applications' if application_owner else 'platform'
+    realm = 'applications' if application_owner else request.get('realm', 'platform')
     secret = 'keycloak-applications-owner' if application_owner else 'keycloak-proof'
     operation = {'action': 'initialize-owner' if application_owner else 'initialize-proof', 'realm': realm, 'nonce': nonce}
     preparation = dict(operation, action='prepare-owner' if application_owner else 'prepare-proof')
@@ -156,13 +158,14 @@ def enroll(request, *, stage=False, application_owner=False):
         if not stage and (len(members) != 1 or members[0].get('enabled') is False):
             raise RuntimeError('Publish the exact active private disposable membership first')
         record = json.loads(checkpoint.read_text()) if checkpoint.exists() else {
-            'nonce': nonce, 'application_uid': owner['uid'], 'phase': 'prepared'}
+            'nonce': nonce, 'realm': realm, 'application_uid': owner['uid'], 'phase': 'prepared'}
         if (record.get('nonce') != nonce or record.get('application_uid') != owner['uid'] or
+                record.get('realm', 'applications' if application_owner else 'platform') != realm or
                 record.get('phase') not in ('prepared', 'created', 'enrolled')):
             raise RuntimeError('Disposable enrollment checkpoint changed')
         if record.get('revision', owner['revision']) != owner['revision']:
             raise RuntimeError('Disposable enrollment source checkpoint changed')
-        record['revision'] = owner['revision']
+        record.update(revision=owner['revision'], realm=realm)
         atomic(checkpoint, record)
         origin = 'https://' + values['adminHost']
         endpoint = origin + '/admin/realms/' + realm + '/users?' + urlencode({'username': username, 'exact': 'true', 'max': 2})

@@ -3,9 +3,11 @@ import copy
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import threading
+import tempfile
 import time
 import unittest
 from unittest.mock import patch, MagicMock
@@ -33,6 +35,21 @@ def encode(raw):
 
 
 class NotesTests(unittest.TestCase):
+    def test_telemetry_activation_preserves_shared_api_imports_in_a_fresh_process(self):
+        from automation.services.examples import definitions
+        from automation.services.notes import values
+        definition = definitions('example.invalid', 'https://github.com/example/public.git', 'a' * 40,
+                                 'https://github.com/example/private.git', 'abcdef123456', 'notes', 'notes')['catalog'][0]['definition']
+        compiled = values(definition, 'https://login.example.invalid/realms/applications',
+                          '-----BEGIN CERTIFICATE-----\nfixture', telemetry=True)
+        python_path = compiled['api']['environment']['PYTHONPATH'].replace('/config/source', str(ROOT / 'apps/notes'))
+        with tempfile.TemporaryDirectory() as directory:
+            imported = subprocess.run([sys.executable, '-c', 'import api; import telemetry; print("ready")'],
+                cwd=directory, env={'PATH': os.environ['PATH'], 'PYTHONPATH': python_path, 'OTEL_ENABLED': '0'},
+                capture_output=True, text=True, timeout=30)
+        self.assertEqual(imported.returncode, 0, imported.stderr)
+        self.assertEqual(imported.stdout.strip(), 'ready')
+
     def test_dependency_health_accepts_only_bounded_generic_readiness(self):
         response = MagicMock()
         response.__enter__.return_value = response
