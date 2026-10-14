@@ -32,6 +32,16 @@ Public `/health` checks the API's SQL/S3 readiness without credentials or cachin
 `/monitoring-proof/ready` and `/monitoring-proof/failed` return generic 200/503
 responses for disposable external notification checks; they do not change app state.
 
+The shared [SLO definition](slo.json) generates user rules and dashboards. Release
+traffic uses `/api/release/notes` and stays outside user indicators. Prepare a
+disposable applications viewer with `gh auth token | docker compose run -T --rm
+lab observe baseline-prepare`. Then run `gh auth token | docker compose -f
+automation/observability/compose.baseline.yaml run --build -T --rm
+baseline-controller`. The pinned browser registers a disposable passkey; pinned
+k6 measures bounded authenticated reads. Successful measurement offboards the
+viewer. Keep the private recovery checkpoint on failure and repeat to resume.
+The redacted result remains in the recovery volume. Primary accounts stay unchanged.
+
 Python and dependency wheels are pinned. The API installs hash-checked wheels into
 a bounded ephemeral volume during startup. Regenerate first-party artifacts with
 `python -m automation.services.package build`; `lab service-check` verifies source

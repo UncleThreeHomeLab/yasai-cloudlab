@@ -58,7 +58,7 @@ def values(name):
             'alertmanager': {'alertmanagerSpec': {'image': image('alertmanager'), 'replicas': 1,
                 'resources': resources(100, 128), 'storage': {'emptyDir': {'sizeLimit': '64Mi'}}},
                 'config': {'global': {'resolve_timeout': '1m'},
-                    'route': {'receiver': 'private', 'group_by': ['alertname', 'service', 'severity'],
+                    'route': {'receiver': 'private', 'routes': [], 'group_by': ['alertname', 'service', 'severity'],
                               'group_wait': '10s', 'group_interval': '1m', 'repeat_interval': '4h'},
                     'receivers': [{'name': 'private'}]}},
             'grafana': {'fullnameOverride': 'cloudlab-grafana', 'image': image('grafana'),

@@ -109,10 +109,10 @@ Deployment still depends on inputs and verification.
 | Policy | Kyverno | Admission and image policies | Planned |
 | GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Enabled |
 | Releases | Argo Rollouts | Canary releases and previews | Planned |
-| Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Planned |
-| Logs | Grafana Alloy + Loki | Collect and store logs | Planned |
-| Traces | OpenTelemetry + Tempo | Collect and store traces | Planned |
-| Dashboards | Grafana + Kiali | Service health and mesh views | Planned |
+| Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Available |
+| Logs | Grafana Alloy + Loki | Collect and store redacted logs | Available |
+| Traces | OpenTelemetry + Tempo | Collect and store traces | Available |
+| Dashboards | Grafana + Kiali | Private service health and mesh views | Available |
 
 **Storage:** Applications opt in to Longhorn. `local-path` remains the default.
 Longhorn schedules monthly B2 backups and keeps the latest scheduled backup per
@@ -128,7 +128,7 @@ volume.
 | Source | GitHub | Code and GitOps repositories | Available |
 | Certificates | Let's Encrypt | Public TLS certificates | Available |
 | Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
-| Monitoring | UptimeRobot | External HTTPS checks | Planned |
+| Monitoring | UptimeRobot | Independent HTTPS checks and email alerts | Available |
 
 ### Automation
 

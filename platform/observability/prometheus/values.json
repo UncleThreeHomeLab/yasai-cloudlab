@@ -183,6 +183,7 @@
         },
         "route": {
           "receiver": "private",
+          "routes": [],
           "group_by": [
             "alertname",
             "service",

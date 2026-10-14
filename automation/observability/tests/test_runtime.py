@@ -1,10 +1,21 @@
 import copy
 import unittest
 
-from automation.observability.verify import storage
+from automation.observability.verify import backend_ready, storage
 
 
 class StorageBoundaryTests(unittest.TestCase):
+    def test_operator_backend_must_be_available_and_reconciled_at_current_generation(self):
+        ready = {'metadata': {'generation': 3}, 'status': {'conditions': [
+            {'type': name, 'status': 'True', 'observedGeneration': 3} for name in ('Available', 'Reconciled')]}}
+        backend_ready(ready)
+        for conditions in ([], [ready['status']['conditions'][0]],
+                           [dict(row, status='False') for row in ready['status']['conditions']],
+                           [dict(row, observedGeneration=2) for row in ready['status']['conditions']]):
+            with self.assertRaises(RuntimeError):
+                backend_ready({'metadata': {'generation': 3}, 'status': {'conditions': conditions}})
+        with self.assertRaises(RuntimeError): backend_ready(None)
+
     def test_disposable_telemetry_cannot_inherit_monthly_or_individual_backup_jobs(self):
         claims = [{'status': {'phase': 'Bound'}, 'spec': {'storageClassName': 'cloudlab-telemetry',
                    'volumeName': 'fixture-' + str(index)}} for index in range(4)]
