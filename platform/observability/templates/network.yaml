@@ -45,7 +45,26 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}}}]
-      ports: [{protocol: TCP, port: 3000}, {protocol: TCP, port: 20001}]
+      ports: [{protocol: TCP, port: 3000}, {protocol: TCP, port: 20001}, {protocol: TCP, port: 15008}]
+{{- range $dashboard := list (dict "name" "grafana" "ports" (list "3000") "internalPorts" (list "3000")) (dict "name" "kiali" "ports" (list "20001") "internalPorts" (list "20001" "9090")) }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: {{ printf "private-%s" $dashboard.name }}, namespace: {{ $policy.namespace }}}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $dashboard.name }}}
+  action: ALLOW
+  rules:
+    - from:
+        - source: {principals: ['cluster.local/ns/cloudlab-gateway-private/sa/cloudlab-istio']}
+      to:
+        - operation: {ports: {{ $dashboard.ports | toJson }}}
+    - from:
+        - source: {namespaces: [{{ $policy.namespace | quote }}]}
+      to:
+        - operation: {ports: {{ $dashboard.internalPorts | toJson }}}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

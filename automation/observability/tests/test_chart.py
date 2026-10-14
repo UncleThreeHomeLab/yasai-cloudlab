@@ -24,6 +24,15 @@ class ChartTests(unittest.TestCase):
                          ['cluster.local/ns/cloudlab-app-notes/sa/notes-web', 'cluster.local/ns/cloudlab-app-notes/sa/notes-api'])
         self.assertEqual(collector['rules'][0]['to'][0]['operation']['ports'], ['4318'])
         self.assertEqual(collector['rules'][1]['to'][0]['operation']['ports'], ['12345'])
+        self.assertEqual({port['port'] for port in policies['private-dashboard-ingress']['ingress'][0]['ports']},
+                         {3000, 20001, 15008})
+        for name, port in (('grafana', '3000'), ('kiali', '20001')):
+            dashboard = next(obj['spec'] for obj in objects if obj['kind'] == 'AuthorizationPolicy' and
+                             obj['metadata']['name'] == 'private-' + name)
+            self.assertEqual(dashboard['selector'], {'matchLabels': {'app.kubernetes.io/name': name}})
+            self.assertEqual(dashboard['rules'][0]['from'][0]['source']['principals'],
+                             ['cluster.local/ns/cloudlab-gateway-private/sa/cloudlab-istio'])
+            self.assertEqual(dashboard['rules'][0]['to'][0]['operation']['ports'], [port])
 
     def test_rendered_alert_routes_reference_declared_receivers(self):
         secret = next(obj for obj in render('prometheus') if obj['kind'] == 'Secret' and

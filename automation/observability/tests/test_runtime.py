@@ -1,10 +1,26 @@
 import copy
 import unittest
+from unittest.mock import patch
+import urllib.error
 
-from automation.observability.verify import backend_ready, storage
+from automation.observability.verify import backend_ready, storage, proxy
 
 
 class StorageBoundaryTests(unittest.TestCase):
+    def test_queries_use_authenticated_private_proxy_and_reject_failed_responses(self):
+        origin = 'https://grafana.internal.example.invalid'
+        headers = {'Authorization': 'Basic fixture', 'Accept': 'application/json'}
+        with patch('automation.observability.verify.direct_https', return_value=(200, b'{"data":{}}')) as request:
+            self.assertEqual(proxy(origin, '10.43.0.1', headers, 'logs', '/loki/api/v1/query_range?limit=10'), {'data': {}})
+            request.assert_called_once_with(origin + '/api/datasources/proxy/uid/logs/loki/api/v1/query_range?limit=10',
+                                            '10.43.0.1', headers)
+            with self.assertRaises(ValueError): proxy(origin, '10.43.0.1', headers, 'unapproved', '/')
+            for status in (401, 403, 404, 503):
+                request.return_value = (status, b'{"private_diagnostic":"withheld"}')
+                with self.assertRaises(urllib.error.HTTPError) as error: proxy(origin, '10.43.0.1', headers, 'traces', '/api/traces/fixture')
+                self.assertEqual(error.exception.code, status)
+                self.assertNotIn('private_diagnostic', str(error.exception))
+
     def test_operator_backend_must_be_available_and_reconciled_at_current_generation(self):
         ready = {'metadata': {'generation': 3}, 'status': {'conditions': [
             {'type': name, 'status': 'True', 'observedGeneration': 3} for name in ('Available', 'Reconciled')]}}
