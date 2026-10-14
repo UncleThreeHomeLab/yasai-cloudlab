@@ -21,6 +21,8 @@ account, then resumes reconciliation. Repeat enrollment preserves credentials.
 Use `keycloak-applications-owner-login` in 1Password to sign in to Notes. Complete
 the required passkey registration in your personal vault. Applications roles grant
 Notes access; they do not grant Keycloak realm administration.
+On tailnet clients, allow this site's local network access when the browser prompts
+for the split-DNS issuer.
 
 The data owner applies [the schema](schema.sql) and creates a synthetic welcome note
 only when absent. Repeat apply preserves edited notes and existing objects. The web

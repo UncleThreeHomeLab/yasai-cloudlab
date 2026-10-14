@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -40,7 +42,15 @@ def prepare():
         from automation.data.control import atomic
         atomic(CHECKPOINT, request)
     provision(request)
-    local(request, stage=True)
+    try:
+        local(request, stage=True)
+    except RuntimeError:
+        # Interrupted enrollment may already own the account; native guards verify it.
+        from automation.gitops.github_setup import repository
+        repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
+        wait_private_source(api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha'])
+        local(request)
+        return {'disposable_applications_viewer': True, 'primary_users_changed': False, 'baseline_measured': False}
     from automation.gitops.github_setup import repository
     from automation.identity.private_source import decode_contents
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
@@ -57,8 +67,29 @@ def prepare():
         merged = api.request('PUT', 'repos/' + repo + '/pulls/' + str(pull['number']) + '/merge',
                              {'sha': pull['head']['sha'], 'merge_method': 'squash'})
         if not merged.get('merged'): raise RuntimeError('Protected disposable membership merge incomplete')
+        revision = merged['sha']
+    else:
+        revision = api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+    wait_private_source(revision)
     local(request)
     return {'disposable_applications_viewer': True, 'primary_users_changed': False, 'baseline_measured': False}
+
+
+def wait_private_source(revision):
+    if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
+        raise ValueError('Disposable enrollment requires an immutable private revision')
+    from automation.connectivity.preflight import ssh
+    script = """import sys,json
+sys.path.insert(0,'/opt/cloudlab')
+from automation.mesh.kube import application_ready,wait
+revision=json.load(sys.stdin)['revision']
+wait(lambda:application_ready('cloudlab-identity-private',revision),'private fixture source convergence',timeout=600)
+print(json.dumps({'private_source_ready':True}))
+"""
+    ready = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
+                          input=json.dumps({'revision': revision}), timeout=630))
+    if ready != {'private_source_ready': True}:
+        raise RuntimeError('Private fixture source convergence incomplete')
 
 
 def result(document, policy):
@@ -100,11 +131,7 @@ def run():
         evidence = measure(request, credentials, origin, issuer, policy)
         from automation.data.control import atomic
         atomic(RESULT, {'nonce': request['nonce'], 'evidence': evidence})
-    from automation.identity.session_acceptance import offboard_inputs
-    from automation.identity.lifecycle import local_offboard
-    offboard_inputs(api, values, request, resume=True)
-    local_offboard({'realm': 'applications', 'username': credentials['username']})
-    CHECKPOINT.unlink()
+    retire(api, values, request)
     return dict(evidence, viewer_mfa=True, disposable_viewer_offboarded=True, primary_users_changed=False)
 
 
@@ -118,12 +145,27 @@ def cleanup():
     credentials = fields('keycloak-proof-' + request['nonce'], ('username', 'ownership_id'))
     if credentials != {'username': 'proof-' + request['nonce'], 'ownership_id': request['nonce']}:
         raise ValueError('Baseline viewer ownership changed')
-    from automation.identity.session_acceptance import offboard_inputs
-    from automation.identity.lifecycle import local_offboard
-    offboard_inputs(api, values, request, resume=True)
-    local_offboard({'realm': 'applications', 'username': credentials['username']})
-    CHECKPOINT.unlink()
+    retire(api, values, request)
     return {'disposable_viewer_offboarded': True, 'primary_users_changed': False}
+
+
+def retire(api, values, request):
+    from automation.identity.session_acceptance import offboard_inputs, remote_state
+    from automation.identity.lifecycle import local_offboard
+    identity = remote_state(request)
+    offboard_inputs(api, values, request, resume=True)
+    limit = json.loads((ROOT / 'platform/identity/keycloak/contract.json').read_text())['sessions']['private_revocation_convergence_seconds']
+    deadline = time.monotonic() + limit
+    current = identity
+    while current['enabled'] is not False:
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Disposable viewer offboarding convergence deadline exceeded')
+        time.sleep(5)
+        current = remote_state(request)
+        if any(current[key] != identity[key] for key in ('realm', 'username', 'user_id', 'email', 'preservation')):
+            raise RuntimeError('Disposable identity or unrelated users changed during offboarding')
+    local_offboard({key: identity[key] for key in ('realm', 'username', 'user_id', 'email')})
+    CHECKPOINT.unlink()
 
 
 def measure(request, credentials, origin, issuer, policy):
