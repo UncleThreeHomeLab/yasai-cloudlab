@@ -111,7 +111,8 @@ def run(payload):
     wait(observed, 'real correlated telemetry request', timeout=300)
     status, _ = direct_https(origin + '/api/search', private_gateway, {})
     if status != 401: raise RuntimeError('Grafana dashboard API permits unauthenticated access')
-    status, _ = direct_https(origin + '/api/health', gateway, {})
+    status, _ = direct_https(payload['notes_origin'] + '/api/health', gateway,
+                             {'Host': urllib.parse.urlsplit(origin).hostname})
     if status != 404: raise RuntimeError('Private Grafana route is reachable through the public gateway')
     status, raw = direct_https(payload['kiali_origin'] + '/kiali/api/auth/info', private_gateway, {})
     if status != 200 or json.loads(raw).get('strategy') != 'openid' or json.loads(raw).get('secretMissing'):
