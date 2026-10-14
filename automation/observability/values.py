@@ -62,6 +62,7 @@ def values(name):
                               'group_wait': '10s', 'group_interval': '1m', 'repeat_interval': '4h'},
                     'receivers': [{'name': 'private'}]}},
             'grafana': {'fullnameOverride': 'cloudlab-grafana', 'image': image('grafana'),
+                'deploymentStrategy': {'type': 'Recreate'},
                 'serviceAccount': {'automountServiceAccountToken': False}, 'automountServiceAccountToken': False,
                 'admin': {'existingSecret': 'grafana-emergency', 'userKey': 'username', 'passwordKey': 'password'},
                 'resources': resources(250, 384), 'initChownData': {'enabled': False},
@@ -134,6 +135,7 @@ def values(name):
                      'rules': [{'apiGroups': [''], 'resources': ['pods', 'pods/log'], 'verbs': ['get', 'list', 'watch']}]}}
     if name == 'kiali':
         return {'login_token': {'signing_key': 'secret:kiali-signing-key:key'},
+            'kiali_feature_flags': {'disabled_features': ['logs-tab']},
             'auth': {'strategy': 'openid', 'openid': {'client_id': 'kiali',
             'issuer_uri': 'https://login.example.invalid/realms/platform', 'username_claim': 'sub', 'disable_rbac': True}},
             'deployment': {'instance_name': 'cloudlab-kiali', 'image_version': image('kiali')['sha'], 'image_digest': 'sha256',

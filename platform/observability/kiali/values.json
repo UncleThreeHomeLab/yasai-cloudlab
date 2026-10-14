@@ -3,6 +3,11 @@
     "login_token": {
       "signing_key": "secret:kiali-signing-key:key"
     },
+    "kiali_feature_flags": {
+      "disabled_features": [
+        "logs-tab"
+      ]
+    },
     "auth": {
       "strategy": "openid",
       "openid": {

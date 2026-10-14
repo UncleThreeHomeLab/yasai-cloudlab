@@ -100,7 +100,10 @@ def run(payload):
         if not {'notes-web', 'notes-api'} <= {line.get('service') for line in lines}: return False
         query = urllib.parse.urlencode({'query': 'sum by (service) (cloudlab_http_requests_total{traffic="synthetic",status="200"})'})
         metrics = http('cloudlab-prometheus', 9090, '/api/v1/query?' + query)['data']['result']
-        return {'notes-web', 'notes-api'} <= {row['metric'].get('service') for row in metrics}
+        if not {'notes-web', 'notes-api'} <= {row['metric'].get('service') for row in metrics}: return False
+        query = urllib.parse.urlencode({'query': 'sum(istio_tcp_connections_opened_total{connection_security_policy="mutual_tls",source_workload_namespace="cloudlab-app-notes"})'})
+        mesh = http('cloudlab-prometheus', 9090, '/api/v1/query?' + query)['data']['result']
+        return bool(mesh) and float(mesh[0]['value'][1]) > 0
     wait(observed, 'real correlated telemetry request', timeout=300)
     private_gateway = get('service', 'cloudlab-istio', 'cloudlab-gateway-private')['spec']['clusterIP']
     origin = payload['grafana_origin']
@@ -121,7 +124,7 @@ def run(payload):
         raise RuntimeError('Independent private Grafana emergency access failed')
     return {'applications_converged': len(names), 'local_bound_claims': len(claims),
             'backup_excluded': True, 'pinned_bounded_containers': True,
-            'real_metrics_logs_traces': True, 'emergency_access': True,
+            'real_metrics_logs_traces': True, 'scraped_mesh_mtls_metrics': True, 'emergency_access': True,
             'private_dashboard_apis': True, 'retention_settings': True, 'elapsed_retention_deletion_proven': False}
 
 

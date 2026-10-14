@@ -26,6 +26,26 @@ spec:
   sampleLimit: 10000
   labelLimit: 40
   labelValueLengthLimit: 200
+{{- range $monitor := list
+    (dict "name" "mesh-control" "namespaces" (list "istio-system") "label" "app" "value" "istiod" "port" "http-monitoring" "path" "/metrics")
+    (dict "name" "mesh-ambient" "namespaces" (list "istio-system") "label" "app" "value" "ztunnel" "port" "ztunnel-stats" "path" "/metrics")
+    (dict "name" "mesh-gateways" "namespaces" (list "cloudlab-gateway-public" "cloudlab-gateway-private") "label" "gateway.networking.k8s.io/gateway-name" "value" "cloudlab" "port" "metrics" "path" "/stats/prometheus") }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $monitor.name }}
+  namespace: {{ $policy.namespace }}
+spec:
+  namespaceSelector: {matchNames: {{ $monitor.namespaces | toJson }}}
+  selector:
+    matchLabels: { {{ $monitor.label | quote }}: {{ $monitor.value | quote }} }
+  podMetricsEndpoints:
+    - {port: {{ $monitor.port | quote }}, path: {{ $monitor.path | quote }}, interval: 30s, scrapeTimeout: 10s}
+  sampleLimit: 10000
+  labelLimit: 40
+  labelValueLengthLimit: 200
+{{- end }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

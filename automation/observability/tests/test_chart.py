@@ -37,6 +37,13 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(monitor['spec']['namespaceSelector']['matchNames'], ['cloudlab-app-notes'])
         self.assertEqual(monitor['spec']['selector']['matchLabels'], {'cloudlab.io/telemetry': 'safe'})
         self.assertEqual(monitor['spec']['jobLabel'], 'app.kubernetes.io/name')
+        mesh = {obj['metadata']['name']: obj for obj in objects if obj['kind'] == 'PodMonitor' and obj['metadata']['name'].startswith('mesh-')}
+        self.assertEqual(set(mesh), {'mesh-control', 'mesh-ambient', 'mesh-gateways'})
+        self.assertEqual(mesh['mesh-ambient']['spec']['podMetricsEndpoints'][0]['port'], 'ztunnel-stats')
+        self.assertEqual(mesh['mesh-gateways']['spec']['namespaceSelector']['matchNames'],
+                         ['cloudlab-gateway-public', 'cloudlab-gateway-private'])
+        grafana = next(obj for obj in render('prometheus') if obj['kind'] == 'Deployment' and obj['metadata']['name'] == 'cloudlab-grafana')
+        self.assertEqual(grafana['spec']['strategy'], {'type': 'Recreate'})
 
     def test_isolated_native_proof_uses_identical_pins_and_no_external_network(self):
         root = Path(__file__).resolve().parents[3]
