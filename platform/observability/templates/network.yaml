@@ -14,6 +14,10 @@ spec:
   egress:
     - to: [{podSelector: {}}]
     - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-app-notes}}
+          podSelector: {matchLabels: {cloudlab.io/telemetry: safe}}
+      ports: [{protocol: TCP, port: 15008}]
+    - to:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
           podSelector: {matchLabels: {k8s-app: kube-dns}}
       ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
@@ -53,7 +57,26 @@ spec:
     - from:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-app-notes}}
           podSelector: {matchLabels: {cloudlab.io/telemetry: safe}}
-      ports: [{protocol: TCP, port: 4318}]
+      ports: [{protocol: TCP, port: 4318}, {protocol: TCP, port: 15008}]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: application-traces, namespace: {{ $policy.namespace }}}
+spec:
+  selector: {matchLabels: {app.kubernetes.io/name: alloy}}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/cloudlab-app-notes/sa/notes-web
+              - cluster.local/ns/cloudlab-app-notes/sa/notes-api
+      to:
+        - operation: {ports: ['4318']}
+    - from:
+        - source: {principals: [{{ printf "cluster.local/ns/%s/sa/cloudlab-prometheus" $policy.namespace | quote }}]}
+      to:
+        - operation: {ports: ['12345']}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -63,7 +86,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ $policy.namespace }}}}}]
-      ports: [{protocol: TCP, port: 9091}]
+      ports: [{protocol: TCP, port: 9091}, {protocol: TCP, port: 15008}]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy

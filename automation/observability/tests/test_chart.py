@@ -9,6 +9,22 @@ from automation.observability.chart import check, configuration, render
 
 
 class ChartTests(unittest.TestCase):
+    def test_ambient_transport_keeps_decoded_collector_and_scrape_ports_authorized(self):
+        objects = configuration(True)
+        policies = {obj['metadata']['name']: obj['spec'] for obj in objects if obj['kind'] == 'NetworkPolicy'}
+        self.assertEqual({port['port'] for port in policies['application-traces']['ingress'][0]['ports']}, {4318, 15008})
+        self.assertEqual({port['port'] for port in policies['prometheus-scrapes']['ingress'][0]['ports']}, {9091, 15008})
+        transport = next(rule for rule in policies['telemetry-boundary']['egress']
+                         if rule.get('ports') == [{'protocol': 'TCP', 'port': 15008}])
+        self.assertEqual(transport['to'], [{'namespaceSelector': {'matchLabels': {
+            'kubernetes.io/metadata.name': 'cloudlab-app-notes'}}, 'podSelector': {'matchLabels': {'cloudlab.io/telemetry': 'safe'}}}])
+        collector = next(obj['spec'] for obj in objects if obj['kind'] == 'AuthorizationPolicy' and
+                         obj['metadata']['name'] == 'application-traces')
+        self.assertEqual(collector['rules'][0]['from'][0]['source']['principals'],
+                         ['cluster.local/ns/cloudlab-app-notes/sa/notes-web', 'cluster.local/ns/cloudlab-app-notes/sa/notes-api'])
+        self.assertEqual(collector['rules'][0]['to'][0]['operation']['ports'], ['4318'])
+        self.assertEqual(collector['rules'][1]['to'][0]['operation']['ports'], ['12345'])
+
     def test_rendered_alert_routes_reference_declared_receivers(self):
         secret = next(obj for obj in render('prometheus') if obj['kind'] == 'Secret' and
                       obj['metadata']['name'] == 'alertmanager-cloudlab')
