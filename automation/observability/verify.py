@@ -1,12 +1,10 @@
 """Read actual telemetry ownership, retained storage and one correlated request."""
 import base64
-import ipaddress
 import json
 from pathlib import Path
 import secrets
 import sys
 import urllib.parse
-import urllib.request
 import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -19,10 +17,6 @@ NAMESPACE = 'cloudlab-observability'
 def backend_ready(resource):
     if not all(condition(resource, name) for name in ('Available', 'Reconciled')):
         raise RuntimeError('Telemetry backend is unavailable or reconciliation failed')
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_): return None
 
 
 def storage(claims, volumes):
@@ -38,16 +32,12 @@ def storage(claims, volumes):
             raise RuntimeError('Telemetry volume can inherit off-site recurring jobs')
 
 
-def http(service, port, path):
-    address = get('service', service, NAMESPACE)['spec']['clusterIP']
-    peer = ipaddress.ip_address(address)
-    if not peer.is_private: raise RuntimeError('Telemetry inspection requires local service peers')
-    authority = '[' + address + ']' if peer.version == 6 else address
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    request = urllib.request.Request('http://' + authority + ':' + str(port) + path, headers={'Accept': 'application/json'})
-    with opener.open(request, timeout=10) as response:
-        raw = response.read(1024 * 1024 + 1)
-    if len(raw) > 1024 * 1024: raise RuntimeError('Telemetry inspection response exceeds its bound')
+def proxy(origin, gateway, headers, datasource, path):
+    if datasource not in ('metrics', 'logs', 'traces'):
+        raise ValueError('Telemetry proof requires a native provisioned datasource')
+    url = origin + '/api/datasources/proxy/uid/' + datasource + path
+    status, raw = direct_https(url, gateway, headers)
+    if status != 200: raise urllib.error.HTTPError(url, status, 'Private datasource query failed', {}, None)
     return json.loads(raw)
 
 
@@ -85,6 +75,12 @@ def run(payload):
                 raise RuntimeError('Running telemetry image differs from the pinned inventory')
             if set(container.get('resources', {}).get('limits', {})) != {'cpu', 'memory'}:
                 raise RuntimeError('Running telemetry container lacks resource bounds')
+    private_gateway = get('service', 'cloudlab-istio', 'cloudlab-gateway-private')['spec']['clusterIP']
+    origin = payload['grafana_origin']
+    secret = get('secret', 'grafana-emergency', NAMESPACE)['data']
+    credentials = ':'.join(base64.b64decode(secret[key], validate=True).decode() for key in ('username', 'password'))
+    authorization = 'Basic ' + base64.b64encode(credentials.encode()).decode()
+    query_headers = {'Authorization': authorization, 'Accept': 'application/json'}
     trace_id = secrets.token_hex(16)
     headers = {'traceparent': '00-' + trace_id + '-' + secrets.token_hex(8) + '-01',
                'User-Agent': 'CloudLab-Telemetry-Proof/1.0'}
@@ -94,7 +90,7 @@ def run(payload):
         raise RuntimeError('Real cross-service telemetry request failed')
     def observed():
         try:
-            trace = http('cloudlab-tempo', 3200, '/api/traces/' + trace_id)
+            trace = proxy(origin, private_gateway, query_headers, 'traces', '/api/traces/' + trace_id)
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 error.close()
@@ -103,18 +99,16 @@ def run(payload):
         encoded = json.dumps(trace)
         if not all(name in encoded for name in ('notes-web', 'notes-api', 'notes.database', 'notes.objects')): return False
         query = urllib.parse.urlencode({'query': '{kind="request"} |= "' + trace_id + '"', 'limit': 10})
-        logs = http('cloudlab-loki', 3100, '/loki/api/v1/query_range?' + query)
+        logs = proxy(origin, private_gateway, query_headers, 'logs', '/loki/api/v1/query_range?' + query)
         lines = [json.loads(value[1]) for stream in logs['data']['result'] for value in stream['values']]
         if not {'notes-web', 'notes-api'} <= {line.get('service') for line in lines}: return False
         query = urllib.parse.urlencode({'query': 'sum by (service) (cloudlab_http_requests_total{traffic="synthetic",status="200"})'})
-        metrics = http('cloudlab-prometheus', 9090, '/api/v1/query?' + query)['data']['result']
+        metrics = proxy(origin, private_gateway, query_headers, 'metrics', '/api/v1/query?' + query)['data']['result']
         if not {'notes-web', 'notes-api'} <= {row['metric'].get('service') for row in metrics}: return False
         query = urllib.parse.urlencode({'query': 'sum(istio_tcp_connections_opened_total{connection_security_policy="mutual_tls",source_workload_namespace="cloudlab-app-notes"})'})
-        mesh = http('cloudlab-prometheus', 9090, '/api/v1/query?' + query)['data']['result']
+        mesh = proxy(origin, private_gateway, query_headers, 'metrics', '/api/v1/query?' + query)['data']['result']
         return bool(mesh) and float(mesh[0]['value'][1]) > 0
     wait(observed, 'real correlated telemetry request', timeout=300)
-    private_gateway = get('service', 'cloudlab-istio', 'cloudlab-gateway-private')['spec']['clusterIP']
-    origin = payload['grafana_origin']
     status, _ = direct_https(origin + '/api/search', private_gateway, {})
     if status != 401: raise RuntimeError('Grafana dashboard API permits unauthenticated access')
     status, _ = direct_https(origin + '/api/health', gateway, {})
@@ -124,9 +118,6 @@ def run(payload):
         raise RuntimeError('Private Kiali requires its supported confidential OpenID client')
     status, _ = direct_https(payload['kiali_origin'] + '/kiali/api/namespaces', private_gateway, {})
     if status != 401: raise RuntimeError('Kiali dashboard API permits unauthenticated access')
-    secret = get('secret', 'grafana-emergency', NAMESPACE)['data']
-    credentials = ':'.join(base64.b64decode(secret[key], validate=True).decode() for key in ('username', 'password'))
-    authorization = 'Basic ' + base64.b64encode(credentials.encode()).decode()
     status, raw = direct_https(origin + '/api/user', private_gateway, {'Authorization': authorization})
     if status != 200 or json.loads(raw).get('isGrafanaAdmin') is not True:
         raise RuntimeError('Independent private Grafana emergency access failed')
