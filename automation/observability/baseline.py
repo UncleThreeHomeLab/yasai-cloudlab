@@ -108,6 +108,24 @@ def run():
     return dict(evidence, viewer_mfa=True, disposable_viewer_offboarded=True, primary_users_changed=False)
 
 
+def cleanup():
+    """Retire a failed disposable login before registering a fresh virtual passkey."""
+    values, api, _source, _revoked = inputs()
+    environment(values)
+    request = json.loads(CHECKPOINT.read_text())
+    scope(request)
+    if request.get('realm') != 'applications': raise ValueError('Baseline cleanup requires the applications viewer')
+    credentials = fields('keycloak-proof-' + request['nonce'], ('username', 'ownership_id'))
+    if credentials != {'username': 'proof-' + request['nonce'], 'ownership_id': request['nonce']}:
+        raise ValueError('Baseline viewer ownership changed')
+    from automation.identity.session_acceptance import offboard_inputs
+    from automation.identity.lifecycle import local_offboard
+    offboard_inputs(api, values, request, resume=True)
+    local_offboard({'realm': 'applications', 'username': credentials['username']})
+    CHECKPOINT.unlink()
+    return {'disposable_viewer_offboarded': True, 'primary_users_changed': False}
+
+
 def measure(request, credentials, origin, issuer, policy):
     deadline = time.monotonic() + 60
     connection = None
@@ -144,6 +162,6 @@ def measure(request, credentials, origin, issuer, policy):
 
 
 if __name__ == '__main__':
-    try: print(json.dumps({'prepare': prepare, 'run': run}[sys.argv[1]](), sort_keys=True))
+    try: print(json.dumps({'prepare': prepare, 'run': run, 'cleanup': cleanup}[sys.argv[1]](), sort_keys=True))
     except Exception:
         raise SystemExit('Notes baseline incomplete; preserve its private checkpoint. Credentials and diagnostics withheld') from None

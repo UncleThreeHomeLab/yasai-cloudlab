@@ -39,7 +39,10 @@ lab observe baseline-prepare`. Then run `gh auth token | docker compose -f
 automation/observability/compose.baseline.yaml run --build -T --rm
 baseline-controller`. The pinned browser registers a disposable passkey; pinned
 k6 measures bounded authenticated reads. Successful measurement offboards the
-viewer. Keep the private recovery checkpoint on failure and repeat to resume.
+viewer. Keep the private recovery checkpoint on failure. Successful measurements
+resume offboarding without another login. If login or traffic fails after passkey
+registration, run `gh auth token | docker compose run -T --rm lab observe
+baseline-cleanup`, then prepare a fresh viewer. Never reset primary passkeys.
 The redacted result remains in the recovery volume. Primary accounts stay unchanged.
 
 Python and dependency wheels are pinned. The API installs hash-checked wheels into
