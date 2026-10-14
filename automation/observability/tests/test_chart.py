@@ -46,6 +46,10 @@ class ChartTests(unittest.TestCase):
                          ['cloudlab-gateway-public', 'cloudlab-gateway-private'])
         grafana = next(obj for obj in render('prometheus') if obj['kind'] == 'Deployment' and obj['metadata']['name'] == 'cloudlab-grafana')
         self.assertEqual(grafana['spec']['strategy'], {'type': 'Recreate'})
+        dns = next(obj for obj in objects if obj['kind'] == 'ServiceMonitor' and obj['metadata']['name'] == 'native-dns')
+        self.assertEqual(dns['spec']['selector']['matchLabels'], {'k8s-app': 'kube-dns'})
+        self.assertFalse(any(obj['kind'] == 'Service' and obj['metadata'].get('namespace') == 'kube-system'
+                             for obj in render('prometheus')))
 
     def test_isolated_native_proof_uses_identical_pins_and_no_external_network(self):
         root = Path(__file__).resolve().parents[3]

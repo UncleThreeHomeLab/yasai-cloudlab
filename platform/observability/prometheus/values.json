@@ -13,16 +13,16 @@
     "kubeScheduler": {
       "enabled": false
     },
+    "coreDns": {
+      "serviceMonitor": {
+        "authorization": null
+      }
+    },
     "kubeEtcd": {
       "enabled": false
     },
     "kubeProxy": {
       "enabled": false
-    },
-    "coreDns": {
-      "serviceMonitor": {
-        "authorization": null
-      }
     },
     "kubelet": {
       "serviceMonitor": {

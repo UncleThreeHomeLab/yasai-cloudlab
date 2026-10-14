@@ -33,6 +33,7 @@ def values(name):
             'fullnameOverride': 'cloudlab', 'cleanPrometheusOperatorObjectNames': True,
             'crds': {'annotations': {'argocd.argoproj.io/sync-options': 'ServerSideApply=true,Prune=false,Delete=false'}},
             'kubeControllerManager': {'enabled': False}, 'kubeScheduler': {'enabled': False},
+            'coreDns': {'enabled': False},
             'kubeEtcd': {'enabled': False}, 'kubeProxy': {'enabled': False},
             'coreDns': {'serviceMonitor': {'authorization': None}},
             'kubelet': {'serviceMonitor': {'authorization': None,

@@ -58,5 +58,20 @@ spec:
   endpoints:
     - {port: http-metrics, interval: 30s, scrapeTimeout: 10s}
   sampleLimit: 10000
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: native-dns
+  namespace: {{ $policy.namespace }}
+spec:
+  namespaceSelector: {matchNames: [kube-system]}
+  selector:
+    matchLabels: {k8s-app: kube-dns}
+  endpoints:
+    - {port: metrics, interval: 30s, scrapeTimeout: 10s}
+  sampleLimit: 10000
+  labelLimit: 40
+  labelValueLengthLimit: 200
 {{- end }}
 {{- end }}
