@@ -72,7 +72,7 @@ def remote_state(request):
                           input=json.dumps(request), timeout=120))
 
 
-def offboard_inputs(api, values, request):
+def offboard_inputs(api, values, request, *, resume=False):
     """Review the exact sole-user tombstone before the normal private PR merge."""
     from automation.gitops.github_setup import repository
     from automation.identity.private_source import decode_contents, publish
@@ -85,7 +85,7 @@ def offboard_inputs(api, values, request):
         return yaml.safe_load(decode_contents(api.request('GET', prefix+'/contents/identity/configmap.yaml?ref='+revision)))
     before = document(base)
     source, revoked = [json.loads(before['data'][key]) for key in ('desired_state','revocations')]
-    source, revoked = change(source, revoked, {'action':'offboard-user','realm':'platform','username':'proof-'+nonce})
+    source, revoked = change(source, revoked, {'action':'offboard-user','realm':request.get('realm','platform'),'username':'proof-'+nonce})
     credentials = json.loads(fields('keycloak-client-secrets', ['client_secrets'])['client_secrets'])
     prepared = private_files(source, revoked, credentials, 'validation.invalid')
     expected = yaml.safe_load(prepared['identity/configmap.yaml'])
@@ -93,6 +93,7 @@ def offboard_inputs(api, values, request):
         raise RuntimeError('Private source metadata changed; overwrite refused')
     result = publish(api, values, prepared)
     if not result['private_source_changed']:
+        if resume: return
         raise RuntimeError('Disposable user was already offboarded; a new baseline is required')
     pull = api.request('GET', prefix+'/pulls/'+str(result['private_pull_request']))
     files = api.request('GET', prefix+'/pulls/'+str(pull['number'])+'/files')

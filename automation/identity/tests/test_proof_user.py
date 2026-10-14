@@ -13,6 +13,19 @@ from automation.identity import bootstrap
 
 
 class ProofUserTests(unittest.TestCase):
+    def test_application_viewer_keeps_platform_memberships_and_cannot_select_master(self):
+        request = {'nonce': self.nonce, 'realm': 'applications'}
+        source = {'realms': {'platform': {'memberships': [{'username': 'retained-owner'}]}}}
+        revoked = {'realms': {}}
+        result = membership(source, revoked, self.values, request)
+        self.assertEqual(result['realms']['platform'], source['realms']['platform'])
+        self.assertEqual(result['realms']['applications']['memberships'][0]['groups'], ['viewer'])
+        state = dict(self.state, realm='applications')
+        self.assertEqual(proof_user(state, [], self.values, self.nonce)['realm'], 'applications')
+        revoked['realms']['applications'] = {'users': [self.values['username']]}
+        with self.assertRaises(ValueError): membership(source, revoked, self.values, request)
+        with self.assertRaises(ValueError): proof_user(dict(state, realm='master'), [], self.values, self.nonce)
+
     def test_source_handoff_writes_ownership_to_its_path(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);revision='b'*40

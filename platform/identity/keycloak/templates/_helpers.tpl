@@ -48,7 +48,11 @@ initContainers:
         acquire_sync();
         {{- end }}
         {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
-        {{ ternary "prepare_application_owner" "prepare_proof_user" (eq .Values.operation.action "initialize-owner") }}('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }})
+        {{- if eq .Values.operation.action "initialize-owner" }}
+        prepare_application_owner('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }})
+        {{- else }}
+        prepare_proof_user('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }}, realm={{ .Values.operation.realm | quote }})
+        {{- end }}
         {{- else if .Values.operation }}
         removal_inventory('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, {{ .Values.adminHost | quote }})
         {{- end }}
