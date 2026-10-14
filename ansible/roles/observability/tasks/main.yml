@@ -16,9 +16,10 @@
 
 - name: Install the bounded telemetry bootstrap from its owner
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/observability/bootstrap.py'
-    dest: /opt/cloudlab/automation/observability/bootstrap.py
+    src: '{{ playbook_dir }}/../automation/observability/{{ item }}'
+    dest: '/opt/cloudlab/automation/observability/{{ item }}'
     mode: '0600'
+  loop: [bootstrap.py, verify.py]
 
 - name: Reconcile only declared telemetry Applications
   ansible.builtin.command: python3 /opt/cloudlab/automation/observability/bootstrap.py

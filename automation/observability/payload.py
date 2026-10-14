@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import sys
 
 from automation.gitops.render import committed_payload
 from automation.connectivity.preflight import ssh
@@ -44,7 +45,30 @@ def compile_payload(source, metadata):
             'configuration': dict(configuration, enabled=True), 'components': components}
 
 
+def verification_payload():
+    from automation.observability.configuration import POLICY
+    from automation.observability.chart import render
+    from automation.observability.slo import rules
+    from automation.services.inputs import catalog
+    source, discovered = committed_payload(), metadata()
+    entries = [entry for entry in catalog(required=True)['catalog'] if entry['publication'] == 'published' and
+               entry['definition']['name'] == 'notes' and entry['approval'].get('chartPath') == 'apps/notes']
+    if len(entries) != 1 or entries[0]['definition']['exposure']['class'] != 'public':
+        raise ValueError('Telemetry proof requires its approved public Notes service')
+    configurations = {component: {obj['metadata']['name']: obj['data'] for obj in render(component)
+                                  if obj['kind'] == 'ConfigMap'} for component in ('loki', 'tempo')}
+    return {'repository': source['repository'], 'revision': source['revision'], 'policy': POLICY,
+            'images': json.loads((ROOT / 'platform/observability/images.lock.json').read_text()),
+            'collector': (ROOT / 'platform/observability/config.alloy').read_text(),
+            'backend_configurations': configurations, 'slo': rules(),
+            'notes_origin': 'https://' + entries[0]['definition']['exposure']['hostname'],
+            'grafana_origin': 'https://' + discovered['grafanaHost'],
+            'kiali_origin': 'https://' + discovered['kialiHost']}
+
+
 if __name__ == '__main__':
-    try: print(json.dumps(payload()))
+    try:
+        mode = sys.argv[1] if len(sys.argv) == 2 else 'bootstrap' if len(sys.argv) == 1 else ''
+        print(json.dumps({'bootstrap': payload, 'verify': verification_payload}[mode]()))
     except Exception:
         raise SystemExit('Telemetry inputs unavailable; private values withheld') from None

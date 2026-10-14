@@ -29,7 +29,7 @@ spec:
       ports: [{protocol: TCP, port: 15014}]
     {{- range $peer := .Values.apiPeers }}
     - to: [{ipBlock: {cidr: {{ $peer | quote }}}}]
-      ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 6443}, {protocol: TCP, port: 10250}, {protocol: TCP, port: 9100}]
+      ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 6443}, {protocol: TCP, port: 10250}, {protocol: TCP, port: 9100}, {protocol: TCP, port: 15020}]
     {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
