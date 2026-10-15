@@ -33,6 +33,9 @@
           "memory": "384Mi"
         }
       },
+      "strategy": {
+        "type": "Recreate"
+      },
       "discovery_selectors": {
         "default": [
           {

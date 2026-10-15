@@ -35,10 +35,11 @@ def values(name):
             'kubeControllerManager': {'enabled': False}, 'kubeScheduler': {'enabled': False},
             'kubeEtcd': {'enabled': False}, 'kubeProxy': {'enabled': False},
             'coreDns': {'enabled': False, 'serviceMonitor': {'authorization': None}},
-            'kubelet': {'serviceMonitor': {'authorization': None,
+            'kubelet': {'serviceMonitor': {'authorization': None, 'labelValueLengthLimit': 512,
                 'bearerTokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token',
-                'tlsConfig': {'caFile': '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt', 'insecureSkipVerify': False}}},
+                'tlsConfig': {'insecureSkipVerify': False}}},
             'kubeApiServer': {'serviceMonitor': {'authorization': None,
+                'sampleLimit': 100000,
                 'bearerTokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token'}},
             'prometheusOperator': {'fullnameOverride': 'cloudlab-prometheus-operator',
                 'tls': {'enabled': False}, 'admissionWebhooks': {'enabled': False},
@@ -47,7 +48,8 @@ def values(name):
                 'prometheusInstanceNamespaces': [POLICY['namespace']], 'alertmanagerInstanceNamespaces': [POLICY['namespace']],
                 'alertmanagerConfigNamespaces': [POLICY['namespace']],
                 'prometheusConfigReloader': {'image': image('reloader'), 'resources': resources(25, 48, 5, 16)}},
-            'prometheus': {'serviceAccount': {'name': 'cloudlab-prometheus', 'createTokenSecret': False}, 'prometheusSpec': {
+            'prometheus': {'serviceAccount': {'name': 'cloudlab-prometheus', 'createTokenSecret': False},
+                'serviceMonitor': {'labelValueLengthLimit': 512}, 'prometheusSpec': {
                 'image': image('prometheus'), 'retention': POLICY['prometheus']['retention'],
                 'retentionSize': POLICY['prometheus']['retention_size'], 'replicas': 1,
                 'resources': resources(800, 2048, 150, 512), 'storageSpec': claim(POLICY['prometheus']['pvc_gib']),
@@ -140,6 +142,7 @@ def values(name):
             'issuer_uri': 'https://login.example.invalid/realms/platform', 'username_claim': 'sub', 'disable_rbac': True}},
             'deployment': {'instance_name': 'cloudlab-kiali', 'image_version': image('kiali')['sha'], 'image_digest': 'sha256',
                 'cluster_wide_access': False, 'view_only_mode': True, 'resources': resources(200, 384),
+                'strategy': {'type': 'Recreate'},
                 'discovery_selectors': {'default': [{'matchLabels': {'kubernetes.io/metadata.name': namespace}}
                     for namespace in ('cloudlab-app-notes', 'istio-system', POLICY['namespace'],
                                       'cloudlab-gateway-public', 'cloudlab-gateway-private')]},

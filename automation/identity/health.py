@@ -148,6 +148,21 @@ def proxy_privacy(login_host, address=None):
     return {'canonical_proxy_headers': True, 'public_management_paths_denied': len(paths)}
 
 
+def audit_window(root, resource, token, start, end, admin=False):
+    events = []
+    for offset in range(0, 1000, 100):
+        query = urllib.parse.urlencode({'dateFrom': start, 'dateTo': end, 'direction': 'asc',
+                                        'first': offset, 'max': 100})
+        page = json_get(root + '/' + resource + '?' + query, token=token)
+        if (not isinstance(page, list) or len(page) > 100 or any(not isinstance(event, dict) or
+                type(event.get('time')) is not int or not start <= event['time'] <= end for event in page)):
+            raise ValueError('Audit response escaped its bounded event window')
+        events.extend(redact(page, admin))
+        if len(page) < 100:
+            return events, False
+    return events, True
+
+
 def run(login_host, admin_host):
     for host in (login_host, admin_host):
         if not re.fullmatch(r'[a-z0-9.-]+', host):
@@ -155,19 +170,21 @@ def run(login_host, admin_host):
     ready = json_get('http://cloudlab-keycloak-service:9000/health/ready')
     if ready.get('status') != 'UP':
         raise RuntimeError('Private identity readiness failed')
+    # Closed five-minute windows prevent overlaps from normal CronJob start jitter.
+    end = int(time.time()) // 300 * 300 * 1000 - 1
+    start = end - 300000 + 1
     for realm in ('platform', 'applications'):
         status = check('https://' + login_host + '/realms/' + realm)
         secret = Path('/credentials/' + realm + '_client_secret').read_text()
         token = json_get('https://' + admin_host + '/realms/' + realm + '/protocol/openid-connect/token',
                          form={'grant_type': 'client_credentials', 'client_id': 'realm-health', 'client_secret': secret})
         root = 'https://' + admin_host + '/admin/realms/' + realm
-        cutoff = int((time.time() - 300) * 1000)
         incomplete = False
-        for path, admin in (('/events?max=100', False), ('/admin-events?max=100', True)):
-            events = json_get(root + path, token=token['access_token'])
-            incomplete = incomplete or len(events) >= 100
-            for event in redact(events, admin):
-                if event.get('time', 0) >= cutoff and ('type' in event or 'operationType' in event):
+        for resource, admin in (('events', False), ('admin-events', True)):
+            events, truncated = audit_window(root, resource, token['access_token'], start, end, admin)
+            incomplete = incomplete or truncated
+            for event in events:
+                if 'type' in event or 'operationType' in event:
                     print(json.dumps(dict(event, kind='identity-audit', realm=realm), sort_keys=True), flush=True)
         print(json.dumps({'kind': 'identity-health', 'realm': realm, 'healthy': 1,
                           'observed': str(int(time.time())), 'incomplete': int(incomplete)}, sort_keys=True), flush=True)

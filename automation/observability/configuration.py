@@ -18,7 +18,7 @@ def audit_rules():
         ('KeycloakAdminChange', 'sum by (realm) (increase(cloudlab_keycloak_admin_events_total[5m])) > 0', '0s',
          'Realm administrative change observed', 'Review intended configuration or maintenance against redacted operation events.'),
         ('KeycloakAuditIncomplete', 'cloudlab_keycloak_audit_incomplete > 0', '0s',
-         'Realm audit batch may be truncated', 'Latest 100 events cannot establish a complete audit. Reduce event volume or qualify a bounded event listener.'),
+         'Realm audit window may be truncated', 'A closed five-minute window reached its 1000-event cap. Inspect event volume and the bounded audit collector.'),
         ('KeycloakHealthJobFailed', 'kube_job_status_failed{namespace="cloudlab-identity",job_name=~"identity-health-.*"} > 0', '1m',
          'Realm health or audit job failed', 'Inspect private job status. Missing evidence is never healthy.'),
     ]

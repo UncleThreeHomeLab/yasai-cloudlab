@@ -1,5 +1,6 @@
 """Bounded identity Application owner; Argo alone owns rendered workloads."""
 import fcntl
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,41 @@ def writer_idle():
     lease = get('lease', 'identity-writer', NAMESPACE)
     return bool(lease) and available(lease.get('spec', {}), time.time()) and previous_writer_done(
         lease.get('spec', {}), get('pods', namespace=NAMESPACE)['items'])
+
+
+def completed_job_retention(job, crons, retired, now):
+    metadata, status = job.get('metadata', {}), job.get('status', {})
+    if (metadata.get('namespace') != NAMESPACE or metadata.get('deletionTimestamp') or
+            not metadata.get('uid') or not metadata.get('resourceVersion') or status.get('active') or
+            job.get('spec', {}).get('ttlSecondsAfterFinished') is not None):
+        return []
+    finished = [c for c in status.get('conditions', []) if c.get('type') in ('Complete', 'Failed') and c.get('status') == 'True']
+    if len(finished) != 1:
+        return []
+    try:
+        successes = [datetime.fromisoformat(crons[name]['status']['lastSuccessfulTime'].replace('Z', '+00:00')).timestamp()
+                     for name in ('identity-health', 'identity-reconcile')]
+        completed = datetime.fromisoformat(finished[0]['lastTransitionTime'].replace('Z', '+00:00')).timestamp()
+        if any(not 0 <= now - success <= 900 for success in successes) or completed >= min(successes):
+            return []
+        ttl = crons['identity-health']['spec']['jobTemplate']['spec']['ttlSecondsAfterFinished']
+    except (KeyError, TypeError, ValueError):
+        return []
+    if type(ttl) is not int or not 300 <= ttl <= 86400:
+        raise RuntimeError('Completed identity jobs require bounded declared retention')
+    owners = metadata.get('ownerReferences', [])
+    cron_owned = any(ref.get('kind') == 'CronJob' and ref.get('apiVersion') == 'batch/v1' and ref.get('controller') is True and
+                     ref.get('name') in ('identity-health', 'identity-reconcile') and ref.get('uid') and
+                     ref['uid'] == crons[ref['name']].get('metadata', {}).get('uid') for ref in owners)
+    hook_owned = (retired and not owners and metadata.get('name') == 'identity-bootstrap-retirement' and
+                  metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id') ==
+                  APP + ':batch/Job:' + NAMESPACE + '/identity-bootstrap-retirement' and
+                  job.get('spec', {}).get('template', {}).get('spec', {}).get('serviceAccountName') == 'identity-writer')
+    if not cron_owned and not hook_owned:
+        return []
+    return [{'op': 'test', 'path': '/metadata/uid', 'value': metadata['uid']},
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']},
+            {'op': 'add', 'path': '/spec/ttlSecondsAfterFinished', 'value': ttl}]
 
 
 def reconciled(revision, uid):
@@ -332,6 +368,13 @@ def run(payload, phase, *, retained_only=False):
         wait(lambda: reconciled(payload['revision'], current['metadata']['uid']) and
              condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready'),
              'identity Application and server readiness convergence', timeout=900)
+        if phase == 'scoped':
+            crons = {name: get('cronjob', name, NAMESPACE) or {} for name in ('identity-health', 'identity-reconcile')}
+            for job in get('jobs', namespace=NAMESPACE)['items']:
+                patches = completed_job_retention(job, crons, bool(retirement), time.time())
+                if patches:
+                    kube('patch', 'job', job['metadata']['name'], '-n', NAMESPACE, '--type=json', '-p', json.dumps(patches))
+                    changed = True
         return {'changed': changed, 'phase': phase, 'bootstrap_admin_retired': bool(retirement),
                 'real_clients_ready': False, 'owner': 'argocd'}
 

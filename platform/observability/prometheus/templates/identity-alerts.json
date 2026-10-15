@@ -46,8 +46,8 @@
               "service": "keycloak"
             },
             "annotations": {
-              "summary": "Realm audit batch may be truncated",
-              "description": "Latest 100 events cannot establish a complete audit. Reduce event volume or qualify a bounded event listener."
+              "summary": "Realm audit window may be truncated",
+              "description": "A closed five-minute window reached its 1000-event cap. Inspect event volume and the bounded audit collector."
             }
           },
           {

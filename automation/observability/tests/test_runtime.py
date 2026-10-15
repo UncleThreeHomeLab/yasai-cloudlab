@@ -4,10 +4,24 @@ from unittest.mock import patch
 from types import SimpleNamespace
 import urllib.error
 
-from automation.observability.verify import backend_ready, storage, proxy, kiali_control_plane_permissions
+from automation.observability.verify import backend_ready, storage, proxy, kiali_control_plane_permissions, healthy_scrapes
 
 
 class StorageBoundaryTests(unittest.TestCase):
+    def test_missing_kubelets_or_failed_scrapes_cannot_pass_telemetry_proof(self):
+        rows = [{'metric': {'job': job, 'instance': peer}, 'value': [1, '1']}
+                for job, peer in (('apiserver', 'api'), ('cloudlab-prometheus', 'prometheus'),
+                                  ('kubelet', 'node-a'), ('kubelet', 'node-b'))]
+        self.assertTrue(healthy_scrapes(rows))
+        self.assertFalse(healthy_scrapes([]))
+        self.assertFalse(healthy_scrapes(rows[:-1]))
+        self.assertFalse(healthy_scrapes(rows[1:]))
+        failed = copy.deepcopy(rows)
+        failed[0]['value'][1] = '0'
+        self.assertFalse(healthy_scrapes(failed))
+        failed[0]['value'][1] = 'NaN'
+        self.assertFalse(healthy_scrapes(failed))
+
     def test_kiali_transport_permission_checks_reject_missing_broad_or_unavailable_access(self):
         def scoped(*args, **kwargs):
             self.assertEqual(args[:5], ('auth', 'can-i', 'create', 'pods', '--subresource=portforward'))

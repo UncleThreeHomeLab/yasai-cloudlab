@@ -115,7 +115,8 @@
   "health": {
     "schedule_seconds": 300,
     "permission": "Dedicated realm-health service clients with view-events only",
-    "audit": "Redacted latest 100 events per category; no identities, IPs, paths or representations"
+    "audit": "Closed five-minute windows; up to 1000 events per category in 100-event pages. Capped windows are incomplete; no identities, IPs, paths or representations",
+    "completed_jobs": "One-hour TTL; retained finished jobs migrate only after later successful health and reconciliation runs"
   },
   "private_source": {
     "path": "identity",

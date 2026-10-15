@@ -79,6 +79,7 @@ spec:
   failedJobsHistoryLimit: 2
   jobTemplate:
     spec:
+      ttlSecondsAfterFinished: {{ .Values.completedJobRetentionSeconds }}
       activeDeadlineSeconds: 210
       backoffLimit: 0
       template:
@@ -98,6 +99,7 @@ metadata:
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   activeDeadlineSeconds: 210
+  ttlSecondsAfterFinished: {{ .Values.completedJobRetentionSeconds }}
   backoffLimit: 0
   template:
     metadata:
