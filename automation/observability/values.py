@@ -65,7 +65,7 @@ def values(name):
                 'deploymentStrategy': {'type': 'Recreate'},
                 'serviceAccount': {'automountServiceAccountToken': False}, 'automountServiceAccountToken': False,
                 'admin': {'existingSecret': 'grafana-emergency', 'userKey': 'username', 'passwordKey': 'password'},
-                'resources': resources(250, 384), 'initChownData': {'enabled': False},
+                'resources': resources(250, 768, requested_memory=512), 'initChownData': {'enabled': False},
                 'testFramework': {'enabled': False}, 'sidecar': {'dashboards': {'enabled': False}, 'datasources': {'enabled': False}},
                 'defaultDashboardsEnabled': False, 'persistence': {'enabled': True, 'storageClassName': storage,
                                                               'size': str(POLICY['grafana']['pvc_gib']) + 'Gi'},
