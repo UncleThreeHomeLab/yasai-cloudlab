@@ -10,6 +10,7 @@ from automation.observability.verify import backend_ready, storage, proxy, kiali
 class StorageBoundaryTests(unittest.TestCase):
     def test_kiali_transport_permission_checks_reject_missing_broad_or_unavailable_access(self):
         def scoped(*args, **kwargs):
+            self.assertEqual(args[:5], ('auth', 'can-i', 'create', 'pods', '--subresource=portforward'))
             permitted = args[args.index('-n') + 1] == 'istio-system'
             return SimpleNamespace(returncode=0 if permitted else 1, stdout='yes\n' if permitted else 'no\n')
         with patch('automation.observability.verify.kube', side_effect=scoped):

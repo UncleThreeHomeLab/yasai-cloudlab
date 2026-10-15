@@ -17,7 +17,7 @@ NAMESPACE = 'cloudlab-observability'
 def kiali_control_plane_permissions():
     for namespace in ('istio-system', NAMESPACE, 'cloudlab-app-notes',
                       'cloudlab-gateway-public', 'cloudlab-gateway-private', 'argocd'):
-        result = kube('auth', 'can-i', 'create', 'pods/portforward', '-n', namespace,
+        result = kube('auth', 'can-i', 'create', 'pods', '--subresource=portforward', '-n', namespace,
                       '--as=system:serviceaccount:' + NAMESPACE + ':cloudlab-kiali', allow_failure=True)
         permitted = namespace == 'istio-system'
         if result.returncode != (0 if permitted else 1) or result.stdout.strip() != ('yes' if permitted else 'no'):
