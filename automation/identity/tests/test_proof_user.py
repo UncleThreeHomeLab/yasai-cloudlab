@@ -36,7 +36,8 @@ class ProofUserTests(unittest.TestCase):
             desired=copy.deepcopy(current);desired['spec']['source']['targetRevision']='main'
             with patch.object(bootstrap,'BASE',root), patch.object(bootstrap,'application',return_value=desired), \
                     patch.object(bootstrap,'prerequisites'), patch.object(bootstrap,'private_resources',return_value=[]), \
-                    patch.object(bootstrap,'private_inputs'), patch.object(bootstrap,'get',return_value=current), \
+                    patch.object(bootstrap,'private_inputs'), \
+                    patch.object(bootstrap,'get',side_effect=lambda kind, *args, **kwargs: {'items': []} if kind == 'jobs' else current), \
                     patch.object(bootstrap,'enrollment_handoff',return_value={'phase':'accepted','revision':revision,'application_uid':'owned'}), \
                     patch.object(bootstrap,'kube'), patch.object(bootstrap,'wait'):
                 bootstrap.run({'revision':'c'*40},'scoped')
@@ -79,7 +80,9 @@ class ProofUserTests(unittest.TestCase):
                 if retired:
                     retirement.write_text(json.dumps({'phase': 'accepted', 'nonce': 'a' * 32,
                         'application_uid': 'owned', 'keycloak_uid': 'keycloak', 'revision': 'b' * 40}))
-                def resource(kind, *args):
+                def resource(kind, *args, **kwargs):
+                    if kind == 'jobs':
+                        return {'items': []}
                     return {'metadata': {'uid': 'keycloak'}} if kind == 'keycloak.k8s.keycloak.org' else current
                 with (patch.object(bootstrap, 'BASE', root),
                       patch.object(bootstrap, 'application', return_value=desired),

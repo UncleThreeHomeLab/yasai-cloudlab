@@ -87,8 +87,24 @@ def prepare():
         cases.extend([{'eval_time': '20m', 'alertname': rule['alert'],
                        'exp_alerts': [{'exp_labels': rule['labels'], 'exp_annotations': rule['annotations']}]},
                       {'eval_time': '140m', 'alertname': rule['alert'], 'exp_alerts': []}])
+    audit = {rule['alert']: rule['expr'] for rule in audit_rules()['groups'][0]['rules']}
+    audit_cases = []
+    for newest, incomplete in ((1190, 0), (1190, 1), (100, 0)):
+        observations = [{'series': metric + '{realm="platform",instance="' + instance + '"}',
+                         'values': str(value) + '+0x20'}
+                        for instance, observed, truncated in (('old', 100, 1), ('current', newest, incomplete))
+                        for metric, value in (('cloudlab_keycloak_health_last_success_seconds', observed),
+                                              ('cloudlab_keycloak_audit_incomplete', truncated))]
+        audit_cases.append({'interval': '1m', 'input_series': observations, 'promql_expr_test': [
+            {'expr': 'count(' + audit['KeycloakAuditIncomplete'] + ') or vector(0)', 'eval_time': '20m',
+             'exp_samples': [{'labels': '{}', 'value': 1 if newest == 100 else incomplete}]},
+            {'expr': 'count(' + audit['KeycloakEvidenceStalePlatform'] + ') or vector(0)', 'eval_time': '20m',
+             'exp_samples': [{'labels': '{}', 'value': int(newest == 100)}]}]})
+    audit_cases.append({'interval': '1m', 'promql_expr_test': [
+        {'expr': audit['KeycloakEvidenceStalePlatform'], 'eval_time': '20m',
+         'exp_samples': [{'labels': '{realm="platform"}', 'value': 1}]}]})
     (FIXTURE / 'slo-test.json').write_text(json.dumps({'rule_files': ['/fixture/slo-rules.json'],
-        'evaluation_interval': '30s', 'tests': [{'interval': '1m', 'input_series': series, 'alert_rule_test': cases}]}))
+        'evaluation_interval': '30s', 'tests': [{'interval': '1m', 'input_series': series, 'alert_rule_test': cases}] + audit_cases}))
     print(json.dumps({'fixture_prepared': True, 'production_credentials': False}))
 
 

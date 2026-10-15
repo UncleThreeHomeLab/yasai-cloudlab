@@ -17,14 +17,16 @@ def audit_rules():
          'Repeated realm login failures', 'Inspect redacted realm events. Do not export credentials or user identifiers.'),
         ('KeycloakAdminChange', 'sum by (realm) (increase(cloudlab_keycloak_admin_events_total[5m])) > 0', '0s',
          'Realm administrative change observed', 'Review intended configuration or maintenance against redacted operation events.'),
-        ('KeycloakAuditIncomplete', 'cloudlab_keycloak_audit_incomplete > 0', '0s',
+        ('KeycloakAuditIncomplete', 'cloudlab_keycloak_audit_incomplete > 0 and '
+         '(cloudlab_keycloak_health_last_success_seconds == on (realm) group_left '
+         'max by (realm) (cloudlab_keycloak_health_last_success_seconds))', '0s',
          'Realm audit window may be truncated', 'A closed five-minute window reached its 1000-event cap. Inspect event volume and the bounded audit collector.'),
         ('KeycloakHealthJobFailed', 'kube_job_status_failed{namespace="cloudlab-identity",job_name=~"identity-health-.*"} > 0', '1m',
          'Realm health or audit job failed', 'Inspect private job status. Missing evidence is never healthy.'),
     ]
     for realm in ('platform', 'applications'):
         selector = 'cloudlab_keycloak_health_last_success_seconds{realm="' + realm + '"}'
-        checks.append(('KeycloakEvidenceStale' + realm.title(), '(time() - ' + selector + ' > 900) or absent(' + selector + ')',
+        checks.append(('KeycloakEvidenceStale' + realm.title(), '(time() - max(' + selector + ') > 900) or absent(' + selector + ')',
             '5m', 'Realm health evidence stale: ' + realm, 'Check scheduled health job and Alloy. No complete poll observed within 15 minutes.'))
     return {'groups': [{'name': 'identity-evidence', 'interval': '30s', 'rules': [
         {'alert': name, 'expr': expression, 'for': duration, 'labels': {'severity': 'warning', 'service': 'keycloak'},
