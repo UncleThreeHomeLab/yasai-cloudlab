@@ -7,7 +7,7 @@ kind: ExternalSecret
 metadata:
   name: keycloak-database
 spec:
-  refreshInterval: 4h
+  refreshInterval: 24h
   secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
   target:
     name: keycloak-database

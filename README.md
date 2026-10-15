@@ -162,9 +162,10 @@ HTTPS. cert-manager manages certificates and Cloudflare Access protects selected
 
 Users sign in through Keycloak. Apps use OIDC tokens and roles to control access.
 External Secrets copies scoped credentials from 1Password into Kubernetes.
-Background refreshes run every four hours to bound vault requests. Explicit
+Background refreshes run once a day to bound vault requests. Explicit
 credential rotations request immediate refresh; failed synchronization retains
-existing Secrets and reports degraded health.
+existing Secrets and reports degraded health. Other vault edits can take up to
+24 hours to reach applications.
 Istio encrypts traffic between workloads and checks which services may communicate.
 
 ![Identity](assets/identity.png)

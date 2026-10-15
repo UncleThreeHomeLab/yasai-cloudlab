@@ -9,5 +9,5 @@
   "secret_name": "cloudlab-backup-1password",
   "external_secret_name": "longhorn-b2",
   "item": "longhorn-b2",
-  "refresh_interval": "4h"
+  "refresh_interval": "24h"
 }

@@ -70,7 +70,7 @@ class ChartTests(unittest.TestCase):
                          {'grafana-emergency', 'grafana-oidc', 'kiali-signing-key', 'kiali-oidc'})
         for obj in secrets:
             self.assertEqual(obj['spec']['target']['deletionPolicy'], 'Retain')
-            self.assertEqual(obj['spec']['refreshInterval'], '4h')
+            self.assertEqual(obj['spec']['refreshInterval'], '24h')
             self.assertEqual(len(obj['spec']['dataFrom']), 1)
             self.assertNotIn('data', obj['spec'])
         monitor = next(obj for obj in objects if obj['kind'] == 'PodMonitor')

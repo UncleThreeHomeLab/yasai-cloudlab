@@ -9,7 +9,7 @@ metadata:
   name: {{ $oidc.secretReference }}
   namespace: {{ .approval.namespace }}
 spec:
-  refreshInterval: 4h
+  refreshInterval: 24h
   secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
   target:
     name: {{ $oidc.secretReference }}

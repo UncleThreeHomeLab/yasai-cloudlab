@@ -60,7 +60,7 @@ def check():
         raise ValueError('Identity topology, privacy or resources changed')
     if not any(option == {'name': 'db-tls-mode', 'value': 'verify-server'} for option in server['additionalOptions']):
         raise ValueError('Identity database TLS must use the supported server identity verification mode')
-    if any(o['kind'] == 'ExternalSecret' and o['spec']['refreshInterval'] != '4h' for o in objects):
+    if any(o['kind'] == 'ExternalSecret' and o['spec']['refreshInterval'] != '24h' for o in objects):
         raise ValueError('Routine identity vault reads must stay within the existing subscription budget')
     for image in lock['images'].values():
         if not re.search(r'@sha256:[a-f0-9]{64}$', image):
