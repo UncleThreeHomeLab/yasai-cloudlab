@@ -9,6 +9,16 @@ from automation.observability.chart import check, configuration, render
 
 
 class ChartTests(unittest.TestCase):
+    def test_kiali_control_plane_transport_grants_only_namespaced_portforward(self):
+        objects = configuration(True)
+        role = next(obj for obj in objects if obj['kind'] == 'Role' and obj['metadata']['name'] == 'cloudlab-kiali-istiod')
+        self.assertEqual(role['metadata']['namespace'], 'istio-system')
+        self.assertEqual(role['rules'], [{'apiGroups': [''], 'resources': ['pods/portforward'], 'verbs': ['create']}])
+        binding = next(obj for obj in objects if obj['kind'] == 'RoleBinding' and obj['metadata']['name'] == role['metadata']['name'])
+        self.assertEqual(binding['metadata']['namespace'], role['metadata']['namespace'])
+        self.assertEqual(binding['roleRef'], {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': role['metadata']['name']})
+        self.assertEqual(binding['subjects'], [{'kind': 'ServiceAccount', 'name': 'cloudlab-kiali', 'namespace': 'cloudlab-observability'}])
+
     def test_ambient_transport_keeps_decoded_collector_and_scrape_ports_authorized(self):
         objects = configuration(True)
         policies = {obj['metadata']['name']: obj['spec'] for obj in objects if obj['kind'] == 'NetworkPolicy'}
