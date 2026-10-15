@@ -14,6 +14,14 @@ from automation.identity.health import direct_https
 NAMESPACE = 'cloudlab-observability'
 
 
+def healthy_scrapes(rows):
+    if not rows or any(float(row['value'][1]) != 1 for row in rows):
+        return False
+    jobs = {row['metric'].get('job') for row in rows}
+    kubelets = {row['metric'].get('instance') for row in rows if row['metric'].get('job') == 'kubelet'}
+    return {'apiserver', 'cloudlab-prometheus', 'kubelet'} <= jobs and len(kubelets - {None}) == 2
+
+
 def kiali_control_plane_permissions():
     for namespace in ('istio-system', NAMESPACE, 'cloudlab-app-notes',
                       'cloudlab-gateway-public', 'cloudlab-gateway-private', 'argocd'):
@@ -118,7 +126,9 @@ def run(payload):
         if not {'notes-web', 'notes-api'} <= {row['metric'].get('service') for row in metrics}: return False
         query = urllib.parse.urlencode({'query': 'sum(istio_tcp_connections_opened_total{connection_security_policy="mutual_tls",source_workload_namespace="cloudlab-app-notes"})'})
         mesh = proxy(origin, private_gateway, query_headers, 'metrics', '/api/v1/query?' + query)['data']['result']
-        return bool(mesh) and float(mesh[0]['value'][1]) > 0
+        query = urllib.parse.urlencode({'query': 'up'})
+        scrapes = proxy(origin, private_gateway, query_headers, 'metrics', '/api/v1/query?' + query)['data']['result']
+        return bool(mesh) and float(mesh[0]['value'][1]) > 0 and healthy_scrapes(scrapes)
     wait(observed, 'real correlated telemetry request', timeout=300)
     status, _ = direct_https(origin + '/api/search', private_gateway, {})
     if status != 401: raise RuntimeError('Grafana dashboard API permits unauthenticated access')
@@ -137,6 +147,7 @@ def run(payload):
             'backup_excluded': True, 'pinned_bounded_containers': True,
             'real_metrics_logs_traces': True, 'scraped_mesh_mtls_metrics': True, 'emergency_access': True,
             'private_dashboard_apis': True, 'kiali_control_plane_permission': True,
+            'all_metric_targets_healthy': True,
             'retention_settings': True, 'elapsed_retention_deletion_proven': False}
 
 

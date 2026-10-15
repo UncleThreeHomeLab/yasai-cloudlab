@@ -27,6 +27,7 @@ spec:
   failedJobsHistoryLimit: 2
   jobTemplate:
     spec:
+      ttlSecondsAfterFinished: {{ .Values.completedJobRetentionSeconds }}
       activeDeadlineSeconds: 120
       backoffLimit: 0
       template:

@@ -39,15 +39,15 @@
           },
           {
             "alert": "KeycloakAuditIncomplete",
-            "expr": "cloudlab_keycloak_audit_incomplete > 0",
+            "expr": "cloudlab_keycloak_audit_incomplete > 0 and (cloudlab_keycloak_health_last_success_seconds == on (realm) group_left max by (realm) (cloudlab_keycloak_health_last_success_seconds))",
             "for": "0s",
             "labels": {
               "severity": "warning",
               "service": "keycloak"
             },
             "annotations": {
-              "summary": "Realm audit batch may be truncated",
-              "description": "Latest 100 events cannot establish a complete audit. Reduce event volume or qualify a bounded event listener."
+              "summary": "Realm audit window may be truncated",
+              "description": "A closed five-minute window reached its 1000-event cap. Inspect event volume and the bounded audit collector."
             }
           },
           {
@@ -65,7 +65,7 @@
           },
           {
             "alert": "KeycloakEvidenceStalePlatform",
-            "expr": "(time() - cloudlab_keycloak_health_last_success_seconds{realm=\"platform\"} > 900) or absent(cloudlab_keycloak_health_last_success_seconds{realm=\"platform\"})",
+            "expr": "(time() - max(cloudlab_keycloak_health_last_success_seconds{realm=\"platform\"}) > 900) or absent(cloudlab_keycloak_health_last_success_seconds{realm=\"platform\"})",
             "for": "5m",
             "labels": {
               "severity": "warning",
@@ -78,7 +78,7 @@
           },
           {
             "alert": "KeycloakEvidenceStaleApplications",
-            "expr": "(time() - cloudlab_keycloak_health_last_success_seconds{realm=\"applications\"} > 900) or absent(cloudlab_keycloak_health_last_success_seconds{realm=\"applications\"})",
+            "expr": "(time() - max(cloudlab_keycloak_health_last_success_seconds{realm=\"applications\"}) > 900) or absent(cloudlab_keycloak_health_last_success_seconds{realm=\"applications\"})",
             "for": "5m",
             "labels": {
               "severity": "warning",

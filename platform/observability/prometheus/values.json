@@ -28,9 +28,9 @@
     "kubelet": {
       "serviceMonitor": {
         "authorization": null,
+        "labelValueLengthLimit": 512,
         "bearerTokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
         "tlsConfig": {
-          "caFile": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
           "insecureSkipVerify": false
         }
       }
@@ -38,6 +38,7 @@
     "kubeApiServer": {
       "serviceMonitor": {
         "authorization": null,
+        "sampleLimit": 100000,
         "bearerTokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token"
       }
     },
@@ -103,6 +104,9 @@
       "serviceAccount": {
         "name": "cloudlab-prometheus",
         "createTokenSecret": false
+      },
+      "serviceMonitor": {
+        "labelValueLengthLimit": 512
       },
       "prometheusSpec": {
         "image": {

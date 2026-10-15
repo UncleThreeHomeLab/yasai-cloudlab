@@ -9,6 +9,22 @@ from automation.observability.chart import check, configuration, render
 
 
 class ChartTests(unittest.TestCase):
+    def test_kubelet_tls_and_per_job_scrape_limits_match_supported_monitor_fields(self):
+        objects = render('prometheus')
+        monitors = {obj['metadata']['name']: obj['spec'] for obj in objects if obj['kind'] == 'ServiceMonitor'}
+        for endpoint in monitors['cloudlab-kubelet']['endpoints']:
+            self.assertIn('ca', endpoint['tlsConfig'])
+            self.assertNotIn('caFile', endpoint['tlsConfig'])
+            self.assertFalse(endpoint['tlsConfig']['insecureSkipVerify'])
+        self.assertEqual(monitors['cloudlab-apiserver']['sampleLimit'], 100000)
+        self.assertEqual(monitors['cloudlab-kubelet']['labelValueLengthLimit'], 512)
+        self.assertEqual(monitors['cloudlab-prometheus']['labelValueLengthLimit'], 512)
+        prometheus = next(obj['spec'] for obj in objects if obj['kind'] == 'Prometheus')
+        self.assertEqual(prometheus['sampleLimit'], 50000)
+        self.assertEqual(prometheus['labelValueLengthLimit'], 200)
+        deployment = next(obj for obj in render('kiali') if obj['kind'] == 'Deployment')
+        self.assertEqual(deployment['spec']['strategy'], {'type': 'Recreate'})
+
     def test_kiali_control_plane_transport_grants_only_namespaced_portforward(self):
         objects = configuration(True)
         role = next(obj for obj in objects if obj['kind'] == 'Role' and obj['metadata']['name'] == 'cloudlab-kiali-istiod')
