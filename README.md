@@ -65,6 +65,9 @@ alongside `prove`; its credentials and state remain outside deployment jobs.
 Live operations require private inputs and
 accepted ownership; required fields and write gates belong to the
 [infrastructure client](automation/infra/command.py).
+Recover missing Cloudflare inputs from protected evidence and current vault values
+with `docker compose run --rm --entrypoint python service -m automation.infra.input_recovery`.
+Every original input checksum must match; existing files are never overwritten.
 
 Application onboarding uses the [service contract](charts/service/README.md),
 administrator-controlled ApplicationSets and scoped data/OIDC references. The
