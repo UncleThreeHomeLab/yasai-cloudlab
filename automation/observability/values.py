@@ -36,6 +36,8 @@ def values(name):
             'kubeEtcd': {'enabled': False}, 'kubeProxy': {'enabled': False},
             'coreDns': {'enabled': False, 'serviceMonitor': {'authorization': None}},
             'kubelet': {'serviceMonitor': {'authorization': None, 'labelValueLengthLimit': 512,
+                # K3s shares its metric registry; the API-server job owns these series.
+                'metricRelabelings': [{'sourceLabels': ['__name__'], 'regex': 'apiserver_.*', 'action': 'drop'}],
                 'bearerTokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token',
                 'tlsConfig': {'insecureSkipVerify': False}}},
             'kubeApiServer': {'serviceMonitor': {'authorization': None,

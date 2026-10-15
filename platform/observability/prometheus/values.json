@@ -29,6 +29,15 @@
       "serviceMonitor": {
         "authorization": null,
         "labelValueLengthLimit": 512,
+        "metricRelabelings": [
+          {
+            "sourceLabels": [
+              "__name__"
+            ],
+            "regex": "apiserver_.*",
+            "action": "drop"
+          }
+        ],
         "bearerTokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
         "tlsConfig": {
           "insecureSkipVerify": false
