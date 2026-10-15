@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import re
 from pathlib import Path
 import unittest
 import yaml
@@ -16,6 +17,15 @@ class ChartTests(unittest.TestCase):
             self.assertIn('ca', endpoint['tlsConfig'])
             self.assertNotIn('caFile', endpoint['tlsConfig'])
             self.assertFalse(endpoint['tlsConfig']['insecureSkipVerify'])
+        main = next(endpoint for endpoint in monitors['cloudlab-kubelet']['endpoints'] if endpoint.get('path', '/metrics') == '/metrics')
+        self.assertEqual(main['metricRelabelings'], [
+            {'sourceLabels': ['__name__'], 'regex': 'apiserver_.*', 'action': 'drop'}])
+        pattern = main['metricRelabelings'][0]['regex']
+        self.assertTrue(re.fullmatch(pattern, 'apiserver_request_duration_seconds_bucket'))
+        for metric in ('kubelet_volume_stats_available_bytes', 'storage_operation_duration_seconds_bucket',
+                       'rest_client_requests_total', 'go_goroutines', 'process_resident_memory_bytes'):
+            self.assertIsNone(re.fullmatch(pattern, metric))
+        self.assertNotIn('apiserver_.*', json.dumps(monitors['cloudlab-apiserver']['endpoints']))
         self.assertEqual(monitors['cloudlab-apiserver']['sampleLimit'], 100000)
         self.assertEqual(monitors['cloudlab-kubelet']['labelValueLengthLimit'], 512)
         self.assertEqual(monitors['cloudlab-prometheus']['labelValueLengthLimit'], 512)
