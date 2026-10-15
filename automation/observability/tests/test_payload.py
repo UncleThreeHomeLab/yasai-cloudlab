@@ -23,12 +23,14 @@ class PayloadTests(unittest.TestCase):
         objects = render('kiali', payload['components']['kiali'])
         roles = [obj for obj in objects if obj['kind'] == 'Role']
         self.assertEqual({obj['metadata']['namespace'] for obj in roles},
-                         {'cloudlab-app-notes', 'istio-system', 'cloudlab-observability'})
+                         {'cloudlab-app-notes', 'istio-system', 'cloudlab-observability',
+                          'cloudlab-gateway-public', 'cloudlab-gateway-private'})
         for role in roles:
             self.assertTrue(all(set(rule['verbs']) <= {'get', 'list', 'watch'} for rule in role['rules']))
         config = yaml.safe_load(next(obj for obj in objects if obj['kind'] == 'ConfigMap')['data']['config.yaml'])
         selected = config['deployment']['discovery_selectors']['default'][0]['matchExpressions'][0]['values']
-        self.assertEqual(set(selected), {'cloudlab-app-notes', 'istio-system', 'cloudlab-observability'})
+        self.assertEqual(set(selected), {'cloudlab-app-notes', 'istio-system', 'cloudlab-observability',
+                                         'cloudlab-gateway-public', 'cloudlab-gateway-private'})
         self.assertFalse(any(obj['kind'] == 'ClusterRole' for obj in objects))
         service = next(obj for obj in objects if obj['kind'] == 'Service')
         self.assertEqual(service['metadata']['name'], 'cloudlab-kiali')

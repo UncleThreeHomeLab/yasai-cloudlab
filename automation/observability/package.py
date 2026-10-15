@@ -75,7 +75,7 @@ def kiali_declarative(raw):
 {{- $selected = $expression.values -}}
 {{- end -}}
 {{- range $name := $selected -}}
-{{- if not (has $name (list "cloudlab-observability" "cloudlab-app-notes" "istio-system")) }}{{ fail "Kiali namespace outside approved scope" }}{{ end -}}
+{{- if not (has $name (list "cloudlab-observability" "cloudlab-app-notes" "istio-system" "cloudlab-gateway-public" "cloudlab-gateway-private")) }}{{ fail "Kiali namespace outside approved scope" }}{{ end -}}
 {{- if not (has $name $namespaces) }}{{ $namespaces = append $namespaces $name }}{{ end -}}
 {{- end -}}
 {{- end -}}

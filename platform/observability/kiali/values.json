@@ -49,6 +49,16 @@
             "matchLabels": {
               "kubernetes.io/metadata.name": "cloudlab-observability"
             }
+          },
+          {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "cloudlab-gateway-public"
+            }
+          },
+          {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "cloudlab-gateway-private"
+            }
           }
         ]
       },
