@@ -35,7 +35,7 @@
     src: '{{ playbook_dir }}/../automation/gitops/{{ item }}'
     dest: '/opt/cloudlab/automation/gitops/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, source_transition.py]
+  loop: [bootstrap.py, source_transition.py, sync_recovery.py]
 
 - name: Discover existing CNPG and private access inputs
   ansible.builtin.command:
