@@ -91,6 +91,23 @@
         tasks_from: finalize
       when: data_enabled | bool
 
+    - name: Resolve the current source for the accepted identity owner
+      ansible.builtin.command: python /workspace/automation/identity/inputs.py
+      environment: {LAB_IDENTITY_PHASE: retained}
+      delegate_to: localhost
+      become: false
+      register: identity_public_source
+      changed_when: false
+      no_log: true
+      when: observability_enabled | bool
+
+    - name: Reconcile only the accepted retired identity before its consumers
+      ansible.builtin.include_role:
+        name: identity
+      vars:
+        identity_phase: retained
+      when: observability_enabled | bool
+
     - name: Configure services after scoped data grants and buckets converge
       ansible.builtin.include_role:
         name: services
