@@ -83,6 +83,9 @@ class ChartTests(unittest.TestCase):
                          ['cloudlab-gateway-public', 'cloudlab-gateway-private'])
         grafana = next(obj for obj in render('prometheus') if obj['kind'] == 'Deployment' and obj['metadata']['name'] == 'cloudlab-grafana')
         self.assertEqual(grafana['spec']['strategy'], {'type': 'Recreate'})
+        container = next(c for c in grafana['spec']['template']['spec']['containers'] if c['name'] == 'grafana')
+        self.assertGreaterEqual(int(container['resources']['requests']['memory'].removesuffix('Mi')), 512)
+        self.assertGreaterEqual(int(container['resources']['limits']['memory'].removesuffix('Mi')), 750)
         dns = next(obj for obj in objects if obj['kind'] == 'ServiceMonitor' and obj['metadata']['name'] == 'native-dns')
         self.assertEqual(dns['spec']['selector']['matchLabels'], {'k8s-app': 'kube-dns'})
         self.assertFalse(any(obj['kind'] == 'Service' and obj['metadata'].get('namespace') == 'kube-system'
