@@ -70,6 +70,9 @@ def gitops_preflight():
 def main():
     if '/workspace' not in sys.path:
         sys.path.insert(0, '/workspace')
+    if sys.argv[1:] == ['gitops-controller-recover']:
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.gitops.recover'],
+                                       cwd='/workspace', check=False).returncode)
     if sys.argv[1:2] == ['observe']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.observability.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)

@@ -51,12 +51,15 @@ argo-cd:
       limits:
         memory: 256Mi
   controller:
+    env:
+      - name: GOMEMLIMIT
+        value: 1600MiB
     resources:
       requests:
         cpu: 250m
-        memory: 256Mi
+        memory: 512Mi
       limits:
-        memory: 1Gi
+        memory: 2Gi
   repoServer:
     resources:
       requests:

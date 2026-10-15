@@ -19,6 +19,16 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_controller_recovery_dispatch_does_not_read_vault_or_apply_hosts(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'gitops-controller-recover']), \
+                patch.object(runner, 'dotenv_values') as dotenv, \
+                patch.object(runner, 'playbook') as playbook, \
+                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+            with self.assertRaises(SystemExit) as result: runner.main()
+        self.assertEqual(result.exception.code, 0)
+        dotenv.assert_not_called()
+        playbook.assert_not_called()
+        self.assertIn('automation.gitops.recover', run.call_args.args[0])
     def test_real_ansible_workdir_imports_workspace_before_missing_input_gate(self):
         code = '''import importlib.util,sys
 from unittest.mock import patch

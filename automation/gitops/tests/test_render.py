@@ -32,3 +32,10 @@ class RenderTests(unittest.TestCase):
         policies = [x for x in self.data['operator'] if x['kind'] == 'NetworkPolicy']
         self.assertTrue(any(x['metadata']['name'] == 'argocd-default-deny' for x in policies))
         self.assertFalse(any(rule == {} for x in policies for rule in x['spec'].get('ingress', [])))
+
+    def test_controller_go_memory_stays_below_its_container_limit(self):
+        controller = next(x for x in self.data['operator'] if x['kind'] == 'StatefulSet')
+        container = controller['spec']['template']['spec']['containers'][0]
+        self.assertEqual(container['resources']['requests']['memory'], '512Mi')
+        self.assertEqual(container['resources']['limits']['memory'], '2Gi')
+        self.assertIn({'name': 'GOMEMLIMIT', 'value': '1600MiB'}, container['env'])
