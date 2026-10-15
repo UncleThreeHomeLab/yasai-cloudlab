@@ -79,6 +79,8 @@ Run `lab observe credentials` through Compose with the local vault writer, then
 Merge the returned private client PR before enabling `observability.enabled` in
 the public root. Add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`. Apply with
 `prove`. Dashboards require Keycloak; telemetry PVCs exclude off-site backups.
+Normal apply resumes only the accepted retired identity owner before its consumers.
+Initial identity enrollment remains explicit.
 
 ## The stack
 

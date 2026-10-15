@@ -59,6 +59,47 @@ class ProofUserTests(unittest.TestCase):
                 path.write_text(json.dumps(dict(record,**change)))
                 with self.assertRaises(RuntimeError):
                     enrollment_handoff(current,state,root)
+
+    def test_retained_apply_hands_back_only_an_accepted_retired_scoped_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = {'metadata': {'uid': 'owned', 'resourceVersion': '1',
+                                   'labels': {'cloudlab.io/owner': bootstrap.OWNER}},
+                       'spec': {'source': {'targetRevision': 'b' * 40, 'helm': {'valuesObject': {}}}}}
+            desired = copy.deepcopy(current)
+            desired['spec']['source']['targetRevision'] = 'main'
+            for phase, retired in ((None, True), ('server', False), ('bootstrap', True),
+                                   ('primary', True), ('scoped', False), ('scoped', True)):
+                state = root / 'ownership.json'
+                state.unlink(missing_ok=True)
+                if phase:
+                    state.write_text(json.dumps({'phase': phase, 'uid': 'owned', 'revision': 'b' * 40}))
+                retirement = root / 'retirement.json'
+                retirement.unlink(missing_ok=True)
+                if retired:
+                    retirement.write_text(json.dumps({'phase': 'accepted', 'nonce': 'a' * 32,
+                        'application_uid': 'owned', 'keycloak_uid': 'keycloak', 'revision': 'b' * 40}))
+                def resource(kind, *args):
+                    return {'metadata': {'uid': 'keycloak'}} if kind == 'keycloak.k8s.keycloak.org' else current
+                with (patch.object(bootstrap, 'BASE', root),
+                      patch.object(bootstrap, 'application', return_value=desired),
+                      patch.object(bootstrap, 'prerequisites'),
+                      patch.object(bootstrap, 'private_resources', return_value=[]),
+                      patch.object(bootstrap, 'private_inputs'),
+                      patch.object(bootstrap, 'get', side_effect=resource),
+                      patch.object(bootstrap, 'kube') as write,
+                      patch.object(bootstrap, 'wait')):
+                    if phase == 'scoped' and retired:
+                        result = bootstrap.run({'revision': 'c' * 40}, 'scoped', retained_only=True)
+                        self.assertTrue(result['bootstrap_admin_retired'])
+                        self.assertEqual(json.loads(state.read_text())['revision'], 'c' * 40)
+                        patches = [json.loads(call.args[-1]) for call in write.call_args_list if call.args[0] == 'patch']
+                        self.assertIn({'op': 'replace', 'path': '/spec/source/targetRevision', 'value': 'main'}, patches[0])
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'accepted retired scoped'):
+                            bootstrap.run({'revision': 'c' * 40}, 'scoped', retained_only=True)
+                        write.assert_not_called()
+                        self.assertEqual(json.loads(state.read_text())['phase'] if state.exists() else None, phase)
     def test_resume_after_partial_creation_records_identity_and_removes_null_operation(self):
         self.resume_creation()
 

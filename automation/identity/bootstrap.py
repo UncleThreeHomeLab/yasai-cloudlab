@@ -252,7 +252,7 @@ def enrollment_handoff(current, state, directory):
     return {'phase':'accepted','revision':revision,'application_uid':state['uid']}
 
 
-def run(payload, phase):
+def run(payload, phase, *, retained_only=False):
     os.umask(0o077)
     BASE.mkdir(mode=0o700, parents=True, exist_ok=True)
     if BASE.resolve() != BASE:
@@ -268,6 +268,8 @@ def run(payload, phase):
         prerequisites(payload)
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else None
+        if retained_only and (phase != 'scoped' or not retirement or not state or state.get('phase') != 'scoped'):
+            raise RuntimeError('Normal apply requires an accepted retired scoped identity owner')
         current = get('application.argoproj.io', APP, 'argocd')
         if current and (not state or current['metadata']['uid'] != state['uid'] or
                         current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
@@ -339,6 +341,8 @@ if __name__ == '__main__':
         elif sys.argv[1:] == ['health']:
             from automation.identity.verify import run as verify_live
             result = verify_live(json.load(sys.stdin))
+        elif sys.argv[1:] == ['retained']:
+            result = run(json.load(sys.stdin), 'scoped', retained_only=True)
         else:
             result = discover() if sys.argv[1:] == ['inputs'] else run(json.load(sys.stdin), sys.argv[1])
         print(json.dumps(result))
