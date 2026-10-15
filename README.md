@@ -50,6 +50,10 @@ apply on either VM. It then checks behaviour. GitOps bootstrap needs verified
 Tailscale host access and a fresh recovery point for the control plane.
 The [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml) run first.
 Running the configuration again preserves existing secrets and data.
+If the accepted Argo application controller cannot start after an OOM kill, run
+`docker compose run --rm lab gitops-controller-recover`. This uses published memory
+settings, preserves object and credential identities, and verifies handoff to Argo
+without vault access. It refuses memory changes to healthy controllers and unrelated failures.
 
 Check external infrastructure declarations independently with
 `docker compose --profile infra run --build --rm infra check cloudflare`
