@@ -27,10 +27,12 @@ class ControllerRecoveryTests(unittest.TestCase):
         self.state = {'phase': 'accepted', 'version': 'fixture', 'identities': {
             'statefulset.apps/argocd-application-controller': 'retained',
             'secret/argocd-secret': 'signing', 'secret/argocd-redis': 'redis'}}
-        self.pod = {'metadata': {'name': 'argocd-application-controller-0', 'ownerReferences': [
+        self.pod = {'metadata': {'name': 'argocd-application-controller-0', 'namespace': 'argocd',
+            'uid': 'failed-pod', 'resourceVersion': '9', 'ownerReferences': [
             {'kind': 'StatefulSet', 'controller': True, 'uid': 'retained'}]}, 'status': {
             'conditions': [{'type': 'Ready', 'status': 'False'}], 'containerStatuses': [{
                 'name': 'application-controller', 'lastState': {'terminated': {'reason': 'OOMKilled'}}}]}}
+        self.pod['spec'] = copy.deepcopy(self.current['spec']['template']['spec'])
 
     def plan(self, state=None, current=None, pod=None, desired=None):
         return bootstrap.controller_memory_patch(state or self.state, current or self.current,
@@ -74,6 +76,26 @@ class ControllerRecoveryTests(unittest.TestCase):
             if kind == 'runtime': c['env'][-1]['value'] = '3GiB'
             with self.subTest(kind=kind), self.assertRaises(RuntimeError): self.plan(desired=desired)
 
+    def test_only_stale_unhealthy_pod_is_replaced_with_uid_and_version_guards(self):
+        options = bootstrap.controller_pod_replacement(self.state, self.desired, self.pod, self.desired)
+        self.assertEqual(options, {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'preconditions': {
+            'uid': 'failed-pod', 'resourceVersion': '9'}})
+        for kind in ('ready', 'current', 'missing'):
+            pod = copy.deepcopy(self.pod)
+            if kind == 'ready': pod['status']['conditions'][0]['status'] = 'True'
+            if kind == 'current': pod['spec'] = copy.deepcopy(self.desired['spec']['template']['spec'])
+            if kind == 'missing': pod = {}
+            with self.subTest(kind=kind):
+                self.assertIsNone(bootstrap.controller_pod_replacement(self.state, self.desired, pod, self.desired))
+        for kind in ('owner', 'namespace', 'cause', 'image'):
+            pod = copy.deepcopy(self.pod)
+            if kind == 'owner': pod['metadata']['ownerReferences'][0]['uid'] = 'other'
+            if kind == 'namespace': pod['metadata']['namespace'] = 'other'
+            if kind == 'cause': pod['status']['containerStatuses'][0]['lastState'] = {}
+            if kind == 'image': pod['spec']['containers'][0]['image'] = 'other'
+            with self.subTest(kind=kind), self.assertRaises(RuntimeError):
+                bootstrap.controller_pod_replacement(self.state, self.desired, pod, self.desired)
+
     def test_native_recovery_requires_credentials_and_hands_back_to_argo(self):
         app = {'spec': {'project': 'cloudlab-platform', 'sources': [{
             'repoURL': 'public', 'path': 'platform/delivery/argocd', 'targetRevision': 'main'},
@@ -81,9 +103,11 @@ class ControllerRecoveryTests(unittest.TestCase):
         objects = {'statefulset': self.current, 'pod': self.pod, 'application.argoproj.io': app}
         payload = {'operator': [self.desired], 'repository': 'public', 'branch': 'main',
                    'version': 'fixture', 'revision': 'published'}
+        def write_effect(*args, **kwargs):
+            if args[0] == 'patch': objects['statefulset'] = self.desired
         with tempfile.TemporaryDirectory() as folder, patch.object(bootstrap, 'BASE', Path(folder)), \
                 patch.object(bootstrap, 'get', side_effect=lambda kind, _: objects[kind]), \
-                patch.object(bootstrap, 'kube') as write, patch.object(bootstrap, 'wait_application') as wait, \
+                patch.object(bootstrap, 'kube', side_effect=write_effect) as write, patch.object(bootstrap, 'wait_application') as wait, \
                 patch.object(bootstrap, 'identity', return_value=self.state['identities']), \
                 patch.object(bootstrap.subprocess, 'run', return_value=Mock(returncode=0, stdout='{"stable":true}')):
             (Path(folder) / 'checkpoint.json').write_text(json.dumps(self.state))
@@ -91,7 +115,9 @@ class ControllerRecoveryTests(unittest.TestCase):
             self.assertTrue(result['identities_preserved'])
             self.assertEqual(result['owner'], 'argocd')
             wait.assert_called_once_with('cloudlab-argocd', 'published')
-            self.assertEqual([c.args[0] for c in write.call_args_list], ['annotate', 'patch', 'rollout'])
+            self.assertEqual([c.args[0] for c in write.call_args_list], ['annotate', 'patch', 'delete', 'rollout'])
+            self.assertEqual(write.call_args_list[2].kwargs['document']['preconditions'],
+                             {'uid': 'failed-pod', 'resourceVersion': '9'})
             write.reset_mock()
             with patch.object(bootstrap, 'identity', return_value={'secret/argocd-secret': 'replaced'}):
                 with self.assertRaisesRegex(RuntimeError, 'credential identities'):

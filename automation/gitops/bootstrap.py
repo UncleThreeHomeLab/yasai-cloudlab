@@ -157,6 +157,18 @@ def resume_identity_binding():
     return False
 
 
+def require_controller_oom_pod(current, pod):
+    if (pod.get('metadata', {}).get('name') != 'argocd-application-controller-0' or
+            pod.get('metadata', {}).get('namespace') != 'argocd' or
+            not any(o.get('kind') == 'StatefulSet' and o.get('controller') is True and
+                    o.get('uid') == current['metadata']['uid'] for o in pod.get('metadata', {}).get('ownerReferences', [])) or
+            any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in pod.get('status', {}).get('conditions', [])) or
+            not any(c.get('name') == 'application-controller' and
+                    c.get('lastState', {}).get('terminated', {}).get('reason') == 'OOMKilled'
+                    for c in pod.get('status', {}).get('containerStatuses', []))):
+        raise RuntimeError('Controller recovery requires an unready retained pod after OOMKilled')
+
+
 def controller_memory_patch(state, current, pod, desired):
     name = 'argocd-application-controller'
     if (state.get('phase') != 'accepted' or current['metadata']['name'] != name or
@@ -185,14 +197,7 @@ def controller_memory_patch(state, current, pod, desired):
             actual[0]['resources']['limits']['memory'] == limit and indices and
             existing_env[indices[0]] == desired_env):
         return []
-    if (pod.get('metadata', {}).get('name') != name + '-0' or
-            not any(o.get('kind') == 'StatefulSet' and o.get('controller') is True and
-                    o.get('uid') == current['metadata']['uid'] for o in pod.get('metadata', {}).get('ownerReferences', [])) or
-            any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in pod.get('status', {}).get('conditions', [])) or
-            not any(c.get('name') == 'application-controller' and
-                    c.get('lastState', {}).get('terminated', {}).get('reason') == 'OOMKilled'
-                    for c in pod.get('status', {}).get('containerStatuses', []))):
-        raise RuntimeError('Controller recovery requires an unready retained pod after OOMKilled')
+    require_controller_oom_pod(current, pod)
     base = '/spec/template/spec/containers/0'
     changes = [{'op': 'test', 'path': '/metadata/' + key, 'value': current['metadata'][key]}
                for key in ('uid', 'resourceVersion')]
@@ -205,6 +210,26 @@ def controller_memory_patch(state, current, pod, desired):
     else:
         changes.append({'op': 'add', 'path': base + '/env', 'value': [desired_env]})
     return changes
+
+
+def controller_pod_replacement(state, current, pod, desired):
+    if controller_memory_patch(state, current, pod, desired):
+        raise RuntimeError('Controller template changed before failed-pod replacement')
+    if not pod or any(c.get('type') == 'Ready' and c.get('status') == 'True'
+                      for c in pod.get('status', {}).get('conditions', [])):
+        return None
+    actual = pod['spec']['containers'][0]
+    target = desired['spec']['template']['spec']['containers'][0]
+    if actual['name'] != target['name'] or actual['image'] != target['image']:
+        raise RuntimeError('Controller recovery cannot replace another container image')
+    if (all(actual['resources'][key]['memory'] == target['resources'][key]['memory']
+            for key in ('requests', 'limits')) and
+            [e for e in actual.get('env', []) if e['name'] == 'GOMEMLIMIT'] ==
+            [e for e in target.get('env', []) if e['name'] == 'GOMEMLIMIT']):
+        return None
+    require_controller_oom_pod(current, pod)
+    return {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'preconditions': {
+        key: pod['metadata'][key] for key in ('uid', 'resourceVersion')}}
 
 
 def recover_controller(payload):
@@ -234,6 +259,12 @@ def recover_controller(payload):
                  'argocd.argoproj.io/refresh=hard', '--overwrite')
             kube('patch', 'statefulset', desired['metadata']['name'], '-n', 'argocd', '--type=json',
                  '-p', json.dumps(changes))
+        replacement = controller_pod_replacement(state, get('statefulset', desired['metadata']['name']),
+                                                get('pod', desired['metadata']['name'] + '-0') or {}, desired)
+        if replacement:
+            # OrderedReady cannot roll forward while the previous ordinal is unhealthy.
+            kube('delete', '--raw=/api/v1/namespaces/argocd/pods/argocd-application-controller-0',
+                 '-f', '-', document=replacement)
         kube('rollout', 'status', 'statefulset/' + desired['metadata']['name'], '-n', 'argocd', '--timeout=600s')
         wait_application('cloudlab-argocd', payload['revision'])
         if identity([desired]) != retained:
@@ -242,7 +273,8 @@ def recover_controller(payload):
                                 capture_output=True, text=True, timeout=180)
         if result.returncode:
             raise RuntimeError('Argo controllers are not stable after memory recovery')
-        return {'changed': bool(changes), 'owner': 'argocd', 'operator_synced': True,
+        return {'changed': bool(changes or replacement), 'pod_replaced': bool(replacement),
+                'owner': 'argocd', 'operator_synced': True,
                 'identities_preserved': True, 'controller_stability': json.loads(result.stdout)}
 
 
