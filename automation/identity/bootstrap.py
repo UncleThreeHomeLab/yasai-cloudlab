@@ -56,7 +56,7 @@ def private_resources(payload):
             'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE}],
             'clusterResourceWhitelist': [], 'namespaceResourceWhitelist': [{'group': '', 'kind': 'ConfigMap'}]}}
     credential = {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'metadata': metadata(),
-        'spec': {'refreshInterval': '1h', 'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
+        'spec': {'refreshInterval': '4h', 'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
             'target': {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain',
                 'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace',
                     'metadata': {'labels': {'argocd.argoproj.io/secret-type': 'repository'}},

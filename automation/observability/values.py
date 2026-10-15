@@ -141,7 +141,8 @@ def values(name):
             'deployment': {'instance_name': 'cloudlab-kiali', 'image_version': image('kiali')['sha'], 'image_digest': 'sha256',
                 'cluster_wide_access': False, 'view_only_mode': True, 'resources': resources(200, 384),
                 'discovery_selectors': {'default': [{'matchLabels': {'kubernetes.io/metadata.name': namespace}}
-                    for namespace in ('cloudlab-app-notes', 'istio-system', POLICY['namespace'])]},
+                    for namespace in ('cloudlab-app-notes', 'istio-system', POLICY['namespace'],
+                                      'cloudlab-gateway-public', 'cloudlab-gateway-private')]},
                 'network_policy': {'enabled': False}}, 'clustering': {'autodetect_secrets': {'enabled': False}},
             'external_services': {'prometheus': {'url': 'http://cloudlab-prometheus:9090'},
                 'grafana': {'enabled': True, 'internal_url': 'http://cloudlab-grafana',
