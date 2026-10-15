@@ -169,6 +169,8 @@ Background refreshes run once a day to bound vault requests. Explicit
 credential rotations request immediate refresh; failed synchronization retains
 existing Secrets and reports degraded health. Other vault edits can take up to
 24 hours to reach applications.
+Kiali inspects the control plane through pod port-forwarding restricted to
+`istio-system`; its workload configuration access remains read-only.
 Apply retries an exhausted root or identity sync only when its failures were
 ExternalSecrets that became Ready after the failed operation. Other failures
 remain visible; retries preserve the source, credentials and data.

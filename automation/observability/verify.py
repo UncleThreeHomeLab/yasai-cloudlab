@@ -8,10 +8,20 @@ import urllib.parse
 import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from automation.mesh.kube import get, application_ready, condition, wait
+from automation.mesh.kube import get, kube, application_ready, condition, wait
 from automation.identity.health import direct_https
 
 NAMESPACE = 'cloudlab-observability'
+
+
+def kiali_control_plane_permissions():
+    for namespace in ('istio-system', NAMESPACE, 'cloudlab-app-notes',
+                      'cloudlab-gateway-public', 'cloudlab-gateway-private', 'argocd'):
+        result = kube('auth', 'can-i', 'create', 'pods/portforward', '-n', namespace,
+                      '--as=system:serviceaccount:' + NAMESPACE + ':cloudlab-kiali', allow_failure=True)
+        permitted = namespace == 'istio-system'
+        if result.returncode != (0 if permitted else 1) or result.stdout.strip() != ('yes' if permitted else 'no'):
+            raise RuntimeError('Kiali control-plane transport permission is missing or exceeds its namespace')
 
 
 def backend_ready(resource):
@@ -42,6 +52,7 @@ def proxy(origin, gateway, headers, datasource, path):
 
 
 def run(payload):
+    kiali_control_plane_permissions()
     names = ('observability', 'prometheus', 'loki', 'tempo', 'alloy', 'kiali')
     for name in names:
         application = get('application.argoproj.io', 'cloudlab-' + name, 'argocd')
@@ -125,7 +136,8 @@ def run(payload):
     return {'applications_converged': len(names), 'local_bound_claims': len(claims),
             'backup_excluded': True, 'pinned_bounded_containers': True,
             'real_metrics_logs_traces': True, 'scraped_mesh_mtls_metrics': True, 'emergency_access': True,
-            'private_dashboard_apis': True, 'retention_settings': True, 'elapsed_retention_deletion_proven': False}
+            'private_dashboard_apis': True, 'kiali_control_plane_permission': True,
+            'retention_settings': True, 'elapsed_retention_deletion_proven': False}
 
 
 if __name__ == '__main__':

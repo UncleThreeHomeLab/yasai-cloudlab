@@ -13,4 +13,18 @@ kind: ClusterRoleBinding
 metadata: {name: cloudlab-kiali-namespaces}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cloudlab-kiali-namespaces}
 subjects: [{kind: ServiceAccount, name: cloudlab-kiali, namespace: cloudlab-observability}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cloudlab-kiali-istiod, namespace: istio-system}
+rules:
+  - apiGroups: ['']
+    resources: [pods/portforward]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cloudlab-kiali-istiod, namespace: istio-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cloudlab-kiali-istiod}
+subjects: [{kind: ServiceAccount, name: cloudlab-kiali, namespace: cloudlab-observability}]
 {{- end }}

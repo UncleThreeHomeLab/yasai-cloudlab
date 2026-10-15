@@ -1,12 +1,26 @@
 import copy
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 import urllib.error
 
-from automation.observability.verify import backend_ready, storage, proxy
+from automation.observability.verify import backend_ready, storage, proxy, kiali_control_plane_permissions
 
 
 class StorageBoundaryTests(unittest.TestCase):
+    def test_kiali_transport_permission_checks_reject_missing_broad_or_unavailable_access(self):
+        def scoped(*args, **kwargs):
+            permitted = args[args.index('-n') + 1] == 'istio-system'
+            return SimpleNamespace(returncode=0 if permitted else 1, stdout='yes\n' if permitted else 'no\n')
+        with patch('automation.observability.verify.kube', side_effect=scoped):
+            kiali_control_plane_permissions()
+        for result in (SimpleNamespace(returncode=0, stdout='yes'),
+                       SimpleNamespace(returncode=1, stdout='no'),
+                       SimpleNamespace(returncode=1, stdout=''),
+                       SimpleNamespace(returncode=2, stdout='')):
+            with self.subTest(result=result), patch('automation.observability.verify.kube', return_value=result):
+                with self.assertRaises(RuntimeError): kiali_control_plane_permissions()
+
     def test_queries_use_authenticated_private_proxy_and_reject_failed_responses(self):
         origin = 'https://grafana.internal.example.invalid'
         headers = {'Authorization': 'Basic fixture', 'Accept': 'application/json'}
