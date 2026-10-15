@@ -14,6 +14,7 @@ from automation.identity.configuration import compile_state, exact_url
 from automation.identity.maintenance import APP, NAMESPACE, OWNER, BASE
 from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
 from automation.gitops.private_sources import PEM_TEMPLATE
+from automation.gitops.sync_recovery import recovered_secret_sync
 from automation.identity.lease import available, previous_writer_done
 
 PHASES = ('server', 'bootstrap', 'primary', 'scoped')
@@ -31,6 +32,12 @@ def reconciled(revision, uid):
         raise RuntimeError('Identity Application identity changed during convergence')
     compared = app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {})
     operation = app.get('status', {}).get('operationState', {})
+    patches = recovered_secret_sync(app, revision,
+        lambda name, namespace: get('externalsecret.external-secrets.io', name, namespace))
+    if patches:
+        kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
+             '-p', json.dumps(patches))
+        return False
     if (contains(compared, app['spec']['source']) and operation.get('phase') in ('Failed', 'Error') and
             operation.get('syncResult', {}).get('revision') == revision and not app.get('operation')):
         raise RuntimeError('Identity reconciliation failed at the requested revision; preserve the phase checkpoint')

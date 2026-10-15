@@ -8,8 +8,10 @@ import sys
 import time
 try:
     from automation.gitops.source_revision import matches_revision
+    from automation.gitops.sync_recovery import recovered_secret_sync
 except ModuleNotFoundError:
     from source_revision import matches_revision
+    from sync_recovery import recovered_secret_sync
 
 BASE = Path('/var/lib/cloudlab/gitops')
 MANAGER = 'cloudlab-bootstrap'
@@ -75,6 +77,11 @@ def wait_application(name, revision, timeout=600):
         status = (app or {}).get('status', {})
         if any(c['type'] == 'InvalidSpecError' for c in status.get('conditions', [])):
             raise RuntimeError('Public GitOps application violates its declared project')
+        patches = recovered_secret_sync(app or {}, revision,
+                                       lambda name, namespace: get('externalsecret.external-secrets.io', name))
+        if patches:
+            kube('patch', 'application.argoproj.io', name, '-n', 'argocd', '--type=json',
+                 '-p', json.dumps(patches))
         if (status.get('sync', {}).get('status') == 'Synced' and
                 matches_revision(app, revision) and
                 status.get('health', {}).get('status') == 'Healthy' and
