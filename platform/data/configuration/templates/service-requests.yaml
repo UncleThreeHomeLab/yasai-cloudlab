@@ -19,7 +19,7 @@ kind: ExternalSecret
 metadata:
   name: {{ $entry.name }}
 spec:
-  refreshInterval: 4h
+  refreshInterval: 24h
   secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
   target:
     name: {{ $entry.name }}
