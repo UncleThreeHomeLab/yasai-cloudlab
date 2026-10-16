@@ -118,6 +118,10 @@ inputs and encrypted plans; use `recover-state`, exact `recover-import --address
 <address> --id <id>`, then `recover-plan` and `recover-apply --review <hash>`.
 Never repeat bootstrap creation against existing resources. Routine applies
 cannot rotate robots; retention keeps all artifacts and automatic GC stays off.
+After import acceptance, run `docker compose run --build --rm --entrypoint python
+infra-harbor -m automation.harbor.artifacts` for independent push/pull, project
+isolation and both-node containerd checks. Interrupted uploads retain their archive
+and digest. Node pulls use temporary five-minute tokens and preserve other images.
 
 ## The stack
 
