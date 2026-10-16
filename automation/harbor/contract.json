@@ -46,6 +46,7 @@
     "recovery": "Vault admin via explicit Basic-authenticated private API; no interactive Keycloak dependency."
   },
   "recovery": {
+    "token_key_encoding": "Canonical vault key and certificate stay unchanged. A restricted init container converts the same RSA key to PKCS#1 in memory for Harbor/libtrust; no generated or persisted replacement key.",
     "source": "Three retained Longhorn claims; independent PostgreSQL, Valkey and filesystem blobs",
     "consistency": "Argo-owned writer shutdown, database/artifact inventory, three cold snapshots and isolated restore with current vault signing inputs",
     "offsite": "Existing native Longhorn B2 target; day 1 UTC only, AES256, one verified generation after successful off-site restore; zero retained local generations",
