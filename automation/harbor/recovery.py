@@ -272,15 +272,23 @@ def capture(monthly=False):
     boundary = copy.deepcopy(state['applications']['cloudlab-harbor-configuration']['values'])
     boundary['maintenance'] = True
     try:
+        manifest['phase'] = 'stop-browser'
+        atomic(BASE / 'pending-volume.json', manifest)
         patch_values('cloudlab-harbor-configuration', boundary, state['applications']['cloudlab-harbor-configuration']['uid'])
         wait(lambda: not pods('browser'),
              'stop Harbor browser admission', timeout=600)
         for component in ('nginx', 'portal', 'jobservice', 'core'):
+            manifest['phase'] = 'stop-' + component
+            atomic(BASE / 'pending-volume.json', manifest)
             server['harbor'][component]['replicas'] = 0
             patch_values('cloudlab-harbor', server, state['applications']['cloudlab-harbor']['uid'])
             wait(lambda: not pods(component), 'stop Harbor ' + component, timeout=600)
+        manifest['phase'] = 'inventory'
+        atomic(BASE / 'pending-volume.json', manifest)
         manifest['inventory'] = inventory()
         for component in ('registry', 'database', 'redis'):
+            manifest['phase'] = 'stop-' + component
+            atomic(BASE / 'pending-volume.json', manifest)
             if component == 'registry':
                 server['harbor']['registry']['replicas'] = 0
             else:
@@ -290,6 +298,8 @@ def capture(monthly=False):
         if [pod for pod in get('pods', namespace=NAMESPACE)['items'] if pod['status'].get('phase') not in ('Succeeded', 'Failed')]:
             raise RuntimeError('Harbor writers remain at the snapshot boundary')
         for row in manifest['volumes'].values():
+            manifest['phase'] = 'snapshot'
+            atomic(BASE / 'pending-volume.json', manifest)
             volume = get('volumes.longhorn.io', row['volume'], 'longhorn-system')
             if not volume or volume['metadata']['uid'] != row['volume_uid']:
                 raise RuntimeError('Harbor volume identity changed before capture')
