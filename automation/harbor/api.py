@@ -22,6 +22,7 @@ from automation.credentials.vault import fields
 from automation.connectivity.preflight import ssh
 from automation.harbor import api_policy, credentials, transport
 from automation.harbor.configuration import client as identity_client
+from automation.harbor.values import POLICY as INSTALLATION_POLICY
 from automation.harbor.recovery import atomic
 from automation.infra.backend import environment
 from automation.infra.native import native, require
@@ -198,6 +199,7 @@ class Client:
             required = {'auth_mode': 'oidc_auth', 'oidc_endpoint': 'https://' + discovered['loginHost'] + '/realms/platform',
                 'oidc_client_id': 'harbor', 'oidc_admin_group': '/platform-admin', 'oidc_verify_cert': True,
                 'self_registration': False, 'project_creation_restriction': 'adminonly',
+                'oidc_auto_onboard': True, 'token_expiration': INSTALLATION_POLICY['registry_token_minutes'],
                 'oidc_user_claim': 'sub', 'oidc_groups_claim': 'groups'}
             if any(settings.get(name, {}).get('value') != value for name, value in required.items()):
                 raise ValueError('Harbor OIDC prerequisites differ; no API ownership or human onboarding')

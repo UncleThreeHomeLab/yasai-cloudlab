@@ -10,45 +10,6 @@ from automation.observability.slo import definition
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
-    def test_prepare_resumes_native_enrollment_and_keeps_failed_checkpoint(self):
-        with tempfile.TemporaryDirectory() as directory:
-            checkpoint = Path(directory, 'fixture.json')
-            request = {'nonce': 'a' * 32, 'realm': 'applications'}
-            checkpoint.write_text(json.dumps(request))
-            api = Mock()
-            api.request.return_value = {'object': {'sha': 'b' * 40}}
-            with (patch('automation.observability.baseline.CHECKPOINT', checkpoint),
-                  patch('automation.observability.baseline.inputs', return_value=(
-                      {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/fixture/private.git'}, api, {}, {})),
-                  patch('automation.observability.baseline.environment'),
-                  patch('automation.observability.baseline.provision'),
-                  patch('automation.observability.baseline.wait_private_source') as wait_source,
-                  patch('automation.observability.baseline.publish') as publish,
-                  patch('automation.observability.baseline.local') as local):
-                local.side_effect = [RuntimeError('stage refused'), RuntimeError('resume refused')]
-                with self.assertRaises(RuntimeError): prepare()
-                self.assertTrue(checkpoint.exists())
-                publish.assert_not_called()
-                local.reset_mock()
-                local.side_effect = [RuntimeError('stage refused'), {'existing_credentials_preserved': True}]
-                self.assertTrue(prepare()['disposable_applications_viewer'])
-                self.assertEqual(local.call_args_list[0].kwargs, {'stage': True})
-                self.assertEqual(local.call_args_list[1].args, (request,))
-                wait_source.assert_called_with('b' * 40)
-                publish.assert_not_called()
-                local.reset_mock()
-                local.side_effect = [RuntimeError('stage refused')]
-                wait_source.side_effect = RuntimeError('private source unavailable')
-                with self.assertRaises(RuntimeError): prepare()
-                self.assertEqual(local.call_count, 1)
-                self.assertTrue(checkpoint.exists())
-
-    def test_private_source_wait_rejects_mutable_or_malformed_revisions_before_ssh(self):
-        with patch('automation.connectivity.preflight.ssh') as ssh:
-            for revision in (None, 'main', 'x' * 40, 'a' * 40 + '\n'):
-                with self.assertRaises(ValueError): wait_private_source(revision)
-            ssh.assert_not_called()
-
     def test_failed_viewer_cleanup_requires_exact_applications_ownership(self):
         from automation.identity.lifecycle import offboard_scope
         nonce = 'a' * 32

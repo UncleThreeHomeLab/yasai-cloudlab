@@ -33,6 +33,7 @@ class VerificationTests(unittest.TestCase):
                    'configuration': {'harborHost': 'harbor.internal.example.invalid', 'loginHost': 'login.example.invalid'}}
         settings = {'auth_mode': 'oidc_auth', 'oidc_endpoint': 'https://login.example.invalid/realms/platform',
                     'oidc_client_id': 'harbor', 'oidc_verify_cert': True, 'self_registration': False,
+                    'oidc_auto_onboard': True, 'token_expiration': 5,
                     'project_creation_restriction': 'adminonly', 'oidc_user_claim': 'sub', 'oidc_groups_claim': 'groups'}
         def resource(kind, name=None, namespace=None):
             if kind == 'pvc': return {'items': [{'metadata': {'name': name}} for name in recovery.CLAIMS.values()]}

@@ -1,0 +1,154 @@
+"""Prepare a disposable platform viewer only after native Harbor acceptance."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import socket
+import sys
+import time
+
+from automation.harbor import api
+from automation.identity.session_setup import prepare as prepare_viewer
+
+CHECKPOINT = api.WORK / 'browser/fixture.json'
+RESULT = api.WORK / 'browser/result.json'
+
+
+def prepare():
+    os.umask(0o077)
+    api.WORK.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (api.WORK / 'client.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        client = api.Client()
+        with client.connected():
+            # Includes OIDC prerequisites, exact group roles, imported IDs and preservation fields.
+            accepted = client.plan(verify=True)
+            if accepted.get('changes') != 0 or accepted.get('apply_blocked') is not None:
+                raise RuntimeError('Accept the unchanged native Harbor API root before human enrollment')
+        CHECKPOINT.parent.mkdir(mode=0o700, exist_ok=True)
+        return dict(prepare_viewer(CHECKPOINT, 'platform'), harbor_browser_acceptance_proven=False)
+
+
+def observation(document):
+    timings = ('browser_cookie_denied_seconds', 'oidc_cli_denied_seconds', 'last_registry_token_denied_seconds')
+    if (not isinstance(document, dict) or set(document) != {*timings, 'offboarded_new_login_denied', 'sessions_persisted'} or
+            document['offboarded_new_login_denied'] is not True or document['sessions_persisted'] is not False):
+        raise ValueError('Harbor browser evidence must contain only bounded session observations')
+    for key in timings:
+        maximum = 245 if key == 'browser_cookie_denied_seconds' else 1500
+        if type(document[key]) not in (int, float) or not 0 <= document[key] <= maximum:
+            raise ValueError('Harbor browser session termination bound exceeded')
+    return document
+
+
+def receive(stream):
+    raw = stream.readline(16385)
+    if not raw or len(raw) > 16384:
+        raise RuntimeError('Browser evidence exceeds its bounded protocol')
+    return json.loads(raw)
+
+
+def cleanup():
+    from automation.credentials.vault import fields
+    from automation.identity.owner_enrollment import inputs
+    from automation.identity.session_fixture import scope
+    from automation.identity.session_setup import environment, retire
+    with (api.WORK / 'client.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        values, github, _source, _revoked = inputs()
+        environment(values)
+        request = json.loads(CHECKPOINT.read_text())
+        nonce = scope(request)
+        if request.get('realm') != 'platform' or fields('keycloak-proof-' + nonce, ('username', 'ownership_id')) != {
+                'username': 'proof-' + nonce, 'ownership_id': nonce}:
+            raise ValueError('Harbor cleanup requires its exact disposable platform ownership')
+        retire(github, values, request, CHECKPOINT)
+    return {'disposable_viewer_offboarded': True, 'original_vault_inputs_preserved': True}
+
+
+def run():
+    from automation.connectivity.verify import remote
+    from automation.credentials.vault import fields
+    from automation.harbor.artifacts import receipt
+    from automation.harbor.recovery import atomic
+    from automation.identity.lifecycle import local_offboard
+    from automation.identity.owner_enrollment import inputs
+    from automation.identity.session_acceptance import remote_state, offboard_inputs
+    from automation.identity.session_fixture import scope
+    from automation.identity.session_setup import environment
+    os.umask(0o077)
+    values, github, _source, _revoked = inputs()
+    environment(values)
+    request = json.loads(CHECKPOINT.read_text())
+    nonce = scope(request)
+    if request.get('realm') != 'platform':
+        raise ValueError('Harbor requires its exact platform fixture')
+    proof = fields('keycloak-proof-' + nonce, ('username', 'password', 'email', 'ownership_id'))
+    before = remote_state(request)
+    if (proof['ownership_id'] != nonce or before['enabled'] is not True or before['groups'] != ['/viewer'] or
+            before['username'] != proof['username'] or before['email'] != proof['email']):
+        raise ValueError('Harbor browser requires its active exact disposable viewer')
+    runtime = remote('runtime')
+    with (api.WORK / 'client.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        client = api.Client()
+        with client.connected():
+            client.plan(verify=True)
+            origin = 'https://' + client.private['host']
+        artifacts = receipt(api.WORK / 'artifacts/receipt.json')
+        if not artifacts.get('verified_at'):
+            raise ValueError('Complete independent bootstrap and node pulls before human browser acceptance')
+        browser_input = {'nonce': nonce, 'username': proof['username'], 'password': proof['password'],
+                  'subject': before['user_id'], 'digest': artifacts['projects']['cloudlab-public']['digest'],
+                  'origin': origin, 'issuer': 'https://login.' + runtime['zone'] + '/realms/platform',
+                  'gateway_address': runtime['private']['tailnet_gateway']}
+        deadline = time.monotonic() + 90
+        while True:
+            try:
+                connection = socket.create_connection(('harbor-browser', 5055), timeout=5)
+                break
+            except OSError:
+                if time.monotonic() >= deadline: raise RuntimeError('Pinned Harbor browser unavailable') from None
+                time.sleep(1)
+        with connection:
+            connection.settimeout(1680)
+            stream = connection.makefile('rwb')
+            stream.write((json.dumps(browser_input) + '\n').encode()); stream.flush()
+            ready = receive(stream)
+            expected = {'ready', 'native_harbor_oidc', 'viewer_public_project_allowed',
+                        'viewer_private_project_denied', 'viewer_admin_denied', 'native_oidc_cli_pull'}
+            if not isinstance(ready, dict) or set(ready) != expected or any(ready[key] is not True for key in expected):
+                stages = ('input', 'account enrollment', 'account password', 'WebAuthn registration',
+                          'account session', 'native Harbor OIDC')
+                stage = ready.get('stage') if isinstance(ready, dict) else None
+                print(json.dumps({'browser_failed_stage': stage if stage in stages else 'baseline'}), flush=True)
+                raise RuntimeError('Harbor browser baseline incomplete; private fixture retained')
+            stream.write(b'{"action":"observe-offboarding"}\n'); stream.flush()
+            started = time.monotonic()
+            offboard_inputs(github, values, request)
+            while remote_state(request)['enabled'] is not False:
+                if time.monotonic() - started > 900:
+                    raise RuntimeError('Private viewer offboarding convergence deadline exceeded')
+                time.sleep(5)
+            local_offboard({key: before[key] for key in ('realm', 'username', 'user_id', 'email')})
+            measured = observation(receive(stream))
+        after = remote_state(request)
+        if before['preservation'] != after['preservation'] or after['enabled'] is not False:
+            raise RuntimeError('Unrelated identity preservation or disposable offboarding failed')
+        with client.connected():
+            client.plan(verify=True)
+        result = dict(measured, native_harbor_oidc=True, viewer_project_roles=True,
+                      unrelated_identities_preserved=True, private_revocation_persisted=True,
+                      native_resource_ids_preserved=True)
+        atomic(RESULT, {'nonce': nonce, 'result': result, 'verified_at': time.time()})
+        return result
+
+
+if __name__ == '__main__':
+    try:
+        os.umask(0o077)
+        if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'run', 'cleanup'):
+            raise ValueError('Unknown Harbor browser operation')
+        print(json.dumps({'prepare': prepare, 'run': run, 'cleanup': cleanup}[sys.argv[1]](), sort_keys=True))
+    except Exception:
+        raise SystemExit('Harbor browser preparation incomplete; retain private ownership and vault inputs') from None

@@ -101,11 +101,12 @@ class ClientTests(unittest.TestCase):
         settings = {'auth_mode': 'oidc_auth', 'oidc_endpoint': 'https://login.example.invalid/realms/platform',
             'oidc_client_id': 'harbor', 'oidc_admin_group': '/platform-admin', 'oidc_verify_cert': True,
             'self_registration': False, 'project_creation_restriction': 'adminonly',
+            'oidc_auto_onboard': True, 'token_expiration': 5,
             'oidc_user_claim': 'sub', 'oidc_groups_claim': 'groups'}
-        for mode in ('oidc_auth', 'db_auth'):
-            settings['auth_mode'] = mode
+        for change in ({}, {'auth_mode': 'db_auth'}, {'oidc_auto_onboard': False}, {'token_expiration': 6}):
+            actual = dict(settings, **change)
             reader = Mock()
-            reader.get.side_effect = lambda path: ({key: {'value': value} for key, value in settings.items()}
+            reader.get.side_effect = lambda path: ({key: {'value': value} for key, value in actual.items()}
                                                   if path.endswith('/configurations') else {'schedule': {'type': 'None'}})
             with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, values), \
                     patch.object(api, 'binding', return_value='a' * 40), patch.object(api, 'WORK', Path(temporary)), \
@@ -120,7 +121,7 @@ class ClientTests(unittest.TestCase):
                     patch.object(api.transport, 'Reader', return_value=reader):
                 client = api.Client()
                 client.native = Mock()
-                if mode == 'db_auth':
+                if change:
                     with self.assertRaisesRegex(ValueError, 'OIDC prerequisites'):
                         with client.connected(): self.fail('Unverified authentication mode')
                 else:

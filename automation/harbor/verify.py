@@ -9,6 +9,7 @@ import traceback
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from automation.harbor import recovery
+from automation.harbor.values import POLICY
 from automation.identity.health import direct_https
 from automation.mesh.kube import get, contains, application_ready
 
@@ -44,6 +45,7 @@ def run(payload):
     expected = {'auth_mode': 'oidc_auth', 'oidc_endpoint': 'https://' + payload['configuration']['loginHost'] + '/realms/platform',
                 'oidc_client_id': 'harbor', 'oidc_verify_cert': True, 'self_registration': False,
                 'project_creation_restriction': 'adminonly', 'oidc_user_claim': 'sub', 'oidc_groups_claim': 'groups'}
+    expected.update(oidc_auto_onboard=True, token_expiration=POLICY['registry_token_minutes'])
     if any(settings.get(key, {}).get('value') != value for key, value in expected.items()):
         raise RuntimeError('Harbor OIDC prerequisites differ; do not create human accounts')
     for path, authorization in (('/api/v2.0/users/current', {}),
