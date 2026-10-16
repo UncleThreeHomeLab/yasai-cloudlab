@@ -13,9 +13,44 @@ from unittest.mock import patch
 
 from automation.harbor import signatures
 from automation.harbor import recovery, restore
+from automation.harbor.tests.fixtures import unsigned_registry
 
 
 class SignatureTests(unittest.TestCase):
+    def test_native_image_bundle_signing_needs_no_experimental_flags_or_public_services(self):
+        with unsigned_registry() as host, tempfile.TemporaryDirectory() as temporary:
+            registry = SimpleNamespace(host=host, environment={'PATH': os.environ['PATH'], 'HOME': temporary,
+                'HTTPS_PROXY': 'http://127.0.0.1:9', 'NO_PROXY': '127.0.0.1'})
+            signer = signatures.Cosign(registry)
+            private = signatures.private_key()
+            public = signatures.public_key(private)
+            bundle = Path(temporary) / 'image-bundle.json'
+            original = signer.command
+            def command(*arguments, **kwargs):
+                if arguments[0] == 'sign':
+                    # Exercise the production arguments through native image signing,
+                    # retaining its bundle locally instead of uploading to this stub.
+                    arguments = (*arguments[:-1], '--allow-http-registry=true', '--upload=false',
+                                 '--bundle', str(bundle), arguments[-1])
+                return original(*arguments, **kwargs)
+            reference = host + '/cloudlab-public/bootstrap@sha256:' + 'a' * 64
+            with signer.key(private, public) as (key, verifier, password), \
+                    patch.object(signer, 'command', side_effect=command), \
+                    patch.object(signer, 'verify', side_effect=(False, True)):
+                signer.sign(reference, key, verifier, password)
+                verified = subprocess.run(['cosign', 'verify-blob-attestation', '--key', str(verifier), '--bundle', str(bundle),
+                    '--insecure-ignore-tlog', '--digest', 'a' * 64, '--digestAlg', 'sha256',
+                    '--type', 'https://sigstore.dev/cosign/sign/v1'], env=registry.environment,
+                    capture_output=True, input=b'', timeout=30)
+                self.assertEqual(verified.returncode, 0, verified.stderr.decode())
+                self.assertFalse(original('verify-blob-attestation', '--key', str(verifier), '--bundle', str(bundle),
+                    '--insecure-ignore-tlog', '--digest', 'b' * 64, '--digestAlg', 'sha256',
+                    '--type', 'https://sigstore.dev/cosign/sign/v1', required=False))
+                verifier.write_text(signatures.public_key(signatures.private_key()))
+                self.assertFalse(original('verify-blob-attestation', '--key', str(verifier), '--bundle', str(bundle),
+                    '--insecure-ignore-tlog', '--digest', 'a' * 64, '--digestAlg', 'sha256',
+                    '--type', 'https://sigstore.dev/cosign/sign/v1', required=False))
+
     def proof(self):
         digests = ['sha256:' + format(number, '064x') for number in range(1, 13)]
         return {'format': 1, 'image': json.loads((recovery.ARTIFACTS / 'cosign.lock.json').read_text())['image'],

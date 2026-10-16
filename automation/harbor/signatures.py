@@ -95,7 +95,7 @@ class Cosign:
     def sign(self, reference, key, verifier, password):
         if not self.verify(reference, verifier, required=False):
             self.command('sign', '--yes', '--use-signing-config=false', '--tlog-upload=false',
-                         '--registry-referrers-mode=oci-1-1', '--key', str(key), reference, password=password)
+                         '--key', str(key), reference, password=password)
         self.verify(reference, verifier)
 
 
