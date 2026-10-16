@@ -125,8 +125,10 @@ try {
     throw new Error('Offboarded viewer received a new Harbor gate session');
   await fresh.close();
   report({...measured, offboarded_new_login_denied: true, sessions_persisted: false});
-} catch {
-  report({failed: true, stage});
+} catch (error) {
+  const network = error.message.match(/net::(ERR_[A-Z_]+)/)?.[1] ||
+    error.message.match(/\b(ENOTFOUND|ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH)\b/)?.[1] || null;
+  report({failed: true, stage, error_type: error.name, network_code: network});
   process.exitCode = 1;
 } finally {
   lines.return?.();
