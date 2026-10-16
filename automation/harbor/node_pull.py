@@ -1,6 +1,7 @@
 """Pull exact OCI digests from each node host using short-lived, pull-only tokens."""
 import base64
 import http.client
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -93,12 +94,18 @@ def run(payload):
             if snapshots and not set(snapshots) < previous:
                 raise RuntimeError('Owned node proof snapshots could not be cleaned up')
         execute('namespaces', 'remove', namespace)
-    return {'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True}
+    identity = hashlib.sha256(Path('/proc/sys/kernel/random/boot_id').read_bytes()).hexdigest()
+    return {'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True,
+            'host_identity': identity}
 
 
 def verify_nodes(client, record):
     from automation.connectivity.preflight import ssh
-    results = []
+    endpoints = {(client.values.get(prefix + '_HOST'), client.values.get(prefix + '_PORT') or '22')
+                 for prefix in ('VM', 'VM2')}
+    if len(endpoints) != 2:
+        raise ValueError('Containerd proof requires two distinct node endpoints')
+    results, identities = [], {}
     source = Path(__file__).read_text()
     for prefix in ('VM', 'VM2'):
         for suffix in ('HOST', 'USER', 'PASSWORD'):
@@ -113,9 +120,15 @@ def verify_nodes(client, record):
                        'host': client.private['host'], 'project': project, 'digest': entry['digest']}
             result = json.loads(ssh(prefix, client.values[prefix + '_HOST'], 'python3 -c ' + shlex.quote(source),
                                     input=json.dumps(payload), timeout=330))
-            if result != {'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True}:
+            identity = result.pop('host_identity', '')
+            if (not re.fullmatch(r'[a-f0-9]{64}', identity) or
+                    (prefix in identities and identities[prefix] != identity) or
+                    result != {'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True}):
                 raise RuntimeError('Node registry pull proof returned incomplete evidence')
+            identities[prefix] = identity
             results.append(result)
+    if len(set(identities.values())) != 2:
+        raise RuntimeError('Both registry endpoints reached the same node kernel; two-node proof refused')
     return len(results)
 
 
