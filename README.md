@@ -6,6 +6,9 @@ A K3s cluster on two cloud VMs, managed with Ansible and Docker Compose.
 
 ## Architecture
 
+Ansible manages hosts, Argo CD manages Kubernetes, and local Compose runs OpenTofu
+for external resources. GitLab stores encrypted infrastructure state.
+
 ![Architecture](assets/arch.png)
 
 ## The lab
@@ -118,12 +121,12 @@ Deployment still depends on inputs and verification.
 | Identity | Keycloak | Realm configuration, passkeys and application OIDC | Available |
 | Recovery | SQLite + restic | Monthly control plane export with separate credentials and recovery checks | Available |
 | Packaging | Helm | Versioned workload charts | Available |
-| Runners | ARC | Separate application and infrastructure runners | Planned |
+| Runners | ARC | Ephemeral runners for trusted application builds | Planned |
 | Registry | Harbor | Private images and OCI charts | Planned |
 | Builds | BuildKit | Rootless image builds | Planned |
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
 | Policy | Kyverno | Admission and image policies | Planned |
-| GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Enabled |
+| GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Available |
 | Releases | Argo Rollouts | Canary releases and previews | Planned |
 | Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Available |
 | Logs | Grafana Alloy + Loki | Collect and store redacted logs | Available |
@@ -143,7 +146,7 @@ volume.
 | Public access | Cloudflare Tunnel + Access | Outbound tunnel, verified origin HTTPS and explicit human/machine policies | Available |
 | Source | GitHub | Code and GitOps repositories | Available |
 | Certificates | Let's Encrypt | Public TLS certificates | Available |
-| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
+| Infrastructure state | GitLab | Encrypted state with a separate lock for each root | Available |
 | Monitoring | UptimeRobot | Independent HTTPS checks and email alerts | Available |
 
 ### Automation
@@ -152,30 +155,35 @@ volume.
 | --- | --- | --- |
 | Ansible | Configure and verify hosts and the cluster | Available |
 | Docker Compose | Run the pinned automation environment | Available |
-| OpenTofu | Manage external resources locally through Compose | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
+| OpenTofu | Manage external resources locally through Compose | Available |
 | GitHub Actions | Trusted application builds through ARC | Planned |
 | Renovate | Reviewed dependency updates | Planned |
 
 ## Detailed flows
+
+Diagrams show the target design, including planned components. The stack tables
+show implementation status.
 
 ### Access
 
 Cloudflare Tunnel carries public requests to the public Istio gateway.
 Tailscale carries private requests to a separate gateway. Both route to apps over
 HTTPS. cert-manager manages certificates and Cloudflare Access protects selected public hosts.
+Local Compose runs apply reviewed OpenTofu changes to Cloudflare DNS, tunnel routes
+and Access policies. Certificate DNS-01 records remain with cert-manager.
 
 ![Access](assets/access.png)
 
 ### Identity
 
-Users sign in through Keycloak. Apps use OIDC tokens and roles to control access.
+Users sign in through Keycloak. The platform realm serves operator tools; the
+applications realm serves apps. Serialized config-cli jobs reconcile managed
+identity settings. Apps validate OIDC access tokens and roles to control access.
 External Secrets copies scoped credentials from 1Password into Kubernetes.
 Background refreshes run once a day to bound vault requests. Explicit
 credential rotations request immediate refresh; failed synchronization retains
 existing Secrets and reports degraded health. Other vault edits can take up to
 24 hours to reach applications.
-Kiali inspects the control plane through pod port-forwarding restricted to
-`istio-system`; its workload configuration access remains read-only.
 Apply retries an exhausted root or identity sync only when its failures were
 ExternalSecrets that became Ready after the failed operation. Other failures
 remain visible; retries preserve the source, credentials and data.
@@ -185,34 +193,43 @@ Istio encrypts traffic between workloads and checks which services may communica
 
 ### Delivery
 
-GitHub Actions runs trusted builds on ARC workers in Cloudlab. Images are built,
-scanned, signed and stored in Harbor. Argo CD reads public or private GitOps repos
-and deploys the selected images. OpenTofu runs locally through Compose on a trusted
+The planned build path uses GitHub Actions and ARC workers in Cloudlab. Images
+are built, scanned, signed and stored in Harbor. Argo CD reads public or private
+GitOps repos and deploys the selected images. OpenTofu runs locally through Compose on a trusted
 operator endpoint. GitHub governance uses a separate Compose client.
 
 ![Delivery](assets/delivery.png)
 
 ### Releases
 
-Argo Rollouts sends a small share of traffic to a new revision. Prometheus metrics
-and k6 tests guide promotion or rollback. ApplicationSet creates private previews
-for approved revisions. Preview resources are removed when the preview closes or expires.
+The planned release path uses Argo Rollouts and a Gateway API plugin to adjust
+HTTPRoute weights. Per-revision Prometheus metrics and bounded k6 tests guide
+promotion or abort; missing metrics or insufficient samples block promotion.
+ApplicationSet creates private previews for exact approved revisions. Dedicated
+cleanup removes previews when their PR closes or their lifetime expires.
 
 ![Releases](assets/releases.png)
 
 ### Data
 
 Apps use PostgreSQL managed by CloudNativePG and private S3 storage from SeaweedFS.
-Longhorn replicates their volumes across both VMs. Coordinated monthly backups go
-to B2. Isolated restores check that databases and objects can be recovered.
+The data module provisions application SQL grants and buckets.
+Longhorn replicates their volumes across both VMs; the database and S3 services
+remain single-instance. Coordinated monthly Longhorn backups go to B2.
+Isolated restores check databases and objects together. Replication is not backup.
 
 ![Data](assets/data.png)
 
 ### Observability
 
 Prometheus collects metrics. Alloy sends logs to Loki and traces to Tempo.
+Git provisions dashboards, data sources and alert rules.
 Grafana brings these signals together, Kiali shows mesh traffic and Alertmanager
-routes alerts. UptimeRobot checks public access independently. Telemetry stays on local storage.
+routes alerts. Grafana and Kiali require Keycloak. Kiali reads mesh configuration
+and inspects the control plane through pod port-forwarding restricted to
+`istio-system`. UptimeRobot checks public health independently every five minutes
+and sends outage and recovery emails. Telemetry stays on local Longhorn storage
+with bounded retention and no routine B2 backup.
 
 ![Observability](assets/observability.png)
 
