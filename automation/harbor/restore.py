@@ -32,7 +32,7 @@ def cleanup():
         if namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture'] or namespace['metadata']['uid'] != record['uid']:
             raise RuntimeError('Harbor restore namespace identity changed; cleanup refused')
         # Persist bindings even if interruption happened before readiness was observed.
-        for claim in get('pvc', namespace=NAMESPACE)['items']:
+        for claim in (get('pvc', namespace=NAMESPACE) or {}).get('items', []):
             if claim['metadata'].get('labels', {}).get('cloudlab.io/fixture') != LABEL['cloudlab.io/fixture']:
                 raise RuntimeError('Foreign claim found in Harbor restore namespace')
             if claim['spec'].get('volumeName'):
