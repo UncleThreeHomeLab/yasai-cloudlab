@@ -1,5 +1,7 @@
 """Inventory external inputs without exposing values or mutating any service."""
+import argparse
 import json
+import os
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -45,11 +47,19 @@ def inspect(token):
             'scope_permissions_verified': False, 'ready_for_live_acceptance': False}
 
 
-def main():
+def main(arguments=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--github-scopes', action='store_true')
+    args = parser.parse_args(arguments)
     values = dotenv_values(Path('/workspace/.env'), interpolate=False)
     targets(values)
     # command() gives only its child the selected reader token; the writer is never loaded.
     result = inspect(values.get('OP_SERVICE_ACCOUNT_TOKEN'))
+    if args.github_scopes and not result['missing'] and not result['invalid']:
+        from automation.harbor.scopes import verify
+        os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values['OP_SERVICE_ACCOUNT_TOKEN']
+        result['github_apps'] = verify(values)
+        result['github_scopes_verified'] = True
     print(json.dumps(result, sort_keys=True))
     return 1 if result['missing'] or result['invalid'] else 0
 

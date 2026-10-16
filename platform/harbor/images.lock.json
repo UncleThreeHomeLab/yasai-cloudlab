@@ -1,0 +1,11 @@
+{
+  "nginx-photon": "docker.io/goharbor/nginx-photon:v2.15.4@sha256:7eff0287d5ad0f35754e162c8481ced04bbde107153ce586cefb15ee74fa1311",
+  "harbor-portal": "docker.io/goharbor/harbor-portal:v2.15.4@sha256:01edf478505b21dba23a83c095f6ecac0c1e705690093edbab41e9a4d6754a75",
+  "harbor-core": "docker.io/goharbor/harbor-core:v2.15.4@sha256:7d2ba5304a729887cdec7cb222a82b500278423de230ae5150c386a6c332b112",
+  "harbor-jobservice": "docker.io/goharbor/harbor-jobservice:v2.15.4@sha256:f143578ef30e2be5c48873298257ed0fca31545025958c534e536a06765d2b82",
+  "registry-photon": "docker.io/goharbor/registry-photon:v2.15.4@sha256:dc0cb388a6445c69c8a0c406679290d2991c9698833d9e6e86a23bdfaf2f83c3",
+  "harbor-registryctl": "docker.io/goharbor/harbor-registryctl:v2.15.4@sha256:30bd1ace4e3bb390d75b84673f98ddb4a69fcc6d116932ea764391df01943fb7",
+  "harbor-db": "docker.io/goharbor/harbor-db:v2.15.4@sha256:a32d51e636d76303e086a7c5251a2c8415c6f165b2f87bafa914efd866c5403f",
+  "valkey-photon": "docker.io/goharbor/valkey-photon:v2.15.4@sha256:bb022e8f236f56f53cee7bb1f609595e497da67d829048e0af2284f97e6eb54f",
+  "browser-gate": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916"
+}

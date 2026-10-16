@@ -1,0 +1,5 @@
+enabled: false
+harborHost: harbor.internal.example.invalid
+loginHost: login.example.invalid
+gatewayIP: 10.43.0.100
+maintenance: false

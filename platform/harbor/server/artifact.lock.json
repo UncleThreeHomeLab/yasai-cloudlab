@@ -1,0 +1,8 @@
+{
+  "url": "https://helm.goharbor.io/harbor-1.19.4.tgz",
+  "version": "1.19.4",
+  "app_version": "2.15.4",
+  "upstream_sha256": "759872bbabaf05524268096b9d551a480d3f6814d13ed08723036e2673859182",
+  "archive": "charts/harbor-1.19.4.tgz",
+  "sha256": "70ed1c20c22b85d3449c1cf1661abb53cbbc0006c02448d6d6638c817254b16b"
+}

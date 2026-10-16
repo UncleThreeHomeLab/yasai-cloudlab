@@ -93,8 +93,14 @@ Initial identity enrollment remains explicit.
 
 Harbor prerequisites use the [registry contract](automation/harbor/contract.json).
 Inspect inputs with `docker compose run --rm --entrypoint python service -m automation.harbor.preflight`.
-Keep ARC and public/private release Apps separate. Full acceptance requires scoped
-credentials and independent state and recovery inputs. Harbor bootstrap precedes ARC.
+Keep ARC and public/private release Apps separate. Run the same Compose client with
+`-m automation.harbor.control credentials` to create missing installation secrets locally.
+Run `gh auth token | docker compose run -T --rm --entrypoint python service -m automation.harbor.control identity-prepare`
+and merge its private client PR. Add `harbor` to `PRIVATE_ACCESS_HOSTS`, review
+`harbor.enabled` in the public root, then run `prove`. Argo owns installation;
+PostgreSQL, Valkey and blobs have separate retained Longhorn claims. Browser access
+uses Keycloak; registry clients use scoped robots. Local restore checks use no B2;
+coordinated off-site export and restore run on day 1 UTC only.
 
 ## The stack
 
@@ -119,7 +125,7 @@ Deployment still depends on inputs and verification.
 | Recovery | SQLite + restic | Monthly control plane export with separate credentials and recovery checks | Available |
 | Packaging | Helm | Versioned workload charts | Available |
 | Runners | ARC | Separate application and infrastructure runners | Planned |
-| Registry | Harbor | Private images and OCI charts | Planned |
+| Registry | Harbor | Private OCI registry, separate Longhorn data and bounded OIDC sessions | In progress |
 | Builds | BuildKit | Rootless image builds | Planned |
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
 | Policy | Kyverno | Admission and image policies | Planned |
