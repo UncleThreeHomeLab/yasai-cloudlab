@@ -27,11 +27,16 @@ class DashboardTests(unittest.TestCase):
         sources = {d['uid'] for d in settings['datasources']['datasources.yaml']['datasources']}
         for dashboard in dashboards:
             self.assertFalse(dashboard['editable'])
+            self.assertLessEqual(len(dashboard['panels']), 8)
             self.assertEqual(len({p['id'] for p in dashboard['panels']}), len(dashboard['panels']))
             for panel in dashboard['panels']:
                 self.assertIn(panel['datasource']['uid'], sources)
                 self.assertTrue(panel['targets'])
                 self.assertEqual(panel['fieldConfig']['defaults']['noValue'], 'UNKNOWN')
+                if panel['type'] == 'table':
+                    fields = panel['transformations'][0]['options']['include']['names']
+                    self.assertLessEqual(len(fields), 4)
+                    self.assertFalse(set(fields) & {'Time', '__name__', 'instance', 'job', 'endpoint', 'container'})
                 if panel['type'] == 'stat':
                     mappings = panel['fieldConfig']['defaults']['mappings']
                     self.assertEqual({mapping['options']['match'] for mapping in mappings}, {'null', 'nan'})
@@ -43,6 +48,11 @@ class DashboardTests(unittest.TestCase):
                        'https://grafana.internal.example.invalid')['ini']['dashboards']['default_home_dashboard_path']
         self.assertEqual(Path(home).name, 'lab-overview.json')
         self.assertIn(Path(home).name, files)
+        nodes = next(d for d in dashboards if d['uid'] == 'cloudlab-nodes')
+        self.assertFalse(any(p['type'] == 'table' for p in nodes['panels']))
+        workloads = next(d for d in dashboards if d['uid'] == 'cloudlab-workloads')
+        self.assertNotIn('throttl', json.dumps(workloads).lower())
+        self.assertEqual([v['name'] for v in workloads['templating']['list']], ['namespace'])
 
     def test_runtime_rejects_stale_unmanaged_or_retained_dashboards_and_query_failures(self):
         expected = json.loads((ROOT / 'platform/observability/prometheus/dashboards/lab-overview.json').read_text())

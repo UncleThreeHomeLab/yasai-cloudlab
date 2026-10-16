@@ -1,9 +1,9 @@
 {
   "uid": "cloudlab-nodes",
   "title": "Nodes",
-  "description": "Host capacity per exporter instance. Select an instance; hostname table maps instances to hosts. Filesystem panels exclude temporary filesystems.",
+  "description": "Basic host capacity and performance. Disk space covers the root filesystem. Network traffic covers physical Ethernet interfaces.",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "tags": [
     "cloudlab"
@@ -18,7 +18,7 @@
     "list": [
       {
         "name": "instance",
-        "label": "Exporter instance",
+        "label": "Node",
         "type": "query",
         "datasource": {
           "type": "prometheus",
@@ -51,44 +51,6 @@
   ],
   "panels": [
     {
-      "id": 1,
-      "title": "Hostnames",
-      "type": "table",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "node_uname_info{instance=~\"$instance\"}",
-          "legendFormat": "{{instance}}",
-          "range": false,
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "options": {
-        "showHeader": true
-      }
-    },
-    {
       "id": 2,
       "title": "CPU utilisation",
       "type": "timeseries",
@@ -97,10 +59,10 @@
         "uid": "metrics"
       },
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 0,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -125,11 +87,101 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Memory usage",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "UNKNOWN",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - node_memory_MemAvailable_bytes{instance=~\"$instance\"} / node_memory_MemTotal_bytes{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Root filesystem space available",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "UNKNOWN",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{instance=~\"$instance\",mountpoint=\"/\"} / node_filesystem_size_bytes{instance=~\"$instance\",mountpoint=\"/\"}",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -145,10 +197,10 @@
         "uid": "metrics"
       },
       "gridPos": {
-        "x": 0,
-        "y": 8,
+        "x": 12,
+        "y": 7,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -171,339 +223,9 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 4,
-      "title": "CPU I/O wait",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "avg by(instance) (rate(node_cpu_seconds_total{instance=~\"$instance\",mode=\"iowait\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 5,
-      "title": "Available memory",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "node_memory_MemAvailable_bytes{instance=~\"$instance\"}",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 6,
-      "title": "Swap used",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "node_memory_SwapTotal_bytes{instance=~\"$instance\"} - node_memory_SwapFree_bytes{instance=~\"$instance\"}",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 7,
-      "title": "Memory pressure waiting",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "rate(node_pressure_memory_waiting_seconds_total{instance=~\"$instance\"}[$__rate_interval])",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 8,
-      "title": "Filesystem space available",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 24,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "node_filesystem_avail_bytes{instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs\",mountpoint!~\"/run.*\"}",
-          "legendFormat": "{{instance}} {{mountpoint}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 9,
-      "title": "Inodes available",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 32,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "node_filesystem_files_free{instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs\"} / node_filesystem_files",
-          "legendFormat": "{{instance}} {{mountpoint}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 10,
-      "title": "Disk throughput",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 32,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "rate(node_disk_read_bytes_total{instance=~\"$instance\",device!~\"loop.*\"}[$__rate_interval]) + rate(node_disk_written_bytes_total{instance=~\"$instance\",device!~\"loop.*\"}[$__rate_interval])",
-          "legendFormat": "{{instance}} {{device}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -520,9 +242,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 14,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -537,19 +259,17 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(rate(node_disk_read_time_seconds_total{instance=~\"$instance\"}[$__rate_interval]) + rate(node_disk_write_time_seconds_total{instance=~\"$instance\"}[$__rate_interval])) / (rate(node_disk_reads_completed_total{instance=~\"$instance\"}[$__rate_interval]) + rate(node_disk_writes_completed_total{instance=~\"$instance\"}[$__rate_interval]) > 0)",
-          "legendFormat": "{{instance}} {{device}}",
+          "expr": "(sum by(instance) (rate(node_disk_read_time_seconds_total{instance=~\"$instance\",device=~\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\"}[$__rate_interval])) + sum by(instance) (rate(node_disk_write_time_seconds_total{instance=~\"$instance\",device=~\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\"}[$__rate_interval]))) / ((sum by(instance) (rate(node_disk_reads_completed_total{instance=~\"$instance\",device=~\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\"}[$__rate_interval])) + sum by(instance) (rate(node_disk_writes_completed_total{instance=~\"$instance\",device=~\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\"}[$__rate_interval]))) > 0)",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         }
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -566,9 +286,9 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 40,
+        "y": 14,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -583,174 +303,28 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(node_network_receive_bytes_total{instance=~\"$instance\",device!=\"lo\"}[$__rate_interval])",
+          "expr": "rate(node_network_receive_bytes_total{instance=~\"$instance\",device=~\"eth.*|en.*\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{device}} receive",
           "range": true,
           "instant": false
         },
         {
           "refId": "B",
-          "expr": "rate(node_network_transmit_bytes_total{instance=~\"$instance\",device!=\"lo\"}[$__rate_interval])",
+          "expr": "rate(node_network_transmit_bytes_total{instance=~\"$instance\",device=~\"eth.*|en.*\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{device}} transmit",
           "range": true
         }
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
         }
       }
-    },
-    {
-      "id": 13,
-      "title": "Network drops and errors",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 48,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "rate(node_network_receive_drop_total{instance=~\"$instance\"}[$__rate_interval]) + rate(node_network_transmit_drop_total{instance=~\"$instance\"}[$__rate_interval]) + rate(node_network_receive_errs_total{instance=~\"$instance\"}[$__rate_interval]) + rate(node_network_transmit_errs_total{instance=~\"$instance\"}[$__rate_interval])",
-          "legendFormat": "{{instance}} {{device}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 14,
-      "title": "Requested CPU / allocatable",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 48,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by(node) (kube_pod_container_resource_requests{resource=\"cpu\"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase=~\"Pending|Running\"} == 1)) / on(node) kube_node_status_allocatable{resource=\"cpu\"}",
-          "legendFormat": "{{node}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "description": "Cluster-wide scheduling context. Container requests exclude pod overhead and init-container scheduling adjustments."
-    },
-    {
-      "id": 15,
-      "title": "Requested memory / allocatable",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 56,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by(node) (kube_pod_container_resource_requests{resource=\"memory\"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase=~\"Pending|Running\"} == 1)) / on(node) kube_node_status_allocatable{resource=\"memory\"}",
-          "legendFormat": "{{node}}",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "description": "Cluster-wide scheduling context. Container requests exclude pod overhead and init-container scheduling adjustments."
     }
   ]
 }
