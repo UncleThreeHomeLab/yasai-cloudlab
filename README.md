@@ -124,7 +124,7 @@ Deployment still depends on inputs and verification.
 | Identity | Keycloak | Realm configuration, passkeys and application OIDC | Available |
 | Recovery | SQLite + restic | Monthly control plane export with separate credentials and recovery checks | Available |
 | Packaging | Helm | Versioned workload charts | Available |
-| Runners | ARC | Separate application and infrastructure runners | Planned |
+| Runners | ARC | Ephemeral runners for trusted application workflows | Planned |
 | Registry | Harbor | Private OCI registry, separate Longhorn data and bounded OIDC sessions | In progress |
 | Builds | BuildKit | Rootless image builds | Planned |
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
@@ -159,7 +159,7 @@ volume.
 | Ansible | Configure and verify hosts and the cluster | Available |
 | Docker Compose | Run the pinned automation environment | Available |
 | OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
-| GitHub Actions | Trusted builds and infrastructure jobs through ARC | Planned |
+| GitHub Actions | Trusted application builds and release proposals | Planned |
 | Renovate | Reviewed dependency updates | Planned |
 
 ## Detailed flows
@@ -193,8 +193,7 @@ Istio encrypts traffic between workloads and checks which services may communica
 
 GitHub Actions runs trusted builds on ARC workers in Cloudlab. Images are built,
 scanned, signed and stored in Harbor. Argo CD reads public or private GitOps repos
-and deploys the selected images. Dedicated infrastructure runners execute OpenTofu.
-GitHub governance runs separately through Compose.
+and deploys the selected images. OpenTofu runs independently through Compose.
 
 ![Delivery](assets/delivery.png)
 
@@ -224,9 +223,9 @@ routes alerts. UptimeRobot checks public access independently. Telemetry stays o
 
 ### Foundation
 
-Compose runs Ansible to configure both VMs and K3s. Dedicated ARC runners apply
-reviewed OpenTofu changes to Cloudflare and Harbor, with encrypted state in GitLab.
-Compose remains available for bootstrap, recovery and GitHub governance.
+Compose runs Ansible to configure both VMs and K3s. The independent Compose client
+applies reviewed OpenTofu changes with encrypted state in GitLab. Bootstrap,
+recovery and GitHub governance do not depend on lab CI.
 K3s recovery uses a separate monthly restic backup to B2.
 
 ![Foundation](assets/foundation.png)
