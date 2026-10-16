@@ -47,6 +47,12 @@
     "scope": "Operator recovery artifacts only, separate from CI signing identity. Sign exact deployment and five rollback digests per project through its push robot. No public transparency upload. Native restore verification uses the retained public key and isolated emergency recovery access.",
     "interruption": "Preserve the original digest, image and public-key journal. Native verification skips existing valid signatures; never replace the signer or artifact set automatically."
   },
+  "deployment_proof": {
+    "prepare": "docker compose run --rm --entrypoint python infra-harbor -m automation.harbor.artifacts --deployments; requires the verified independent artifact receipt and unchanged native API root.",
+    "behavior": "Two restricted Deployments, one replica per node per project, six digest revisions and native rollback to the original. ESO delivers only existing project pull robots. A UID-bound receipt preserves exact ReplicaSet history across recovery and fresh kubelet pulls.",
+    "limits": "Dedicated deny-all namespace; six-pod quota, 300m CPU requests, 600m CPU limits, 384Mi memory limits, no PVCs or Services. Workloads verify the original payload before readiness.",
+    "cleanup": "After recovery verification, run the same client with --cleanup-deployments. Remove only the recorded namespace by UID; retain vault items, registry digests and signatures."
+  },
   "browser": {
     "issuer": "retained platform Keycloak realm",
     "client": "harbor; confidential, exact /c/oidc/callback and /oauth2/callback on the private origin",

@@ -4,6 +4,13 @@ import copy
 from automation.harbor.recovery import CLAIMS, SECRETS, ARTIFACTS
 
 
+def deployment_artifacts():
+    return {project: [{'digest': 'sha256:' + format(number + index * 6 + 1, '064x'),
+        'payload_sha256': format(number + index * 6 + 101, '064x'),
+        'payload_bytes': ((256 * 1024**2 if index == 0 else 1024**2) if number == 0 else 4096)}
+        for number in range(6)] for index, project in enumerate(('cloudlab-public', 'cloudlab-private'))}
+
+
 def manifest():
     generation = 'harbor-' + 'a' * 24
     return {'format': 1, 'generation': generation, 'captured': True, 'captured_at': 1790805600,
