@@ -42,12 +42,14 @@ Distribution upgrades are managed separately.
    contracts. Inputs for host access are listed in `.env.example`. Backup inputs
    are defined by the [recovery module](automation/recovery/runner.py).
 
-From the repo directory, apply and verify:
+From the repo directory, apply twice and verify:
 
 ```sh
 docker compose run --build --rm lab prove
 ```
 
+Use `lab setup` for convergence and verification. Run credential-free checks with
+`lab validate` and `lab test`; see the [Ansible index](ansible/README.md).
 `prove` applies the configuration twice and requires no changes on the second
 apply on either VM. It then checks behaviour. GitOps bootstrap needs verified
 Tailscale host access and a fresh recovery point for the control plane.

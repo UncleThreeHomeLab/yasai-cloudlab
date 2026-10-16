@@ -1,0 +1,3 @@
+---
+- name: Verify through existing component owners
+  ansible.builtin.import_playbook: ../verify.yml

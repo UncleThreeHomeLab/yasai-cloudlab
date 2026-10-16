@@ -167,7 +167,7 @@ class Client:
         self.path = WORK
         self.path.mkdir(mode=0o700, parents=True, exist_ok=True)
         copy_source(self.path)
-        self.provider = json.loads((ROOT / 'automation/runner/harbor-provider.lock.json').read_text())['package_sha256']
+        self.provider = json.loads((ROOT / 'ansible/runner/harbor-provider.lock.json').read_text())['package_sha256']
 
     def native(self, *arguments):
         return require(native(self.path, self.env, *arguments), allowed=(0, 2))

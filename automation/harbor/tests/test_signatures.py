@@ -165,6 +165,6 @@ class SignatureTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         image = json.loads((root / 'platform/harbor/cosign.lock.json').read_text())['image']
         self.assertRegex(image, r'^ghcr.io/sigstore/cosign/cosign:v3[.][0-9]+[.][0-9]+@sha256:[a-f0-9]{64}$')
-        dockerfile = (root / 'automation/runner/Dockerfile').read_text()
+        dockerfile = (root / 'ansible/runner/Dockerfile').read_text()
         self.assertIn('FROM ' + image + ' AS cosign', dockerfile)
         self.assertIn('COPY --from=cosign /ko-app/cosign /usr/local/bin/cosign', dockerfile)

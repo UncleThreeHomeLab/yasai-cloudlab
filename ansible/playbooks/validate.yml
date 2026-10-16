@@ -1,0 +1,10 @@
+---
+- name: Validate repository inputs and behavior
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run credential-free validate checks
+      ansible.builtin.command:
+        argv: ["python", "/workspace/ansible/runner/validate.py"]
+      changed_when: false

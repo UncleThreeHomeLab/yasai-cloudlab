@@ -1,0 +1,10 @@
+---
+- name: Test repository inputs and behavior
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run credential-free test checks
+      ansible.builtin.command:
+        argv: ["python", "/workspace/ansible/runner/test.py"]
+      changed_when: false

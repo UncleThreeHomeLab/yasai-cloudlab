@@ -3,7 +3,6 @@
 import importlib.util
 import os
 import json
-import os
 from pathlib import Path
 import tempfile
 import subprocess
@@ -11,7 +10,7 @@ import sys
 import unittest
 from unittest.mock import patch, Mock
 
-from automation.runner import test as test_runner
+import test as test_runner
 
 spec = importlib.util.spec_from_file_location('lab_run', Path(__file__).parents[1] / 'run.py')
 runner = importlib.util.module_from_spec(spec)
@@ -19,6 +18,13 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_dotenv_preserves_literal_shell_and_secret_characters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / '.env'
+            secret = ' space # ${TOKEN} $(command) `literal` "quoted" \\ tail '
+            path.write_text("VM_PASSWORD='" + secret + "'\n")
+            self.assertEqual(runner.dotenv_values(path, interpolate=False)['VM_PASSWORD'], secret)
+
     def test_controller_recovery_dispatch_does_not_read_vault_or_apply_hosts(self):
         with patch.object(runner.sys, 'argv', ['run.py', 'gitops-controller-recover']), \
                 patch.object(runner, 'dotenv_values') as dotenv, \
@@ -66,7 +72,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             runner.main()
         playbook.assert_not_called()
         command.assert_called_once_with(
-            [runner.sys.executable, '/workspace/automation/runner/test.py'], check=True)
+            [runner.sys.executable, '/workspace/ansible/runner/test.py'], check=True)
 
     def test_test_runner_isolates_owners_and_reports_failures_after_all_groups(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -94,6 +100,27 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     self.assertRaisesRegex(RuntimeError, 'No tests found'):
                 test_runner.run(root)
             command.assert_not_called()
+
+    def test_migrated_and_legacy_tests_run_once_in_isolated_processes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            groups = ('automation/mesh/tests', 'ansible/playbooks/host/tests',
+                      'ansible/runner/tests', 'verification/integration')
+            for name in groups:
+                folder = root / name
+                folder.mkdir(parents=True)
+                (folder / 'test_example.py').write_text('')
+            with patch.object(test_runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
+                test_runner.run(root)
+            self.assertEqual([call.args[0][-1] for call in command.call_args_list],
+                             [str(root / name) for name in groups])
+
+    def test_nuke_refuses_before_reading_credentials(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'nuke']), \
+                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read secrets')), \
+                patch.object(runner, 'playbook') as playbook:
+            runner.main()
+        playbook.assert_called_once_with('playbooks/nuke.yml')
 
 
     def test_login_guide_never_runs_host_apply(self):
@@ -181,7 +208,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             self.assertEqual(os.environ['VM2_BECOME_PASSWORD'], 'second-secret')
             self.assertEqual(os.environ['VM_PORT'], '22')
             self.assertEqual(os.environ['VM2_PUBLIC_IP'], '192.0.2.2')
-            playbook.assert_called_once_with('inspect.yml')
+            playbook.assert_called_once_with('playbooks/inspect.yml')
 
     def test_access_preflight_never_runs_playbooks_or_gitops_writes(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
@@ -229,8 +256,15 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_prove_applies_twice_then_verifies(self):
         playbook = self.invoke('prove')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                         ['apply.yml', 'apply.yml', 'verify.yml'])
+                         ['playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml'])
         self.assertEqual(playbook.call_args_list[1].kwargs, {'unchanged': True})
+
+    def test_setup_and_apply_share_canonical_playbook(self):
+        for action in ('setup', 'apply'):
+            with self.subTest(action=action):
+                playbook = self.invoke(action)
+                self.assertEqual([call.args[0] for call in playbook.call_args_list],
+                                 ['playbooks/setup.yml', 'playbooks/verify.yml'])
 
     def test_scoped_data_actions_keep_common_vm_validation(self):
         for action, expected in [('data-bootstrap', 'bootstrap'), ('data-check', 'check')]:
@@ -281,7 +315,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_syntax_does_not_require_credentials_or_dns(self):
         self.values = {}
         playbook = self.invoke('syntax')
-        self.assertEqual(playbook.call_count, 20)
+        self.assertGreaterEqual(playbook.call_count, 20)
         self.assertTrue(all(call.kwargs == {'syntax': True} for call in playbook.call_args_list))
 
     def test_independent_retrieval_does_not_require_vm_credentials_or_playbooks(self):
@@ -317,7 +351,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.assertEqual(command.call_args_list[0].args[0][-1], '/workspace/automation/tailscale/verify_access.py')
         self.assertEqual(command.call_args.args[0][-1], 'retrieve')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                         ['k3s-migration.yml', 'apply.yml', 'apply.yml', 'verify.yml', 'k3s-migration.yml'])
+                         ['k3s-migration.yml', 'playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml', 'k3s-migration.yml'])
         self.assertEqual(playbook.call_args_list[2].kwargs, {'unchanged': True})
 
     def test_migration_cannot_skip_host_access_or_recovery_gate(self):

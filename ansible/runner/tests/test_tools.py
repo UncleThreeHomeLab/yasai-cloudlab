@@ -5,7 +5,7 @@ import tarfile
 import unittest
 import zipfile
 
-from automation.runner.install_tools import binary
+from install_tools import binary
 
 
 class BootstrapToolTests(unittest.TestCase):

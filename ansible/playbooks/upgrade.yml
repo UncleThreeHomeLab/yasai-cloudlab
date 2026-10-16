@@ -1,0 +1,9 @@
+---
+- name: Require explicit upgrade scope
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Refuse unspecified upgrade before mutation
+      ansible.builtin.fail:
+        msg: "Upgrade requires a scoped operation and reviewed inputs; no mutation performed."

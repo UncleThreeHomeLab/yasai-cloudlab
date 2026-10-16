@@ -7,6 +7,10 @@ import sys
 
 def run(root):
     directories = sorted((root / 'automation').glob('*/tests'))
+    directories += sorted((root / 'ansible/playbooks').glob('*/tests'))
+    runner_tests = root / 'ansible/runner/tests'
+    if runner_tests.is_dir():
+        directories.append(runner_tests)
     directories.append(root / 'verification/integration')
     failed = []
     for directory in directories:

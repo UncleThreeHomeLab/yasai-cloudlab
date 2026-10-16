@@ -1,0 +1,9 @@
+---
+- name: Require explicit nuke scope
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Refuse unspecified nuke before mutation
+      ansible.builtin.fail:
+        msg: "Nuke requires a scoped operation and reviewed inputs; no mutation performed."
