@@ -22,6 +22,7 @@ spec:
         releaseName: argocd
         valuesObject:
           identitySyncObserver: {{ $.Values.identity.enabled }}
+          kialiBackendObserver: {{ $.Values.observability.enabled }}
         valueFiles: [$identity/identity/argo-values.yaml]
     - repoURL: {{ $oidc.valuesRepository | quote }}
       targetRevision: {{ $oidc.valuesRevision | quote }}
@@ -36,6 +37,7 @@ spec:
       {{- if eq $name "cloudlab-argocd" }}
       valuesObject:
         identitySyncObserver: {{ $.Values.identity.enabled }}
+        kialiBackendObserver: {{ $.Values.observability.enabled }}
       {{- end }}
       {{- if and (eq $name "cloudlab-public-root") $oidc }}
       valuesObject:

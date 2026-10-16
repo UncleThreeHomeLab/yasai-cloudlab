@@ -93,10 +93,17 @@ def kiali_declarative(raw):
                             if data.count(block) != 1: raise ValueError('Pinned Kiali viewer RBAC changed')
                             data = data.replace(block, b'')
                             changes += 1
+                    if original.name in ('kiali-server/templates/role-viewer.yaml', 'kiali-server/templates/rolebinding.yaml'):
+                        marker = b'{{- range $namespace := $namespaces }}'
+                        if data.count(marker) != 1:
+                            raise ValueError('Pinned Kiali namespace RBAC loop changed')
+                        # Argo owns its backend reader; telemetry cannot write into argocd.
+                        data = data.replace(marker, b'{{- $namespaces = without $namespaces "argocd" -}}\n' + marker)
+                        changes += 1
                     member = tarfile.TarInfo(original.name)
                     member.mode, member.size = 0o644, len(data)
                     target.addfile(member, io.BytesIO(data))
-    if changes != 3: raise ValueError('Pinned Kiali declarative patch changed')
+    if changes != 5: raise ValueError('Pinned Kiali declarative patch changed')
     return output.getvalue()
 
 

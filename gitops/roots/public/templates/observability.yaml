@@ -8,7 +8,7 @@ spec:
   description: Administrator-owned private telemetry with local disposable storage.
   sourceRepos: [{{ .Values.repository | quote }}]
   destinations:
-    {{- range $namespace := list "cloudlab-observability" "cloudlab-app-notes" "cloudlab-identity" "istio-system" "cloudlab-gateway-public" "cloudlab-gateway-private" "argocd" }}
+    {{- range $namespace := list "cloudlab-observability" "cloudlab-app-notes" "cloudlab-identity" "istio-system" "cloudlab-gateway-public" "cloudlab-gateway-private" }}
     - {server: 'https://kubernetes.default.svc', namespace: {{ $namespace }}}
     {{- end }}
   clusterResourceWhitelist:

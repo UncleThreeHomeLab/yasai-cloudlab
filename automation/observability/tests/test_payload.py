@@ -24,7 +24,7 @@ class PayloadTests(unittest.TestCase):
         roles = [obj for obj in objects if obj['kind'] == 'Role']
         self.assertEqual({obj['metadata']['namespace'] for obj in roles},
                          {'cloudlab-app-notes', 'istio-system', 'cloudlab-observability',
-                          'cloudlab-gateway-public', 'cloudlab-gateway-private', 'argocd'})
+                          'cloudlab-gateway-public', 'cloudlab-gateway-private'})
         for role in roles:
             self.assertTrue(all(set(rule['verbs']) <= {'get', 'list', 'watch'} for rule in role['rules']))
             self.assertFalse(any('secrets' in rule['resources'] or 'pods/log' in rule['resources']

@@ -976,7 +976,8 @@ class IdentityTests(unittest.TestCase):
         argo_app = indexed['Application', 'cloudlab-argocd']['spec']
         self.assertNotIn('source', argo_app)
         self.assertEqual(argo_app['sources'][0]['helm']['valueFiles'], ['$identity/identity/argo-values.yaml'])
-        self.assertEqual(argo_app['sources'][0]['helm']['valuesObject'],{'identitySyncObserver':True})
+        self.assertEqual(argo_app['sources'][0]['helm']['valuesObject'],
+                         {'identitySyncObserver': True, 'kialiBackendObserver': True})
         self.assertEqual(argo_app['sources'][1]['targetRevision'], 'a' * 40)
         self.assertFalse(argo_app['syncPolicy']['automated']['prune'])
         root = indexed['Application', 'cloudlab-public-root']
