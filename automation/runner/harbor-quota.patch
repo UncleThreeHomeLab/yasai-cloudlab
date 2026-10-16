@@ -217,3 +217,148 @@
 +		t.Fatal("failed quota update was silently accepted")
 +	}
 +}
+--- a/provider/resource_robot_account.go
++++ b/provider/resource_robot_account.go
+@@ -237,47 +237,21 @@
+ 	d.Set("duration", robot.Duration)
+ 	d.Set("disable", robot.Disable)
+ 
+-	// Set the permissions of the robot account in the Terraform state
+-	tfPermissions := d.Get("permissions").(*schema.Set).List()
++	// Read effects from Harbor, including imports and deny changes after configuration.
+ 	permissions := make([]map[string]interface{}, len(robot.Permissions))
+ 	for i, permission := range robot.Permissions {
+-		permissionMap := make(map[string]interface{})
+-		permissionMap["kind"] = permission.Kind
+-		permissionMap["namespace"] = permission.Namespace
+-
+-		// Find matching tfvars permission by kind and namespace.
+-		tfPerm, found := findTfPermission(tfPermissions, permission.Kind, permission.Namespace)
+-		var tfAccessSet []interface{}
+-		if found {
+-			tfAccessSet = tfPerm["access"].(*schema.Set).List()
+-		} else {
+-			tfAccessSet = []interface{}{}
+-		}
+-
+-		accessList := make([]map[string]interface{}, len(permission.Access))
+-		for j, v := range permission.Access {
+-			accessMap := make(map[string]interface{})
+-			accessMap["action"] = v.Action
+-			accessMap["resource"] = v.Resource
+-
+-			// Search for a matching access block in tfAccessSet.
+-			if tfAccess, ok := findTfAccess(tfAccessSet, v.Action, v.Resource); ok {
+-				// If explicitly set to "allow" in tfvars, enforce that.
+-				if eff, exists := tfAccess["effect"]; exists && eff != "" {
+-					accessMap["effect"] = eff
+-				}
+-			} else {
+-				// If no matching tfvars block is found or API default is not "allow", use the API value if non-empty.
+-				if v.Effect != "" && v.Effect != "allow" {
+-					accessMap["effect"] = v.Effect
+-				}
+-			}
+-			accessList[j] = accessMap
+-		}
+-		permissionMap["access"] = accessList
+-		permissions[i] = permissionMap
+-	}
+-	d.Set("permissions", permissions)
++		access := make([]map[string]interface{}, len(permission.Access))
++		for j, value := range permission.Access {
++			if value.Effect != "allow" && value.Effect != "deny" {
++				return fmt.Errorf("robot permission effect is missing or unsupported")
++			}
++			access[j] = map[string]interface{}{"action": value.Action, "resource": value.Resource, "effect": value.Effect}
++		}
++		permissions[i] = map[string]interface{}{"kind": permission.Kind, "namespace": permission.Namespace, "access": access}
++	}
++	if err := d.Set("permissions", permissions); err != nil {
++		return err
++	}
+ 	return nil
+ }
+ 
+@@ -358,23 +332,3 @@
+ 	}
+ 	return jsonData, respCode, nil
+ }
+-
+-func findTfPermission(tfPermissions []interface{}, kind, namespace string) (map[string]interface{}, bool) {
+-	for _, item := range tfPermissions {
+-		tfPerm := item.(map[string]interface{})
+-		if tfPerm["kind"] == kind && tfPerm["namespace"] == namespace {
+-			return tfPerm, true
+-		}
+-	}
+-	return nil, false
+-}
+-
+-func findTfAccess(tfAccesses []interface{}, action, resource string) (map[string]interface{}, bool) {
+-	for _, item := range tfAccesses {
+-		access := item.(map[string]interface{})
+-		if access["action"] == action && access["resource"] == resource {
+-			return access, true
+-		}
+-	}
+-	return nil, false
+-}
+--- /dev/null
++++ b/provider/cloudlab_robot_test.go
+@@ -0,0 +1,55 @@
++package provider
++
++import (
++	"fmt"
++	"github.com/goharbor/terraform-provider-harbor/client"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++)
++
++func TestCloudlabRobotPermissionRead(t *testing.T) {
++	for _, tc := range []struct {
++		name, effect      string
++		configured, valid bool
++	}{
++		{"import-allow", "allow", false, true}, {"refresh-deny", "deny", true, true},
++		{"missing-effect", "", true, false}, {"unsupported-effect", "other", true, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			calls := 0
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				calls++
++				if r.Method != "GET" || r.URL.Path != "/robots/7" {
++					t.Error("permission refresh attempted a write or another identity")
++					w.WriteHeader(500)
++					return
++				}
++				fmt.Fprintf(w, `{"id":7,"name":"robot$fixture+pull","level":"project","duration":-1,"permissions":[{"kind":"project","namespace":"fixture","access":[{"action":"pull","resource":"repository","effect":%q}]}]}`, tc.effect)
++			}))
++			defer server.Close()
++			input := map[string]interface{}{}
++			if tc.configured {
++				input["permissions"] = []interface{}{map[string]interface{}{"kind": "project", "namespace": "fixture", "access": []interface{}{map[string]interface{}{"action": "pull", "resource": "repository", "effect": "allow"}}}}
++			}
++			data := schema.TestResourceDataRaw(t, resourceRobotAccount().Schema, input)
++			data.SetId("/robots/7")
++			api := client.NewClient(server.URL, "synthetic", "synthetic", "", "", false, "robot$", nil)
++			err := resourceRobotAccountRead(data, api)
++			if (err == nil) != tc.valid {
++				t.Fatalf("unexpected refresh/import result: %v", err)
++			}
++			if calls != 1 {
++				t.Fatal("refresh must use exactly one read")
++			}
++			if tc.valid {
++				permission := data.Get("permissions").(*schema.Set).List()[0].(map[string]interface{})
++				access := permission["access"].(*schema.Set).List()[0].(map[string]interface{})
++				if access["effect"] != tc.effect {
++					t.Fatal("configured allow masked server effect or import lost it")
++				}
++			}
++		})
++	}
++}

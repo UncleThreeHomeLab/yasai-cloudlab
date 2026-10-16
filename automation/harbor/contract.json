@@ -10,7 +10,7 @@
   "custody": {
     "owner": "local Compose provisioning",
     "password_source": "durable vault input before registry creation",
-    "provider": "cloudlab/harbor@3.12.5-cloudlab.1",
+    "provider": "cloudlab/harbor@3.12.5-cloudlab.2",
     "attribute": "secret_wo",
     "version": 1,
     "routine_rotation": false,

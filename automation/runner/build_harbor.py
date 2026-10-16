@@ -1,4 +1,4 @@
-"""Build the pinned native Harbor provider with quota refresh and error handling."""
+"""Build the pinned native Harbor provider with truthful quota and permission reads."""
 import json
 import os
 from pathlib import Path
@@ -24,7 +24,7 @@ def main():
     env = dict(os.environ, GOTOOLCHAIN='local', CGO_ENABLED='0', GOOS='linux', GOARCH='amd64', GOMAXPROCS='4')
     env['PATH'] = str(go.parent) + ':' + env['PATH']
     for arguments in (('mod', 'download'), ('mod', 'verify'),
-                      ('test', '-p=6', '-mod=readonly', './provider', '-run', '^TestCloudlabQuota', '-count=1')):
+                      ('test', '-p=6', '-mod=readonly', './provider', '-run', '^TestCloudlab(Quota|Robot)', '-count=1')):
         subprocess.run([str(go), *arguments], cwd=source, env=env, check=True)
     binary = build / ('terraform-provider-harbor_v' + pin['version'])
     subprocess.run([str(go), 'build', '-p=6', '-mod=readonly', '-trimpath', '-buildvcs=false',

@@ -234,8 +234,8 @@ class Client:
         return inventory
 
     def live_ids(self):
-        def rows(path):
-            value = self.reader.get('/api/v2.0/' + path + '?page=1&page_size=100')
+        def rows(path, query=''):
+            value = self.reader.get('/api/v2.0/' + path + '?' + query + 'page=1&page_size=100')
             if not isinstance(value, list) or len(value) >= 100:
                 raise ValueError('Harbor adoption inventory exceeds its bounded scope')
             return value
@@ -248,13 +248,14 @@ class Client:
                 raise ValueError('Invalid Harbor resource identity')
             return str(row['id'])
         projects = {name: self.reader.get('/api/v2.0/projects/' + name, missing=True) for name in api_policy.POLICY['projects']}
-        groups, robots = rows('usergroups'), rows('robots')
+        groups, robots = rows('usergroups'), []
         members, immutable = {}, {}
         for name, project in projects.items():
             if project:
                 project_id = project['project_id']
                 if type(project_id) is not int or project_id <= 0:
                     raise ValueError('Invalid Harbor project identity')
+                robots.extend(rows('robots', 'q=Level%3Dproject%2CProjectID%3D' + str(project_id) + '&'))
                 members[name] = rows('projects/' + str(project_id) + '/members')
                 immutable[name] = rows('projects/' + str(project_id) + '/immutabletagrules')
         result = {}

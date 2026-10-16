@@ -3,7 +3,7 @@ terraform {
   required_providers {
     harbor = {
       source  = "cloudlab/harbor"
-      version = "= 3.12.5-cloudlab.1"
+      version = "= 3.12.5-cloudlab.2"
     }
   }
 }

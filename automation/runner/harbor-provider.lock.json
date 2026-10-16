@@ -1,5 +1,5 @@
 {
-  "version": "3.12.5-cloudlab.1",
+  "version": "3.12.5-cloudlab.2",
   "source": {
     "url": "https://codeload.github.com/goharbor/terraform-provider-harbor/tar.gz/b8e507d64d5f6d2b76a4d84514e01f2f794ba4c6",
     "sha256": "73dcffbc66b7d8191a40cba32e584a57c73f81852b10c3499a61a726fffbbca9",
@@ -10,6 +10,6 @@
     "url": "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz",
     "sha256": "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5"
   },
-  "patch_sha256": "95e96cfeea58a6c1b3a2a91d5c53c0400ed5fa12496d636b4f57450fa582c5bf",
-  "package_sha256": "a44da2800f5c064aec9c39a8372d0db0d0dc83a58a5c18eb88c23f0a5e95ab3b"
+  "patch_sha256": "43b608b6edadc9f97c0d63f70020f874253154bed3fd1e47c949554e238b0386",
+  "package_sha256": "3a4e4775773c366577d115b7a53868b1ba8d105cee14891788938731b925bc48"
 }
