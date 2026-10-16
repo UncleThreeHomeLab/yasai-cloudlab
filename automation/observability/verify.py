@@ -32,6 +32,26 @@ def kiali_control_plane_permissions():
             raise RuntimeError('Kiali control-plane transport permission is missing or exceeds its namespace')
 
 
+def kiali_configuration_references(namespaces):
+    for namespace in namespaces:
+        result = kube('auth', 'can-i', 'list', 'services', '-n', namespace,
+                      '--as=system:serviceaccount:' + NAMESPACE + ':cloudlab-kiali', allow_failure=True)
+        if result.returncode or result.stdout.strip() != 'yes':
+            raise RuntimeError('Kiali cannot read a required service namespace')
+        for route in (get('httproutes.gateway.networking.k8s.io', namespace=namespace) or {}).get('items', []):
+            parents = route['spec'].get('parentRefs', [])
+            backends = [backend for rule in route['spec'].get('rules', []) for backend in rule.get('backendRefs', [])]
+            for kind, refs in (('gateway.gateway.networking.k8s.io', parents), ('service', backends)):
+                for ref in refs:
+                    target_namespace = ref.get('namespace', namespace)
+                    if target_namespace not in namespaces or not get(kind, ref['name'], target_namespace):
+                        raise RuntimeError('Visible route references a backend or gateway outside Kiali discovery')
+    result = kube('auth', 'can-i', 'get', 'secrets', '-n', 'argocd',
+                  '--as=system:serviceaccount:' + NAMESPACE + ':cloudlab-kiali', allow_failure=True)
+    if result.returncode != 1 or result.stdout.strip() != 'no':
+        raise RuntimeError('Kiali backend visibility must not grant access to Argo credentials')
+
+
 def backend_ready(resource):
     if not all(condition(resource, name) for name in ('Available', 'Reconciled')):
         raise RuntimeError('Telemetry backend is unavailable or reconciliation failed')
@@ -68,6 +88,11 @@ def run(payload):
                 application['spec']['source']['repoURL'] != payload['repository'] or
                 not application_ready('cloudlab-' + name, payload['revision'])):
             raise RuntimeError('Telemetry Applications have not converged at their committed revision')
+    kiali_configuration_references(payload['policy']['kiali']['namespaces'])
+    for name, ports in payload['service_ports'].items():
+        actual = get('service', name, NAMESPACE)['spec']['ports']
+        if sorted(actual, key=lambda port: port['name']) != sorted(ports, key=lambda port: port['name']):
+            raise RuntimeError('Telemetry service protocols differ from their pinned declarations')
     claims = get('persistentvolumeclaims', namespace=NAMESPACE)['items']
     for kind in ('prometheus', 'alertmanager'):
         backend_ready(get(kind + '.monitoring.coreos.com', 'cloudlab', NAMESPACE))
@@ -148,6 +173,7 @@ def run(payload):
             'real_metrics_logs_traces': True, 'scraped_mesh_mtls_metrics': True, 'emergency_access': True,
             'private_dashboard_apis': True, 'kiali_control_plane_permission': True,
             'all_metric_targets_healthy': True,
+            'kiali_route_references_visible': True, 'telemetry_service_protocols': True,
             'retention_settings': True, 'elapsed_retention_deletion_proven': False}
 
 

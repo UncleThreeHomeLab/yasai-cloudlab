@@ -1,11 +1,12 @@
 {{- if .Values.enabled }}
+{{- $policy := .Files.Get "policy.json" | fromJson }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata: {name: cloudlab-kiali-namespaces}
 rules:
   - apiGroups: ['']
     resources: [namespaces]
-    resourceNames: [cloudlab-app-notes, istio-system, cloudlab-observability, cloudlab-gateway-public, cloudlab-gateway-private]
+    resourceNames: {{ $policy.kiali.namespaces | toJson }}
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

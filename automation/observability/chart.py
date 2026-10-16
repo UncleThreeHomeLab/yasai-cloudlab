@@ -8,7 +8,7 @@ import subprocess
 import yaml
 
 from automation.gitops.render import images
-from automation.observability.package import retained, kiali_declarative
+from automation.observability.package import retained, kiali_declarative, tempo_protocols
 from automation.observability.values import values
 from automation.observability.configuration import POLICY
 
@@ -49,12 +49,11 @@ def check():
         raw = (path / lock['archive']).read_bytes()
         if hashlib.sha256(raw).hexdigest() != lock['sha256']:
             raise ValueError('Telemetry chart artifact checksum mismatch')
-        if name == 'prometheus' and retained((path / 'upstream.tgz').read_bytes()) != raw:
-            raise ValueError('Telemetry CRD patch differs from pinned upstream')
-        if name == 'kiali':
+        patcher = {'prometheus': retained, 'kiali': kiali_declarative, 'tempo': tempo_protocols}.get(name)
+        if patcher:
             upstream = (path / 'upstream.tgz').read_bytes()
-            if hashlib.sha256(upstream).hexdigest() != lock['upstream_sha256'] or kiali_declarative(upstream) != raw:
-                raise ValueError('Kiali declarative patch differs from pinned upstream')
+            if hashlib.sha256(upstream).hexdigest() != lock['upstream_sha256'] or patcher(upstream) != raw:
+                raise ValueError('Telemetry declarative patch differs from pinned upstream')
         if json.loads((path / 'values.json').read_text()) != {lock['chart']: values(name)}:
             raise ValueError('Telemetry settings differ from their policy compiler')
         objects = render(name)

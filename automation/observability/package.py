@@ -75,13 +75,16 @@ def kiali_declarative(raw):
 {{- $selected = $expression.values -}}
 {{- end -}}
 {{- range $name := $selected -}}
-{{- if not (has $name (list "cloudlab-observability" "cloudlab-app-notes" "istio-system" "cloudlab-gateway-public" "cloudlab-gateway-private")) }}{{ fail "Kiali namespace outside approved scope" }}{{ end -}}
+{{- if not (has $name (list __KIALI_NAMESPACES__)) }}{{ fail "Kiali namespace outside approved scope" }}{{ end -}}
 {{- if not (has $name $namespaces) }}{{ $namespaces = append $namespaces $name }}{{ end -}}
 {{- end -}}
 {{- end -}}
 {{- join "," $namespaces -}}
 {{- end -}}
 '''
+                        from automation.observability.configuration import POLICY
+                        replacement = replacement.replace(b'__KIALI_NAMESPACES__',
+                            ' '.join(json.dumps(name) for name in POLICY['kiali']['namespaces']).encode())
                         data = data[:start] + replacement + data[end:]
                         changes += 1
                     if original.name == 'kiali-server/templates/role-viewer.yaml':
@@ -97,6 +100,35 @@ def kiali_declarative(raw):
     return output.getvalue()
 
 
+def tempo_protocols(raw):
+    """Declare protocols without changing upstream service port names or numbers."""
+    protocols = {'tempo-prom-metrics': 'http', 'jaeger-metrics': 'http', 'tempo-query-jaeger-ui': 'http',
+                 'tempo-jaeger-thrift-http': 'http', 'grpc-tempo-jaeger': 'grpc', 'tempo-zipkin': 'http',
+                 'tempo-otlp-legacy': 'grpc', 'tempo-otlp-http-legacy': 'http',
+                 'grpc-tempo-otlp': 'grpc', 'tempo-otlp-http': 'http'}
+    output, changes = io.BytesIO(), 0
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as source:
+        with gzip.GzipFile(fileobj=output, mode='wb', filename='', mtime=0) as zipped:
+            with tarfile.open(fileobj=zipped, mode='w') as target:
+                for original in source:
+                    if not original.isfile() or original.name.startswith('/') or '..' in Path(original.name).parts:
+                        raise ValueError('Unexpected Tempo chart member')
+                    data = source.extractfile(original).read()
+                    if original.name == 'tempo/templates/_ports.tpl':
+                        for name, protocol in protocols.items():
+                            marker = ('- name: ' + name + '\n').encode()
+                            if data.count(marker) != 1:
+                                raise ValueError('Pinned Tempo port inventory changed')
+                            data = data.replace(marker, marker + ('  appProtocol: ' + protocol + '\n').encode())
+                            changes += 1
+                    member = tarfile.TarInfo(original.name)
+                    member.mode, member.size = 0o644, len(data)
+                    target.addfile(member, io.BytesIO(data))
+    if changes != len(protocols):
+        raise ValueError('Pinned Tempo protocol patch changed')
+    return output.getvalue()
+
+
 def build():
     from automation.observability.values import values
     from automation.observability.slo import build as build_slo
@@ -108,11 +140,12 @@ def build():
     for name in ('prometheus', 'loki', 'tempo', 'alloy', 'kiali'):
         path = BASE / name
         lock = json.loads((path / 'artifact.lock.json').read_text())
-        if name in ('prometheus', 'kiali'):
+        patchers = {'prometheus': retained, 'kiali': kiali_declarative, 'tempo': tempo_protocols}
+        if name in patchers:
             raw = (path / 'upstream.tgz').read_bytes()
             if hashlib.sha256(raw).hexdigest() != lock['upstream_sha256']:
                 raise ValueError('Upstream monitoring chart checksum mismatch')
-            data = retained(raw) if name == 'prometheus' else kiali_declarative(raw)
+            data = patchers[name](raw)
             (path / lock['archive']).write_bytes(data)
             lock['sha256'] = hashlib.sha256(data).hexdigest()
             (path / 'artifact.lock.json').write_text(json.dumps(lock, indent=2) + '\n')
