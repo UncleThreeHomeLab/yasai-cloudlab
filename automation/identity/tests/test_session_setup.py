@@ -101,4 +101,3 @@ class SessionSetupTests(unittest.TestCase):
             for revision in (None, 'main', 'x' * 40, 'a' * 40 + '\n'):
                 with self.assertRaises(ValueError): wait_private_source(revision)
             ssh.assert_not_called()
-

@@ -112,5 +112,3 @@ def retire(api, values, request, checkpoint):
             raise RuntimeError('Disposable identity or unrelated users changed during offboarding')
     local_offboard({key: identity[key] for key in ('realm', 'username', 'user_id', 'email')})
     checkpoint.unlink()
-
-
