@@ -75,7 +75,8 @@ def forward(values, host):
         '-D', '127.0.0.1:' + str(socks), '-L', '127.0.0.1:' + str(tls) + ':' + host + ':443',
         values['VM_USER'] + '@' + values['VM_HOST']]
     with tempfile.TemporaryFile() as diagnostics:
-        process = subprocess.Popen(arguments, env=environment, stdout=subprocess.DEVNULL, stderr=diagnostics)
+        process = subprocess.Popen(arguments, env=environment, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=diagnostics)
         try:
             deadline = time.monotonic() + 20
             while True:

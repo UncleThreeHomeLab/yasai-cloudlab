@@ -26,6 +26,7 @@ class TransportTests(unittest.TestCase):
             arguments, child = start.call_args.args[0], start.call_args.kwargs['env']
             self.assertEqual(set(child) - {'PATH', 'HOME'}, {'SSHPASS'})
             self.assertEqual(child['SSHPASS'], values['VM_PASSWORD'])
+            self.assertEqual(start.call_args.kwargs['stdin'], transport.subprocess.DEVNULL)
             self.assertNotIn(values['VM_PASSWORD'], ' '.join(arguments))
             self.assertIn('StrictHostKeyChecking=yes', arguments)
             self.assertIn('127.0.0.1:10001', arguments)

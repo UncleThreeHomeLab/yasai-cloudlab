@@ -23,7 +23,7 @@ def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *
         '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-o', 'PreferredAuthentications=password',
         '-o', 'PubkeyAuthentication=no', '-o', 'StrictHostKeyChecking=' + strict,
         '-o', 'UserKnownHostsFile=' + known_hosts, os.environ[prefix + '_USER'] + '@' + host, command],
-        env=env, input=input, capture_output=True, text=True, timeout=timeout)
+        env=env, input='' if input is None else input, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
         if diagnostics is not None:
             descriptor = os.open(diagnostics, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
