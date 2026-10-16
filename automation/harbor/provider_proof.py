@@ -140,7 +140,8 @@ def run(directory):
     # Deliberate allowlist: no OP token, GitHub token, inherited TF logging or production backend.
     environment = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}
     environment.update(TF_IN_AUTOMATION='true', TF_INPUT='false', TF_VAR_robot_secret=secret,
-                       HARBOR_USERNAME='fixture', HARBOR_PASSWORD=credential, SSL_CERT_FILE=str(public))
+                       HARBOR_USERNAME='fixture', HARBOR_PASSWORD=credential, SSL_CERT_FILE=str(public),
+                       TF_CLI_CONFIG_FILE='/opt/runner/providers.tfrc')
     def tofu(*arguments, expected=0):
         result = subprocess.run(['tofu', '-chdir=' + str(directory), *arguments, '-no-color'],
                                 capture_output=True, text=True, timeout=180, env=environment)
@@ -192,7 +193,7 @@ def run(directory):
             tofu('plan', '-detailed-exitcode', '-input=false')
             tofu('apply', '-auto-approve', '-input=false')
             require(server.patches == patches, 'Recovered robot rotated on repeat apply')
-        return {'provider': 'goharbor/harbor@3.12.5', 'tls_verified': True, 'write_only': True,
+        return {'provider': 'cloudlab/harbor@3.12.5-cloudlab.1', 'tls_verified': True, 'write_only': True,
                 'repeat_rotations': 0, 'interruption_cases': 3, 'production_mutations': 0,
                 'harbor_behavior_proven': False}
     finally:

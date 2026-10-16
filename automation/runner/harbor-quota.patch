@@ -1,0 +1,219 @@
+--- a/client/project.go
++++ b/client/project.go
+@@ -133,65 +133,41 @@
+ 	return allowlist
+ }
+ 
+-func (client *Client) UpdateStorageQuota(d *schema.ResourceData) (err error) {
+-	resp, _, _, err := client.SendRequest("GET", models.PathConfig, nil, 200)
++// ProjectStorageQuota resolves exactly one quota for the project, including refresh and import.
++func (client *Client) ProjectStorageQuota(project string) (models.QuotaResponse, error) {
++	var empty models.QuotaResponse
++	id, err := strconv.Atoi(strings.TrimPrefix(project, "/projects/"))
++	if err != nil || id <= 0 || !strings.HasPrefix(project, "/projects/") {
++		return empty, fmt.Errorf("invalid project quota identity")
++	}
++	path := fmt.Sprintf("/quotas?reference=project&reference_id=%d&page=1&page_size=2", id)
++	resp, _, _, err := client.SendRequest("GET", path, nil, 200)
++	if err != nil {
++		return empty, err
++	}
++	var rows []models.QuotaResponse
++	if err := json.Unmarshal([]byte(resp), &rows); err != nil {
++		return empty, err
++	}
++	if len(rows) != 1 || rows[0].Ref.ID != id || rows[0].ID <= 0 || rows[0].Hard.Storage < -1 {
++		return empty, fmt.Errorf("project quota identity or limit is missing or ambiguous")
++	}
++	return rows[0], nil
++}
++
++func (client *Client) UpdateStorageQuota(d *schema.ResourceData) error {
++	if !d.HasChange("storage_quota") {
++		return nil
++	}
++	quota, err := client.ProjectStorageQuota(d.Id())
+ 	if err != nil {
+ 		return err
+ 	}
+-
+-	var jsonData models.ConfigBodyResponse
+-	err = json.Unmarshal([]byte(resp), &jsonData)
+-	if err != nil {
+-		return err
++	storage := int64(d.Get("storage_quota").(int))
++	if storage > 0 {
++		storage *= 1073741824
+ 	}
+-
+-	if jsonData.QuotaPerProjectEnable.Value == true {
+-		if d.HasChange("storage_quota") {
+-			projectID := strings.Replace(d.Id(), "/projects/", "", -1)
+-			page := 1
+-
+-			for {
+-				quotasPath := fmt.Sprintf("/quotas/?page=%d&page_size=100", page)
+-
+-				resp, _, _, err := client.SendRequest("GET", quotasPath, nil, 200)
+-				if err != nil {
+-					return err
+-				}
+-
+-				var quotaResponse []models.QuotaResponse
+-				if err := json.Unmarshal([]byte(resp), &quotaResponse); err != nil {
+-					return err
+-				}
+-
+-				if len(quotaResponse) == 0 {
+-					return nil
+-				}
+-
+-				for _, q := range quotaResponse {
+-					pid := strconv.Itoa(q.Ref.ID)
+-					if pid == projectID {
+-						quotaID := "/quotas/" + strconv.Itoa(q.ID)
+-						storage := d.Get("storage_quota").(int)
+-						if storage > 0 {
+-							storage *= 1073741824 // GB
+-						}
+-						quota := models.Hard{
+-							Storage: int64(storage),
+-						}
+-						body := models.StorageQuota{quota}
+-
+-						_, _, _, err = client.SendRequest("PUT", quotaID, body, 200)
+-						if err != nil {
+-							return err
+-						}
+-						break
+-					}
+-				}
+-				page++
+-			}
+-		}
+-
+-	}
+-
+-	return nil
++	body := models.StorageQuota{Hard: models.Hard{Storage: storage}}
++	_, _, _, err = client.SendRequest("PUT", fmt.Sprintf("/quotas/%d", quota.ID), body, 200)
++	return err
+ }
+--- a/provider/resource_project.go
++++ b/provider/resource_project.go
+@@ -230,6 +230,21 @@
+ 		return err
+ 	}
+ 
++	quota, err := apiClient.ProjectStorageQuota(d.Id())
++	if err != nil {
++		return err
++	}
++	storage := quota.Hard.Storage
++	if storage != -1 {
++		if storage%1073741824 != 0 {
++			return fmt.Errorf("project quota is not representable as whole GiB; explicit field review required")
++		}
++		storage /= 1073741824
++	}
++	if err := d.Set("storage_quota", storage); err != nil {
++		return err
++	}
++
+ 	d.Set("name", jsonData.Name)
+ 	d.Set("project_id", jsonData.ProjectID)
+ 	d.Set("registry_id", jsonData.RegistryID)
+@@ -271,7 +286,9 @@
+ 		return err
+ 	}
+ 
+-	apiClient.UpdateStorageQuota(d)
++	if err := apiClient.UpdateStorageQuota(d); err != nil {
++		return err
++	}
+ 
+ 	if d.HasChange("vulnerability_scanner") {
+ 		err = apiClient.SetProjectScanner(d)
+--- /dev/null
++++ b/provider/cloudlab_quota_test.go
+@@ -0,0 +1,80 @@
++package provider
++
++import (
++	"fmt"
++	"github.com/goharbor/terraform-provider-harbor/client"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++)
++
++func TestCloudlabQuotaRefreshImportAndFailure(t *testing.T) {
++	for _, tc := range []struct {
++		name, body string
++		code       int
++		valid      bool
++	}{
++		{"bounded", `[{"id":7,"ref":{"id":1},"hard":{"storage":21474836480}}]`, 200, true},
++		{"unlimited", `[{"id":7,"ref":{"id":1},"hard":{"storage":-1}}]`, 200, true},
++		{"missing", `[]`, 200, false},
++		{"foreign", `[{"id":7,"ref":{"id":2},"hard":{"storage":21474836480}}]`, 200, false},
++		{"fractional", `[{"id":7,"ref":{"id":1},"hard":{"storage":1}}]`, 200, false},
++		{"denied", `{}`, 403, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				switch r.URL.Path {
++				case "/projects/1":
++					fmt.Fprint(w, `{"project_id":1,"name":"fixture","metadata":{}}`)
++				case "/quotas":
++					if r.URL.Query().Get("reference_id") != "1" || r.URL.Query().Get("reference") != "project" {
++						t.Error("unscoped quota query")
++					}
++					w.WriteHeader(tc.code)
++					fmt.Fprint(w, tc.body)
++				default:
++					t.Error("unexpected API path")
++					w.WriteHeader(500)
++				}
++			}))
++			defer server.Close()
++			api := client.NewClient(server.URL, "synthetic", "synthetic", "", "", false, "robot$", nil)
++			data := schema.TestResourceDataRaw(t, resourceProject().Schema, map[string]interface{}{})
++			data.SetId("/projects/1")
++			err := resourceProjectRead(data, api)
++			if (err == nil) != tc.valid {
++				t.Fatalf("unexpected refresh/import result: %v", err)
++			}
++			if tc.valid && tc.name == "bounded" && data.Get("storage_quota").(int) != 20 {
++				t.Fatal("quota was not refreshed")
++			}
++			if tc.valid && tc.name == "unlimited" && data.Get("storage_quota").(int) != -1 {
++				t.Fatal("unlimited quota changed")
++			}
++		})
++	}
++}
++
++func TestCloudlabQuotaUpdateFailurePropagates(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		switch {
++		case r.Method == "PUT" && r.URL.Path == "/projects/1":
++			w.WriteHeader(200)
++		case r.Method == "GET" && r.URL.Path == "/quotas":
++			fmt.Fprint(w, `[{"id":7,"ref":{"id":1},"hard":{"storage":1073741824}}]`)
++		case r.Method == "PUT" && r.URL.Path == "/quotas/7":
++			w.WriteHeader(500)
++		default:
++			t.Error("unexpected API call after quota failure")
++			w.WriteHeader(500)
++		}
++	}))
++	defer server.Close()
++	data := schema.TestResourceDataRaw(t, resourceProject().Schema, map[string]interface{}{"name": "fixture", "storage_quota": 20})
++	data.SetId("/projects/1")
++	api := client.NewClient(server.URL, "synthetic", "synthetic", "", "", false, "robot$", nil)
++	if resourceProjectUpdate(data, api) == nil {
++		t.Fatal("failed quota update was silently accepted")
++	}
++}
