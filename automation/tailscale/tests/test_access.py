@@ -9,6 +9,15 @@ from verify_access import ssh, tailnet_connect
 
 
 class AccessTests(unittest.TestCase):
+    def test_ssh_never_inherits_the_local_credential_stream(self):
+        with patch.dict('verify_access.os.environ', {'VM_USER': 'fixture', 'VM_PASSWORD': 'synthetic'}, clear=True), \
+                patch('verify_access.subprocess.run') as process:
+            process.return_value.returncode = 0
+            process.return_value.stdout = ''
+            for supplied in (None, '', 'explicit remote input'):
+                ssh('VM', 'example.invalid', 'probe', input=supplied)
+                self.assertEqual(process.call_args.kwargs['input'], supplied or '')
+
     def test_failed_ssh_can_retain_protected_stderr_without_stdout_or_public_error_values(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'diagnostics.txt'
