@@ -4,15 +4,36 @@ import io
 import os
 from pathlib import Path
 import runpy
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+import yaml
 from unittest.mock import patch
 
 from automation.harbor import verify, recovery
 
 
 class VerificationTests(unittest.TestCase):
+    def test_deployed_verifier_imports_without_checkout_or_extra_packages(self):
+        root = Path(__file__).resolve().parents[3]
+        tasks = yaml.safe_load((root / 'ansible/roles/harbor/tasks/main.yml').read_text())
+        modules = next(task['loop'] for task in tasks if task.get('name') == 'Install Harbor declaration and recovery owners')
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory)
+            for relative in ([f'automation/harbor/{name}' for name in modules] +
+                             ['automation/mesh/kube.py', 'automation/gitops/source_revision.py',
+                              'automation/identity/health.py', 'platform/harbor/policy.json']):
+                target = destination / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(root / relative, target)
+            result = subprocess.run([sys.executable, '-I', '-S', '-c',
+                                     'import sys; sys.path.insert(0, sys.argv[1]); '
+                                     'from automation.harbor.verify import oidc_discovery; assert callable(oidc_discovery)',
+                                     str(destination)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_core_discovery_requires_tls_and_the_exact_platform_endpoints(self):
         issuer = 'https://login.example.invalid/realms/platform'
         document = {'issuer': issuer, 'authorization_endpoint': issuer + '/protocol/openid-connect/auth',
