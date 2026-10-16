@@ -1,3 +1,4 @@
+import {enrollViewer} from './disposable.mjs';
 // Live disposable viewer only. Credentials and sessions stay in process memory.
 import {chromium} from 'playwright';
 import readline from 'node:readline';
@@ -77,30 +78,7 @@ try {
       try {refresh = (await response.json()).refresh_token;} catch {}
     }
   });
-  stage = 'account enrollment';
-  await page.goto(issuer+'/account/');
-  stage = 'account password';
-  await page.getByLabel('Username', {exact:false}).fill(input.username);
-  await page.getByLabel('Password', {exact:true}).fill(input.password);
-  await page.getByRole('button', {name:'Sign In',exact:true}).click();
-  stage = 'WebAuthn registration';
-  await page.waitForLoadState('domcontentloaded');
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', {options:{protocol:'ctap2',transport:'internal',
-    hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
-  await page.getByRole('button', {name:/Register/}).click();
-  stage = 'account session';
-  const personal = page.getByRole('heading', {name:'Personal info',exact:true});
-  const firstName = page.getByLabel('First name',{exact:false});
-  await Promise.race([personal.waitFor(),firstName.waitFor()]);
-  const profileSubmit = page.getByRole('button',{name:/^Submit$/i});
-  if (await firstName.isVisible() && await profileSubmit.count()) {
-    await firstName.fill('Fixture');
-    await page.getByLabel('Last name',{exact:false}).fill('Viewer');
-    await profileSubmit.click();
-  }
-  await personal.waitFor();
+  await enrollViewer(page, context, input, issuer, value => {stage = value;});
   stage = 'account reload';
   const profilePromise = page.waitForResponse(r => r.url().startsWith(issuer+'/account/?') &&
     new URL(r.url()).searchParams.get('userProfileMetadata')==='true' && r.status()===200);

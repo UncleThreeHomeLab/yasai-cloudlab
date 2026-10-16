@@ -2,94 +2,25 @@
 import json
 import os
 from pathlib import Path
-import secrets
-import re
-import shlex
 import socket
 import subprocess
 import sys
 import time
-import yaml
 
 from automation.credentials.vault import fields
 from automation.identity.owner_enrollment import inputs
-from automation.identity.operations import private_files
-from automation.identity.private_source import publish
-from automation.identity.session_fixture import membership, provision, local, scope
-from automation.observability.payload import metadata
+from automation.identity.session_fixture import scope
+from automation.identity.session_setup import environment, wait_private_source
 
 CHECKPOINT = Path('/recovery/notes-baseline-fixture.json')
 RESULT = Path('/recovery/notes-baseline-result.json')
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def environment(values):
-    for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'OP_SERVICE_ACCOUNT_TOKEN'):
-        if not values.get(key): raise ValueError('Missing baseline prerequisite: ' + key)
-        os.environ[key] = values[key]
-    os.environ['VM_PORT'] = values.get('VM_PORT') or '22'
-
-
 def prepare():
-    values, api, source, revoked = inputs()
-    environment(values)
-    if CHECKPOINT.exists():
-        request = json.loads(CHECKPOINT.read_text())
-        scope(request)
-        if request.get('realm') != 'applications': raise ValueError('Baseline checkpoint has another realm')
-    else:
-        request = {'nonce': secrets.token_hex(16), 'realm': 'applications'}
-        from automation.data.control import atomic
-        atomic(CHECKPOINT, request)
-    provision(request)
-    try:
-        local(request, stage=True)
-    except RuntimeError:
-        # Interrupted enrollment may already own the account; native guards verify it.
-        from automation.gitops.github_setup import repository
-        repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
-        wait_private_source(api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha'])
-        local(request)
-        return {'disposable_applications_viewer': True, 'primary_users_changed': False, 'baseline_measured': False}
-    from automation.gitops.github_setup import repository
-    from automation.identity.private_source import decode_contents
-    repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
-    current = yaml.safe_load(decode_contents(api.request('GET', 'repos/' + repo + '/contents/identity/configmap.yaml?ref=main')))
-    if json.loads(current['data']['desired_state']) != source or json.loads(current['data']['revocations']) != revoked:
-        raise RuntimeError('Private identity inventory advanced; reread before publishing the viewer')
-    credentials = fields('keycloak-proof-' + request['nonce'], ('username', 'password', 'email', 'ownership_id'))
-    source = membership(source, revoked, credentials, request)
-    client_secrets = json.loads(fields('keycloak-client-secrets', ('client_secrets',))['client_secrets'])
-    prepared = private_files(source, revoked, client_secrets, metadata()['loginHost'])
-    result = publish(api, values, prepared)
-    if result['private_source_changed']:
-        pull = api.request('GET', 'repos/' + repo + '/pulls/' + str(result['private_pull_request']))
-        merged = api.request('PUT', 'repos/' + repo + '/pulls/' + str(pull['number']) + '/merge',
-                             {'sha': pull['head']['sha'], 'merge_method': 'squash'})
-        if not merged.get('merged'): raise RuntimeError('Protected disposable membership merge incomplete')
-        revision = merged['sha']
-    else:
-        revision = api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
-    wait_private_source(revision)
-    local(request)
+    from automation.identity.session_setup import prepare as prepare_viewer
+    prepare_viewer(CHECKPOINT, 'applications')
     return {'disposable_applications_viewer': True, 'primary_users_changed': False, 'baseline_measured': False}
-
-
-def wait_private_source(revision):
-    if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
-        raise ValueError('Disposable enrollment requires an immutable private revision')
-    from automation.connectivity.preflight import ssh
-    script = """import sys,json
-sys.path.insert(0,'/opt/cloudlab')
-from automation.mesh.kube import application_ready,wait
-revision=json.load(sys.stdin)['revision']
-wait(lambda:application_ready('cloudlab-identity-private',revision),'private fixture source convergence',timeout=600)
-print(json.dumps({'private_source_ready':True}))
-"""
-    ready = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
-                          input=json.dumps({'revision': revision}), timeout=630))
-    if ready != {'private_source_ready': True}:
-        raise RuntimeError('Private fixture source convergence incomplete')
 
 
 def result(document, policy):
@@ -150,22 +81,8 @@ def cleanup():
 
 
 def retire(api, values, request):
-    from automation.identity.session_acceptance import offboard_inputs, remote_state
-    from automation.identity.lifecycle import local_offboard
-    identity = remote_state(request)
-    offboard_inputs(api, values, request, resume=True)
-    limit = json.loads((ROOT / 'platform/identity/keycloak/contract.json').read_text())['sessions']['private_revocation_convergence_seconds']
-    deadline = time.monotonic() + limit
-    current = identity
-    while current['enabled'] is not False:
-        if time.monotonic() >= deadline:
-            raise RuntimeError('Disposable viewer offboarding convergence deadline exceeded')
-        time.sleep(5)
-        current = remote_state(request)
-        if any(current[key] != identity[key] for key in ('realm', 'username', 'user_id', 'email', 'preservation')):
-            raise RuntimeError('Disposable identity or unrelated users changed during offboarding')
-    local_offboard({key: identity[key] for key in ('realm', 'username', 'user_id', 'email')})
-    CHECKPOINT.unlink()
+    from automation.identity.session_setup import retire as retire_viewer
+    retire_viewer(api, values, request, CHECKPOINT)
 
 
 def measure(request, credentials, origin, issuer, policy):

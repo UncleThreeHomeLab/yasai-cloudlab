@@ -43,7 +43,13 @@
     "authorization": "OIDC group /platform-admin only for system administration; explicit project membership for other groups",
     "sessions": "Absolute 240-second browser gate; no refresh. Machine registry/token and explicitly authenticated API routes remove cookies.",
     "prerequisites": "OIDC mode, verified issuer TLS, disabled registration and admin-only project creation before human onboarding.",
-    "recovery": "Vault admin via explicit Basic-authenticated private API; no interactive Keycloak dependency."
+    "recovery": "Vault admin via explicit Basic-authenticated private API; no interactive Keycloak dependency.",
+    "proof": {
+      "prepare": "gh auth token | docker compose -f automation/harbor/compose.sessions.yaml run --build --rm -T harbor-session-controller prepare",
+      "run": "Start harbor-browser with the same Compose file, then pipe gh auth token to harbor-session-controller run. Requires the unchanged accepted API root and completed independent artifact proof.",
+      "custody": "Disposable platform viewer only; credentials, CLI secrets and browser sessions stay in process memory. Browser has no vault token, host credentials, backend access or persistent profile.",
+      "interruption": "Run harbor-session-controller cleanup to retain the private tombstone and retire only its recorded viewer before another prepare. Original vault items remain unchanged. Stop harbor-browser after the proof."
+    }
   },
   "recovery": {
     "token_key_encoding": "Canonical vault key and certificate stay unchanged. A restricted init container converts the same RSA key to PKCS#1 in memory for Harbor/libtrust; no generated or persisted replacement key.",
