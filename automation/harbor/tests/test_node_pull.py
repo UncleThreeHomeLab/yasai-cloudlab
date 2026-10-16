@@ -15,6 +15,7 @@ class NodePullTests(unittest.TestCase):
         client = Mock()
         client.values = {prefix + '_' + name: value for prefix in ('VM', 'VM2')
                          for name, value in (('HOST', '192.0.2.1'), ('USER', 'fixture'), ('PASSWORD', 'synthetic-ssh'))}
+        client.values['VM2_HOST'] = '192.0.2.2'
         robots = {project + '-' + role: {'username': 'robot$' + project + '+' + role,
                     'password': project + '-' + role + '-synthetic', 'extra': 'must-not-be-delivered'}
                   for project in ('cloudlab-public', 'cloudlab-private') for role in ('pull', 'push')}
@@ -28,10 +29,25 @@ class NodePullTests(unittest.TestCase):
             self.assertEqual(data['username'], 'robot$' + data['project'] + '+pull')
             self.assertNotIn(data['password'], command)
             received.append((prefix, data['project']))
-            return json.dumps({'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True})
+            return json.dumps({'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True,
+                               'host_identity': ('a' if prefix == 'VM' else 'b') * 64})
         with patch.dict(os.environ), patch('automation.connectivity.preflight.ssh', side_effect=ssh):
             self.assertEqual(node_pull.verify_nodes(client, recorded), 4)
         self.assertEqual(set(received), {(prefix, project) for prefix in ('VM', 'VM2') for project in recorded['projects']})
+
+    def test_endpoint_aliases_cannot_count_one_kernel_as_two_nodes(self):
+        client = Mock()
+        client.values = {'VM_HOST': '192.0.2.1', 'VM2_HOST': '192.0.2.1'}
+        with self.assertRaisesRegex(ValueError, 'distinct node endpoints'):
+            node_pull.verify_nodes(client, {})
+        client.values.update(VM_USER='fixture', VM_PASSWORD='synthetic', VM2_USER='fixture', VM2_PASSWORD='synthetic', VM2_PORT='2222')
+        client.private = {'host': 'harbor.internal.example.invalid', 'robots': {
+            'cloudlab-public-pull': {'username': 'robot$cloudlab-public+pull', 'password': 'synthetic'}}}
+        response = {'host_dns_tls': True, 'containerd_pull_by_digest': True,
+                    'temporary_credentials_removed': True, 'host_identity': 'a' * 64}
+        with patch.dict(os.environ), patch('automation.connectivity.preflight.ssh', return_value=json.dumps(response)), \
+                self.assertRaisesRegex(RuntimeError, 'same node kernel'):
+            node_pull.verify_nodes(client, {'projects': {'cloudlab-public': {'digest': 'sha256:' + 'b' * 64}}})
 
     def payload(self):
         return {'host': 'harbor.internal.example.invalid', 'project': 'cloudlab-public',
