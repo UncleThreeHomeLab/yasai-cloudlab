@@ -20,13 +20,36 @@
   },
   "permissions": {
     "github-arc": "Selected trusted private test repository only; Administration write and Metadata read. No organization runner registration.",
-    "github-release-public": "Separate public App; selected public release target only; Contents and Pull requests write, Metadata read.",
-    "github-release-private": "Separate private App; selected private release target only; Contents and Pull requests write, Metadata read.",
+    "github-release-public": "Separate public App; selected public platform and fixture targets only; Contents and Pull requests write, Metadata read.",
+    "github-release-private": "Separate private App; selected private configuration and fixture targets only; Contents and Pull requests write, Metadata read.",
     "gitlab-state-harbor": "Independent private HTTP state backend; state and lock access; no lab dependency."
   },
   "owners": {
     "installation": "Argo CD",
     "projects_quotas_retention_designated_permissions": "OpenTofu after field/import acceptance",
     "database_blobs_signatures": "Harbor-specific coordinated recovery; no implicit shared CNPG or S3 migration"
+  },
+  "installation_items": {
+    "harbor-emergency": ["username", "password"],
+    "harbor-database": ["password"],
+    "harbor-runtime": ["secretKey", "secret", "CSRF_KEY", "JOBSERVICE_SECRET", "REGISTRY_HTTP_SECRET", "REGISTRY_PASSWD", "REGISTRY_HTPASSWD"],
+    "harbor-token-signing": ["tls_key", "tls_crt"],
+    "harbor-browser-key": ["cookie_secret"],
+    "keycloak-client-secrets": ["client_secrets.platform.harbor"]
+  },
+  "browser": {
+    "issuer": "retained platform Keycloak realm",
+    "client": "harbor; confidential, exact /c/oidc/callback and /oauth2/callback on the private origin",
+    "authorization": "OIDC group /platform-admin only for system administration; explicit project membership for other groups",
+    "sessions": "Absolute 240-second browser gate; no refresh. Machine registry/token and explicitly authenticated API routes remove cookies.",
+    "prerequisites": "OIDC mode, verified issuer TLS, disabled registration and admin-only project creation before human onboarding.",
+    "recovery": "Vault admin via explicit Basic-authenticated private API; no interactive Keycloak dependency."
+  },
+  "recovery": {
+    "source": "Three retained Longhorn claims; independent PostgreSQL, Valkey and filesystem blobs",
+    "consistency": "Argo-owned writer shutdown, database/artifact inventory, three cold snapshots and isolated restore with current vault signing inputs",
+    "offsite": "Existing native Longhorn B2 target; day 1 UTC only, AES256, one verified generation after successful off-site restore; zero retained local generations",
+    "interruption": "Protected maintenance, capture and retention receipts; resume the original Application values, retain previous remote generation until proof completes",
+    "bootstrap": "Pinned upstream images and chart in checkout; Compose execution never requires ARC or Harbor"
   }
 }

@@ -65,7 +65,8 @@
           {{ ['python3', '-', 'kube-system', 'external-secrets', 'longhorn-system']
              + (['cert-manager'] if certificates_enabled | bool else [])
              + (['istio-system', 'cloudlab-gateway-public', 'cloudlab-gateway-private'] if mesh_enabled | bool else [])
-             + (['cloudlab-observability'] if observability_enabled | bool else []) }}
+             + (['cloudlab-observability'] if observability_enabled | bool else [])
+             + (['cloudlab-harbor'] if harbor_enabled | bool else []) }}
         stdin: "{{ lookup('file', '../verification/integration/controller_stability.py') }}"
       register: controller_stability
       changed_when: false
@@ -94,3 +95,40 @@
         name: observability
         tasks_from: verify
       when: observability_enabled | bool
+
+    - name: Verify private registry ownership and current isolated recovery
+      ansible.builtin.include_role:
+        name: harbor
+        tasks_from: verify
+      when: harbor_enabled | bool
+
+- name: Verify Harbor from both node host networks
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Resolve published Harbor host verification inputs
+      ansible.builtin.command: python -m automation.harbor.payload
+      args: {chdir: /workspace}
+      delegate_to: localhost
+      become: false
+      run_once: true
+      changed_when: false
+      no_log: true
+      register: harbor_host_payload
+      when: harbor_enabled | bool
+
+    - name: Check each host resolver and HTTPS registry challenge
+      ansible.builtin.command:
+        argv: [python3, -c, "{{ lookup('file', '../automation/harbor/host_verify.py') }}"]
+        stdin: '{{ harbor_host_payload.stdout }}'
+      register: harbor_host_verified
+      changed_when: false
+      no_log: true
+      when: harbor_enabled | bool
+
+    - name: Report sanitized node registry reachability
+      ansible.builtin.debug:
+        msg: '{{ harbor_host_verified.stdout | from_json }}'
+      when: harbor_enabled | bool

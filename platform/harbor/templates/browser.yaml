@@ -1,0 +1,73 @@
+{{- if .Values.enabled }}
+{{- $policy := .Files.Get "policy.json" | fromJson }}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: harbor-browser, namespace: cloudlab-harbor}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata: {name: harbor-browser, namespace: cloudlab-harbor}
+spec:
+  selector: {component: browser}
+  ports: [{name: http-browser, appProtocol: http, port: 4180, targetPort: 4180}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: harbor-browser, namespace: cloudlab-harbor}
+spec:
+  replicas: {{ ternary 0 1 .Values.maintenance }}
+  strategy: {type: Recreate}
+  revisionHistoryLimit: 2
+  selector: {matchLabels: {component: browser}}
+  template:
+    metadata: {labels: {component: browser}}
+    spec:
+      serviceAccountName: harbor-browser
+      automountServiceAccountToken: false
+      hostAliases: [{ip: {{ .Values.gatewayIP | quote }}, hostnames: [{{ .Values.loginHost | quote }}]}]
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: browser
+          image: {{ index (.Files.Get "images.lock.json" | fromJson) "browser-gate" | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          ports: [{name: http-browser, containerPort: 4180}]
+          readinessProbe: {httpGet: {path: /ready, port: http-browser}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /ping, port: http-browser}, periodSeconds: 10}
+          env:
+            - {name: OAUTH2_PROXY_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: harbor-browser-oidc, key: client_secret}}}
+            - {name: OAUTH2_PROXY_COOKIE_SECRET, valueFrom: {secretKeyRef: {name: harbor-browser-key, key: cookie_secret}}}
+          args:
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://{{ .Values.loginHost }}/realms/platform
+            - --client-id=harbor
+            - --redirect-url=https://{{ .Values.harborHost }}/oauth2/callback
+            - --code-challenge-method=S256
+            - --upstream=http://harbor:80
+            - --http-address=0.0.0.0:4180
+            - --reverse-proxy=true
+            - --cookie-name=__Host-harbor_oidc
+            - --cookie-secure=true
+            - --cookie-httponly=true
+            - --cookie-samesite=lax
+            - --cookie-expire={{ $policy.browser_cookie_seconds }}s
+            - --cookie-refresh=0
+            - --scope=openid profile email
+            - --oidc-groups-claim=groups
+            - --allowed-group=/platform-admin
+            - --allowed-group=/developer
+            - --allowed-group=/viewer
+            - --email-domain=*
+            - --skip-provider-button=true
+            - --pass-basic-auth=false
+            - --pass-access-token=false
+            - --pass-authorization-header=false
+            - --request-logging=false
+            - --auth-logging=false
+{{- end }}

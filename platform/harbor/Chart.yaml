@@ -1,0 +1,5 @@
+apiVersion: v2
+name: harbor-configuration
+version: 0.1.0
+type: application
+description: Private registry boundaries and independent coordinated storage.

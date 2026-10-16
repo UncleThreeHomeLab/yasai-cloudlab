@@ -1,0 +1,286 @@
+{
+  "harbor": {
+    "expose": {
+      "type": "clusterIP",
+      "tls": {
+        "enabled": false
+      }
+    },
+    "externalURL": "https://harbor.internal.example.invalid",
+    "existingSecretAdminPassword": "harbor-emergency",
+    "existingSecretAdminPasswordKey": "password",
+    "existingSecretSecretKey": "harbor-runtime",
+    "harborAdminPassword": "",
+    "secretKey": "",
+    "persistence": {
+      "enabled": true,
+      "resourcePolicy": "keep",
+      "persistentVolumeClaim": {
+        "registry": {
+          "existingClaim": "harbor-registry",
+          "storageClass": "cloudlab-harbor",
+          "size": "50Gi"
+        },
+        "database": {
+          "existingClaim": "harbor-database",
+          "storageClass": "cloudlab-harbor",
+          "size": "10Gi"
+        },
+        "redis": {
+          "existingClaim": "harbor-redis",
+          "storageClass": "cloudlab-harbor",
+          "size": "2Gi"
+        }
+      },
+      "imageChartStorage": {
+        "type": "filesystem",
+        "disableredirect": true
+      }
+    },
+    "updateStrategy": {
+      "type": "Recreate"
+    },
+    "nginx": {
+      "image": {
+        "repository": "docker.io/goharbor/nginx-photon",
+        "tag": "v2.15.4@sha256:7eff0287d5ad0f35754e162c8481ced04bbde107153ce586cefb15ee74fa1311"
+      },
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "20m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "100m",
+          "memory": "128Mi"
+        }
+      },
+      "automountServiceAccountToken": false,
+      "serviceAccountName": "cloudlab-harbor",
+      "revisionHistoryLimit": 2
+    },
+    "portal": {
+      "image": {
+        "repository": "docker.io/goharbor/harbor-portal",
+        "tag": "v2.15.4@sha256:01edf478505b21dba23a83c095f6ecac0c1e705690093edbab41e9a4d6754a75"
+      },
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "20m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "100m",
+          "memory": "128Mi"
+        }
+      },
+      "automountServiceAccountToken": false,
+      "serviceAccountName": "cloudlab-harbor",
+      "revisionHistoryLimit": 2
+    },
+    "core": {
+      "image": {
+        "repository": "docker.io/goharbor/harbor-core",
+        "tag": "v2.15.4@sha256:7d2ba5304a729887cdec7cb222a82b500278423de230ae5150c386a6c332b112"
+      },
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "20m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "500m",
+          "memory": "768Mi"
+        }
+      },
+      "automountServiceAccountToken": false,
+      "serviceAccountName": "cloudlab-harbor",
+      "revisionHistoryLimit": 2,
+      "existingSecret": "harbor-runtime",
+      "secretName": "harbor-token-signing",
+      "existingXsrfSecret": "harbor-runtime",
+      "existingXsrfSecretKey": "CSRF_KEY",
+      "extraEnvVars": [
+        {
+          "name": "CONFIG_OVERWRITE_JSON",
+          "valueFrom": {
+            "secretKeyRef": {
+              "name": "harbor-oidc",
+              "key": "configuration"
+            }
+          }
+        }
+      ]
+    },
+    "jobservice": {
+      "image": {
+        "repository": "docker.io/goharbor/harbor-jobservice",
+        "tag": "v2.15.4@sha256:f143578ef30e2be5c48873298257ed0fca31545025958c534e536a06765d2b82"
+      },
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "20m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "200m",
+          "memory": "256Mi"
+        }
+      },
+      "automountServiceAccountToken": false,
+      "serviceAccountName": "cloudlab-harbor",
+      "revisionHistoryLimit": 2,
+      "existingSecret": "harbor-runtime",
+      "existingSecretKey": "JOBSERVICE_SECRET",
+      "maxJobWorkers": 1,
+      "jobLoggers": [
+        "stdout"
+      ]
+    },
+    "registry": {
+      "registry": {
+        "image": {
+          "repository": "docker.io/goharbor/registry-photon",
+          "tag": "v2.15.4@sha256:dc0cb388a6445c69c8a0c406679290d2991c9698833d9e6e86a23bdfaf2f83c3"
+        },
+        "replicas": 1,
+        "resources": {
+          "requests": {
+            "cpu": "20m",
+            "memory": "64Mi"
+          },
+          "limits": {
+            "cpu": "400m",
+            "memory": "512Mi"
+          }
+        },
+        "automountServiceAccountToken": false,
+        "serviceAccountName": "cloudlab-harbor",
+        "revisionHistoryLimit": 2
+      },
+      "controller": {
+        "image": {
+          "repository": "docker.io/goharbor/harbor-registryctl",
+          "tag": "v2.15.4@sha256:30bd1ace4e3bb390d75b84673f98ddb4a69fcc6d116932ea764391df01943fb7"
+        },
+        "replicas": 1,
+        "resources": {
+          "requests": {
+            "cpu": "20m",
+            "memory": "64Mi"
+          },
+          "limits": {
+            "cpu": "100m",
+            "memory": "128Mi"
+          }
+        },
+        "automountServiceAccountToken": false,
+        "serviceAccountName": "cloudlab-harbor",
+        "revisionHistoryLimit": 2
+      },
+      "replicas": 1,
+      "serviceAccountName": "cloudlab-harbor",
+      "automountServiceAccountToken": false,
+      "existingSecret": "harbor-runtime",
+      "existingSecretKey": "REGISTRY_HTTP_SECRET",
+      "credentials": {
+        "username": "harbor_registry_user",
+        "password": "",
+        "existingSecret": "harbor-runtime"
+      }
+    },
+    "database": {
+      "type": "internal",
+      "internal": {
+        "image": {
+          "repository": "docker.io/goharbor/harbor-db",
+          "tag": "v2.15.4@sha256:a32d51e636d76303e086a7c5251a2c8415c6f165b2f87bafa914efd866c5403f"
+        },
+        "replicas": 1,
+        "resources": {
+          "requests": {
+            "cpu": "20m",
+            "memory": "64Mi"
+          },
+          "limits": {
+            "cpu": "400m",
+            "memory": "1536Mi"
+          }
+        },
+        "automountServiceAccountToken": false,
+        "serviceAccountName": "cloudlab-harbor",
+        "revisionHistoryLimit": 2,
+        "password": "",
+        "shmSizeLimit": "256Mi",
+        "initContainer": {
+          "permissions": {
+            "resources": {
+              "requests": {
+                "cpu": "20m",
+                "memory": "64Mi"
+              },
+              "limits": {
+                "cpu": "50m",
+                "memory": "128Mi"
+              }
+            }
+          }
+        }
+      },
+      "external": {
+        "existingSecret": "harbor-database"
+      },
+      "maxOpenConns": 50,
+      "maxIdleConns": 10
+    },
+    "redis": {
+      "type": "internal",
+      "internal": {
+        "image": {
+          "repository": "docker.io/goharbor/valkey-photon",
+          "tag": "v2.15.4@sha256:bb022e8f236f56f53cee7bb1f609595e497da67d829048e0af2284f97e6eb54f"
+        },
+        "replicas": 1,
+        "resources": {
+          "requests": {
+            "cpu": "20m",
+            "memory": "64Mi"
+          },
+          "limits": {
+            "cpu": "100m",
+            "memory": "256Mi"
+          }
+        },
+        "automountServiceAccountToken": false,
+        "serviceAccountName": "cloudlab-harbor",
+        "revisionHistoryLimit": 2
+      }
+    },
+    "trivy": {
+      "enabled": false
+    },
+    "exporter": {
+      "enabled": false
+    },
+    "metrics": {
+      "enabled": false
+    },
+    "containerSecurityContext": {
+      "privileged": false,
+      "allowPrivilegeEscalation": false,
+      "runAsNonRoot": true,
+      "capabilities": {
+        "drop": [
+          "ALL"
+        ]
+      },
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    }
+  }
+}

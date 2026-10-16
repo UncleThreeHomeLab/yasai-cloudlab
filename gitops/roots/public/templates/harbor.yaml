@@ -1,0 +1,22 @@
+{{- if (.Values.harbor | default dict).enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: cloudlab-harbor, namespace: argocd}
+spec:
+  description: Private registry installation with independent retained data and credentials.
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations: [{server: 'https://kubernetes.default.svc', namespace: cloudlab-harbor}]
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+    - {group: storage.k8s.io, kind: StorageClass}
+  namespaceResourceWhitelist:
+    {{- range $kind := list "ConfigMap" "Secret" "Service" "ServiceAccount" "PersistentVolumeClaim" "ResourceQuota" }}
+    - {group: '', kind: {{ $kind }}}
+    {{- end }}
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: security.istio.io, kind: AuthorizationPolicy}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+{{- end }}

@@ -99,14 +99,14 @@
       register: identity_public_source
       changed_when: false
       no_log: true
-      when: observability_enabled | bool
+      when: (observability_enabled | bool) or (harbor_enabled | bool)
 
     - name: Reconcile only the accepted retired identity before its consumers
       ansible.builtin.include_role:
         name: identity
       vars:
         identity_phase: retained
-      when: observability_enabled | bool
+      when: (observability_enabled | bool) or (harbor_enabled | bool)
 
     - name: Configure services after scoped data grants and buckets converge
       ansible.builtin.include_role:
@@ -117,3 +117,8 @@
       ansible.builtin.include_role:
         name: observability
       when: observability_enabled | bool
+
+    - name: Reconcile the private registry after identity and private DNS
+      ansible.builtin.include_role:
+        name: harbor
+      when: harbor_enabled | bool

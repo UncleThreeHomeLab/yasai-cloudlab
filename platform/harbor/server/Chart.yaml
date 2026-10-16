@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cloudlab-harbor
+version: 0.1.0
+dependencies:
+  - name: harbor
+    version: 1.19.4
+    repository: ''

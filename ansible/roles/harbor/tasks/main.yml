@@ -1,0 +1,74 @@
+---
+- name: Resolve published Harbor installation and private identity inputs
+  ansible.builtin.command: python -m automation.harbor.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  register: harbor_payload
+  changed_when: false
+  no_log: true
+
+- name: Create private Harbor automation and recovery directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [/opt/cloudlab/automation/harbor, /opt/cloudlab/platform/harbor, /var/lib/cloudlab/harbor]
+
+- name: Install Harbor declaration and recovery owners
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../automation/harbor/{{ item }}'
+    dest: '/opt/cloudlab/automation/harbor/{{ item }}'
+    mode: '0600'
+  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py]
+
+- name: Retain independent pinned artifacts for isolated Harbor restores
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../platform/harbor/server/'
+    dest: /opt/cloudlab/platform/harbor/server/
+    mode: '0600'
+    directory_mode: '0700'
+
+- name: Install the Harbor storage and monthly export policy
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../platform/harbor/policy.json'
+    dest: /opt/cloudlab/platform/harbor/policy.json
+    mode: '0600'
+
+- name: Reconcile Harbor only through Argo
+  ansible.builtin.command: python3 /opt/cloudlab/automation/harbor/bootstrap.py
+  args: {stdin: '{{ harbor_payload.stdout }}'}
+  register: harbor_applied
+  changed_when: harbor_applied.rc == 0 and (harbor_applied.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require Harbor installation convergence
+  ansible.builtin.assert:
+    that: harbor_applied.rc == 0
+    fail_msg: Harbor installation incomplete; existing credentials, volumes and owners retained.
+
+- name: Install bounded monthly Harbor recovery service
+  ansible.builtin.template:
+    src: monthly.service.j2
+    dest: /etc/systemd/system/cloudlab-harbor-monthly.service
+    mode: '0644'
+  notify: Reload Harbor units
+
+- name: Install the monthly-only Harbor recovery schedule
+  ansible.builtin.template:
+    src: monthly.timer.j2
+    dest: /etc/systemd/system/cloudlab-harbor-monthly.timer
+    mode: '0644'
+  vars:
+    harbor_policy: "{{ lookup('file', '/workspace/platform/harbor/policy.json') | from_json }}"
+  notify: Reload Harbor units
+
+- name: Load declared Harbor recovery units
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable monthly coordinated Harbor export
+  ansible.builtin.systemd_service:
+    name: cloudlab-harbor-monthly.timer
+    enabled: true
+    state: started
