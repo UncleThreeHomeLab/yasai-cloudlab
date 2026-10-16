@@ -1,12 +1,12 @@
 [Unit]
-Description=Coordinated monthly Harbor export and isolated restore
+Description=CloudLab Harbor {{ item }}
 After=k3s.service network-online.target
 Wants=network-online.target
 ConditionPathExists=/opt/cloudlab/platform/harbor/policy.json
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /opt/cloudlab/automation/harbor/recovery.py monthly
+ExecStart=/usr/bin/python3 /opt/cloudlab/automation/harbor/recovery.py {{ item }}
 UMask=0077
 TimeoutStartSec=4h
 Nice=10

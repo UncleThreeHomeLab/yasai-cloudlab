@@ -29,7 +29,7 @@
     "projects_quotas_retention_designated_permissions": "OpenTofu after field/import acceptance",
     "database_blobs_signatures": "Harbor-specific coordinated recovery; no implicit shared CNPG or S3 migration"
   },
-  "installation_apply": "docker compose run --build --rm -e ANSIBLE_RUN_TAGS=harbor lab apply; requires existing accepted identity, private DNS and storage. Full prove still runs without tag selection.",
+  "installation_apply": "docker compose run --build --rm -e ANSIBLE_RUN_TAGS=harbor -e ANSIBLE_SKIP_TAGS=always lab apply; requires accepted identity, private DNS and storage. Skip unrelated host argument checks only; Harbor source, owner and identity gates remain. Full prove runs without tag selection.",
   "installation_items": {
     "harbor-emergency": ["username", "password"],
     "harbor-database": ["password"],
@@ -50,7 +50,9 @@
     "source": "Three retained Longhorn claims; independent PostgreSQL, Valkey and filesystem blobs",
     "consistency": "Argo-owned writer shutdown, database/artifact inventory, three cold snapshots and isolated restore with current vault signing inputs",
     "offsite": "Existing native Longhorn B2 target; day 1 UTC only, AES256, one verified generation after successful off-site restore; zero retained local generations",
-    "interruption": "Protected maintenance, capture and retention receipts; resume the original Application values, retain previous remote generation until proof completes",
-    "bootstrap": "Pinned upstream images and chart in checkout; Compose execution never requires ARC or Harbor"
+    "interruption": "Protected maintenance, capture and retention receipts; local checks cannot consume a monthly candidate. Resume original Application values; preserve previous remote generation until proof completes.",
+    "bootstrap": "Record source revision, chart checksum and upstream image pins. Restore rejects artifact version changes; use the recorded checkout. Compose execution never requires ARC or Harbor.",
+    "independent_retrieval": "docker compose run --rm --entrypoint python service -m automation.harbor.independent; monthly window only, vault reader and B2, no VM or lab DNS. Check all compressed blocks and durable vault material; retain no downloaded backup files.",
+    "freshness": "Daily local-only receipt check; no B2 calls. Missing first export, stale generation or a failed last attempt remains unhealthy."
   }
 }

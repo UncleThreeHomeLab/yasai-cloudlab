@@ -24,6 +24,7 @@ BASE = Path('/var/lib/cloudlab/harbor')
 CLAIMS = {'database': 'harbor-database', 'registry': 'harbor-registry', 'redis': 'harbor-redis'}
 APPS = ('cloudlab-harbor', 'cloudlab-harbor-configuration')
 LABEL = {'cloudlab.io/owner': OWNER}
+ARTIFACTS = Path(__file__).resolve().parents[2] / 'platform/harbor'
 
 
 def atomic(path, value):
@@ -56,6 +57,28 @@ def secret(name, namespace=NAMESPACE):
 
 def fingerprints():
     return {name: hashlib.sha256(json.dumps(secret(name), sort_keys=True).encode()).hexdigest() for name in SECRETS}
+
+
+def installation():
+    revisions = {application(name)['spec']['source']['targetRevision'] for name in APPS}
+    if len(revisions) != 1:
+        raise RuntimeError('Harbor recovery requires one converged installation revision')
+    return {'revision': revisions.pop(),
+            'chart_sha256': json.loads((ARTIFACTS / 'server/artifact.lock.json').read_text())['sha256'],
+            'images': sorted(json.loads((ARTIFACTS / 'images.lock.json').read_text()).values())}
+
+
+def freshness(now=None):
+    receipt, attempt = BASE / 'monthly-receipt.json', BASE / 'monthly-attempt.json'
+    if not receipt.exists():
+        raise RuntimeError('No successful monthly Harbor recovery point exists')
+    value = json.loads(receipt.read_text())
+    age = (time.time() if now is None else now) - value['captured_at']
+    maximum = json.loads((ARTIFACTS / 'policy.json').read_text())['remote_max_age_seconds']
+    if (not 0 <= age <= maximum or not value.get('retention_complete') or
+            (attempt.exists() and json.loads(attempt.read_text()).get('success') is not True)):
+        raise RuntimeError('Monthly Harbor recovery point is stale or its last attempt failed')
+    return {'monthly_age_hours': round(age / 3600, 2), 'retained_local_generations': 0, 'b2_reads': 0}
 
 
 def sources():
@@ -198,6 +221,7 @@ def validate(manifest):
     validate_sources(manifest)
     if (
             manifest.get('format') != 1 or manifest.get('captured') is not True or
+            manifest.get('operation') not in ('monthly', 'check-local') or
             manifest.get('consistency') != 'all-writers-stopped' or set(manifest['secrets']) != set(SECRETS)):
         raise ValueError('Incomplete coordinated Harbor generation')
     for value in [*manifest['secrets'].values(), manifest['inventory']['database_sha256'], manifest['inventory']['blobs_sha256']]:
@@ -205,6 +229,14 @@ def validate(manifest):
             raise ValueError('Invalid Harbor recovery checksum')
     if any(not re.fullmatch(r'sha256:[a-f0-9]{64}', value) for value in manifest['inventory']['artifact_digests']):
         raise ValueError('Invalid Harbor recovery artifact digest')
+    source = manifest['installation']
+    if (set(source) != {'revision', 'chart_sha256', 'images'} or
+            not re.fullmatch('[a-f0-9]{40}', source['revision']) or
+            not re.fullmatch('[a-f0-9]{64}', source['chart_sha256']) or
+            len(source['images']) != 9 or len(set(source['images'])) != 9 or
+            any(not re.fullmatch(r'(docker.io/goharbor/[a-z-]+|quay.io/oauth2-proxy/oauth2-proxy):v[0-9]+[.][0-9]+[.][0-9]+@sha256:[a-f0-9]{64}', value)
+                for value in source['images'])):
+        raise ValueError('Harbor recovery requires immutable independently available bootstrap artifacts')
     return manifest
 
 
@@ -222,7 +254,7 @@ def cleanup_snapshots(manifest):
                  obj.get('status', {}).get('markRemoved'), 'remove temporary Harbor snapshot', timeout=600)
 
 
-def capture():
+def capture(monthly=False):
     started = time.monotonic()
     applications = {name: application(name) for name in APPS}
     state = {'applications': {name: {'uid': app['metadata']['uid'], 'revision': app['spec']['source']['targetRevision'],
@@ -230,6 +262,7 @@ def capture():
     if any(not application_ready(name, entry['revision']) for name, entry in state['applications'].items()):
         raise RuntimeError('Harbor must converge before coordinated capture')
     manifest = {'format': 1, 'generation': 'harbor-' + uuid.uuid4().hex[:24], 'captured': False,
+                'operation': 'monthly' if monthly else 'check-local', 'installation': installation(),
                 'consistency': 'all-writers-stopped', 'volumes': sources(), 'secrets': fingerprints()}
     for component, row in manifest['volumes'].items():
         row['snapshot'] = manifest['generation'] + '-' + component
@@ -273,6 +306,8 @@ def capture():
 
 
 def run(action):
+    if action == 'freshness':
+        return freshness()
     monthly = action == 'monthly'
     if monthly:
         from automation.data.remote import require_window
@@ -295,11 +330,15 @@ def run(action):
                 return {'already_verified_this_month': True, 'b2_reads': 0}
         pending = BASE / 'pending-volume.json'
         manifest = json.loads(pending.read_text()) if pending.exists() else None
+        if manifest and manifest.get('operation') != ('monthly' if monthly else 'check-local'):
+            raise RuntimeError('Finish the recorded Harbor recovery operation before starting another')
+        if monthly:
+            atomic(BASE / 'monthly-attempt.json', {'success': False, 'started_at': time.time()})
         if manifest and not manifest.get('captured'):
             cleanup_snapshots(manifest)
             pending.unlink()
             manifest = None
-        manifest = validate(manifest) if manifest else capture()
+        manifest = validate(manifest) if manifest else capture(monthly=monthly)
         from automation.harbor.restore import run as restore
         if monthly:
             from automation.harbor.remote import Repository
@@ -308,6 +347,7 @@ def run(action):
             result = repository.accept(manifest, restore(manifest, offsite=True))
             cleanup_snapshots(manifest)
             pending.unlink()
+            atomic(BASE / 'monthly-attempt.json', {'success': True, 'verified_at': result['verified_at']})
             return result
         try:
             proof = restore(manifest)

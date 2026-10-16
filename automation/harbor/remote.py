@@ -17,9 +17,11 @@ def policy():
 
 
 class Repository:
-    def __init__(self):
-        from automation.data.control import secret
-        self.values = secret('data-offsite')
+    def __init__(self, values=None):
+        if values is None:
+            from automation.data.control import secret
+            values = secret('data-offsite')
+        self.values = values
         endpoint = urllib.parse.urlsplit(self.values['AWS_ENDPOINT'])
         if (endpoint.scheme != 'https' or not endpoint.hostname or not endpoint.hostname.endswith('.backblazeb2.com')
                 or endpoint.path not in ('', '/') or endpoint.query or endpoint.fragment or endpoint.username
@@ -43,10 +45,22 @@ class Repository:
             if not key or not re.fullmatch(re.escape(prefix) + r'harbor-[a-f0-9]{24}[.]json', key):
                 raise RuntimeError('Unknown object in the Harbor recovery prefix; no retention')
             manifest = recovery.validate(json.loads(self.request('GET', key)['data']))
-            if not manifest.get('verified_at') or key != prefix + manifest['generation'] + '.json':
+            if (manifest['operation'] != 'monthly' or not manifest.get('verified_at') or
+                    key != prefix + manifest['generation'] + '.json'):
                 raise RuntimeError('Unverified Harbor recovery metadata')
             result.append(manifest)
         return result
+
+    def latest(self):
+        rows = self.manifests()
+        if not rows:
+            raise RuntimeError('No verified monthly Harbor generation is available')
+        return max(rows, key=lambda row: row['captured_at'])
+
+    def read_blocks(self, manifest):
+        from automation.data.remote import verify_blocks
+        recovery.validate(manifest)
+        return verify_blocks(self, manifest['volumes'], policy()['max_generation_bytes'])
 
     def validate_url(self, row):
         url = urllib.parse.urlsplit(row['url'])
@@ -113,7 +127,7 @@ class Repository:
                     self.request('DELETE', row['key'], query={'versionId': row['version']})
 
     def accept(self, manifest, proof):
-        if not proof.get('restored') or not proof.get('offsite_reads'):
+        if proof.get('restored') is not True or proof.get('offsite_reads') is not True:
             raise RuntimeError('Actual off-site Harbor restore must pass before retention')
         pending = recovery.BASE / 'retention-pending.json'
         previous = [row for row in self.manifests() if row['generation'] != manifest['generation']]

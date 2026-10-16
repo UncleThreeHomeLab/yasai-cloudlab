@@ -4,7 +4,6 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +23,9 @@ class RecoveryTests(unittest.TestCase):
             lambda value: value['volumes']['database'].update(claim_uid='foreign'),
             lambda value: value['volumes']['database'].update(actual_bytes=-1),
             lambda value: value['inventory'].update(artifact_digests=['sha256:bad']),
+            lambda value: value['installation']['images'].__setitem__(0, 'unversioned-image'),
+            lambda value: value['installation'].update(revision='main'),
+            lambda value: value.update(operation='daily'),
             lambda value: value.update(captured=False)):
             value = manifest()
             mutation(value)
@@ -77,7 +79,8 @@ class RecoveryTests(unittest.TestCase):
     def test_retention_requires_real_offsite_restore_before_any_remote_operation(self):
         repo = remote.Repository.__new__(remote.Repository)
         with patch.object(repo, 'manifests') as reads, patch.object(repo, 'request') as writes:
-            for proof in ({}, {'restored': True}, {'restored': False, 'offsite_reads': True}):
+            for proof in ({}, {'restored': True}, {'restored': False, 'offsite_reads': True},
+                          {'restored': 'true', 'offsite_reads': True}, {'restored': True, 'offsite_reads': 1}):
                 with self.assertRaises(RuntimeError): repo.accept(manifest(), proof)
             reads.assert_not_called()
             writes.assert_not_called()
@@ -106,3 +109,42 @@ class RecoveryTests(unittest.TestCase):
             factory.return_value.validate_url.side_effect = ValueError('foreign URL')
             with self.assertRaises(ValueError): restore.run(value, offsite=True)
             writes.assert_not_called()
+
+    def test_local_check_preserves_interrupted_monthly_candidate_before_cleanup(self):
+        for captured in (False, True):
+            value = manifest()
+            value['captured'] = captured
+            with tempfile.TemporaryDirectory() as directory, patch.object(recovery, 'BASE', Path(directory)), \
+                    patch.object(recovery, 'locked', return_value=nullcontext()), patch.object(recovery, 'resume'), \
+                    patch.object(recovery, 'cleanup_snapshots') as cleanup, patch.object(recovery, 'capture') as capture:
+                pending = Path(directory) / 'pending-volume.json'
+                pending.write_text(json.dumps(value))
+                with self.assertRaisesRegex(RuntimeError, 'recorded Harbor recovery'): recovery.run('check-local')
+                self.assertEqual(json.loads(pending.read_text()), value)
+                cleanup.assert_not_called()
+                capture.assert_not_called()
+
+    def test_freshness_reads_only_local_receipts_and_reports_missing_stale_or_failed(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(recovery, 'BASE', Path(directory)), \
+                patch.object(recovery, 'resume') as resume, patch.object(recovery, 'get') as reads:
+            with self.assertRaisesRegex(RuntimeError, 'No successful monthly'): recovery.run('freshness')
+            receipt = Path(directory) / 'monthly-receipt.json'
+            receipt.write_text(json.dumps({'captured_at': 1000, 'retention_complete': True}))
+            self.assertEqual(recovery.freshness(now=4600)['monthly_age_hours'], 1)
+            with self.assertRaisesRegex(RuntimeError, 'stale'): recovery.freshness(now=5000000)
+            (Path(directory) / 'monthly-attempt.json').write_text('{"success":false}')
+            with self.assertRaisesRegex(RuntimeError, 'last attempt failed'): recovery.freshness(now=4600)
+            resume.assert_not_called()
+            reads.assert_not_called()
+
+    def test_restore_rejects_changed_chart_or_image_pins_before_any_cluster_call(self):
+        for change in ('chart_sha256', 'images'):
+            value = manifest()
+            if change == 'images':
+                image = value['installation']['images'][0]
+                value['installation']['images'][0] = image[:-1] + ('0' if image[-1] != '0' else '1')
+            else: value['installation']['chart_sha256'] = '0' * 64
+            with patch.object(restore, 'get') as reads, patch.object(restore, 'kube') as writes:
+                with self.assertRaisesRegex(RuntimeError, 'recorded Harbor checkout'): restore.run(value)
+                reads.assert_not_called()
+                writes.assert_not_called()

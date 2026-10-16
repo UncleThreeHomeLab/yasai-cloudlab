@@ -50,7 +50,8 @@ def run(payload):
         if status not in (302, 401, 403) or (path == '/v2/' and status != 401):
             raise RuntimeError('Unauthenticated Harbor access was not rejected')
     public = get('service', 'cloudlab-istio', 'cloudlab-gateway-public')['spec']['clusterIP']
-    if direct_https(origin + '/v2/', public, {})[0] != 404:
+    public_origin = 'https://' + payload['configuration']['loginHost']
+    if direct_https(public_origin + '/v2/', public, {'Host': payload['configuration']['harborHost']})[0] != 404:
         raise RuntimeError('Harbor registry is exposed by the public gateway')
     before = recovery.fingerprints()
     restored = recovery.run('check-local')

@@ -7,6 +7,8 @@
   "browser_cookie_seconds": 240,
   "registry_token_minutes": 5,
   "monthly_calendar": "*-*-01 06:00:00 UTC",
+  "freshness_calendar": "*-*-* 07:00:00 UTC",
+  "remote_max_age_seconds": 3456000,
   "remote_prefix": "yasai-cloudlab/harbor/",
   "max_generation_bytes": 68719476736,
   "local_generations": 0,
