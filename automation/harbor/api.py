@@ -216,8 +216,8 @@ class Client:
                 'harbor_connection_used': False}
 
     def empty_state(self):
-        status, _ = request(self.env)
-        if status == 404:
+        status, raw = request(self.env)
+        if status == 404 or (status == 204 and not raw):
             return
         ciphertext(self.env)
         shown = json.loads(require(self.native('show', '-json')).stdout)
