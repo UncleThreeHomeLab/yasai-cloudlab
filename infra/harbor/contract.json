@@ -1,0 +1,47 @@
+{
+  "owner": "Local Compose OpenTofu; Harbor API resources only",
+  "backend_item": "gitlab-state-harbor",
+  "encryption_item": "opentofu-state-harbor",
+  "backend_fields": ["PROJECT_ID", "USERNAME", "TOKEN"],
+  "encryption_fields": ["PASSPHRASE"],
+  "state": "Independent GitLab HTTP backend, enforced client encryption and native locking; no ARC, Kubernetes or Harbor state storage",
+  "credentials": "Local vault reader supplies emergency API and ephemeral robot inputs. Provisioning identity never enters provider subprocesses, hosts or Kubernetes.",
+  "projects": {"cloudlab-public": 20, "cloudlab-private": 20},
+  "visibility": "Both projects require authentication; public/private describe repository credential scopes, not anonymous access",
+  "memberships": {
+    "public_admin": {"project": "cloudlab-public", "group": "/platform-admin", "role": "projectadmin"},
+    "public_developer": {"project": "cloudlab-public", "group": "/developer", "role": "developer"},
+    "public_viewer": {"project": "cloudlab-public", "group": "/viewer", "role": "guest"},
+    "private_admin": {"project": "cloudlab-private", "group": "/platform-admin", "role": "projectadmin"},
+    "private_developer": {"project": "cloudlab-private", "group": "/developer", "role": "developer"}
+  },
+  "protected_tags": "{release-*,deploy-*,rollback-*}",
+  "managed_fields": {
+    "harbor_project": ["name", "public", "storage_quota", "vulnerability_scanning", "enable_content_trust", "enable_content_trust_cosign", "auto_sbom_generation"],
+    "harbor_group": ["group_name", "group_type"],
+    "harbor_project_member_group": ["project_id", "group_id", "group_name", "type", "role"],
+    "harbor_robot_account": ["name", "description", "level", "duration", "permissions", "secret_wo", "secret_wo_version"],
+    "harbor_retention_policy": ["scope", "schedule", "rule"],
+    "harbor_immutable_tag_rule": ["project_id", "repo_matching", "tag_matching", "disabled"]
+  },
+  "imports": {
+    "harbor_project": "/projects/ID",
+    "harbor_group": "/usergroups/ID",
+    "harbor_project_member_group": "/projects/ID/members/ID",
+    "harbor_robot_account": "/robots/ID",
+    "harbor_retention_policy": "/retentions/ID",
+    "harbor_immutable_tag_rule": "/projects/ID/immutabletagrules/ID"
+  },
+  "quota": "Whole GiB only. Pinned native patch reads exactly one project quota during refresh/import and propagates update failures. Fractional limits require explicit field review.",
+  "retained_fields": {
+    "system_oidc_configuration": "Argo installation environment and retained Keycloak client owner",
+    "system_gc_schedule": "Manual only; read-only verification rejects an automatic schedule. No GC writer before deployed/rollback/signature preservation proof.",
+    "project_proxy_metadata": "Not adopted; no proxy project or upstream registry",
+    "project_cve_allowlist": "Not adopted; must remain empty. Existing entries stop a plan before any API write.",
+    "project_deployment_security": "Not adopted; no registered Harbor scanner. Existing severity gates stop a plan before any API write.",
+    "scanner_registration": "Not adopted; CI scans before publication, no bundled Harbor scanner",
+    "robot_secret_version": "Vault input version 1 remains fixed; routine project/retention apply cannot rotate credentials"
+  },
+  "retention": "Keep all tagged and untagged artifacts and accessories; no schedule. Reject new pushes at quota. Immutable release/deploy/rollback tags protect artifacts; automatic deletion requires separate digest-preservation checks.",
+  "destruction": "prevent_destroy on every resource; no force_destroy, no blind retry after interrupted creation"
+}
