@@ -29,6 +29,7 @@
     "projects_quotas_retention_designated_permissions": "OpenTofu after field/import acceptance",
     "database_blobs_signatures": "Harbor-specific coordinated recovery; no implicit shared CNPG or S3 migration"
   },
+  "installation_apply": "docker compose run --build --rm -e ANSIBLE_RUN_TAGS=harbor lab apply; requires existing accepted identity, private DNS and storage. Full prove still runs without tag selection.",
   "installation_items": {
     "harbor-emergency": ["username", "password"],
     "harbor-database": ["password"],

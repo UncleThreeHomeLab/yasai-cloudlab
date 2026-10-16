@@ -121,4 +121,6 @@
     - name: Reconcile the private registry after identity and private DNS
       ansible.builtin.include_role:
         name: harbor
+        apply: {tags: [harbor]}
+      tags: [harbor]
       when: harbor_enabled | bool

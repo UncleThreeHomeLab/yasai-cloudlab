@@ -100,10 +100,13 @@
       ansible.builtin.include_role:
         name: harbor
         tasks_from: verify
+        apply: {tags: [harbor]}
+      tags: [harbor]
       when: harbor_enabled | bool
 
 - name: Verify Harbor from both node host networks
   hosts: k3s_cluster
+  tags: [harbor]
   become: true
   gather_facts: false
   any_errors_fatal: true

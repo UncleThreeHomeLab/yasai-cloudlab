@@ -25,6 +25,14 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(database['spec']['template']['spec']['volumes'][-1]['persistentVolumeClaim']['claimName'],
                          'harbor-database')
 
+    def test_sdk_delivery_extracts_items_before_mapping_fields(self):
+        external = [obj for obj in render('', {'enabled': True}) if obj['kind'] == 'ExternalSecret']
+        self.assertEqual(len(external), 7)
+        for obj in external:
+            self.assertNotIn('data', obj['spec'])
+            self.assertEqual(len(obj['spec']['dataFrom']), 1)
+            self.assertEqual(set(obj['spec']['dataFrom'][0]), {'extract'})
+
     def test_cold_capture_can_stop_every_writer_through_chart_owned_replicas(self):
         values = {'harbor': {name: {'replicas': 0} for name in ('core', 'portal', 'nginx', 'jobservice', 'registry')}}
         values['harbor'].update(database={'internal': {'replicas': 0}}, redis={'internal': {'replicas': 0}})
