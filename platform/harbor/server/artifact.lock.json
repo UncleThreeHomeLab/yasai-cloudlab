@@ -4,5 +4,5 @@
   "app_version": "2.15.4",
   "upstream_sha256": "759872bbabaf05524268096b9d551a480d3f6814d13ed08723036e2673859182",
   "archive": "charts/harbor-1.19.4.tgz",
-  "sha256": "094e1b579472ac219f998e246708c6c85961aa1b3c6a129401aebb081cd6e8fd"
+  "sha256": "5b79baa1b41114a3b75ebfbdfa028919d531fa6f917ebf4fd34cdb7987efc9b0"
 }

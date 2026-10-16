@@ -60,19 +60,24 @@ def binding():
     return revision
 
 
-def metadata(values):
+def metadata(values, *, browser=False):
     script = '''import sys,json
 sys.path.insert(0,'/opt/cloudlab')
 from automation.harbor.recovery import application,APPS,NAMESPACE
 from automation.mesh.kube import application_ready,get
+request=json.load(sys.stdin)
 apps=[application(name) for name in APPS]
 revisions={app['spec']['source']['targetRevision'] for app in apps}
 if len(revisions)!=1 or not all(application_ready(app['metadata']['name'],app['spec']['source']['targetRevision']) for app in apps):raise RuntimeError('Harbor installation must converge')
 configuration=next(app for app in apps if app['metadata']['name']=='cloudlab-harbor-configuration')['spec']['source']['helm']['valuesObject']
+if request['browser']:
+ from automation.harbor.verify import oidc_discovery
+ oidc_discovery(configuration['loginHost'])
 images=sorted(container['image'] for kind in ('deployment','statefulset') for obj in (get(kind,namespace=NAMESPACE) or {}).get('items',[]) for container in obj['spec']['template']['spec']['containers'])
 print(json.dumps({'harborHost':configuration['harborHost'],'loginHost':configuration['loginHost'],'images':images,'repositories':sorted({app['spec']['source']['repoURL'] for app in apps})}))
 '''
-    value = json.loads(ssh('VM', values['VM_HOST'], 'python3 -c ' + shlex.quote(script), timeout=60))
+    value = json.loads(ssh('VM', values['VM_HOST'], 'python3 -c ' + shlex.quote(script),
+                           input=json.dumps({'browser': browser}), timeout=60))
     repository = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
     if (value['repositories'] != [repository] or
             value['images'] != sorted(json.loads((ROOT / 'platform/harbor/images.lock.json').read_text()).values())):
@@ -175,13 +180,13 @@ class Client:
                 raise
 
     @contextmanager
-    def connected(self):
+    def connected(self, *, browser=False):
         for name in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
             if not self.values.get(name):
                 raise ValueError('Existing bootstrap SSH inputs required for private Harbor')
             os.environ[name] = self.values[name]
         os.environ['VM_PORT'] = self.values.get('VM_PORT') or '22'
-        discovered = metadata(self.values)
+        discovered = metadata(self.values, browser=browser)
         admin = fields('harbor-emergency', ('username', 'password'))
         if admin['username'] != 'admin':
             raise ValueError('Harbor requires its retained noninteractive emergency identity')

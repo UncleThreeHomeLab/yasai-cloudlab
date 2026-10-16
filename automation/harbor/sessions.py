@@ -20,7 +20,7 @@ def prepare():
     with (api.WORK / 'client.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         client = api.Client()
-        with client.connected():
+        with client.connected(browser=True):
             # Includes OIDC prerequisites, exact group roles, imported IDs and preservation fields.
             accepted = client.plan(verify=True)
             if accepted.get('changes') != 0 or accepted.get('apply_blocked') is not None:
@@ -106,7 +106,7 @@ def run():
     with (api.WORK / 'client.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         client = api.Client()
-        with client.connected():
+        with client.connected(browser=True):
             client.plan(verify=True)
             origin = 'https://' + client.private['host']
         artifacts = receipt(api.WORK / 'artifacts/receipt.json')
