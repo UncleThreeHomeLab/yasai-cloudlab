@@ -152,8 +152,8 @@ volume.
 | --- | --- | --- |
 | Ansible | Configure and verify hosts and the cluster | Available |
 | Docker Compose | Run the pinned automation environment | Available |
-| OpenTofu | Manage external resources, with Compose for bootstrap and recovery | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
-| GitHub Actions | Trusted builds and infrastructure jobs through ARC | Planned |
+| OpenTofu | Manage external resources locally through Compose | In progress ([#122](https://github.com/UncleThreeHomeLab/yasai-cloudlab/pull/122)) |
+| GitHub Actions | Trusted application builds through ARC | Planned |
 | Renovate | Reviewed dependency updates | Planned |
 
 ## Detailed flows
@@ -187,8 +187,8 @@ Istio encrypts traffic between workloads and checks which services may communica
 
 GitHub Actions runs trusted builds on ARC workers in Cloudlab. Images are built,
 scanned, signed and stored in Harbor. Argo CD reads public or private GitOps repos
-and deploys the selected images. Dedicated infrastructure runners execute OpenTofu.
-GitHub governance runs separately through Compose.
+and deploys the selected images. OpenTofu runs locally through Compose on a trusted
+operator endpoint. GitHub governance uses a separate Compose client.
 
 ![Delivery](assets/delivery.png)
 
@@ -218,9 +218,10 @@ routes alerts. UptimeRobot checks public access independently. Telemetry stays o
 
 ### Foundation
 
-Compose runs Ansible to configure both VMs and K3s. Dedicated ARC runners apply
-reviewed OpenTofu changes to Cloudflare and Harbor, with encrypted state in GitLab.
-Compose remains available for bootstrap, recovery and GitHub governance.
+Compose runs Ansible to configure both VMs and K3s. A trusted operator endpoint
+runs Compose to apply reviewed OpenTofu changes to Cloudflare and Harbor, with
+encrypted state and separate locks per root in GitLab. Compose also handles
+bootstrap, recovery and separate GitHub governance.
 K3s recovery uses a separate monthly restic backup to B2.
 
 ![Foundation](assets/foundation.png)
