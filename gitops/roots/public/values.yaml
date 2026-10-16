@@ -29,3 +29,5 @@ services:
   enabled: true
 observability:
   enabled: true
+harbor:
+  enabled: true
