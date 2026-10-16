@@ -15,6 +15,20 @@ from automation.harbor import api, api_policy
 
 
 class ClientTests(unittest.TestCase):
+    def test_empty_backend_accepts_only_absent_or_empty_no_content_responses(self):
+        client = api.Client.__new__(api.Client)
+        client.env, client.native = {}, Mock()
+        for status, raw in ((404, b''), (204, b''), (204, b'unexpected-body'), (200, b'{"resources":[]}')):
+            with self.subTest(status=status, body=bool(raw)), \
+                    patch.object(api, 'request', return_value=(status, raw)), \
+                    patch.object(api, 'ciphertext', side_effect=RuntimeError('Encryption required')) as encrypted:
+                if status == 404 or (status == 204 and not raw):
+                    client.empty_state()
+                    encrypted.assert_not_called()
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'Encryption required'): client.empty_state()
+                client.native.assert_not_called()
+
     def test_wrong_operation_options_fail_before_credentials_or_connections(self):
         for arguments in (['apply'], ['recover-import', '--address', 'missing-id'],
                           ['inputs', '--bootstrap'], ['verify', '--review', 'unused']):
