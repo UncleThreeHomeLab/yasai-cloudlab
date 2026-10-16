@@ -42,6 +42,11 @@ class NativePolicyTests(unittest.TestCase):
         self.assertNotIn(self.secret, json.dumps(self.plan))
         self.assertNotIn(self.secret.encode(), (self.directory / 'synthetic.tfplan').read_bytes())
         self.assertEqual(api_policy.plan(completed_api_plan(self.plan)), 0)
+        imported = completed_api_plan(self.plan)
+        for row in imported['resource_changes']:
+            if row['type'] == 'harbor_project':
+                row['change']['after']['force_destroy'] = None
+        self.assertEqual(api_policy.plan(imported), 0)
 
     def test_robot_import_can_only_restore_original_version_metadata_under_maintenance(self):
         value = completed_api_plan(self.plan)
@@ -57,6 +62,7 @@ class NativePolicyTests(unittest.TestCase):
         changes = (
             ('harbor_project', lambda row: row.update(public=True)),
             ('harbor_project', lambda row: row.update(storage_quota=21)),
+            ('harbor_project', lambda row: row.update(force_destroy=True)),
             ('harbor_robot_account', lambda row: row['permissions'][0].update(namespace='other-project')),
             ('harbor_robot_account', lambda row: row['permissions'][0]['access'].append({'action': 'delete', 'resource': 'repository', 'effect': 'allow'})),
             ('harbor_retention_policy', lambda row: row['rule'][0].update(untagged_artifacts=False)),

@@ -15,6 +15,27 @@ from automation.harbor import api, api_policy
 
 
 class ClientTests(unittest.TestCase):
+    def test_project_robot_adoption_uses_explicit_level_and_project_query(self):
+        client = api.Client.__new__(api.Client)
+        client.reader = Mock()
+        projects = {'cloudlab-public': 11, 'cloudlab-private': 12}
+        def read(path, **kwargs):
+            for project, identifier in projects.items():
+                if path == '/api/v2.0/projects/' + project:
+                    return {'project_id': identifier, 'metadata': {}}
+                if path.startswith('/api/v2.0/robots?q=Level%3Dproject%2CProjectID%3D' + str(identifier) + '&'):
+                    return [{'id': identifier * 10 + offset, 'name': f'robot${project}+{role}'}
+                            for offset, role in enumerate(('push', 'pull'))]
+            if path.startswith('/api/v2.0/robots'):
+                self.fail('Default robot list silently omits project robots')
+            return []
+        client.reader.get.side_effect = read
+        result = client.live_ids()
+        for project, identifier in projects.items():
+            for offset, role in enumerate(('push', 'pull')):
+                self.assertEqual(result['harbor_robot_account.robot[' + json.dumps(project + '-' + role) + ']'],
+                                 '/robots/' + str(identifier * 10 + offset))
+
     def test_empty_backend_accepts_only_absent_or_empty_no_content_responses(self):
         client = api.Client.__new__(api.Client)
         client.env, client.native = {}, Mock()

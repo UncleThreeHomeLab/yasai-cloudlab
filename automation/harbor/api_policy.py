@@ -30,9 +30,10 @@ def matches(values, expected):
 def fields(kind, key, values):
     if kind == 'project':
         valid = matches(values, {'name': key, 'public': False, 'storage_quota': POLICY['projects'][key],
-            'force_destroy': False, 'vulnerability_scanning': False, 'enable_content_trust': False,
+            'vulnerability_scanning': False, 'enable_content_trust': False,
             'enable_content_trust_cosign': False, 'auto_sbom_generation': False})
         valid = valid and values.get('registry_id') in (None, 0) and not values.get('cve_allowlist') and not values.get('deployment_security')
+        valid = valid and (values.get('force_destroy') is None or values['force_destroy'] is False)
     elif kind == 'group':
         valid = matches(values, {'group_name': key, 'group_type': 3}) and not values.get('ldap_group_dn')
     elif kind == 'project_member_group':

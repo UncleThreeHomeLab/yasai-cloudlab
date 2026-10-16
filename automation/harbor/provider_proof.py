@@ -169,6 +169,13 @@ def run(directory):
         tofu('plan', '-detailed-exitcode', '-input=false')
         tofu('apply', '-auto-approve', '-input=false')
         require(server.patches == 1, 'Repeat apply rotated a robot password')
+        server.robot['permissions'][0]['access'][0]['effect'] = 'deny'
+        try:
+            tofu('plan', '-detailed-exitcode', '-input=false', expected=2)
+            require(server.patches == 1, 'Drift inspection mutated a robot password')
+        finally:
+            server.robot['permissions'][0]['access'][0]['effect'] = 'allow'
+        tofu('plan', '-detailed-exitcode', '-input=false')
 
         # Every interrupted creation resumes only after exact read-only identity/permission
         # inspection and native import. Never retry create or adopt by title alone.
@@ -193,8 +200,8 @@ def run(directory):
             tofu('plan', '-detailed-exitcode', '-input=false')
             tofu('apply', '-auto-approve', '-input=false')
             require(server.patches == patches, 'Recovered robot rotated on repeat apply')
-        return {'provider': 'cloudlab/harbor@3.12.5-cloudlab.1', 'tls_verified': True, 'write_only': True,
-                'repeat_rotations': 0, 'interruption_cases': 3, 'production_mutations': 0,
+        return {'provider': 'cloudlab/harbor@3.12.5-cloudlab.2', 'tls_verified': True, 'write_only': True,
+                'repeat_rotations': 0, 'deny_drift_detected': True, 'interruption_cases': 3, 'production_mutations': 0,
                 'harbor_behavior_proven': False}
     finally:
         server.shutdown()

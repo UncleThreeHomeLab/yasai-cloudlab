@@ -33,7 +33,9 @@
     "harbor_immutable_tag_rule": "/projects/ID/immutabletagrules/ID"
   },
   "quota": "Whole GiB only. Pinned native patch reads exactly one project quota during refresh/import and propagates update failures. Fractional limits require explicit field review.",
+  "robot_permissions": "Native refresh/import reads server allow/deny effects. Configured allow cannot mask a server deny; missing or unknown effects fail refresh.",
   "retained_fields": {
+    "project_force_destroy": "Local deletion guard, not an API field. Native imports represent false as null; explicit HCL false, prevent_destroy and action guards remain required.",
     "system_oidc_configuration": "Argo installation environment and retained Keycloak client owner",
     "system_gc_schedule": "Manual only; read-only verification rejects an automatic schedule. No GC writer before deployed/rollback/signature preservation proof.",
     "project_proxy_metadata": "Not adopted; no proxy project or upstream registry",
