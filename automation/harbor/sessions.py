@@ -12,6 +12,7 @@ from automation.identity.session_setup import prepare as prepare_viewer
 
 CHECKPOINT = api.WORK / 'browser/fixture.json'
 RESULT = api.WORK / 'browser/result.json'
+PENDING = api.WORK / 'browser/pending.json'
 
 
 def prepare():
@@ -80,6 +81,50 @@ def cleanup():
     return {'disposable_viewer_offboarded': True, 'original_vault_inputs_preserved': True}
 
 
+def complete(client, request, pending):
+    """Finish read-only acceptance without creating another browser session."""
+    from automation.harbor.recovery import atomic
+    from automation.identity.session_acceptance import remote_state
+    from automation.identity.session_fixture import scope
+    nonce = scope(request)
+    if (request.get('realm') != 'platform' or set(pending) != {
+            'nonce', 'user_id', 'preservation', 'binding', 'observation'} or pending['nonce'] != nonce):
+        raise ValueError('Pending Harbor browser evidence belongs to another fixture')
+    measured = observation(pending['observation'])
+    current = remote_state(request)
+    if (current['realm'] != 'platform' or current['username'] != 'proof-' + nonce or
+            current['user_id'] != pending['user_id'] or current['enabled'] is not False or
+            current['preservation'] != pending['preservation']):
+        raise RuntimeError('Pending Harbor browser identity or preservation changed')
+    with client.connected():
+        client.unchanged(pending['binding'])
+        checked = client.plan(verify=True)
+        if checked.get('changes') != 0 or checked.get('apply_blocked') is not None:
+            raise RuntimeError('Pending Harbor browser API preservation is incomplete')
+    result = dict(measured, native_harbor_oidc=True, viewer_project_roles=True,
+                  unrelated_identities_preserved=True, private_revocation_persisted=True,
+                  native_resource_ids_preserved=True)
+    atomic(RESULT, {'nonce': nonce, 'result': result, 'verified_at': time.time()})
+    PENDING.unlink()
+    return result
+
+
+def verify():
+    from automation.identity.owner_enrollment import inputs
+    from automation.identity.session_setup import environment
+    from automation.identity.session_fixture import scope
+    os.umask(0o077)
+    with (api.WORK / 'client.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        values, _github, _source, revoked = inputs()
+        environment(values)
+        request = json.loads(CHECKPOINT.read_text())
+        nonce = scope(request)
+        if 'proof-' + nonce not in revoked['realms'].get('platform', {}).get('users', []):
+            raise ValueError('Pending Harbor browser evidence requires the retained private tombstone')
+        return complete(api.Client(), request, json.loads(PENDING.read_text()))
+
+
 def run():
     from automation.connectivity.verify import remote
     from automation.credentials.vault import fields
@@ -109,6 +154,7 @@ def run():
         with client.connected(browser=True):
             client.plan(verify=True)
             origin = 'https://' + client.private['host']
+            source_binding = client.snapshot()
         artifacts = receipt(api.WORK / 'artifacts/receipt.json')
         if not artifacts.get('verified_at'):
             raise ValueError('Complete independent bootstrap and node pulls before human browser acceptance')
@@ -146,23 +192,20 @@ def run():
             if isinstance(observed, dict) and observed.get('failed') is True:
                 print(json.dumps(diagnostic(observed)), flush=True)
             measured = observation(observed)
-        after = remote_state(request)
-        if before['preservation'] != after['preservation'] or after['enabled'] is not False:
-            raise RuntimeError('Unrelated identity preservation or disposable offboarding failed')
-        with client.connected():
-            client.plan(verify=True)
-        result = dict(measured, native_harbor_oidc=True, viewer_project_roles=True,
-                      unrelated_identities_preserved=True, private_revocation_persisted=True,
-                      native_resource_ids_preserved=True)
-        atomic(RESULT, {'nonce': nonce, 'result': result, 'verified_at': time.time()})
-        return result
+        pending = {'nonce': nonce, 'user_id': before['user_id'], 'preservation': before['preservation'],
+                   'binding': source_binding, 'observation': measured}
+        # Keep bounded evidence before any final network/state check can fail.
+        # No passwords, cookies, CLI secrets or registry tokens enter this record.
+        atomic(PENDING, pending)
+        return complete(client, request, pending)
 
 
 if __name__ == '__main__':
     try:
         os.umask(0o077)
-        if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'run', 'cleanup'):
+        operations = {'prepare': prepare, 'run': run, 'verify': verify, 'cleanup': cleanup}
+        if len(sys.argv) != 2 or sys.argv[1] not in operations:
             raise ValueError('Unknown Harbor browser operation')
-        print(json.dumps({'prepare': prepare, 'run': run, 'cleanup': cleanup}[sys.argv[1]](), sort_keys=True))
+        print(json.dumps(operations[sys.argv[1]](), sort_keys=True))
     except Exception:
         raise SystemExit('Harbor browser preparation incomplete; retain private ownership and vault inputs') from None

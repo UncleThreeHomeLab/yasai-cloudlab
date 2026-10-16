@@ -174,6 +174,37 @@ class ClientTests(unittest.TestCase):
         self.assertTrue(all(row['read_only'] for row in mounts if row['target'] in ('/workspace', '/state')))
         self.assertFalse(any(row['target'].startswith('/inputs') or 'docker.sock' in row['target'] for row in mounts))
 
+    def test_missing_public_history_uses_disposable_fetch_and_rejects_foreign_or_unavailable_main(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            remote, checkout = Path(temporary) / 'remote', Path(temporary) / 'checkout'
+            remote.mkdir()
+            def git(directory, *arguments):
+                return subprocess.check_output(['git', '-c', 'user.name=Fixture',
+                    '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', *arguments],
+                    cwd=directory, stderr=subprocess.DEVNULL, text=True).strip()
+            git(remote, 'init', '-q', '-b', 'main')
+            (remote / 'marker').write_text('reviewed')
+            git(remote, 'add', '.')
+            git(remote, 'commit', '-qm', 'Reviewed source')
+            revision = git(remote, 'rev-parse', 'HEAD')
+            git(remote, 'clone', '--no-local', '--quiet', str(remote), str(checkout))
+            (remote / 'marker').write_text('new public main')
+            git(remote, 'commit', '-qam', 'Advance public main')
+            published = git(remote, 'rev-parse', 'HEAD')
+            git(remote, 'checkout', '--orphan', 'unrelated')
+            git(remote, 'commit', '-qm', 'Unrelated public main')
+            foreign = git(remote, 'rev-parse', 'HEAD')
+            def inventory():
+                return {str(path.relative_to(checkout)): path.read_bytes()
+                        for path in checkout.rglob('*') if path.is_file()}
+            before = inventory()
+            env = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}
+            with patch.object(api, 'ROOT', checkout):
+                self.assertTrue(api.reviewed_ancestor(str(remote), revision, published, env))
+                self.assertFalse(api.reviewed_ancestor(str(remote), revision, foreign, env))
+                self.assertFalse(api.reviewed_ancestor(str(remote / 'missing'), revision, published, env))
+            self.assertEqual(inventory(), before)
+
     def test_pending_operation_blocks_repeat_apply_before_any_native_command(self):
         with tempfile.TemporaryDirectory() as temporary:
             client = api.Client.__new__(api.Client)

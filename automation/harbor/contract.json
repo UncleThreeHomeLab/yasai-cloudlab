@@ -49,7 +49,7 @@
       "prepare": "gh auth token | docker compose -f automation/harbor/compose.sessions.yaml run --build --rm -T harbor-session-controller prepare",
       "run": "Start harbor-browser with the same Compose file, then pipe gh auth token to harbor-session-controller run. Requires the unchanged accepted API root and completed independent artifact proof.",
       "custody": "Disposable platform viewer only; credentials, CLI secrets and browser sessions stay in process memory. Browser has no vault token, host credentials, backend access or persistent profile.",
-      "interruption": "Run harbor-session-controller cleanup to retain the private tombstone and retire only its recorded viewer before another prepare. Original vault items remain unchanged. Stop harbor-browser after the proof."
+      "interruption": "After a final API check fails, pipe gh auth token to harbor-session-controller verify before cleanup; bounded observations are retained without session secrets and require the same source, disabled identity, private tombstone and preservation fingerprint. Otherwise cleanup before another prepare. Cleanup preserves original vault items and the private tombstone. Stop harbor-browser after the proof."
     }
   },
   "recovery": {

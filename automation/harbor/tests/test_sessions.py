@@ -11,6 +11,68 @@ from automation.harbor import sessions
 
 
 class SessionTests(unittest.TestCase):
+    def test_final_api_interruption_preserves_bounded_evidence_and_can_resume_without_browser(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pending_path, result_path = Path(temporary) / 'pending.json', Path(temporary) / 'result.json'
+            request = {'nonce': 'a' * 32, 'realm': 'platform'}
+            measured = {'browser_cookie_denied_seconds': 240, 'oidc_cli_denied_seconds': 900,
+                        'last_registry_token_denied_seconds': 1200, 'offboarded_new_login_denied': True,
+                        'sessions_persisted': False}
+            pending = {'nonce': request['nonce'], 'user_id': 'synthetic-user', 'preservation': 'b' * 64,
+                       'binding': {'revision': 'c' * 40}, 'observation': measured}
+            pending_path.write_text(json.dumps(pending))
+            client = Mock()
+            client.connected.return_value = nullcontext()
+            client.plan.side_effect = RuntimeError('synthetic interrupted final plan')
+            current = {'realm': 'platform', 'username': 'proof-' + request['nonce'],
+                       'user_id': pending['user_id'], 'preservation': pending['preservation'], 'enabled': False}
+            with patch.object(sessions, 'PENDING', pending_path), patch.object(sessions, 'RESULT', result_path), \
+                    patch('automation.identity.session_acceptance.remote_state', return_value=current) as state:
+                with self.assertRaises(RuntimeError): sessions.complete(client, request, pending)
+                self.assertEqual(json.loads(pending_path.read_text()), pending)
+                self.assertFalse(result_path.exists())
+                for changed in ({'user_id': 'foreign'}, {'enabled': True}, {'preservation': 'changed'},
+                                {'username': 'primary'}):
+                    state.return_value = dict(current, **changed)
+                    with self.assertRaises(RuntimeError): sessions.complete(client, request, pending)
+                state.return_value = current
+                with self.assertRaises(ValueError):
+                    sessions.complete(client, dict(request, nonce='d' * 32), pending)
+                client.unchanged.side_effect = ValueError('synthetic changed source or vault inputs')
+                with self.assertRaises(ValueError): sessions.complete(client, request, pending)
+                self.assertTrue(pending_path.exists())
+                client.unchanged.side_effect = None
+                client.plan.side_effect = None
+                client.plan.return_value = {'changes': 1, 'apply_blocked': None}
+                with self.assertRaises(RuntimeError): sessions.complete(client, request, pending)
+                self.assertTrue(pending_path.exists())
+                client.plan.return_value = {'changes': 0, 'apply_blocked': None}
+                self.assertTrue(sessions.complete(client, request, pending)['native_resource_ids_preserved'])
+                self.assertFalse(pending_path.exists())
+                self.assertEqual(json.loads(result_path.read_text())['result']['browser_cookie_denied_seconds'], 240)
+                client.unchanged.assert_called_with(pending['binding'])
+
+    def test_resume_requires_the_exact_private_revocation_without_reenrollment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = {'nonce': 'a' * 32, 'realm': 'platform'}
+            checkpoint, pending = root / 'fixture.json', root / 'pending.json'
+            checkpoint.write_text(json.dumps(request))
+            pending.write_text('{"synthetic":"bounded evidence"}')
+            revoked = {'realms': {'platform': {'users': []}}}
+            with patch.object(sessions.api, 'WORK', root), patch.object(sessions, 'CHECKPOINT', checkpoint), \
+                    patch.object(sessions, 'PENDING', pending), patch.object(sessions, 'complete') as complete, \
+                    patch.object(sessions.api, 'Client') as client, \
+                    patch('automation.identity.owner_enrollment.inputs', return_value=({}, Mock(), {}, revoked)), \
+                    patch('automation.identity.session_setup.environment'), patch.object(sessions, 'prepare_viewer') as enroll:
+                with self.assertRaises(ValueError): sessions.verify()
+                client.assert_not_called()
+                complete.assert_not_called()
+                revoked['realms']['platform']['users'] = ['proof-' + request['nonce']]
+                sessions.verify()
+                complete.assert_called_once_with(client.return_value, request, {'synthetic': 'bounded evidence'})
+                enroll.assert_not_called()
+
     def test_diagnostics_preserve_only_known_stages_and_error_categories(self):
         self.assertEqual(sessions.diagnostic({'stage': 'account enrollment', 'error_type': 'TimeoutError',
             'network_code': 'ERR_NAME_NOT_RESOLVED', 'password': 'synthetic-must-not-export'}),
