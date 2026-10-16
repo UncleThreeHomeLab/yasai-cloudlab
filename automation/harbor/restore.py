@@ -81,6 +81,42 @@ def apply(objects):
          document={'apiVersion': 'v1', 'kind': 'List', 'items': objects})
 
 
+def signature_probe(proof):
+    # Emergency credentials stay inside the already isolated recovery namespace.
+    origin = 'harbor.' + NAMESPACE + '.svc'
+    references = [origin + '/' + project + '/bootstrap@' + digest
+                  for project, digests in sorted(proof['projects'].items()) for digest in digests]
+    script = """import base64,json,os
+value=base64.b64encode((os.environ['USERNAME']+':'+os.environ['PASSWORD']).encode()).decode()
+with open('/auth/config.json','x',opener=lambda path,flags:os.open(path,flags,0o600)) as stream:
+ json.dump({'auths':{'harbor.cloudlab-harbor-restore.svc':{'auth':value}}},stream)
+"""
+    security = {'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True,
+                'capabilities': {'drop': ['ALL']}}
+    return {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': metadata('restore-signatures'),
+        'spec': {'restartPolicy': 'Never', 'automountServiceAccountToken': False,
+            'securityContext': {'runAsNonRoot': True, 'runAsUser': 65532, 'runAsGroup': 65532,
+                                'fsGroup': 65532, 'seccompProfile': {'type': 'RuntimeDefault'}},
+            'volumes': [{'name': 'auth', 'emptyDir': {'medium': 'Memory', 'sizeLimit': '1Mi'}},
+                        {'name': 'verifier', 'secret': {'secretName': 'harbor-recovery-verifier', 'defaultMode': 292}}],
+            'initContainers': [{'name': 'recovery-auth', 'image': PYTHON, 'command': ['python', '-c', script],
+                'securityContext': security,
+                'resources': {'requests': {'cpu': '10m', 'memory': '32Mi'}, 'limits': {'cpu': '50m', 'memory': '64Mi'}},
+                'volumeMounts': [{'name': 'auth', 'mountPath': '/auth'}],
+                'env': [{'name': name, 'valueFrom': {'secretKeyRef': {'name': 'harbor-emergency', 'key': key}}}
+                        for name, key in (('USERNAME', 'username'), ('PASSWORD', 'password'))]}],
+            'containers': [{'name': 'cosign', 'image': proof['image'],
+                'args': ['verify', '--insecure-ignore-tlog=true', '--max-workers=2', '--check-claims=true',
+                         '--allow-http-registry=true',
+                         '--key', '/verifier/public_key', *references],
+                'securityContext': security,
+                'resources': {'requests': {'cpu': '10m', 'memory': '64Mi', 'ephemeral-storage': '16Mi'},
+                              'limits': {'cpu': '100m', 'memory': '256Mi', 'ephemeral-storage': '64Mi'}},
+                'env': [{'name': 'DOCKER_CONFIG', 'value': '/auth'}, {'name': 'HOME', 'value': '/auth'}],
+                'volumeMounts': [{'name': 'auth', 'mountPath': '/auth', 'readOnly': True},
+                                 {'name': 'verifier', 'mountPath': '/verifier', 'readOnly': True}]}]}}
+
+
 def run(manifest, offsite=False):
     recovery.validate(manifest)
     current_chart = json.loads((recovery.ARTIFACTS / 'server/artifact.lock.json').read_text())['sha256']
@@ -189,8 +225,19 @@ except Exception:raise SystemExit('Isolated Harbor recovery authentication faile
                 raise RuntimeError('Restored Harbor emergency API rejected current vault credentials')
             return phase == 'Succeeded'
         wait(complete, 'independent restored Harbor API', timeout=180)
+        signatures = manifest.get('signatures')
+        if signatures:
+            recovery.signature_binding(signatures)
+            kube('create', '-f', '-', document=signature_probe(signatures))
+            def signed():
+                phase = get('pod', 'restore-signatures', NAMESPACE)['status'].get('phase')
+                if phase == 'Failed':
+                    raise RuntimeError('Restored Harbor signatures rejected the retained public recovery verifier')
+                return phase == 'Succeeded'
+            wait(signed, 'restored image and rollback signatures', timeout=300)
         return {'restored': True, 'database_and_blob_checksums': True, 'signing_inputs_preserved': True,
                 'artifact_digests_verified': len(manifest['inventory']['artifact_digests']),
+                'native_signatures_verified': sum(map(len, signatures['projects'].values())) if signatures else 0,
                 'independent_emergency_api': True, 'restored_sessions_invalidated': True,
                 'offsite_reads': offsite, 'restore_seconds': round(time.monotonic() - started, 3)}
     finally:

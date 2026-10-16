@@ -20,17 +20,20 @@ class VerificationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         tasks = yaml.safe_load((root / 'ansible/roles/harbor/tasks/main.yml').read_text())
         modules = next(task['loop'] for task in tasks if task.get('name') == 'Install Harbor declaration and recovery owners')
+        artifacts = next(task['loop'] for task in tasks if task.get('name') == 'Install the Harbor export policy and independent image pins')
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory)
             for relative in ([f'automation/harbor/{name}' for name in modules] +
                              ['automation/mesh/kube.py', 'automation/gitops/source_revision.py',
-                              'automation/identity/health.py', 'platform/harbor/policy.json']):
+                              'automation/identity/health.py'] + [f'platform/harbor/{name}' for name in artifacts]):
                 target = destination / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(root / relative, target)
             result = subprocess.run([sys.executable, '-I', '-S', '-c',
                                      'import sys; sys.path.insert(0, sys.argv[1]); '
-                                     'from automation.harbor.verify import oidc_discovery; assert callable(oidc_discovery)',
+                                     'from automation.harbor.verify import oidc_discovery; assert callable(oidc_discovery); '
+                                     'from automation.harbor.recovery import ARTIFACTS; import json; '
+                                     'assert json.loads((ARTIFACTS / "cosign.lock.json").read_text())["image"]',
                                      str(destination)], capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
 

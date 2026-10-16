@@ -12,7 +12,7 @@ from automation.mesh.kube import get, kube, contains, application_ready, wait, c
 
 NAMESPACE, OWNER = 'cloudlab-harbor', 'harbor-platform'
 SECRETS = ('harbor-emergency', 'harbor-database', 'harbor-runtime', 'harbor-token-signing', 'harbor-oidc',
-           'harbor-browser-key', 'harbor-browser-oidc')
+           'harbor-browser-key', 'harbor-browser-oidc', 'harbor-recovery-verifier')
 
 
 def application(payload, configuration=False):

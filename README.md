@@ -122,6 +122,9 @@ After import acceptance, run `docker compose run --build --rm --entrypoint pytho
 infra-harbor -m automation.harbor.artifacts` for independent push/pull, project
 isolation and both-node containerd checks. Interrupted uploads retain their archive
 and digest. Node pulls use temporary five-minute tokens and preserve other images.
+Recovery signatures use a separate vault-held operator key. Follow `recovery_signing`
+in the registry contract to provision locally, deliver only its public verifier,
+sign preserved digests and verify the coordinated restore.
 
 ## The stack
 

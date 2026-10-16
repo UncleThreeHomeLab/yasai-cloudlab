@@ -21,6 +21,7 @@ MATERIAL = {
                                               'REGISTRY_HTTP_SECRET', 'REGISTRY_PASSWD', 'REGISTRY_HTPASSWD')},
     'harbor-token-signing': {'tls.key': 'tls_key', 'tls.crt': 'tls_crt'},
     'harbor-browser-key': {'cookie_secret': 'cookie_secret'},
+    'harbor-recovery-verifier': {'public_key': 'public_key'},
 }
 
 
@@ -31,6 +32,13 @@ def verify_material(manifest):
         digest = hashlib.sha256(json.dumps(delivered, sort_keys=True).encode()).hexdigest()
         if digest != manifest['secrets'][item]:
             raise RuntimeError('Vault recovery material changed; map the recorded generation before recovery')
+    if manifest.get('signatures'):
+        from automation.harbor.signatures import public_key, SIGNER, VERIFIER
+        private = fields(SIGNER, ('private_key',))['private_key']
+        public = fields(VERIFIER, ('public_key',))['public_key']
+        if (public_key(private) != public or
+                hashlib.sha256(public.encode()).hexdigest() != manifest['signatures']['verifier_sha256']):
+            raise RuntimeError('Independent signing recovery material differs from the recorded verifier')
     return len(MATERIAL)
 
 
