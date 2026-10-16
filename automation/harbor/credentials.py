@@ -43,11 +43,11 @@ def robot_values(document, username):
     return values
 
 
-def provision():
+def provision(lock_path=Path('/state/harbor-provision.lock')):
     values = dotenv_values(Path('/workspace/.env'), interpolate=False)
     token = values.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN')
     os.umask(0o077)
-    with Path('/state/harbor-provision.lock').open('a') as lock:
+    with lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         inventory = command(['item', 'list', '--vault', 'CloudLab'], token)
         for project in PROJECTS:

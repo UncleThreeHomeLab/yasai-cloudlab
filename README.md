@@ -108,6 +108,16 @@ PostgreSQL, Valkey and blobs have separate retained Longhorn claims. Browser acc
 uses Keycloak; registry clients use scoped robots. Local restore checks use no B2;
 coordinated off-site export and restore run on day 1 UTC only.
 Daily freshness checks read local receipts; they report the initial off-site gap.
+Manage projects separately through `docker compose run --build --rm infra-harbor`.
+Its [API contract](infra/harbor/contract.json) defines vault fields, retained fields
+and import formats. Run `inputs` locally, then `plan --bootstrap`; inspect the
+protected review in its dedicated work volume and run `apply --review <hash>`.
+Run `qualify-imports` before ordinary `plan`, `apply --review <hash>` and `verify`.
+`state-check` needs no lab connection. Interrupted operations preserve original
+inputs and encrypted plans; use `recover-state`, exact `recover-import --address
+<address> --id <id>`, then `recover-plan` and `recover-apply --review <hash>`.
+Never repeat bootstrap creation against existing resources. Routine applies
+cannot rotate robots; retention keeps all artifacts and automatic GC stays off.
 
 ## The stack
 

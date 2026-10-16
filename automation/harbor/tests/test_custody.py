@@ -64,7 +64,8 @@ class CustodyTests(unittest.TestCase):
                 patch.object(credentials, 'ensure_items') as create, \
                 patch.object(credentials, 'command', side_effect=[[
                     {'title': 'harbor-cloudlab-public-pull', 'id': 'existing-id'}], document]):
-            with self.assertRaisesRegex(RuntimeError, 'identity/version'): credentials.provision()
+            with self.assertRaisesRegex(RuntimeError, 'identity/version'):
+                credentials.provision(Path(temporary) / 'lock')
             create.assert_not_called()
 
     def test_existing_secret_version_cannot_trigger_implicit_rotation(self):

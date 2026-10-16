@@ -109,6 +109,27 @@ services:
         target: /infra-work
     command: [check, github]
 
+  infra-harbor:
+    profiles: [infra]
+    platform: linux/amd64
+    build:
+      context: ./automation/runner
+    entrypoint: [python, -m, automation.harbor.api]
+    working_dir: /workspace
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: volume
+        source: ssh_known_hosts
+        target: /state
+        read_only: true
+      - type: volume
+        source: harbor_infra_work
+        target: /infra-work
+    command: [check]
+
   service:
     profiles: [services]
     platform: linux/amd64
@@ -139,6 +160,7 @@ services:
     command: [check]
 
 volumes:
+  harbor_infra_work:
   infra_work:
   github_infra_work:
   ssh_known_hosts:

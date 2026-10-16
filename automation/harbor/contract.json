@@ -6,7 +6,6 @@
     "github-release-private": ["APP_ID", "INSTALLATION_ID", "PRIVATE_KEY"],
     "gitlab-state-harbor": ["PROJECT_ID", "USERNAME", "TOKEN"]
   },
-  "projects": ["cloudlab-public", "cloudlab-private"],
   "robot_fields": {"username": "STRING", "password": "CONCEALED", "secret_version": "STRING"},
   "custody": {
     "owner": "local Compose provisioning",
