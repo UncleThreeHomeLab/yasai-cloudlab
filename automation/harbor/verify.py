@@ -14,6 +14,19 @@ from automation.identity.health import direct_https
 from automation.mesh.kube import get, contains, application_ready
 
 
+def oidc_discovery(login_host):
+    issuer = 'https://' + login_host + '/realms/platform'
+    raw = recovery.execute('core', ['curl', '--fail', '--silent', '--show-error', '--connect-timeout', '5',
+                                   '--max-time', '20', issuer + '/.well-known/openid-configuration'])
+    document = json.loads(raw)
+    expected = {'issuer': issuer, 'authorization_endpoint': issuer + '/protocol/openid-connect/auth',
+                'token_endpoint': issuer + '/protocol/openid-connect/token',
+                'jwks_uri': issuer + '/protocol/openid-connect/certs'}
+    if any(document.get(key) != value for key, value in expected.items()):
+        raise RuntimeError('Harbor core must discover the exact trusted platform issuer before human onboarding')
+    return {'core_oidc_discovery': True, 'trusted_tls': True}
+
+
 def run(payload):
     for name in recovery.APPS:
         app = recovery.application(name)
@@ -48,6 +61,7 @@ def run(payload):
     expected.update(oidc_auto_onboard=True, token_expiration=POLICY['registry_token_minutes'])
     if any(settings.get(key, {}).get('value') != value for key, value in expected.items()):
         raise RuntimeError('Harbor OIDC prerequisites differ; do not create human accounts')
+    oidc_discovery(payload['configuration']['loginHost'])
     for path, authorization in (('/api/v2.0/users/current', {}),
             ('/api/v2.0/users/current', {'Authorization': 'Basic aW52YWxpZDppbnZhbGlk'}), ('/v2/', {})):
         status, _ = direct_https(origin + path, gateway, authorization)

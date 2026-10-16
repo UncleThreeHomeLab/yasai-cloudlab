@@ -13,6 +13,25 @@ from automation.harbor import verify, recovery
 
 
 class VerificationTests(unittest.TestCase):
+    def test_core_discovery_requires_tls_and_the_exact_platform_endpoints(self):
+        issuer = 'https://login.example.invalid/realms/platform'
+        document = {'issuer': issuer, 'authorization_endpoint': issuer + '/protocol/openid-connect/auth',
+                    'token_endpoint': issuer + '/protocol/openid-connect/token',
+                    'jwks_uri': issuer + '/protocol/openid-connect/certs'}
+        with patch.object(recovery, 'execute', return_value=json.dumps(document).encode()) as execute:
+            self.assertTrue(verify.oidc_discovery('login.example.invalid')['trusted_tls'])
+            self.assertEqual(execute.call_args.args[0], 'core')
+            arguments = execute.call_args.args[1]
+            self.assertNotIn('--insecure', arguments)
+            self.assertNotIn('--resolve', arguments)
+            self.assertIn('--fail', arguments)
+            for key in document:
+                execute.return_value = json.dumps(dict(document, **{key: 'https://foreign.example.invalid'})).encode()
+                with self.subTest(field=key), self.assertRaisesRegex(RuntimeError, 'exact trusted platform issuer'):
+                    verify.oidc_discovery('login.example.invalid')
+            execute.side_effect = RuntimeError('TLS unavailable')
+            with self.assertRaises(RuntimeError): verify.oidc_discovery('login.example.invalid')
+
     def test_failure_receipt_keeps_only_exception_type_and_source_locations(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(recovery, 'BASE', Path(directory)), \
                 patch.object(recovery, 'application', side_effect=RuntimeError('synthetic-private-value')), \
@@ -56,6 +75,7 @@ class VerificationTests(unittest.TestCase):
                 return 200, json.dumps({key: {'value': value} for key, value in settings.items()}).encode()
             return 401, b''
         with patch.object(verify, 'get', side_effect=resource), patch.object(verify, 'direct_https', side_effect=request), \
+                patch.object(verify, 'oidc_discovery', return_value={'core_oidc_discovery': True}), \
                 patch.object(verify, 'application_ready', return_value=True), \
                 patch.object(recovery, 'application', return_value={'spec': {'source': {'repoURL': payload['repository']}}}), \
                 patch.object(recovery, 'sources', return_value={}), patch.object(recovery, 'fingerprints', return_value={}), \

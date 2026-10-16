@@ -42,7 +42,7 @@
     "client": "harbor; confidential, exact /c/oidc/callback and /oauth2/callback on the private origin",
     "authorization": "OIDC group /platform-admin only for system administration; explicit project membership for other groups",
     "sessions": "Absolute 240-second browser gate; no refresh. Machine registry/token and explicitly authenticated API routes remove cookies.",
-    "prerequisites": "OIDC mode, verified issuer TLS, disabled registration and admin-only project creation before human onboarding.",
+    "prerequisites": "OIDC mode, core-pod TLS discovery of the exact platform issuer, disabled registration and admin-only project creation before human onboarding.",
     "recovery": "Vault admin via explicit Basic-authenticated private API; no interactive Keycloak dependency.",
     "proof": {
       "prerequisite": "Run lab identity-scoped after a public source update so the retired identity owner's receipt matches its reconciled revision.",

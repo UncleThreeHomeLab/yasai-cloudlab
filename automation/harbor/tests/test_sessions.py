@@ -87,4 +87,5 @@ class SessionTests(unittest.TestCase):
                 client.plan.return_value = {'changes': 0, 'apply_blocked': None}
                 self.assertFalse(sessions.prepare()['harbor_browser_acceptance_proven'])
                 enroll.assert_called_once_with(checkpoint, 'platform')
+                client.connected.assert_called_with(browser=True)
                 client.plan.assert_called_with(verify=True)

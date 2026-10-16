@@ -114,3 +114,7 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(payload['identity_client']['id'], 'harbor')
         self.assertEqual(payload['server']['harbor']['core']['hostAliases'],
                          [{'ip': '10.43.0.100', 'hostnames': ['login.example.invalid']}])
+        core = next(obj for obj in render('server', payload['server']) if obj['kind'] == 'Deployment' and
+                    obj['metadata']['labels'].get('component') == 'core')
+        self.assertEqual(core['spec']['template']['spec']['hostAliases'],
+                         [{'ip': '10.43.0.100', 'hostnames': ['login.example.invalid']}])
