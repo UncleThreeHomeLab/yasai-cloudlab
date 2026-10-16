@@ -18,7 +18,11 @@ class Registry:
     def command(self, *arguments, input_data=None, denied=False, missing=False):
         result = subprocess.run(['crane', '--platform=linux/amd64', *arguments], env=self.environment,
                                 input=input_data, capture_output=True, timeout=600)
-        if missing and result.returncode and re.search(rb'MANIFEST_UNKNOWN|NAME_UNKNOWN', result.stderr):
+        harbor_absent = any(re.search(
+            rb'(?:GET|HEAD) https://' + re.escape(self.host.encode()) + rb'/v2/' + re.escape(project.encode()) +
+            rb'/bootstrap/manifests/[A-Za-z0-9_:.-]+:\s*NOT_FOUND\b', result.stderr)
+            for project in POLICY['projects'])
+        if missing and result.returncode and (re.search(rb'MANIFEST_UNKNOWN|NAME_UNKNOWN', result.stderr) or harbor_absent):
             return None
         if denied:
             if not result.returncode or not re.search(rb'UNAUTHORIZED|DENIED|status code (?:401|403)', result.stderr):
