@@ -35,7 +35,17 @@
     "harbor-runtime": ["secretKey", "secret", "CSRF_KEY", "JOBSERVICE_SECRET", "REGISTRY_HTTP_SECRET", "REGISTRY_PASSWD", "REGISTRY_HTPASSWD"],
     "harbor-token-signing": ["tls_key", "tls_crt"],
     "harbor-browser-key": ["cookie_secret"],
+    "harbor-recovery-verifier": ["public_key"],
     "keycloak-client-secrets": ["client_secrets.platform.harbor"]
+  },
+  "recovery_signing": {
+    "private_item": {"harbor-recovery-signer": ["private_key"]},
+    "public_item": {"harbor-recovery-verifier": ["public_key"]},
+    "provision": "docker compose run --build --rm --entrypoint python infra-harbor -m automation.harbor.signatures provision; then apply Harbor so ESO delivers the public verifier.",
+    "prove": "docker compose run --rm --entrypoint python infra-harbor -m automation.harbor.signatures prove; then verify the populated coordinated restore.",
+    "custody": "Generate the private P-256 key locally once and durably read it back from the vault before deriving a separate public-only item. Preserve both items on repeat; reject changed bindings. Temporary signing keys stay in local container memory storage. Never deliver the private signer or provisioning token to hosts or Kubernetes.",
+    "scope": "Operator recovery artifacts only, separate from CI signing identity. Sign exact deployment and five rollback digests per project through its push robot. No public transparency upload. Native restore verification uses the retained public key and isolated emergency recovery access.",
+    "interruption": "Preserve the original digest, image and public-key journal. Native verification skips existing valid signatures; never replace the signer or artifact set automatically."
   },
   "browser": {
     "issuer": "retained platform Keycloak realm",

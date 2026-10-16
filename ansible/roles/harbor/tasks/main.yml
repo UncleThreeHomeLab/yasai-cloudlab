@@ -34,7 +34,7 @@
     src: '{{ playbook_dir }}/../platform/harbor/{{ item }}'
     dest: '/opt/cloudlab/platform/harbor/{{ item }}'
     mode: '0600'
-  loop: [policy.json, images.lock.json]
+  loop: [policy.json, images.lock.json, cosign.lock.json]
 
 - name: Reconcile Harbor only through Argo
   ansible.builtin.command: python3 /opt/cloudlab/automation/harbor/bootstrap.py

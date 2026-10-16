@@ -174,6 +174,9 @@ def run(client):
         other = next(name for name in api_policy.POLICY['projects'] if name != project)
         with registry.identity(client.private['robots'][other + '-push']):
             registry.command('manifest', reference, denied=True)
+        with registry.identity(client.private['robots'][project + '-push']):
+            registry.command('copy', reference, registry.host + '/' + other + '/bootstrap:denied-cross-project-probe',
+                             denied=True)
         with registry.identity():
             registry.command('manifest', reference, denied=True)
         rollback_artifacts(registry, client.private['robots'], directory, recorded, record, project)
@@ -183,7 +186,8 @@ def run(client):
     for project in api_policy.POLICY['projects']:
         (directory / (project + '.tar')).unlink(missing_ok=True)
     return {'independent_bootstrap': True, 'large_layer_bytes': LARGE_LAYER, 'project_push_pull': 2,
-            'pull_robot_push_denied': True, 'cross_project_denied': True, 'anonymous_denied': True,
+            'pull_robot_push_denied': True, 'cross_project_denied': True, 'cross_project_write_denied': True,
+            'anonymous_denied': True,
             'node_digest_pulls': node_pulls, 'rollback_digests_verified': 2 * len(ROLLBACK_TAGS),
             'immutable_overwrite_denied': True, 'interactive_login_used': False, 'arc_used': False}
 

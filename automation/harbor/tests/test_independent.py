@@ -11,6 +11,26 @@ from automation.harbor.tests.fixtures import manifest
 
 
 class IndependentTests(unittest.TestCase):
+    def test_independent_retrieval_requires_the_original_private_signer_without_host_delivery(self):
+        from automation.harbor.signatures import SIGNER, VERIFIER, private_key, public_key
+        value = manifest()
+        private = private_key()
+        public = public_key(private)
+        credentials = {item: {field: 'synthetic-' + field for field in mapping.values()}
+                       for item, mapping in independent.MATERIAL.items()}
+        credentials[VERIFIER]['public_key'] = public
+        credentials[SIGNER] = {'private_key': private}
+        for item, mapping in independent.MATERIAL.items():
+            delivered = {key: base64.b64encode(credentials[item][field].encode()).decode() for key, field in mapping.items()}
+            value['secrets'][item] = hashlib.sha256(json.dumps(delivered, sort_keys=True).encode()).hexdigest()
+        value['signatures'] = {'verifier_sha256': hashlib.sha256(public.encode()).hexdigest()}
+        self.assertNotIn(SIGNER, value['secrets'])
+        with patch.object(independent, 'fields', side_effect=lambda item, names: credentials[item]):
+            self.assertEqual(independent.verify_material(value), 6)
+            credentials[SIGNER]['private_key'] = private_key()
+            with self.assertRaisesRegex(RuntimeError, 'Independent signing recovery material'):
+                independent.verify_material(value)
+
     def repository(self):
         with patch('automation.data.control.secret') as cluster:
             repository = remote.Repository({'AWS_ENDPOINT': 'https://s3.us-west-004.backblazeb2.com',
@@ -45,7 +65,7 @@ class IndependentTests(unittest.TestCase):
             delivered = {key: base64.b64encode(credentials[item][field].encode()).decode() for key, field in mapping.items()}
             value['secrets'][item] = hashlib.sha256(json.dumps(delivered, sort_keys=True).encode()).hexdigest()
         with patch.object(independent, 'fields', side_effect=lambda item, names: credentials[item]):
-            self.assertEqual(independent.verify_material(value), 5)
+            self.assertEqual(independent.verify_material(value), 6)
             credentials['harbor-token-signing']['tls_key'] = 'changed'
             with self.assertRaisesRegex(RuntimeError, 'material changed'): independent.verify_material(value)
 

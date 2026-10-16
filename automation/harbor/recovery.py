@@ -1,5 +1,6 @@
 """Coordinated Harbor snapshots with chart-owned writer shutdown and repeat recovery."""
 from contextlib import contextmanager
+import base64
 import copy
 from datetime import datetime, timezone
 import fcntl
@@ -229,6 +230,8 @@ def validate(manifest):
             raise ValueError('Invalid Harbor recovery checksum')
     if any(not re.fullmatch(r'sha256:[a-f0-9]{64}', value) for value in manifest['inventory']['artifact_digests']):
         raise ValueError('Invalid Harbor recovery artifact digest')
+    if manifest.get('signatures') is not None:
+        signature_record(manifest['signatures'], manifest['inventory'])
     source = manifest['installation']
     if (set(source) != {'revision', 'chart_sha256', 'images'} or
             not re.fullmatch('[a-f0-9]{40}', source['revision']) or
@@ -238,6 +241,28 @@ def validate(manifest):
                 for value in source['images'])):
         raise ValueError('Harbor recovery requires immutable independently available bootstrap artifacts')
     return manifest
+
+
+def signature_record(value, inventory):
+    image = json.loads((ARTIFACTS / 'cosign.lock.json').read_text())['image']
+    if (not isinstance(value, dict) or set(value) != {'format', 'verifier_sha256', 'image', 'projects'} or
+            value.get('format') != 1 or value.get('image') != image or
+            not re.fullmatch('[a-f0-9]{64}', value.get('verifier_sha256', '')) or
+            not isinstance(value.get('projects'), dict) or
+            set(value['projects']) != {'cloudlab-public', 'cloudlab-private'}):
+        raise ValueError('Invalid recovery signer or independent verifier image')
+    for digests in value['projects'].values():
+        if (not isinstance(digests, list) or len(digests) != 6 or len(set(digests)) != 6 or
+                digests != sorted(digests) or any(not re.fullmatch(r'sha256:[a-f0-9]{64}', digest) for digest in digests) or
+                not set(digests).issubset(inventory['artifact_digests'])):
+            raise ValueError('Recovery signatures must retain deployment and five rollback digests per project')
+    return value
+
+
+def signature_binding(value):
+    public = secret('harbor-recovery-verifier')
+    if set(public) != {'public_key'} or hashlib.sha256(base64.b64decode(public['public_key'], validate=True)).hexdigest() != value['verifier_sha256']:
+        raise RuntimeError('Delivered public recovery verifier changed; preserve the original signer')
 
 
 def cleanup_snapshots(manifest):
@@ -286,6 +311,10 @@ def capture(monthly=False):
         manifest['phase'] = 'inventory'
         atomic(BASE / 'pending-volume.json', manifest)
         manifest['inventory'] = inventory()
+        signed = BASE / 'signed-artifacts.json'
+        if signed.exists():
+            manifest['signatures'] = signature_record(json.loads(signed.read_text()), manifest['inventory'])
+            signature_binding(manifest['signatures'])
         for component in ('registry', 'database', 'redis'):
             manifest['phase'] = 'stop-' + component
             atomic(BASE / 'pending-volume.json', manifest)
@@ -327,6 +356,14 @@ def run(action):
         resume()
         if action == 'resume':
             return {'maintenance_resumed': True, 'b2_reads': 0}
+        if action == 'record-signatures':
+            proof = signature_record(json.load(sys.stdin), inventory())
+            signature_binding(proof)
+            previous = BASE / 'signed-artifacts.json'
+            if previous.exists() and json.loads(previous.read_text()) != proof:
+                raise RuntimeError('Original recovery signature evidence changed; replacement refused')
+            atomic(previous, proof)
+            return {'signature_digests_recorded': sum(map(len, proof['projects'].values())), 'private_key_received': False}
         if action not in ('check-local', 'monthly', 'cleanup-fixtures'):
             raise ValueError('Unknown Harbor recovery action')
         if action == 'cleanup-fixtures':

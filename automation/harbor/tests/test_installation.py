@@ -28,7 +28,8 @@ class InstallationTests(unittest.TestCase):
 
     def test_sdk_delivery_extracts_items_before_mapping_fields(self):
         external = [obj for obj in render('', {'enabled': True}) if obj['kind'] == 'ExternalSecret']
-        self.assertEqual(len(external), 7)
+        self.assertEqual(len(external), 8)
+        self.assertNotIn('harbor-recovery-signer', str(external))
         for obj in external:
             self.assertNotIn('data', obj['spec'])
             self.assertEqual(len(obj['spec']['dataFrom']), 1)
