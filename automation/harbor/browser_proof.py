@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import ssl
 import subprocess
@@ -175,25 +176,31 @@ def run():
             time.sleep(0.2)
         require(request('/protected') in (302, 401, 403) and backend.requests == 0,
                 'Anonymous browser reached Harbor')
-        jar = CookieJar()
-        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar),
-            urllib.request.HTTPSHandler(context=client_context))
-        with browser.open(ORIGIN + '/protected', timeout=20) as response:
-            require(response.status == 200, 'Native OIDC browser login failed')
-        require(provider.pkce_verified == 1, 'Browser gate did not verify PKCE')
-        # Replay the old cookie explicitly after expiry; client-side cookie deletion is insufficient.
-        replay = '; '.join(cookie.name + '=' + cookie.value for cookie in jar) + '; sid=synthetic-Harbor-session'
-        require('__Host-harbor_oidc=' in replay, 'Native browser session cookie absent')
-        started, accepted = time.monotonic(), 0
-        while time.monotonic() - started < 3:
-            require(request('/protected', replay) == 200, 'Browser session expired before the fixture bound')
-            accepted += 1
-            time.sleep(0.25)
-        time.sleep(3)
-        before = backend.requests
-        require(request('/protected', replay) in (302, 401, 403), 'Active browser session exceeded its absolute bound')
-        require(backend.requests == before, 'Expired replay reached Harbor despite the browser gate')
+        accepted = 0
+        for chunked in (False, True):
+            if chunked:
+                provider.claims['cookie_size_probe'] = secrets.token_urlsafe(8192)
+            jar = CookieJar()
+            browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar),
+                urllib.request.HTTPSHandler(context=client_context))
+            with browser.open(ORIGIN + '/protected', timeout=20) as response:
+                require(response.status == 200, 'Native OIDC browser login failed')
+            session = [cookie for cookie in jar if re.fullmatch(r'__Host-harbor_oidc(?:_[0-9]+)?', cookie.name)]
+            require(len(session) > 1 if chunked else len(session) == 1, 'Native cookie splitting fixture did not match its scope')
+            # Replay old cookies explicitly; client-side deletion alone cannot prove expiry.
+            replay = '; '.join(cookie.name + '=' + cookie.value for cookie in jar) + '; sid=synthetic-Harbor-session'
+            started = time.monotonic()
+            while time.monotonic() - started < 3:
+                require(request('/protected', replay) == 200, 'Browser session expired before the fixture bound')
+                accepted += 1
+                time.sleep(0.25)
+            time.sleep(3)
+            before = backend.requests
+            require(request('/protected', replay) in (302, 401, 403), 'Active browser session exceeded its absolute bound')
+            require(backend.requests == before, 'Expired replay reached Harbor despite the browser gate')
+        require(provider.pkce_verified == 2, 'Browser gate did not verify PKCE for both cookie formats')
         return {'tls_verified': True, 'pkce_verified': True, 'active_requests_before_expiry': accepted,
+                'split_cookie_replay_denied': True,
                 'expired_cookie_replay_denied': True, 'production_mutations': 0,
                 'live_keycloak_offboarding_proven': False}
     finally:

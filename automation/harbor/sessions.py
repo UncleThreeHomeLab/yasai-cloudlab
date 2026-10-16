@@ -119,7 +119,8 @@ def run():
                         'viewer_private_project_denied', 'viewer_admin_denied', 'native_oidc_cli_pull'}
             if not isinstance(ready, dict) or set(ready) != expected or any(ready[key] is not True for key in expected):
                 stages = ('input', 'account enrollment', 'account password', 'WebAuthn registration',
-                          'account session', 'native Harbor OIDC')
+                          'account session', 'native Harbor OIDC', 'Harbor viewer roles',
+                          'native OIDC CLI token', 'Harbor cookie bound')
                 stage = ready.get('stage') if isinstance(ready, dict) else None
                 print(json.dumps({'browser_failed_stage': stage if stage in stages else 'baseline'}), flush=True)
                 raise RuntimeError('Harbor browser baseline incomplete; private fixture retained')

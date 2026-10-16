@@ -13,6 +13,7 @@ const connection = await new Promise((resolve, reject) => {
 });
 const lines = readline.createInterface({input: connection, terminal: false})[Symbol.asyncIterator]();
 const report = value => connection.write(JSON.stringify(value) + '\n');
+const gateCookie = cookie => /^__Host-harbor_oidc(?:_[0-9]+)?$/.test(cookie.name);
 let browser, stage = 'input';
 try {
   const input = JSON.parse((await lines.next()).value);
@@ -43,12 +44,14 @@ try {
   if (current.status !== 200 || current.document.sysadmin_flag !== false ||
       current.document.username !== input.subject || !current.document.oidc_user_meta?.secret)
     throw new Error('Native Harbor viewer identity rejected');
+  stage = 'Harbor viewer roles';
   const publicProject = await read('/api/v2.0/projects/cloudlab-public');
   if (publicProject.status !== 200 || publicProject.document.name !== 'cloudlab-public' ||
       ![403, 404].includes((await read('/api/v2.0/projects/cloudlab-private')).status) ||
       (await read('/api/v2.0/configurations')).status !== 403)
     throw new Error('Explicit Harbor viewer roles rejected');
   const harborUser = current.document;
+  stage = 'native OIDC CLI token';
   const basic = 'Basic ' + Buffer.from(harborUser.username + ':' + harborUser.oidc_user_meta.secret).toString('base64');
   const tokenPath = input.origin + '/service/token?service=harbor-registry&scope=' +
     encodeURIComponent('repository:cloudlab-public/bootstrap:pull');
@@ -75,9 +78,12 @@ try {
   };
   let lastToken = await issue();
   if (!lastToken || !(await pull(lastToken))) throw new Error('Native OIDC CLI digest pull unavailable');
+  stage = 'Harbor cookie bound';
   const cookies = await context.cookies(input.origin);
-  const gate = cookies.find(cookie => cookie.name === '__Host-harbor_oidc');
-  if (!gate || gate.expires * 1000 > Date.now() + 245000) throw new Error('Browser session bound rejected');
+  const gates = cookies.filter(gateCookie);
+  const now = Date.now();
+  if (!gates.length || gates.some(cookie => cookie.expires * 1000 <= now || cookie.expires * 1000 > now + 245000 ||
+      !cookie.secure || !cookie.httpOnly || cookie.path !== '/')) throw new Error('Browser session bound rejected');
   const replay = cookies.map(cookie => cookie.name + '=' + cookie.value).join('; ');
   report({ready: true, native_harbor_oidc: true, viewer_public_project_allowed: true,
     viewer_private_project_denied: true, viewer_admin_denied: true, native_oidc_cli_pull: true});
@@ -115,7 +121,7 @@ try {
   await login.getByLabel('Password', {exact: true}).fill(input.password);
   await login.getByRole('button', {name: 'Sign In', exact: true}).click();
   await login.getByText(/^(Invalid username or password\.|Account is disabled, contact your administrator\.)$/).waitFor();
-  if ((await fresh.cookies(input.origin)).some(cookie => cookie.name === '__Host-harbor_oidc'))
+  if ((await fresh.cookies(input.origin)).some(gateCookie))
     throw new Error('Offboarded viewer received a new Harbor gate session');
   await fresh.close();
   report({...measured, offboarded_new_login_denied: true, sessions_persisted: false});
