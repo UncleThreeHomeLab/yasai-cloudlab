@@ -1,5 +1,11 @@
 import base64
 import json
+import io
+import os
+from pathlib import Path
+import runpy
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -7,6 +13,21 @@ from automation.harbor import verify, recovery
 
 
 class VerificationTests(unittest.TestCase):
+    def test_failure_receipt_keeps_only_exception_type_and_source_locations(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(recovery, 'BASE', Path(directory)), \
+                patch.object(recovery, 'application', side_effect=RuntimeError('synthetic-private-value')), \
+                patch.object(sys, 'stdin', io.StringIO('{}')):
+            previous = os.umask(0o077)
+            try:
+                with self.assertRaises(SystemExit):
+                    runpy.run_module('automation.harbor.verify', run_name='__main__')
+            finally:
+                os.umask(previous)
+            receipt = Path(directory) / 'verification-failure.json'
+            self.assertNotIn('synthetic-private-value', receipt.read_text())
+            self.assertEqual(json.loads(receipt.read_text())['type'], 'RuntimeError')
+            self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+
     def fixtures(self):
         payload = {'repository': 'https://github.com/fixture/platform.git', 'revision': 'a' * 40,
                    'configuration': {'harborHost': 'harbor.internal.example.invalid', 'loginHost': 'login.example.invalid'}}

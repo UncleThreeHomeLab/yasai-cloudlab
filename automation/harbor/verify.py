@@ -1,8 +1,10 @@
 """Verify installation prerequisites before registry API ownership or human onboarding."""
 import base64
 import json
+import os
 from pathlib import Path
 import sys
+import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -69,7 +71,13 @@ def run(payload):
 
 
 if __name__ == '__main__':
+    os.umask(0o077)
     try:
         print(json.dumps(run(json.load(sys.stdin)), sort_keys=True))
-    except Exception:
+    except Exception as error:
+        recovery.BASE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        recovery.atomic(recovery.BASE / 'verification-failure.json', {
+            'type': type(error).__name__, 'frames': [
+                {'file': Path(frame.filename).name, 'line': frame.lineno}
+                for frame in traceback.extract_tb(error.__traceback__)]})
         raise SystemExit('Harbor installation verification incomplete; private values withheld') from None
