@@ -1,4 +1,4 @@
-"""One service definition owns user SLO alerts, panels and release thresholds."""
+"""One service definition owns user SLO alerts and release thresholds."""
 import json
 from pathlib import Path
 
@@ -60,46 +60,13 @@ def coverage():
     return '(sum_over_time(notes:slo_evidence:present[' + definition()['window'] + ']) or vector(0))'
 
 
-def dashboard():
-    policy = definition()
-    panels = []
-    for indicator in ('availability', 'latency'):
-        count, bad = expressions(indicator, policy['window'])
-        expression = ('(1 - ' + bad + ') and (' + count + ' >= ' + str(policy['minimum_window_samples']) +
-                      ') and (' + coverage() + ' >= ' + str(policy['window_seconds'] // 30 - 1) + ')')
-        panels.append({'id': len(panels) + 1, 'title': indicator.title() + ' (' + policy['window'] + ')',
-            'type': 'stat', 'datasource': {'type': 'prometheus', 'uid': 'metrics'},
-            'gridPos': {'x': 12 * (len(panels) % 2), 'y': 0, 'w': 12, 'h': 6},
-            'targets': [{'refId': 'A', 'expr': expression, 'instant': True}],
-            'fieldConfig': {'defaults': {'unit': 'percentunit', 'min': 0, 'max': 1, 'noValue': 'UNAVAILABLE',
-                'thresholds': {'mode': 'absolute', 'steps': [{'color': 'red', 'value': None},
-                    {'color': 'green', 'value': policy[indicator + '_target']}]}}}})
-        for windows in policy['burn_windows']:
-            _, burn = expressions(indicator, windows['long'])
-            panels.append({'id': len(panels) + 1, 'title': indicator.title() + ' burn ' + windows['long'],
-                'type': 'timeseries', 'datasource': {'type': 'prometheus', 'uid': 'metrics'},
-                'gridPos': {'x': 0, 'y': 6 * len(panels), 'w': 24, 'h': 6},
-                'targets': [{'refId': 'A', 'expr': burn + ' / ' + str(1 - policy[indicator + '_target'])}]})
-    panels.append({'id': len(panels) + 1, 'title': 'Evidence and burn alerts', 'type': 'table',
-        'datasource': {'type': 'prometheus', 'uid': 'metrics'},
-        'gridPos': {'x': 0, 'y': 6 * len(panels), 'w': 24, 'h': 6},
-        'targets': [{'refId': 'A', 'expr': 'ALERTS{service="notes-api"}', 'instant': True, 'format': 'table'}]})
-    return {'uid': 'notes-user-slo', 'title': 'Notes user SLO', 'schemaVersion': 41, 'version': 1,
-        'editable': False, 'refresh': '30s', 'time': {'from': 'now-6h', 'to': 'now'},
-        'description': 'User reads only. Complete 7d scrape window and 10000 samples required. Missing or truncated evidence is UNAVAILABLE. Release traffic is separate.',
-        'panels': panels}
-
-
 def build():
     path = ROOT / 'platform/observability/prometheus/templates'
     path.mkdir(exist_ok=True)
     resource = {'apiVersion': 'monitoring.coreos.com/v1', 'kind': 'PrometheusRule',
                 'metadata': {'name': 'notes-user-slo', 'namespace': 'cloudlab-observability'}, 'spec': rules()}
     (path / 'notes-slo.json').write_text(json.dumps(resource, indent=2) + '\n')
-    config = {'apiVersion': 'v1', 'kind': 'ConfigMap',
-              'metadata': {'name': 'cloudlab-dashboards', 'namespace': 'cloudlab-observability'},
-              'data': {'notes-slo.json': json.dumps(dashboard(), separators=(',', ':'))}}
-    (path / 'dashboards.json').write_text(json.dumps(config, indent=2) + '\n')
+
 
 
 if __name__ == '__main__':

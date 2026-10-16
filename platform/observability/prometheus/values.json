@@ -337,6 +337,9 @@
         },
         "alerting": {
           "enabled": false
+        },
+        "dashboards": {
+          "default_home_dashboard_path": "/var/lib/grafana/dashboards/cloudlab/lab-overview.json"
         }
       },
       "datasources": {
@@ -400,7 +403,7 @@
               "orgId": 1,
               "folder": "CloudLab",
               "type": "file",
-              "disableDeletion": true,
+              "disableDeletion": false,
               "allowUiUpdates": false,
               "options": {
                 "path": "/var/lib/grafana/dashboards/cloudlab"

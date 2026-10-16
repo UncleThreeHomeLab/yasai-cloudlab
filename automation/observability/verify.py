@@ -79,6 +79,36 @@ def proxy(origin, gateway, headers, datasource, path):
     return json.loads(raw)
 
 
+def dashboards_ready(origin, gateway, headers, dashboards):
+    for expected in dashboards.values():
+        status, raw = direct_https(origin + '/api/dashboards/uid/' + expected['uid'], gateway, headers)
+        if status != 200:
+            return False
+        actual = json.loads(raw)
+        if not actual.get('meta', {}).get('provisioned'):
+            return False
+        if any(actual['dashboard'].get(key) != expected[key] for key in ('title', 'panels', 'templating', 'links')):
+            return False
+        for panel in expected['panels']:
+            for target in panel['targets']:
+                expression = target['expr']
+                for variable, value in (('$__rate_interval', '2m'), ('$__range', '6h'),
+                                        ('$namespace', '.*'), ('$pod', '.*'), ('$instance', '.*'),
+                                        ('$service', '.*'), ('$route', '.*'), ('$traffic', 'user')):
+                    expression = expression.replace(variable, value)
+                datasource = panel['datasource']['uid']
+                parameters = {'query': expression}
+                if datasource == 'logs':
+                    parameters['limit'] = 1
+                query = urllib.parse.urlencode(parameters)
+                endpoint = '/loki/api/v1/query_range?' if datasource == 'logs' else '/api/v1/query?'
+                result = proxy(origin, gateway, headers, datasource, endpoint + query)
+                if result.get('status') != 'success':
+                    raise RuntimeError('Dashboard query failed')
+    status, _ = direct_https(origin + '/api/dashboards/uid/notes-user-slo', gateway, headers)
+    return status == 404
+
+
 def run(payload):
     kiali_control_plane_permissions()
     names = ('observability', 'prometheus', 'loki', 'tempo', 'alloy', 'kiali')
@@ -125,6 +155,8 @@ def run(payload):
     credentials = ':'.join(base64.b64decode(secret[key], validate=True).decode() for key in ('username', 'password'))
     authorization = 'Basic ' + base64.b64encode(credentials.encode()).decode()
     query_headers = {'Authorization': authorization, 'Accept': 'application/json'}
+    wait(lambda: dashboards_ready(origin, private_gateway, query_headers, payload['dashboards']),
+         'four provisioned dashboards and retired SLO dashboard removal', timeout=180)
     trace_id = secrets.token_hex(16)
     headers = {'traceparent': '00-' + trace_id + '-' + secrets.token_hex(8) + '-01',
                'User-Agent': 'CloudLab-Telemetry-Proof/1.0'}
@@ -174,6 +206,7 @@ def run(payload):
             'private_dashboard_apis': True, 'kiali_control_plane_permission': True,
             'all_metric_targets_healthy': True,
             'kiali_route_references_visible': True, 'telemetry_service_protocols': True,
+            'provisioned_dashboards': len(payload['dashboards']), 'retired_slo_dashboard_removed': True,
             'retention_settings': True, 'elapsed_retention_deletion_proven': False}
 
 
