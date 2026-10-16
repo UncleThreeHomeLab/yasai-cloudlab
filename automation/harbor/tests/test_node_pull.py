@@ -13,6 +13,7 @@ from automation.harbor import node_pull
 class NodePullTests(unittest.TestCase):
     def test_both_nodes_receive_only_each_project_pull_credential_over_standard_input(self):
         client = Mock()
+        client.path = Path('/synthetic-work')
         client.values = {prefix + '_' + name: value for prefix in ('VM', 'VM2')
                          for name, value in (('HOST', '192.0.2.1'), ('USER', 'fixture'), ('PASSWORD', 'synthetic-ssh'))}
         client.values['VM2_HOST'] = '192.0.2.2'
@@ -37,6 +38,7 @@ class NodePullTests(unittest.TestCase):
 
     def test_endpoint_aliases_cannot_count_one_kernel_as_two_nodes(self):
         client = Mock()
+        client.path = Path('/synthetic-work')
         client.values = {'VM_HOST': '192.0.2.1', 'VM2_HOST': '192.0.2.1'}
         with self.assertRaisesRegex(ValueError, 'distinct node endpoints'):
             node_pull.verify_nodes(client, {})
@@ -94,7 +96,9 @@ class NodePullTests(unittest.TestCase):
                 self.assertTrue(namespace.startswith('cloudlab-harbor-proof-'))
                 namespaces.add(namespace)
                 code, output = 0, b''
-                if action[:2] == ['images', 'pull']:
+                if action[:2] == ['namespaces', 'list']:
+                    output = b'NAME LABELS\n'
+                elif action[:2] == ['images', 'pull']:
                     directory = Path(action[action.index('--hosts-dir') + 1])
                     paths.append(directory)
                     path = directory / payload['host'] / 'hosts.toml'
@@ -105,7 +109,7 @@ class NodePullTests(unittest.TestCase):
                     self.assertTrue(action[-1].endswith('@' + payload['digest']))
                     if interrupted: raise subprocess.TimeoutExpired(arguments, 180)
                 elif action[:2] == ['snapshots', 'list']:
-                    output = ('\n'.join(sorted(snapshots)) + '\n').encode() if snapshots else b''
+                    output = ('KEY PARENT KIND\n' + ''.join(key + ' parent Committed\n' for key in sorted(snapshots, reverse=True))).encode()
                 elif action[:2] == ['snapshots', 'remove']:
                     key = action[2]
                     if key == 'parent' and 'child' in snapshots: code = 1
@@ -122,3 +126,41 @@ class NodePullTests(unittest.TestCase):
                     self.assertTrue(node_pull.run(payload)['containerd_pull_by_digest'])
                 self.assertEqual(len(namespaces), 1)
                 self.assertTrue(all(not path.exists() for path in paths))
+
+    def test_native_table_parser_refuses_unknown_columns_duplicate_keys_and_flags(self):
+        self.assertEqual(node_pull.table_keys(b'KEY PARENT KIND\na  Committed\n', ('KEY', 'PARENT', 'KIND'), 64), ['a'])
+        for raw in (b'NAME PARENT KIND\na  Committed\n', b'KEY PARENT KIND\na x Committed\na x Committed\n',
+                    b'KEY PARENT KIND\n--all x Active\n'):
+            with self.assertRaises(RuntimeError): node_pull.table_keys(raw, ('KEY', 'PARENT', 'KIND'), 64)
+
+    def test_only_empty_reserved_namespaces_are_removed_on_repeat(self):
+        empty = 'cloudlab-harbor-proof-' + 'a' * 16
+        occupied = 'cloudlab-harbor-proof-' + 'b' * 16
+        removed = []
+        def command(arguments, **kwargs):
+            namespace, action = arguments[3], arguments[4:]
+            output = b'HEADER\n'
+            if action[:2] == ['namespaces', 'list']:
+                output = ('NAME LABELS\n' + empty + '\n' + occupied + '\nk8s.io\n').encode()
+            elif action[:2] == ['images', 'list'] and namespace == occupied:
+                output += b'preserve-this-image\n'
+            elif action[:2] == ['snapshots', 'list']:
+                output = b'KEY PARENT KIND\n'
+            elif action[:2] == ['namespaces', 'remove']:
+                removed.append(action[2])
+            return subprocess.CompletedProcess(arguments, 0, output, b'')
+        with patch.object(node_pull, 'token', return_value='synthetic'), patch.object(node_pull.subprocess, 'run', side_effect=command):
+            node_pull.run(self.payload())
+        self.assertIn(empty, removed)
+        self.assertNotIn(occupied, removed)
+        self.assertNotIn('k8s.io', removed)
+        self.assertEqual(len(removed), 2)
+
+    def test_native_error_metadata_does_not_contain_credentials_or_endpoints(self):
+        secret = b'synthetic-private-credential-value'
+        result = subprocess.CompletedProcess([], 1, b'', b'failed to authorize: credential ' + secret + b' at https://private.example.invalid')
+        error = node_pull.NodeCommandError('cloudlab-harbor-proof-' + 'a' * 16, ('images', 'pull'), result)
+        encoded = json.dumps(error.details)
+        self.assertNotIn(secret.decode(), encoded)
+        self.assertNotIn('private.example.invalid', encoded)
+        self.assertIn('credential', error.details['classes'])
