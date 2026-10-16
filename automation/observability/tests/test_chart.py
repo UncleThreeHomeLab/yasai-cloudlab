@@ -22,6 +22,8 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(original, result)
 
     def test_telemetry_service_protocols_are_explicit_without_changing_ports(self):
+        monitor = next(obj for obj in configuration(True) if obj['kind'] == 'PodMonitor' and obj['metadata']['name'] == 'notes')
+        self.assertEqual(monitor['spec']['podMetricsEndpoints'][0]['port'], 'http-metrics')
         alloy = next(obj for obj in render('alloy') if obj['kind'] == 'Service')
         otlp = next(port for port in alloy['spec']['ports'] if port['port'] == 4318)
         self.assertEqual(otlp['name'], 'otlp-http')
