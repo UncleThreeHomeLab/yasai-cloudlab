@@ -105,6 +105,39 @@ def prepare():
          'exp_samples': [{'labels': '{realm="platform"}', 'value': 1}]}]})
     (FIXTURE / 'slo-test.json').write_text(json.dumps({'rule_files': ['/fixture/slo-rules.json'],
         'evaluation_interval': '30s', 'tests': [{'interval': '1m', 'input_series': series, 'alert_rule_test': cases}] + audit_cases}))
+    dashboards = [json.loads(path.read_text()) for path in
+                  sorted((ROOT / 'platform/observability/prometheus/dashboards').glob('*.json'))]
+    expressions = []
+    for dashboard in dashboards:
+        for panel in dashboard['panels']:
+            if panel['datasource']['uid'] != 'metrics':
+                continue
+            for target in panel['targets']:
+                expression = target['expr']
+                for key, value in (('$__rate_interval', '2m'), ('$__range', '6h'), ('$namespace', '.*'),
+                                   ('$pod', '.*'), ('$instance', '.*'), ('$service', '.*'),
+                                   ('$route', '.*'), ('$traffic', 'user')):
+                    expression = expression.replace(key, value)
+                expressions.append({'record': 'dashboard:query_' + str(len(expressions)), 'expr': expression})
+    (FIXTURE / 'dashboard-rules.json').write_text(json.dumps({'groups': [
+        {'name': 'dashboard-syntax', 'rules': expressions}]}))
+    fraction = next(panel['targets'][0]['expr'] for dashboard in dashboards if dashboard['uid'] == 'cloudlab-notes'
+                    for panel in dashboard['panels'] if panel['title'] == '5xx fraction')
+    for key, value in (('$__rate_interval', '2m'), ('$service', '.*'), ('$route', '.*'), ('$traffic', 'user')):
+        fraction = fraction.replace(key, value)
+    tests = json.loads((FIXTURE / 'slo-test.json').read_text())
+    tests['fuzzy_compare'] = True
+    tests['rule_files'].append('/fixture/dashboard-rules.json')
+    for success, failure, expected in ((None, None, None), (0, None, None), (100, None, 0), (90, 10, 0.1)):
+        observations = [{'series': 'cloudlab_http_requests_total' + base + status + '"}',
+                         'values': '0+' + str(increment) + 'x10'}
+                        for status, increment in (('200', success), ('500', failure)) if increment is not None]
+        observations.append({'series': 'cloudlab_http_requests_total{service="notes-api",route="/api/notes",traffic="synthetic",status="500"}',
+                             'values': '0+1000x10'})
+        tests['tests'].append({'interval': '1m', 'input_series': observations, 'promql_expr_test': [
+            {'expr': 'sum(' + fraction + ')', 'eval_time': '10m',
+             'exp_samples': [] if expected is None else [{'labels': '{}', 'value': expected}]}]})
+    (FIXTURE / 'slo-test.json').write_text(json.dumps(tests))
     print(json.dumps({'fixture_prepared': True, 'production_credentials': False}))
 
 

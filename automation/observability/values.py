@@ -89,7 +89,7 @@ def values(name):
                                        'filterByTraceID': True}, 'nodeGraph': {'enabled': True}}}]}},
                 'dashboardProviders': {'providers.yaml': {'apiVersion': 1, 'providers': [
                     {'name': 'cloudlab', 'orgId': 1, 'folder': 'CloudLab', 'type': 'file',
-                     'disableDeletion': True, 'allowUiUpdates': False, 'options': {'path': '/var/lib/grafana/dashboards/cloudlab'}}]}},
+                     'disableDeletion': False, 'allowUiUpdates': False, 'options': {'path': '/var/lib/grafana/dashboards/cloudlab'}}]}},
                 'dashboardsConfigMaps': {'cloudlab': 'cloudlab-dashboards'}},
             'kube-state-metrics': {'image': dict(image('ksm'), sha='sha256:' + image('ksm')['sha']),
                                   'resources': resources(75, 128)},
