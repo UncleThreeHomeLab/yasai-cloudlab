@@ -1,4 +1,5 @@
 """Independent OCI bootstrap proof; preserve interrupted uploads and immutable digests."""
+import argparse
 import fcntl
 import hashlib
 import json
@@ -16,6 +17,7 @@ from automation.harbor.registry import Registry
 from automation.harbor.node_pull import verify_nodes
 from automation.harbor.restore import PYTHON
 from automation.infra.retention import ciphertext
+from automation.connectivity.preflight import ssh
 
 LARGE_LAYER = 256 * 1024**2
 PAYLOAD = 'cloudlab-proof/payload.bin'
@@ -192,14 +194,41 @@ def run(client):
             'immutable_overwrite_denied': True, 'interactive_login_used': False, 'arc_used': False}
 
 
+def deployment_proof(client, action):
+    if client.plan(verify=True)['changes'] != 0:
+        raise ValueError('Accept the unchanged Harbor root before Deployment preservation checks')
+    record = receipt(client.path / 'artifacts/receipt.json')
+    if not record.get('verified_at') or any(set(row.get('rollback', {})) != set(ROLLBACK_TAGS)
+            for row in record['projects'].values()) or set(record['projects']) != set(api_policy.POLICY['projects']):
+        raise ValueError('Complete all independent digest artifacts before native Deployment rollback')
+    document = {project: [{key: entry[key] for key in ('digest', 'payload_bytes', 'payload_sha256')}
+                         for entry in (row, *[row['rollback'][tag] for tag in ROLLBACK_TAGS])]
+                for project, row in record['projects'].items()}
+    if action not in ('prepare', 'cleanup'):
+        raise ValueError('Unknown Deployment fixture operation')
+    result = json.loads(ssh('VM', client.values['VM_HOST'],
+        'python3 /opt/cloudlab/automation/harbor/deployments.py ' + action,
+        input=json.dumps(document) if action == 'prepare' else '', timeout=9000))
+    if action == 'prepare' and (result.get('active') is not True or result.get('rollback_replicasets') != 10):
+        raise RuntimeError('Native Harbor Deployment history proof is incomplete')
+    return result
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--deployments', action='store_true')
+    group.add_argument('--cleanup-deployments', action='store_true')
+    arguments = parser.parse_args()
     os.umask(0o077)
     api.WORK.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (api.WORK / 'client.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         client = api.Client()
         with client.connected():
-            print(json.dumps(run(client), sort_keys=True))
+            result = (deployment_proof(client, 'cleanup' if arguments.cleanup_deployments else 'prepare')
+                      if arguments.deployments or arguments.cleanup_deployments else run(client))
+            print(json.dumps(result, sort_keys=True))
 
 
 if __name__ == '__main__':

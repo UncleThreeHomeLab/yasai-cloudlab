@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 import yaml
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from automation.harbor import verify, recovery
 
@@ -100,6 +100,7 @@ class VerificationTests(unittest.TestCase):
             return 401, b''
         with patch.object(verify, 'get', side_effect=resource), patch.object(verify, 'direct_https', side_effect=request), \
                 patch.object(verify, 'oidc_discovery', return_value={'core_oidc_discovery': True}), \
+                patch.object(verify.deployments, 'verify', return_value={'active': False}) as deployed, \
                 patch.object(verify, 'application_ready', return_value=True), \
                 patch.object(recovery, 'application', return_value={'spec': {'source': {'repoURL': payload['repository']}}}), \
                 patch.object(recovery, 'sources', return_value={}), patch.object(recovery, 'fingerprints', return_value={}), \
@@ -107,6 +108,10 @@ class VerificationTests(unittest.TestCase):
                 patch.object(recovery, 'run', return_value={'restored': True}) as restore:
             self.assertTrue(verify.run(payload)['public_gateway_denied'])
             restore.assert_called_once_with('check-local')
+            deployed.return_value = {'active': True, 'rollback_replicasets': 10, 'fresh_kubelet_pulls': 4}
+            deployed.reset_mock()
+            self.assertEqual(verify.run(payload)['deployed_rollback']['fresh_kubelet_pulls'], 4)
+            self.assertEqual(deployed.call_args_list, [call(), call(repull=True)])
 
     def test_wrong_authentication_mode_stops_before_recovery_or_human_onboarding(self):
         payload, settings, resource = self.fixtures()

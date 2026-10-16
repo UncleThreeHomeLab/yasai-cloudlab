@@ -20,7 +20,7 @@
     src: '{{ playbook_dir }}/../automation/harbor/{{ item }}'
     dest: '/opt/cloudlab/automation/harbor/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, values.py]
+  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, values.py, deployments.py]
 
 - name: Retain independent pinned artifacts for isolated Harbor restores
   ansible.builtin.copy:

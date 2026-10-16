@@ -8,7 +8,7 @@ import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from automation.harbor import recovery
+from automation.harbor import recovery, deployments
 from automation.harbor.values import POLICY
 from automation.identity.health import direct_https
 from automation.mesh.kube import get, contains, application_ready
@@ -72,7 +72,11 @@ def run(payload):
     if direct_https(public_origin + '/v2/', public, {'Host': payload['configuration']['harborHost']})[0] != 404:
         raise RuntimeError('Harbor registry is exposed by the public gateway')
     before = recovery.fingerprints()
+    deployed = deployments.verify()
     restored = recovery.run('check-local')
+    after_deployed = deployments.verify(repull=deployed['active'])
+    if deployed['active'] != after_deployed['active']:
+        raise RuntimeError('Harbor Deployment fixture disappeared during recovery')
     if recovery.fingerprints() != before or recovery.sources() != volumes:
         # Allocation counters change during normal operation; source identities must not.
         current = recovery.sources()
@@ -83,7 +87,7 @@ def run(payload):
             raise RuntimeError('Harbor recovery changed production credential or volume identities')
     return {'argo_converged': True, 'independent_retained_claims': 3, 'oidc_prerequisites': True,
             'independent_emergency_api': True, 'unauthenticated_access_denied': True,
-            'public_gateway_denied': True, 'recovery': restored}
+            'public_gateway_denied': True, 'recovery': restored, 'deployed_rollback': after_deployed}
 
 
 if __name__ == '__main__':
