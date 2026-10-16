@@ -45,7 +45,7 @@ def grafana(identity_issuer, origin):
                        'scopes': ['profile', 'email']},
             'ini': {
                 'server': {'root_url': origin},
-                'dashboards': {'default_home_dashboard_path': '/var/lib/grafana/dashboards/cloudlab/lab-overview.json'},
+                'dashboards': {'default_home_dashboard_path': '/var/lib/grafana/dashboards/cloudlab/nodes.json'},
                 'security': {'cookie_secure': True, 'cookie_samesite': 'lax', 'disable_gravatar': True,
                              'secret_key': '$__file{/etc/secrets/grafana-emergency/secret_key}'},
                 'users': {'allow_sign_up': False},

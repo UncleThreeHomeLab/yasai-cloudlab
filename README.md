@@ -86,7 +86,7 @@ delivery without interrupting production. Confirm outage and recovery email rece
 provider status alone does not prove delivery.
 
 Private telemetry uses the same [monitoring contract](platform/observability/contract.json).
-Grafana provisions Lab Overview, Nodes, Workloads and Notes Requests from
+Grafana provisions the Nodes home dashboard from
 [dashboard JSON](platform/observability/prometheus/dashboards). Edit panels and queries
 there; [Grafana settings](automation/observability/configuration.py) select the home dashboard.
 Run `lab observe credentials` through Compose with the local vault writer, then
