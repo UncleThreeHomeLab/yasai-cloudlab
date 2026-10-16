@@ -91,6 +91,11 @@ the public root. Add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`. Apply with
 Normal apply resumes only the accepted retired identity owner before its consumers.
 Initial identity enrollment remains explicit.
 
+Harbor prerequisites use the [registry contract](automation/harbor/contract.json).
+Inspect inputs with `docker compose run --rm --entrypoint python service -m automation.harbor.preflight`.
+Keep ARC and public/private release Apps separate. Full acceptance requires scoped
+credentials and independent state and recovery inputs. Harbor bootstrap precedes ARC.
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.

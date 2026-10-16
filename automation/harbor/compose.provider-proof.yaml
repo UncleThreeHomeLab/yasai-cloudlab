@@ -1,0 +1,13 @@
+name: cloudlab-harbor-provider-fixture
+services:
+  proof:
+    platform: linux/amd64
+    build: ../runner
+    entrypoint: [python, -m, automation.harbor.provider_proof]
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace/automation:ro
+    tmpfs:
+      - /fixture:mode=0700,size=256m,exec
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
