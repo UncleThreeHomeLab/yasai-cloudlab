@@ -15,6 +15,43 @@ from automation.harbor.tests.fixtures import manifest
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_stopped_final_writer_can_return_no_pod_list(self):
+        for value in (None, {}, {'items': []}):
+            with patch.object(recovery, 'get', return_value=value):
+                self.assertEqual(recovery.pods('redis'), [])
+
+    def test_capture_accepts_empty_namespace_but_rejects_an_unstopped_writer(self):
+        value = manifest()
+        server = {'harbor': {name: {'replicas': 1} for name in ('core', 'nginx', 'portal', 'jobservice', 'registry')}}
+        server['harbor'].update({name: {'internal': {'replicas': 1}} for name in ('database', 'redis')})
+        apps = {name: {'metadata': {'uid': name}, 'spec': {'source': {'targetRevision': 'a' * 40,
+                'helm': {'valuesObject': server if name == 'cloudlab-harbor' else {}}}}} for name in recovery.APPS}
+        for remaining in (None, {'items': [{'metadata': {'labels': {}}, 'status': {'phase': 'Running'}}]}):
+            def resource(kind, name=None, namespace=None):
+                if kind == 'pods': return remaining
+                if kind == 'volumes.longhorn.io':
+                    row = next(row for row in value['volumes'].values() if row['volume'] == name)
+                    return {'metadata': {'uid': row['volume_uid']}}
+                if kind == 'snapshots.longhorn.io': return {'status': {'readyToUse': True}}
+                raise AssertionError('Unexpected resource')
+            with tempfile.TemporaryDirectory() as directory, patch.object(recovery, 'BASE', Path(directory)), \
+                    patch.object(recovery, 'application', side_effect=lambda name: copy.deepcopy(apps[name])), \
+                    patch.object(recovery, 'application_ready', return_value=True), \
+                    patch.object(recovery, 'installation', return_value=value['installation']), \
+                    patch.object(recovery, 'sources', return_value=copy.deepcopy(value['volumes'])), \
+                    patch.object(recovery, 'fingerprints', return_value=value['secrets']), \
+                    patch.object(recovery, 'inventory', return_value=value['inventory']), \
+                    patch.object(recovery, 'patch_values'), patch.object(recovery, 'resume') as resume, \
+                    patch.object(recovery, 'get', side_effect=resource), patch.object(recovery, 'kube') as writes, \
+                    patch.object(recovery, 'wait', side_effect=lambda predicate, label, timeout: self.assertTrue(predicate())):
+                if remaining:
+                    with self.assertRaisesRegex(RuntimeError, 'writers remain'): recovery.capture()
+                    writes.assert_not_called()
+                else:
+                    self.assertTrue(recovery.capture()['captured'])
+                    self.assertEqual(writes.call_count, 3)
+                resume.assert_called_once()
+
     def test_manifest_rejects_foreign_volume_invalid_digest_and_negative_size(self):
         self.assertEqual(recovery.validate(manifest()), manifest())
         for mutation in (

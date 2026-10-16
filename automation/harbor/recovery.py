@@ -120,7 +120,7 @@ def patch_values(name, values, expected_uid):
 
 
 def pods(component, namespace=NAMESPACE):
-    return [pod for pod in get('pods', namespace=namespace)['items']
+    return [pod for pod in (get('pods', namespace=namespace) or {}).get('items', [])
             if pod['metadata'].get('labels', {}).get('component') == component]
 
 
@@ -295,7 +295,8 @@ def capture(monthly=False):
                 server['harbor'][component]['internal']['replicas'] = 0
             patch_values('cloudlab-harbor', server, state['applications']['cloudlab-harbor']['uid'])
             wait(lambda: not pods(component), 'stop Harbor ' + component, timeout=600)
-        if [pod for pod in get('pods', namespace=NAMESPACE)['items'] if pod['status'].get('phase') not in ('Succeeded', 'Failed')]:
+        if [pod for pod in (get('pods', namespace=NAMESPACE) or {}).get('items', [])
+                if pod['status'].get('phase') not in ('Succeeded', 'Failed')]:
             raise RuntimeError('Harbor writers remain at the snapshot boundary')
         for row in manifest['volumes'].values():
             manifest['phase'] = 'snapshot'
