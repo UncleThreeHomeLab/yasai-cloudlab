@@ -19,6 +19,7 @@ from automation.infra.retention import ciphertext
 
 LARGE_LAYER = 256 * 1024**2
 PAYLOAD = 'cloudlab-proof/payload.bin'
+ROLLBACK_TAGS = tuple('rollback-proof-' + str(number) for number in range(1, 6))
 
 
 def payload(directory, size, project='cloudlab-public'):
@@ -67,7 +68,66 @@ def receipt(path):
                 not re.fullmatch(r'sha256:[a-f0-9]{64}', entry.get('digest') or '') or
                 not re.fullmatch(r'[a-f0-9]{64}', entry.get('payload_sha256') or '')):
             raise ValueError('Invalid bootstrap artifact receipt; never overwrite remote tags')
+        rollback = entry.get('rollback', {})
+        if not isinstance(rollback, dict) or set(rollback) - set(ROLLBACK_TAGS):
+            raise ValueError('Invalid rollback artifact scope')
+        for row in rollback.values():
+            if (row.get('payload_bytes') != 4096 or
+                    not re.fullmatch(r'sha256:[a-f0-9]{64}', row.get('digest') or '') or
+                    not re.fullmatch(r'[a-f0-9]{64}', row.get('payload_sha256') or '')):
+                raise ValueError('Invalid rollback artifact receipt; preserve original archives')
+        if len({row['digest'] for row in rollback.values()}) != len(rollback):
+            raise ValueError('Rollback revisions require distinct digests')
     return value
+
+
+def rollback_artifacts(registry, credentials, directory, recorded, record, project):
+    """Retain five distinct revisions; journal each digest before publishing its immutable tag."""
+    rows = record['projects'][project].setdefault('rollback', {})
+    repository = registry.reference(project).removesuffix(':deploy-bootstrap')
+    for tag in ROLLBACK_TAGS:
+        image = directory / (project + '-' + tag + '.tar')
+        reference = repository + ':' + tag
+        if tag not in rows:
+            with tempfile.TemporaryDirectory(dir=directory, prefix='prepare-rollback-') as temporary, registry.identity():
+                layer, content = payload(Path(temporary), 4096, project + ':' + tag)
+                registry.command('append', '--base', PYTHON, '--new_layer', str(layer), '--new_tag', reference,
+                                 '--output', str(image))
+                rows[tag] = {'digest': registry.command('digest', '--tarball', str(image)).decode().strip(),
+                             'payload_bytes': 4096, 'payload_sha256': content}
+                record.pop('verified_at', None)
+                atomic(recorded, record)
+                receipt(recorded)
+        entry = rows[tag]
+        with registry.identity(credentials[project + '-push']):
+            existing = registry.digest(reference, missing=True)
+            if existing is not None and existing != entry['digest']:
+                raise RuntimeError('Existing rollback tag changed; preserve its original receipt')
+            if existing is None:
+                if not image.is_file() or registry.command('digest', '--tarball', str(image)).decode().strip() != entry['digest']:
+                    raise RuntimeError('Interrupted rollback upload requires its original archive')
+                registry.command('push', str(image), reference)
+            if registry.digest(reference) != entry['digest']:
+                raise RuntimeError('Published rollback revision differs from its receipt')
+        with registry.identity(credentials[project + '-pull']), \
+                tempfile.TemporaryDirectory(dir=directory, prefix='pull-rollback-') as temporary:
+            exported = Path(temporary) / 'filesystem.tar'
+            registry.command('export', registry.reference(project, entry['digest']), str(exported))
+            verify_payload(exported, entry)
+        image.unlink(missing_ok=True)
+    with registry.identity(credentials[project + '-push']):
+        probe = repository + ':rollback-immutability-probe'
+        existing = registry.digest(probe, missing=True)
+        first, second = [rows[tag]['digest'] for tag in ROLLBACK_TAGS[:2]]
+        if existing is None:
+            registry.command('tag', registry.reference(project, first), 'rollback-immutability-probe')
+        elif existing != first:
+            raise RuntimeError('Immutability probe changed; preserve recorded deployment and rollback tags')
+        registry.command('tag', registry.reference(project, second), 'rollback-immutability-probe', immutable=True)
+        if registry.digest(probe) != first:
+            raise RuntimeError('Immutable probe digest changed')
+        if registry.digest(registry.reference(project)) != record['projects'][project]['digest']:
+            raise RuntimeError('Deployment artifact changed during rollback proof')
 
 
 def run(client):
@@ -116,6 +176,7 @@ def run(client):
             registry.command('manifest', reference, denied=True)
         with registry.identity():
             registry.command('manifest', reference, denied=True)
+        rollback_artifacts(registry, client.private['robots'], directory, recorded, record, project)
     node_pulls = verify_nodes(client, record)
     record['verified_at'] = time.time()
     atomic(recorded, record)
@@ -123,7 +184,8 @@ def run(client):
         (directory / (project + '.tar')).unlink(missing_ok=True)
     return {'independent_bootstrap': True, 'large_layer_bytes': LARGE_LAYER, 'project_push_pull': 2,
             'pull_robot_push_denied': True, 'cross_project_denied': True, 'anonymous_denied': True,
-            'node_digest_pulls': node_pulls, 'interactive_login_used': False, 'arc_used': False}
+            'node_digest_pulls': node_pulls, 'rollback_digests_verified': 2 * len(ROLLBACK_TAGS),
+            'immutable_overwrite_denied': True, 'interactive_login_used': False, 'arc_used': False}
 
 
 def main():

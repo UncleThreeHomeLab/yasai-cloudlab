@@ -15,7 +15,7 @@ class Registry:
         self.environment = {key: environment[key] for key in ('PATH', 'HOME', 'HTTPS_PROXY', 'NO_PROXY') if key in environment}
         self.diagnostics = diagnostics
 
-    def command(self, *arguments, input_data=None, denied=False, missing=False):
+    def command(self, *arguments, input_data=None, denied=False, missing=False, immutable=False):
         result = subprocess.run(['crane', '--platform=linux/amd64', *arguments], env=self.environment,
                                 input=input_data, capture_output=True, timeout=600)
         harbor_absent = any(re.search(
@@ -24,7 +24,11 @@ class Registry:
             for project in POLICY['projects'])
         if missing and result.returncode and (re.search(rb'MANIFEST_UNKNOWN|NAME_UNKNOWN', result.stderr) or harbor_absent):
             return None
-        if denied:
+        if immutable:
+            if (not result.returncode or not re.search(rb'(?i)\bimmutable\b', result.stderr) or
+                    not re.search(rb'DENIED|PRECONDITION|status code (?:409|412)', result.stderr)):
+                raise RuntimeError('Registry tag immutability was not proven')
+        elif denied:
             if not result.returncode or not re.search(rb'UNAUTHORIZED|DENIED|status code (?:401|403)', result.stderr):
                 raise RuntimeError('Registry access denial was not proven')
         elif result.returncode:
