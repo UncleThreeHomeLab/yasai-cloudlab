@@ -1,0 +1,10 @@
+[Unit]
+Description=CloudLab Harbor {{ item.name }} schedule
+
+[Timer]
+OnCalendar={{ item.calendar }}
+Persistent=false
+Unit=cloudlab-harbor-{{ item.name }}.service
+
+[Install]
+WantedBy=timers.target

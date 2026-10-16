@@ -34,6 +34,43 @@ def volume_prefix(volume):
     return storage_policy()['prefix'] + 'backupstore/volumes/' + checksum[:2] + '/' + checksum[2:4] + '/' + volume + '/'
 
 
+def verify_blocks(repository, volumes, maximum_bytes):
+    """Check native Longhorn blocks without a cluster, retained files or another export."""
+    from lz4.frame import LZ4FrameDecompressor
+    count, stored = 0, 0
+    for row in volumes.values():
+        repository.validate_url(row)
+        prefix = volume_prefix(row['volume'])
+        config = json.loads(repository.request('GET', prefix + 'backups/backup_' + row['snapshot'] + '.cfg')['data'])
+        if config.get('VolumeName') != row['volume'] or config.get('SnapshotName') != row['snapshot']:
+            raise RuntimeError('Longhorn backup metadata differs from the coordinated generation')
+        if config.get('CompressionMethod') != 'lz4':
+            raise RuntimeError('Independent reader requires the existing LZ4 Longhorn backup format')
+        blocks = config.get('Blocks', [])
+        if not blocks or len(blocks) > 32768:
+            raise RuntimeError('Unexpected Longhorn backup block inventory')
+        seen = set()
+        for block in blocks:
+            checksum = block['BlockChecksum']
+            if not re.fullmatch('[a-f0-9]{64}', checksum):
+                raise ValueError('Invalid Longhorn block checksum')
+            if checksum in seen:
+                continue
+            seen.add(checksum)
+            key = prefix + 'blocks/' + checksum[:2] + '/' + checksum[2:4] + '/' + checksum + '.blk'
+            response = repository.request('GET', key, limit=32 * 1024**2)
+            with LZ4FrameDecompressor() as stream:
+                data = stream.decompress(response['data'], max_length=17 * 1024**2)
+                if (len(data) > 16 * 1024**2 or not stream.eof or stream.unused_data
+                        or hashlib.sha512(data).hexdigest()[:64] != checksum):
+                    raise RuntimeError('Longhorn backup block checksum differs')
+            count += 1
+            stored += response['bytes']
+            if stored > maximum_bytes:
+                raise RuntimeError('Physical backup exceeds the monthly transfer budget')
+    return {'verified_blocks': count, 'compressed_bytes_read': stored, 'local_backup_files': 0}
+
+
 class Repository:
     def __init__(self, values, acceptance=False):
         endpoint = urllib.parse.urlsplit(values['AWS_ENDPOINT'])
@@ -105,42 +142,8 @@ class Repository:
         return manifest
 
     def read_blocks(self, manifest):
-        # This independent reader uses only B2 and the pinned Longhorn format.
-        # Restore verification separately boots all four downloaded volumes.
-        from lz4.frame import LZ4FrameDecompressor
         verify(manifest)
-        count, stored = 0, 0
-        for row in manifest['volumes'].values():
-            self.validate_url(row)
-            prefix = volume_prefix(row['volume'])
-            config = json.loads(self.request('GET', prefix + 'backups/backup_' + row['snapshot'] + '.cfg')['data'])
-            if config.get('VolumeName') != row['volume'] or config.get('SnapshotName') != row['snapshot']:
-                raise RuntimeError('Longhorn backup metadata differs from the coordinated generation')
-            if config.get('CompressionMethod') != 'lz4':
-                raise RuntimeError('Independent reader requires the existing LZ4 Longhorn backup format')
-            blocks = config.get('Blocks', [])
-            if not blocks or len(blocks) > 32768:
-                raise RuntimeError('Unexpected Longhorn backup block inventory')
-            seen = set()
-            for block in blocks:
-                checksum = block['BlockChecksum']
-                if not re.fullmatch('[a-f0-9]{64}', checksum):
-                    raise ValueError('Invalid Longhorn block checksum')
-                if checksum in seen:
-                    continue
-                seen.add(checksum)
-                key = prefix + 'blocks/' + checksum[:2] + '/' + checksum[2:4] + '/' + checksum + '.blk'
-                response = self.request('GET', key, limit=32 * 1024**2)
-                with LZ4FrameDecompressor() as stream:
-                    data = stream.decompress(response['data'], max_length=17 * 1024**2)
-                    if (len(data) > 16 * 1024**2 or not stream.eof or stream.unused_data
-                            or hashlib.sha512(data).hexdigest()[:64] != checksum):
-                        raise RuntimeError('Longhorn backup block checksum differs')
-                count += 1
-                stored += response['bytes']
-                if stored > POLICY['max_generation_bytes']:
-                    raise RuntimeError('Physical backup exceeds the monthly transfer budget')
-        return {'verified_blocks': count, 'compressed_bytes_read': stored, 'local_backup_files': 0}
+        return verify_blocks(self, manifest['volumes'], POLICY['max_generation_bytes'])
 
     def versions(self, prefix):
         query = {'versions': '', 'prefix': prefix}

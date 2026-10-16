@@ -1,11 +1,15 @@
 """Synthetic protected recovery metadata; no service credentials."""
-from automation.harbor.recovery import CLAIMS, SECRETS
+import json
+from automation.harbor.recovery import CLAIMS, SECRETS, ARTIFACTS
 
 
 def manifest():
     generation = 'harbor-' + 'a' * 24
     return {'format': 1, 'generation': generation, 'captured': True, 'captured_at': 1790805600,
         'capture_seconds': 1, 'consistency': 'all-writers-stopped',
+        'operation': 'monthly', 'installation': {'revision': 'f' * 40,
+            'chart_sha256': json.loads((ARTIFACTS / 'server/artifact.lock.json').read_text())['sha256'],
+            'images': sorted(json.loads((ARTIFACTS / 'images.lock.json').read_text()).values())},
         'secrets': {name: 'b' * 64 for name in SECRETS},
         'inventory': {'database_sha256': 'c' * 64, 'blobs_sha256': 'd' * 64,
                       'artifact_digests': ['sha256:' + 'e' * 64]},

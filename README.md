@@ -107,6 +107,7 @@ and merge its private client PR. Add `harbor` to `PRIVATE_ACCESS_HOSTS`, review
 PostgreSQL, Valkey and blobs have separate retained Longhorn claims. Browser access
 uses Keycloak; registry clients use scoped robots. Local restore checks use no B2;
 coordinated off-site export and restore run on day 1 UTC only.
+Daily freshness checks read local receipts; they report the initial off-site gap.
 
 ## The stack
 

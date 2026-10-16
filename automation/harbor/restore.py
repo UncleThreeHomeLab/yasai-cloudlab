@@ -83,6 +83,11 @@ def apply(objects):
 
 def run(manifest, offsite=False):
     recovery.validate(manifest)
+    current_chart = json.loads((recovery.ARTIFACTS / 'server/artifact.lock.json').read_text())['sha256']
+    current_images = sorted(json.loads((recovery.ARTIFACTS / 'images.lock.json').read_text()).values())
+    if (manifest['installation']['chart_sha256'] != current_chart or
+            manifest['installation']['images'] != current_images):
+        raise RuntimeError('Use the recorded Harbor checkout and pinned artifacts before restoring this generation')
     if offsite:
         from automation.data.remote import require_window
         from automation.harbor.remote import Repository
