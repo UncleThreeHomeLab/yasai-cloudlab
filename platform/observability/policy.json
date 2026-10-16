@@ -8,6 +8,7 @@
   "loki": {"retention": "72h", "pvc_gib": 20, "ingestion_rate_mb": 0.02, "ingestion_burst_mb": 0.1, "max_streams": 128},
   "tempo": {"retention": "24h", "pvc_gib": 15, "ingestion_rate_bytes": 60000, "max_trace_bytes": 65536},
   "grafana": {"pvc_gib": 5, "session_seconds": 300},
+  "kiali": {"namespaces": ["cloudlab-app-notes", "istio-system", "cloudlab-observability", "cloudlab-gateway-public", "cloudlab-gateway-private", "argocd"]},
   "identity_audit": {"retention_hours": 168, "batch_limit": 100, "interval_seconds": 300},
   "offsite_backup": false
 }

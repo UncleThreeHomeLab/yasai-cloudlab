@@ -134,7 +134,7 @@ def values(name):
                            'rollingUpdate': {'maxSurge': 0, 'maxUnavailable': 1}}}, 'configReloader': {'enabled': False},
             'serviceAccount': {'name': 'cloudlab-alloy'}, 'alloy': {'enableReporting': False,
                 'resources': resources(250, 384, 50, 128), 'configMap': {'create': False, 'name': 'cloudlab-alloy', 'key': 'config.alloy'},
-                'extraPorts': [{'name': 'otlp-http', 'port': 4318, 'targetPort': 4318, 'protocol': 'TCP'}]},
+                'extraPorts': [{'name': 'otlp-http', 'port': 4318, 'targetPort': 4318, 'protocol': 'TCP', 'appProtocol': 'http'}]},
             'rbac': {'create': True, 'namespaces': ['cloudlab-app-notes', 'cloudlab-identity'], 'clusterRules': [],
                      'rules': [{'apiGroups': [''], 'resources': ['pods', 'pods/log'], 'verbs': ['get', 'list', 'watch']}]}}
     if name == 'kiali':
@@ -146,8 +146,7 @@ def values(name):
                 'cluster_wide_access': False, 'view_only_mode': True, 'resources': resources(200, 384),
                 'strategy': {'type': 'Recreate'},
                 'discovery_selectors': {'default': [{'matchLabels': {'kubernetes.io/metadata.name': namespace}}
-                    for namespace in ('cloudlab-app-notes', 'istio-system', POLICY['namespace'],
-                                      'cloudlab-gateway-public', 'cloudlab-gateway-private')]},
+                    for namespace in POLICY['kiali']['namespaces']]},
                 'network_policy': {'enabled': False}}, 'clustering': {'autodetect_secrets': {'enabled': False}},
             'external_services': {'prometheus': {'url': 'http://cloudlab-prometheus:9090'},
                 'grafana': {'enabled': True, 'internal_url': 'http://cloudlab-grafana',

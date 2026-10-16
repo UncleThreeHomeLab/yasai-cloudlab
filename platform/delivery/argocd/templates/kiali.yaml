@@ -1,0 +1,31 @@
+{{- if .Values.kialiBackendObserver }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kiali-backend-observer
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps, pods, replicationcontrollers, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.istio.io, security.istio.io, extensions.istio.io, telemetry.istio.io, inference.networking.k8s.io]
+    resources: ['*']
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways, grpcroutes, httproutes, referencegrants, tcproutes, tlsroutes, udproutes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kiali-backend-observer
+  namespace: {{ .Release.Namespace }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kiali-backend-observer}
+subjects: [{kind: ServiceAccount, name: cloudlab-kiali, namespace: cloudlab-observability}]
+{{- end }}

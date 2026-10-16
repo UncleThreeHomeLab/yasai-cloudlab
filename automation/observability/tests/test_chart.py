@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import re
+import tarfile
 from pathlib import Path
 import unittest
 import yaml
@@ -10,6 +11,35 @@ from automation.observability.chart import check, configuration, render
 
 
 class ChartTests(unittest.TestCase):
+    def test_tempo_protocol_patch_preserves_all_other_pinned_chart_content(self):
+        base = Path(__file__).resolve().parents[3] / 'platform/observability/tempo'
+        lock = json.loads((base / 'artifact.lock.json').read_text())
+        with tarfile.open(base / 'upstream.tgz') as source, tarfile.open(base / lock['archive']) as patched:
+            original = {member.name: source.extractfile(member).read() for member in source if member.isfile()}
+            result = {member.name: patched.extractfile(member).read() for member in patched if member.isfile()}
+        result['tempo/templates/_ports.tpl'] = re.sub(rb'(?m)^  appProtocol: (http|grpc)\n', b'',
+                                                     result['tempo/templates/_ports.tpl'])
+        self.assertEqual(original, result)
+
+    def test_telemetry_service_protocols_are_explicit_without_changing_ports(self):
+        monitor = next(obj for obj in configuration(True) if obj['kind'] == 'PodMonitor' and obj['metadata']['name'] == 'notes')
+        self.assertEqual(monitor['spec']['podMetricsEndpoints'][0]['port'], 'http-metrics')
+        alloy = next(obj for obj in render('alloy') if obj['kind'] == 'Service')
+        otlp = next(port for port in alloy['spec']['ports'] if port['port'] == 4318)
+        self.assertEqual(otlp['name'], 'otlp-http')
+        self.assertEqual(otlp['appProtocol'], 'http')
+        services = [obj for obj in render('tempo') if obj['kind'] == 'Service']
+        self.assertEqual({obj['metadata']['name'] for obj in services}, {'cloudlab-tempo', 'cloudlab-tempo-headless'})
+        for service in services:
+            for port in service['spec']['ports']:
+                if port['protocol'] == 'UDP':
+                    continue
+                expected = 'grpc' if port['name'].startswith('grpc-') or port['port'] == 55680 else 'http'
+                self.assertEqual(port['appProtocol'], expected)
+            ports = {port['name']: (port['port'], port['targetPort']) for port in service['spec']['ports']}
+            self.assertEqual(ports['tempo-prom-metrics'], (3200, 3200))
+            self.assertEqual(ports['tempo-otlp-http'], (4318, 4318))
+
     def test_kubelet_tls_and_per_job_scrape_limits_match_supported_monitor_fields(self):
         objects = render('prometheus')
         monitors = {obj['metadata']['name']: obj['spec'] for obj in objects if obj['kind'] == 'ServiceMonitor'}

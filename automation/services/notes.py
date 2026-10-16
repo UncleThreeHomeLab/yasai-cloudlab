@@ -52,7 +52,7 @@ def values(definition, issuer, database_ca, telemetry=False):
     if telemetry:
         for name in ('web', 'api'):
             value = result[name]
-            value['ports'].append({'name': 'metrics', 'port': 9091})
+            value['ports'].append({'name': 'http-metrics', 'port': 9091})
             value['environment'].update(OTEL_ENABLED='1', PYTHONPATH='/dependencies:/config/source:/config/source/lib.zip',
                 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT='http://cloudlab-alloy.cloudlab-observability.svc:4318/v1/traces')
         result['api']['initCommand'] += ['-r', '/config/source/telemetry-requirements.txt']

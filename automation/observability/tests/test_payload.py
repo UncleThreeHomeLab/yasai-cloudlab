@@ -27,10 +27,12 @@ class PayloadTests(unittest.TestCase):
                           'cloudlab-gateway-public', 'cloudlab-gateway-private'})
         for role in roles:
             self.assertTrue(all(set(rule['verbs']) <= {'get', 'list', 'watch'} for rule in role['rules']))
+            self.assertFalse(any('secrets' in rule['resources'] or 'pods/log' in rule['resources']
+                                 or 'pods/portforward' in rule['resources'] for rule in role['rules']))
         config = yaml.safe_load(next(obj for obj in objects if obj['kind'] == 'ConfigMap')['data']['config.yaml'])
         selected = config['deployment']['discovery_selectors']['default'][0]['matchExpressions'][0]['values']
         self.assertEqual(set(selected), {'cloudlab-app-notes', 'istio-system', 'cloudlab-observability',
-                                         'cloudlab-gateway-public', 'cloudlab-gateway-private'})
+                                         'cloudlab-gateway-public', 'cloudlab-gateway-private', 'argocd'})
         self.assertFalse(any(obj['kind'] == 'ClusterRole' for obj in objects))
         service = next(obj for obj in objects if obj['kind'] == 'Service')
         self.assertEqual(service['metadata']['name'], 'cloudlab-kiali')

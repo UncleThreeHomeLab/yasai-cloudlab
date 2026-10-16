@@ -3,7 +3,7 @@
   "version": "2.33.0",
   "appVersion": "v2.33.0",
   "url": "https://kiali.org/helm-charts/kiali-server-2.33.0.tgz",
-  "sha256": "53b8674fd8a56531f12e0010a272e0cf23441736c86f73b155a2d7b360e45d54",
+  "sha256": "efbf3d322d0e7f06e0b87b842e6adc6a7576e90db27444597798cbda90d87009",
   "archive": "charts/kiali-server-2.33.0.tgz",
   "upstream_sha256": "6d0c1b4e6ccc30b210b3784b3b257440161e5ec39e97bef93f0f41124d5320bd",
   "patch": "Deterministic exact-namespace discovery and read-only RBAC without port-forward or token-review creation"

@@ -1,4 +1,5 @@
 identitySyncObserver: false
+kialiBackendObserver: false
 argo-cd:
   fullnameOverride: argocd
   global:

@@ -42,6 +42,8 @@ class NotesTests(unittest.TestCase):
                                  'https://github.com/example/private.git', 'abcdef123456', 'notes', 'notes')['catalog'][0]['definition']
         compiled = values(definition, 'https://login.example.invalid/realms/applications',
                           '-----BEGIN CERTIFICATE-----\nfixture', telemetry=True)
+        for name in ('web', 'api'):
+            self.assertIn({'name': 'http-metrics', 'port': 9091}, compiled[name]['ports'])
         python_path = compiled['api']['environment']['PYTHONPATH'].replace('/config/source', str(ROOT / 'apps/notes'))
         with tempfile.TemporaryDirectory() as directory:
             imported = subprocess.run([sys.executable, '-c', 'import api; import telemetry; print("ready")'],
