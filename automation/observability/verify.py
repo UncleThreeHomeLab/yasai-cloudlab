@@ -105,8 +105,11 @@ def dashboards_ready(origin, gateway, headers, dashboards):
                 result = proxy(origin, gateway, headers, datasource, endpoint + query)
                 if result.get('status') != 'success':
                     raise RuntimeError('Dashboard query failed')
-    status, _ = direct_https(origin + '/api/dashboards/uid/notes-user-slo', gateway, headers)
-    return status == 404
+    for uid in ('notes-user-slo', 'cloudlab-overview', 'cloudlab-workloads', 'cloudlab-notes'):
+        status, _ = direct_https(origin + '/api/dashboards/uid/' + uid, gateway, headers)
+        if status != 404:
+            return False
+    return True
 
 
 def run(payload):
