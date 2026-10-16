@@ -8,6 +8,7 @@ import re
 import tarfile
 import tempfile
 import time
+import traceback
 
 from automation.harbor import api, api_policy
 from automation.harbor.recovery import atomic
@@ -138,5 +139,14 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as error:
+        diagnostics = api.WORK / 'artifacts/diagnostics.txt'
+        try:
+            if diagnostics.parent.is_dir():
+                with diagnostics.open('ab') as stream:
+                    stream.write((json.dumps({'exception': type(error).__name__, 'frames': [
+                        {'file': Path(frame.filename).name, 'line': frame.lineno}
+                        for frame in traceback.extract_tb(error.__traceback__)]}) + '\n').encode())
+        except OSError:
+            pass
         raise SystemExit('OCI bootstrap proof incomplete; original artifact receipts and private diagnostics retained') from None

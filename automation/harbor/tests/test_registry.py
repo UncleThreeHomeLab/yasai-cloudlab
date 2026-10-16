@@ -62,3 +62,18 @@ class RegistryTests(unittest.TestCase):
                         self.assertIsNone(client.digest('synthetic', missing=True))
                     else:
                         with self.assertRaises(RuntimeError): client.digest('synthetic', missing=True)
+
+    def test_harbor_not_found_is_scoped_to_known_registry_manifest_requests(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            client = Registry('harbor.internal.example.invalid', {}, Path(temporary) / 'diagnostics')
+            for url, missing in (('https://harbor.internal.example.invalid/v2/cloudlab-public/bootstrap/manifests/deploy-bootstrap', True),
+                    ('https://harbor.internal.example.invalid/service/token', False),
+                    ('https://other.example.invalid/v2/cloudlab-public/bootstrap/manifests/deploy-bootstrap', False),
+                    ('https://harbor.internal.example.invalid/v2/other-project/bootstrap/manifests/deploy-bootstrap', False)):
+                message = ('GET ' + url + ': NOT_FOUND: repository not found').encode()
+                with self.subTest(url=url), patch('automation.harbor.registry.subprocess.run',
+                        return_value=subprocess.CompletedProcess([], 1, b'', message)):
+                    if missing:
+                        self.assertIsNone(client.digest(client.reference('cloudlab-public'), missing=True))
+                    else:
+                        with self.assertRaises(RuntimeError): client.digest(client.reference('cloudlab-public'), missing=True)
