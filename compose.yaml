@@ -40,6 +40,10 @@ services:
         target: /workspace/infra
         read_only: true
       - type: bind
+        source: ./charts/service
+        target: /workspace/charts/service
+        read_only: true
+      - type: bind
         source: ./.git
         target: /workspace/.git
         read_only: true
