@@ -12,7 +12,29 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from urllib.parse import urlencode, urlsplit
+
+
+class NodeCommandError(RuntimeError):
+    def __init__(self, namespace, arguments, result):
+        super().__init__('Node containerd proof failed; private diagnostics withheld')
+        words = ('unauthorized', 'denied', 'permission', 'invalid', 'unsupported', 'unknown', 'token', 'credential',
+                 'authorization', 'certificate', 'x509', 'connection refused', 'no such host', 'hosts', 'local',
+                 'fetch', 'resolve', 'unpack', 'snapshot', 'content', '401', '403', '404', '500')
+        error = result.stderr.decode(errors='replace').lower()
+        self.details = {'namespace': namespace, 'command': list(arguments[:2]), 'exit_code': result.returncode,
+                        'classes': [word for word in words if word in error]}
+
+
+def table_keys(raw, columns, limit):
+    lines = raw.decode().splitlines()
+    if not lines or lines[0].split() != list(columns) or len(lines) > limit + 1:
+        raise RuntimeError('Node containerd inventory format or size changed')
+    keys = [line.split()[0] for line in lines[1:] if line.strip()]
+    if len(keys) != len(set(keys)) or any(not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9:._+-]*', key) for key in keys):
+        raise RuntimeError('Node containerd inventory returned an invalid identity')
+    return keys
 
 
 def token(payload):
@@ -57,16 +79,26 @@ def run(payload):
     namespace = 'cloudlab-harbor-proof-' + secrets.token_hex(8)
     command = ['/usr/local/bin/k3s', 'ctr', '--namespace', namespace]
     deadline = None
-    def execute(*arguments, timeout=30, required=True):
+    def execute(*arguments, timeout=30, required=True, target=None):
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise RuntimeError('Owned node proof cleanup exceeded its time bound')
             timeout = min(timeout, remaining)
-        result = subprocess.run([*command, *arguments], capture_output=True, timeout=timeout)
+        current = [*command[:3], target or namespace]
+        result = subprocess.run([*current, *arguments], capture_output=True, timeout=timeout)
         if required and result.returncode:
-            raise RuntimeError('Node containerd proof failed; private diagnostics withheld')
+            raise NodeCommandError(target or namespace, arguments, result)
         return result
+    # This reserved prefix belongs only to the serialized probe; never remove data-bearing leftovers.
+    deadline = time.monotonic() + 60
+    for previous in table_keys(execute('namespaces', 'list').stdout, ('NAME', 'LABELS'), 128):
+        if not re.fullmatch(r'cloudlab-harbor-proof-[a-f0-9]{16}', previous):
+            continue
+        children = (('images', 'list'), ('snapshots', 'list'), ('containers', 'list'), ('content', 'list'), ('leases', 'list'))
+        if all(len(execute(*resource, target=previous).stdout.decode().splitlines()) == 1 for resource in children):
+            execute('namespaces', 'remove', previous)
+    deadline = None
     execute('namespaces', 'create', namespace)
     try:
         with tempfile.TemporaryDirectory(prefix='cloudlab-harbor-pull-') as temporary:
@@ -83,14 +115,12 @@ def run(payload):
     finally:
         deadline = time.monotonic() + 60
         execute('images', 'remove', reference, required=False)
-        snapshots = execute('snapshots', 'list', '--quiet').stdout.decode().splitlines()
-        if len(snapshots) > 64:
-            raise RuntimeError('Node proof snapshot inventory exceeds its isolated scope')
+        snapshots = table_keys(execute('snapshots', 'list').stdout, ('KEY', 'PARENT', 'KIND'), 64)
         while snapshots:
             previous = set(snapshots)
             for snapshot in snapshots:
                 execute('snapshots', 'remove', snapshot, required=False)
-            snapshots = execute('snapshots', 'list', '--quiet').stdout.decode().splitlines()
+            snapshots = table_keys(execute('snapshots', 'list').stdout, ('KEY', 'PARENT', 'KIND'), 64)
             if snapshots and not set(snapshots) < previous:
                 raise RuntimeError('Owned node proof snapshots could not be cleaned up')
         execute('namespaces', 'remove', namespace)
@@ -119,7 +149,8 @@ def verify_nodes(client, record):
             payload = {'username': credential['username'], 'password': credential['password'],
                        'host': client.private['host'], 'project': project, 'digest': entry['digest']}
             result = json.loads(ssh(prefix, client.values[prefix + '_HOST'], 'python3 -c ' + shlex.quote(source),
-                                    input=json.dumps(payload), timeout=330))
+                                    input=json.dumps(payload), timeout=420,
+                                    diagnostics=client.path / 'artifacts/node-diagnostics.txt'))
             identity = result.pop('host_identity', '')
             if (not re.fullmatch(r'[a-f0-9]{64}', identity) or
                     (prefix in identities and identities[prefix] != identity) or
@@ -139,5 +170,9 @@ if __name__ == '__main__':
         if len(raw) > 16384:
             raise ValueError('Node proof input exceeds its bound')
         print(json.dumps(run(json.loads(raw)), sort_keys=True))
-    except Exception:
+    except Exception as error:
+        print(json.dumps({'exception': type(error).__name__, 'frames': [
+            {'file': Path(frame.filename).name, 'line': frame.lineno}
+            for frame in traceback.extract_tb(error.__traceback__)],
+            'native': error.details if isinstance(error, NodeCommandError) else None}), file=sys.stderr)
         raise SystemExit('Node registry proof incomplete; private values withheld') from None

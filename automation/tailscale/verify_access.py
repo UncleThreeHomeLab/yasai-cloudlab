@@ -17,7 +17,7 @@ import urllib.request
 from control import API, HOST_TAG, TEST_TAG, policy
 
 
-def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *, input=None, timeout=30):
+def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *, input=None, timeout=30, diagnostics=None):
     env = dict(os.environ, SSHPASS=os.environ[prefix + '_PASSWORD'])
     result = subprocess.run(['sshpass', '-e', 'ssh', '-p', os.environ.get(prefix + '_PORT') or '22',
         '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-o', 'PreferredAuthentications=password',
@@ -25,6 +25,11 @@ def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *
         '-o', 'UserKnownHostsFile=' + known_hosts, os.environ[prefix + '_USER'] + '@' + host, command],
         env=env, input=input, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
+        if diagnostics is not None:
+            descriptor = os.open(diagnostics, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(descriptor, 'a') as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                stream.write(result.stderr)
         raise RuntimeError('SSH verification failed for ' + prefix + '; recovery path retained')
     return result.stdout
 
