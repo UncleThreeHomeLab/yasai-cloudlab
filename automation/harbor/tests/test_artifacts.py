@@ -11,6 +11,53 @@ from automation.harbor import artifacts
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_rollback_interruption_preserves_archive_and_refuses_foreign_tag(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            registry = Mock()
+            registry.identity.side_effect = lambda *args: nullcontext(registry)
+            registry.reference.return_value = 'harbor.internal.example.invalid/cloudlab-public/bootstrap:deploy-bootstrap'
+            registry.digest.return_value = None
+            project = 'cloudlab-public'
+            entry = {'digest': 'sha256:' + 'a' * 64, 'payload_bytes': artifacts.LARGE_LAYER, 'payload_sha256': 'b' * 64}
+            record = {'recipe': 1, 'base': artifacts.PYTHON, 'projects': {project: entry}, 'verified_at': 123}
+            recorded = directory / 'receipt.json'
+            archive = directory / (project + '-' + artifacts.ROLLBACK_TAGS[0] + '.tar')
+            credentials = {project + '-push': {'username': 'synthetic', 'password': 'synthetic'}}
+            def command(*arguments):
+                if arguments[0] == 'append':
+                    archive.write_bytes(b'original-rollback-image')
+                    return b''
+                if arguments[0] == 'digest': return ('sha256:' + 'c' * 64).encode()
+                if arguments[0] == 'push':
+                    self.assertNotIn('verified_at', artifacts.receipt(recorded))
+                    self.assertEqual(artifacts.receipt(recorded)['projects'][project]['rollback'][artifacts.ROLLBACK_TAGS[0]]['digest'],
+                                     'sha256:' + 'c' * 64)
+                    raise RuntimeError('interrupted rollback upload')
+                self.fail('Unexpected OCI operation')
+            registry.command.side_effect = command
+            with patch.object(artifacts, 'payload', return_value=(directory / 'layer.tar', 'd' * 64)):
+                with self.assertRaisesRegex(RuntimeError, 'interrupted rollback upload'):
+                    artifacts.rollback_artifacts(registry, credentials, directory, recorded, record, project)
+                self.assertEqual(archive.read_bytes(), b'original-rollback-image')
+                registry.digest.return_value = 'sha256:' + 'e' * 64
+                registry.command.reset_mock()
+                with self.assertRaisesRegex(RuntimeError, 'rollback tag changed'):
+                    artifacts.rollback_artifacts(registry, credentials, directory, recorded, record, project)
+                registry.command.assert_not_called()
+                self.assertEqual(archive.read_bytes(), b'original-rollback-image')
+
+    def test_rollback_receipt_rejects_duplicate_digests_and_unknown_tags(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'receipt.json'
+            row = {'digest': 'sha256:' + 'a' * 64, 'payload_bytes': 4096, 'payload_sha256': 'b' * 64}
+            entry = dict(row, payload_bytes=artifacts.LARGE_LAYER)
+            for rollback in ({'foreign': row}, {tag: row for tag in artifacts.ROLLBACK_TAGS[:2]},
+                             {artifacts.ROLLBACK_TAGS[0]: dict(row, payload_bytes=1)}):
+                path.write_text(json.dumps({'recipe': 1, 'base': artifacts.PYTHON,
+                                            'projects': {'cloudlab-public': dict(entry, rollback=rollback)}}))
+                with self.assertRaises(ValueError): artifacts.receipt(path)
+
     def test_native_oci_append_is_reproducible_without_a_registry_or_docker_socket(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

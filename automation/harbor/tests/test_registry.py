@@ -9,6 +9,21 @@ from automation.harbor.registry import Registry
 
 
 class RegistryTests(unittest.TestCase):
+    def test_immutability_requires_explicit_registry_rejection_and_reason(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            client = Registry('harbor.internal.example.invalid', {}, Path(temporary) / 'diagnostics')
+            for code, message, accepted in ((1, b'DENIED: artifact is immutable', True),
+                    (1, b'PRECONDITION: immutable tag', True), (1, b'UNAUTHORIZED', False),
+                    (1, b'context deadline exceeded', False), (1, b'immutable', False),
+                    (0, b'DENIED: immutable', False)):
+                with self.subTest(message=message), patch('automation.harbor.registry.subprocess.run',
+                        return_value=subprocess.CompletedProcess([], code, b'', message)):
+                    if accepted:
+                        client.command('tag', 'synthetic', immutable=True)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'immutability was not proven'):
+                            client.command('tag', 'synthetic', immutable=True)
+
     def test_auth_is_temporary_and_password_only_enters_standard_input(self):
         environment = {'PATH': '/usr/bin', 'HOME': '/root', 'HTTPS_PROXY': 'socks5://127.0.0.1:1',
                        'OP_PROVISION_SERVICE_ACCOUNT_TOKEN': 'synthetic-writer', 'TF_HTTP_PASSWORD': 'synthetic-backend'}
