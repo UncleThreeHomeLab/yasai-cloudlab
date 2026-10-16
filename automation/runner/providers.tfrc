@@ -1,9 +1,9 @@
 provider_installation {
   filesystem_mirror {
     path = "/opt/providers"
-    include = ["registry.opentofu.org/cloudlab/cloudflare"]
+    include = ["registry.opentofu.org/cloudlab/cloudflare", "registry.opentofu.org/cloudlab/harbor"]
   }
   direct {
-    exclude = ["registry.opentofu.org/cloudlab/cloudflare"]
+    exclude = ["registry.opentofu.org/cloudlab/cloudflare", "registry.opentofu.org/cloudlab/harbor"]
   }
 }
