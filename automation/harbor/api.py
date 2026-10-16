@@ -37,6 +37,33 @@ def checksum(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def reviewed_ancestor(repository, revision, published, env):
+    """Check fresh public history without writing to the mounted source checkout."""
+    command = ['git', '-c', 'safe.directory=/workspace']
+    arguments = ['merge-base', '--is-ancestor', revision, published]
+    result = subprocess.run(command + arguments, cwd=ROOT, env=env, capture_output=True, timeout=60)
+    if result.returncode != 128:
+        return result.returncode == 0
+    # A long proof may outlive a merge to public main. Fetch missing history only
+    # into disposable storage; the reviewed checkout remains read-only.
+    try:
+        objects = subprocess.check_output(command + ['rev-parse', '--git-path', 'objects'],
+                                          cwd=ROOT, env=env, text=True, timeout=60).strip()
+        objects = str((ROOT / objects).resolve())
+        with tempfile.TemporaryDirectory(prefix='harbor-public-history-') as temporary:
+            fetch_env = dict(env, GIT_ALTERNATE_OBJECT_DIRECTORIES=objects)
+            def git(*args):
+                return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'gc.auto=0', *args],
+                    cwd=temporary, env=fetch_env, capture_output=True, check=True, timeout=180)
+            git('init', '--bare', '--quiet')
+            git('update-ref', 'refs/heads/reviewed', revision)
+            git('fetch', '--no-tags', '--no-recurse-submodules', repository, published)
+            return subprocess.run(['git', *arguments], cwd=temporary, env=fetch_env,
+                                  capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def binding():
     source = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
     if (not re.fullmatch(r'https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git', source['repository']) or
@@ -53,9 +80,8 @@ def binding():
     remote = subprocess.run(['git', '-c', 'credential.helper=', 'ls-remote', '--exit-code', source['repository'],
                              'refs/heads/' + source['revision']], capture_output=True, text=True, env=env, timeout=60)
     published = remote.stdout.split()[0] if remote.returncode == 0 and remote.stdout.split() else ''
-    if (not re.fullmatch('[a-f0-9]{40}', published) or subprocess.run(
-            ['git', '-c', 'safe.directory=/workspace', 'merge-base', '--is-ancestor', revision, published], cwd=ROOT, env=env,
-            capture_output=True).returncode):
+    if (not re.fullmatch('[a-f0-9]{40}', published) or
+            not reviewed_ancestor(source['repository'], revision, published, env)):
         raise ValueError('Harbor requires a reviewed public-main ancestor; fetch the public source before retrying')
     return revision
 
