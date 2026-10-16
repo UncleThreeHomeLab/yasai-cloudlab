@@ -32,6 +32,12 @@ def patched(raw):
                                          'harbor/templates/nginx/deployment.yaml',
                                          'harbor/templates/portal/deployment.yaml'):
                         replacements = {b'spec:\n  replicas:': b'spec:\n  strategy:\n    type: Recreate\n  replicas:'}
+                    if original.name == 'harbor/templates/core/core-dpl.yaml':
+                        replacements.update({
+                            b'        - name: token-service-private-key\n          mountPath: /etc/core/private_key.pem\n          subPath: tls.key':
+                            b'        - name: psc\n          mountPath: /etc/core/private_key.pem\n          subPath: registry-private-key.pem\n          readOnly: true',
+                            b'      - name: psc\n        emptyDir: {}':
+                            b'      - name: psc\n        emptyDir: {medium: Memory, sizeLimit: 1Mi}'})
                     for before, after in replacements.items():
                         if data.count(before) != 1:
                             raise ValueError('Pinned Harbor database secret template changed')
@@ -40,7 +46,7 @@ def patched(raw):
                     member = tarfile.TarInfo(original.name)
                     member.mode, member.size = 0o644, len(data)
                     target.addfile(member, io.BytesIO(data))
-    if changes != 7:
+    if changes != 9:
         raise ValueError('Pinned Harbor database secret patch changed')
     return output.getvalue()
 

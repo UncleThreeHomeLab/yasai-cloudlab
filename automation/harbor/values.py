@@ -25,6 +25,15 @@ def values():
                 existingXsrfSecret='harbor-runtime', existingXsrfSecretKey='CSRF_KEY',
                 extraEnvVars=[{'name': 'CONFIG_OVERWRITE_JSON', 'valueFrom': {
                     'secretKeyRef': {'name': 'harbor-oidc', 'key': 'configuration'}}}])
+    core['initContainers'] = [{
+        'name': 'token-key-format', 'image': images['harbor-core'],
+        'command': ['/bin/sh', '-ec', 'umask 077; exec openssl rsa -traditional -in /source/tls.key -out /output/registry-private-key.pem'],
+        'securityContext': {'runAsNonRoot': True, 'runAsUser': 10000, 'allowPrivilegeEscalation': False,
+                            'readOnlyRootFilesystem': True, 'capabilities': {'drop': ['ALL']},
+                            'seccompProfile': {'type': 'RuntimeDefault'}},
+        'resources': resources(100, 64, 10, 16),
+        'volumeMounts': [{'name': 'token-service-private-key', 'mountPath': '/source', 'readOnly': True},
+                         {'name': 'psc', 'mountPath': '/output'}]}]
     job = component('harbor-jobservice', 200, 256)
     job.update(existingSecret='harbor-runtime', existingSecretKey='JOBSERVICE_SECRET',
                maxJobWorkers=1, jobLoggers=['stdout'])

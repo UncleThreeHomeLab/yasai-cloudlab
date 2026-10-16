@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import unittest
 
 from cryptography import x509
@@ -56,6 +57,24 @@ class InstallationTests(unittest.TestCase):
         certificate = x509.load_pem_x509_certificate(material['tls_crt'].encode())
         self.assertEqual(private.public_key().public_numbers(), certificate.public_key().public_numbers())
         self.assertEqual(private.key_size, 4096)
+        result = subprocess.run(['openssl', 'rsa', '-traditional'], input=material['tls_key'].encode(), capture_output=True)
+        self.assertEqual(result.returncode, 0, 'Native RSA encoding conversion failed')
+        self.assertTrue(result.stdout.startswith(b'-----BEGIN RSA PRIVATE KEY-----'))
+        converted = serialization.load_pem_private_key(result.stdout, password=None)
+        self.assertTrue(private.private_numbers() == converted.private_numbers())
+
+    def test_token_key_conversion_preserves_vault_source_and_uses_only_memory(self):
+        core = next(obj for obj in render() if obj['kind'] == 'Deployment' and
+                    obj['metadata']['labels'].get('component') == 'core')['spec']['template']['spec']
+        init = next(container for container in core['initContainers'] if container['name'] == 'token-key-format')
+        self.assertEqual(init['image'], core['containers'][0]['image'])
+        self.assertIn('umask 077; exec openssl rsa -traditional', init['command'][-1])
+        self.assertEqual(init['volumeMounts'][0], {'name': 'token-service-private-key', 'mountPath': '/source', 'readOnly': True})
+        volumes = {volume['name']: volume for volume in core['volumes']}
+        self.assertEqual(volumes['token-service-private-key']['secret']['secretName'], 'harbor-token-signing')
+        self.assertEqual(volumes['psc']['emptyDir'], {'medium': 'Memory', 'sizeLimit': '1Mi'})
+        mount = next(mount for mount in core['containers'][0]['volumeMounts'] if mount['mountPath'] == '/etc/core/private_key.pem')
+        self.assertEqual(mount, {'name': 'psc', 'mountPath': '/etc/core/private_key.pem', 'subPath': 'registry-private-key.pem', 'readOnly': True})
 
     def test_registry_password_and_bcrypt_are_generated_once_per_definition(self):
         fields = definitions()['harbor-runtime']

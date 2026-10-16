@@ -113,6 +113,52 @@
             }
           }
         }
+      ],
+      "initContainers": [
+        {
+          "name": "token-key-format",
+          "image": "docker.io/goharbor/harbor-core:v2.15.4@sha256:7d2ba5304a729887cdec7cb222a82b500278423de230ae5150c386a6c332b112",
+          "command": [
+            "/bin/sh",
+            "-ec",
+            "umask 077; exec openssl rsa -traditional -in /source/tls.key -out /output/registry-private-key.pem"
+          ],
+          "securityContext": {
+            "runAsNonRoot": true,
+            "runAsUser": 10000,
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true,
+            "capabilities": {
+              "drop": [
+                "ALL"
+              ]
+            },
+            "seccompProfile": {
+              "type": "RuntimeDefault"
+            }
+          },
+          "resources": {
+            "requests": {
+              "cpu": "10m",
+              "memory": "16Mi"
+            },
+            "limits": {
+              "cpu": "100m",
+              "memory": "64Mi"
+            }
+          },
+          "volumeMounts": [
+            {
+              "name": "token-service-private-key",
+              "mountPath": "/source",
+              "readOnly": true
+            },
+            {
+              "name": "psc",
+              "mountPath": "/output"
+            }
+          ]
+        }
       ]
     },
     "jobservice": {
