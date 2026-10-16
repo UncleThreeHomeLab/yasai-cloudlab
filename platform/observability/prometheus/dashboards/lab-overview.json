@@ -1,9 +1,9 @@
 {
   "uid": "cloudlab-overview",
   "title": "Lab Overview",
-  "description": "K3s cluster and node health. Empty issue tables mean no matching issues only when scrape evidence is healthy. Missing telemetry is UNKNOWN.",
+  "description": "Cluster summary. Open Nodes or Workloads for detail. Empty issue tables require healthy scrape evidence; missing telemetry is UNKNOWN.",
   "schemaVersion": 41,
-  "version": 2,
+  "version": 3,
   "editable": false,
   "tags": [
     "cloudlab"
@@ -111,7 +111,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
@@ -193,7 +193,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
@@ -233,11 +233,9 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -281,11 +279,9 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -294,7 +290,7 @@
     },
     {
       "id": 5,
-      "title": "Filesystem space available",
+      "title": "Root filesystem space available",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -321,19 +317,17 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint!~\"/run.*\"} / node_filesystem_size_bytes",
-          "legendFormat": "{{instance}} {{mountpoint}}",
+          "expr": "node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}",
+          "legendFormat": "{{instance}}",
           "range": true,
           "instant": false
         }
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -342,7 +336,7 @@
     },
     {
       "id": 6,
-      "title": "PVC usage",
+      "title": "Most used volumes (top 5)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -369,7 +363,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
+          "expr": "topk(5, max by(namespace,persistentvolumeclaim) (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes))",
           "legendFormat": "{{namespace}} / {{persistentvolumeclaim}}",
           "range": true,
           "instant": false
@@ -377,11 +371,9 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi"
@@ -408,6 +400,10 @@
           "noValue": "UNKNOWN",
           "color": {
             "mode": "palette-classic"
+          },
+          "decimals": 0,
+          "custom": {
+            "minWidth": 80
           }
         },
         "overrides": []
@@ -415,7 +411,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(kube_deployment_spec_replicas - kube_deployment_status_replicas_available > 0) or (kube_statefulset_replicas - kube_statefulset_status_replicas_ready > 0) or (kube_daemonset_status_desired_number_scheduled - kube_daemonset_status_number_ready > 0)",
+          "expr": "max by(namespace,kind,workload) (label_replace(label_replace((kube_deployment_spec_replicas - kube_deployment_status_replicas_available > 0), \"workload\", \"$1\", \"deployment\", \"(.+)\"), \"kind\", \"Deployment\", \"\", \".*\") or label_replace(label_replace((kube_statefulset_replicas - kube_statefulset_status_replicas_ready > 0), \"workload\", \"$1\", \"statefulset\", \"(.+)\"), \"kind\", \"StatefulSet\", \"\", \".*\") or label_replace(label_replace((kube_daemonset_status_desired_number_scheduled - kube_daemonset_status_number_ready > 0), \"workload\", \"$1\", \"daemonset\", \"(.+)\"), \"kind\", \"DaemonSet\", \"\", \".*\"))",
           "legendFormat": "{{instance}}",
           "range": false,
           "instant": true,
@@ -423,12 +419,49 @@
         }
       ],
       "options": {
-        "showHeader": true
-      }
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "namespace",
+                "kind",
+                "workload",
+                "Value"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "namespace": 0,
+              "kind": 1,
+              "workload": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "namespace": "Namespace",
+              "kind": "Kind",
+              "workload": "Workload",
+              "Value": "Missing"
+            }
+          }
+        }
+      ]
     },
     {
-      "id": 8,
-      "title": "Pending pods",
+      "id": 10,
+      "title": "Firing alerts",
       "type": "table",
       "datasource": {
         "type": "prometheus",
@@ -446,6 +479,10 @@
           "noValue": "UNKNOWN",
           "color": {
             "mode": "palette-classic"
+          },
+          "decimals": 0,
+          "custom": {
+            "minWidth": 80
           }
         },
         "overrides": []
@@ -453,7 +490,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "kube_pod_status_phase{phase=\"Pending\"} == 1",
+          "expr": "max by(namespace,alertname,severity) (ALERTS{alertstate=\"firing\",alertname!~\"Watchdog|InfoInhibitor\"} == 1)",
           "legendFormat": "{{instance}}",
           "range": false,
           "instant": true,
@@ -461,122 +498,42 @@
         }
       ],
       "options": {
-        "showHeader": true
-      }
-    },
-    {
-      "id": 9,
-      "title": "Container restarts (1h)",
-      "type": "table",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
       },
-      "gridPos": {
-        "x": 0,
-        "y": 25,
-        "w": 12,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "severity",
+                "namespace",
+                "alertname"
+              ]
+            }
           }
         },
-        "overrides": []
-      },
-      "targets": [
         {
-          "refId": "A",
-          "expr": "sum by (namespace,pod,container) (increase(kube_pod_container_status_restarts_total[1h])) > 0",
-          "legendFormat": "{{instance}}",
-          "range": false,
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "options": {
-        "showHeader": true
-      }
-    },
-    {
-      "id": 10,
-      "title": "Firing alerts",
-      "type": "table",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 25,
-        "w": 12,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "severity": 0,
+              "namespace": 1,
+              "alertname": 2
+            },
+            "renameByName": {
+              "severity": "Severity",
+              "namespace": "Namespace",
+              "alertname": "Alert"
+            }
           }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "ALERTS{alertstate=\"firing\"} == 1",
-          "legendFormat": "{{instance}}",
-          "range": false,
-          "instant": true,
-          "format": "table"
         }
-      ],
-      "options": {
-        "showHeader": true
-      }
-    },
-    {
-      "id": 11,
-      "title": "Failed or stale scrapes",
-      "type": "table",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "metrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 32,
-        "w": 24,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "UNKNOWN",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "(up == 0) or (time() - timestamp(up) > 90)",
-          "legendFormat": "{{instance}}",
-          "range": false,
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "options": {
-        "showHeader": true
-      }
+      ]
     }
   ]
 }
