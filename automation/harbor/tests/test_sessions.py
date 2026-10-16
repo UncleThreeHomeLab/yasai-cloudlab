@@ -11,6 +11,15 @@ from automation.harbor import sessions
 
 
 class SessionTests(unittest.TestCase):
+    def test_diagnostics_preserve_only_known_stages_and_error_categories(self):
+        self.assertEqual(sessions.diagnostic({'stage': 'account enrollment', 'error_type': 'TimeoutError',
+            'network_code': 'ERR_NAME_NOT_RESOLVED', 'password': 'synthetic-must-not-export'}),
+            {'browser_failed_stage': 'account enrollment', 'error_type': 'TimeoutError', 'network_code': 'ERR_NAME_NOT_RESOLVED'})
+        for value in (None, 'synthetic-private-value', {'stage': 'synthetic-private-value',
+                       'error_type': 'synthetic-private-value', 'network_code': 'ERR_PRIVATE_VALUE'}):
+            self.assertEqual(sessions.diagnostic(value),
+                             {'browser_failed_stage': 'baseline', 'error_type': None, 'network_code': None})
+
     def test_cleanup_cannot_retire_a_foreign_realm_or_credential_owner(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkpoint = Path(temporary) / 'fixture.json'

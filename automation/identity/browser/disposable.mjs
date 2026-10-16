@@ -1,7 +1,7 @@
 // Enroll only a fresh disposable viewer. Callers retain credentials and browser sessions in memory.
 export async function enrollViewer(page, context, input, issuer, setStage) {
   setStage('account enrollment');
-  await page.goto(issuer+'/account/');
+  await page.goto(issuer+'/account/', {waitUntil:'domcontentloaded'});
   setStage('account password');
   await page.getByLabel('Username', {exact:false}).fill(input.username);
   await page.getByLabel('Password', {exact:true}).fill(input.password);

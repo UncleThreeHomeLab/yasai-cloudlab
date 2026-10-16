@@ -48,6 +48,20 @@ def receive(stream):
     return json.loads(raw)
 
 
+def diagnostic(document):
+    value = document if isinstance(document, dict) else {}
+    stages = ('input', 'account enrollment', 'account password', 'WebAuthn registration', 'account session',
+              'native Harbor OIDC', 'Harbor viewer roles', 'native OIDC CLI token', 'Harbor cookie bound',
+              'Harbor offboarding observation', 'offboarded new Harbor login')
+    codes = ('ERR_NAME_NOT_RESOLVED', 'ERR_ADDRESS_UNREACHABLE', 'ERR_CONNECTION_TIMED_OUT',
+             'ERR_CONNECTION_REFUSED', 'ERR_CERT_AUTHORITY_INVALID', 'ERR_CERT_COMMON_NAME_INVALID',
+             'ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS', 'ERR_NETWORK_CHANGED', 'ERR_INTERNET_DISCONNECTED',
+             'ERR_TIMED_OUT', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNREFUSED', 'EHOSTUNREACH')
+    return {'browser_failed_stage': value.get('stage') if value.get('stage') in stages else 'baseline',
+            'error_type': value.get('error_type') if value.get('error_type') in ('Error', 'TimeoutError', 'TypeError') else None,
+            'network_code': value.get('network_code') if value.get('network_code') in codes else None}
+
+
 def cleanup():
     from automation.credentials.vault import fields
     from automation.identity.owner_enrollment import inputs
@@ -118,11 +132,7 @@ def run():
             expected = {'ready', 'native_harbor_oidc', 'viewer_public_project_allowed',
                         'viewer_private_project_denied', 'viewer_admin_denied', 'native_oidc_cli_pull'}
             if not isinstance(ready, dict) or set(ready) != expected or any(ready[key] is not True for key in expected):
-                stages = ('input', 'account enrollment', 'account password', 'WebAuthn registration',
-                          'account session', 'native Harbor OIDC', 'Harbor viewer roles',
-                          'native OIDC CLI token', 'Harbor cookie bound')
-                stage = ready.get('stage') if isinstance(ready, dict) else None
-                print(json.dumps({'browser_failed_stage': stage if stage in stages else 'baseline'}), flush=True)
+                print(json.dumps(diagnostic(ready)), flush=True)
                 raise RuntimeError('Harbor browser baseline incomplete; private fixture retained')
             stream.write(b'{"action":"observe-offboarding"}\n'); stream.flush()
             started = time.monotonic()
@@ -132,7 +142,10 @@ def run():
                     raise RuntimeError('Private viewer offboarding convergence deadline exceeded')
                 time.sleep(5)
             local_offboard({key: before[key] for key in ('realm', 'username', 'user_id', 'email')})
-            measured = observation(receive(stream))
+            observed = receive(stream)
+            if isinstance(observed, dict) and observed.get('failed') is True:
+                print(json.dumps(diagnostic(observed)), flush=True)
+            measured = observation(observed)
         after = remote_state(request)
         if before['preservation'] != after['preservation'] or after['enabled'] is not False:
             raise RuntimeError('Unrelated identity preservation or disposable offboarding failed')
