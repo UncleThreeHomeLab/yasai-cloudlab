@@ -1,7 +1,38 @@
 """Synthetic protected recovery metadata; no service credentials."""
 import json
 import copy
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 from automation.harbor.recovery import CLAIMS, SECRETS, ARTIFACTS
+
+
+@contextmanager
+def unsigned_registry():
+    """Loopback-only missing-manifest responses for native offline signing checks."""
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            body = b'{}' if self.path == '/v2/' else b'{"errors":[{"code":"MANIFEST_UNKNOWN","message":"synthetic missing image"}]}'
+            self.send_response(200 if self.path == '/v2/' else 404)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Docker-Distribution-Api-Version', 'registry/2.0')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            if self.command != 'HEAD':
+                self.wfile.write(body)
+
+        do_HEAD = do_GET
+    with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            yield '127.0.0.1:' + str(server.server_port)
+        finally:
+            server.shutdown()
+            worker.join(timeout=5)
 
 
 def deployment_artifacts():
