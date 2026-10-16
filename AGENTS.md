@@ -15,6 +15,12 @@ Put lasting changes and the steps to apply them in this repository. Use VM
 sessions for inspection, not manual configuration. Applying the code must be
 safe to repeat and must preserve existing secrets and data.
 
+Use the established declarative owner for each resource and field: Ansible for
+host bootstrap and explicit operations, GitOps/controllers for continuous
+Kubernetes convergence, and native provider configurations for accepted external
+resources. Preserve required continuous repair. Destructive actions require an
+explicit resource and data scope.
+
 ## Reproducibility
 
 A clean checkout, `.env`, and Docker Compose must apply and verify the lab on
@@ -37,13 +43,21 @@ Configuration reproducibility does not replace backup and restore testing.
 ## Organization and modules
 
 - Group code by responsibility. Each module has one job and clear inputs and outputs.
-- Keep entry points thin and implementation and checks with their owning module.
-- Keep component tests in `automation/<component>/tests/` and shared integration
-  checks in `verification/integration/`. Put reusable test fixtures in the owning
+- Organize Ansible as component playbooks under `ansible/playbooks/`. Keep lifecycle
+  entry points thin; explicitly import stages in dependency order. Numbers make
+  sequential stages readable; imports determine execution. Do not recreate an
+  `automation/` framework or a repository-owned role hierarchy.
+- Keep component inputs, tasks, assets and tests with their owner; runner checks
+  belong in `ansible/runner/tests/`. Keep shared integration checks in
+  `verification/integration/`. Put reusable test fixtures in the owning
   component's `tests/fixtures.py`; never import fixtures from test suites or
   import test code into runtime modules.
 - Define shared settings once. Reuse public interfaces, not private files or side effects.
 - Extend existing modules before adding new ones. Avoid needless layers and folders.
+- Extend supported application declarations for routine onboarding. Do not add
+  per-application installers or runner command branches.
+- Prefer maintained modules and native interfaces. Retain a custom helper only
+  for a demonstrated gap, with one owner, clear inputs/outputs and behavior checks.
 - Split files when responsibilities differ. Remove replaced code, update references,
   and verify preserved behavior.
 - Before deleting or merging files, check imports, runner commands, deployment
@@ -54,6 +68,8 @@ Configuration reproducibility does not replace backup and restore testing.
 - Run local tests with `docker compose run --build --rm lab test`; they must not
   require VM or service credentials. Keep component test processes isolated when
   standalone VM modules use overlapping import names.
+- Update callers, deployed runtime paths, portable checks and concise documentation
+  together. Keep operations repeatable and resumable; preserve recovery paths.
 
 ## Documentation
 

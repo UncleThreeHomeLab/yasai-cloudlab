@@ -1,7 +1,7 @@
 name: yasai-cloudlab
 services:
   harbor-session-controller:
-    build: ../runner
+    build: ../../ansible/runner
     platform: linux/amd64
     entrypoint: [python, -m, automation.harbor.sessions]
     working_dir: /workspace

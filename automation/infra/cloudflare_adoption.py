@@ -89,7 +89,7 @@ def declaration_hash():
 
 def require_certification(directory):
     result = json.loads((directory / 'result.json').read_text())
-    pin = json.loads(Path('/workspace/automation/runner/cloudflare-provider.lock.json').read_text())
+    pin = json.loads(Path('/workspace/ansible/runner/cloudflare-provider.lock.json').read_text())
     if not re.fullmatch(r'[0-9a-f]{64}', pin['package_sha256']):
         raise ValueError('Provider package checksum has not completed review; handoff blocked')
     gates = ('native_import', 'dns_tunnel_application_update', 'legacy_policy_update_supported',

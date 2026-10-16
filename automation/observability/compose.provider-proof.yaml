@@ -24,7 +24,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   provider-init:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [/bin/sh, -ec]
     command:
       - |
@@ -36,7 +36,7 @@ services:
     mem_limit: 384m
     cpus: 0.5
   provider-proof:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, -m, automation.observability.provider_proof]
     working_dir: /workspace
     volumes: ["../..:/workspace:ro", "fixture:/fixture:ro", "provider_fixture:/candidate"]

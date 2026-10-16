@@ -4,7 +4,7 @@
 name: cloudlab-identity-provider-fixture
 services:
   provider-init:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [/bin/sh, -ec]
     command:
       - |
@@ -14,7 +14,7 @@ services:
     volumes: ["./provider-fixture:/source:ro", "provider_fixture:/candidate"]
     networks: [provider-download]
   provider-proof:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/provider_proof.py]
     working_dir: /workspace
     environment: {SSL_CERT_FILE: /fixture/ca.crt}

@@ -4,11 +4,27 @@ import io
 import tarfile
 import unittest
 import zipfile
+from pathlib import Path
 
-from automation.runner.install_tools import binary
+import yaml
+
+from install_tools import binary
 
 
 class BootstrapToolTests(unittest.TestCase):
+    def test_compose_build_contexts_exist_for_every_packaged_fixture(self):
+        root = Path(__file__).resolve().parents[3]
+        files = [root / 'compose.yaml', *sorted((root / 'automation').glob('*/compose*.yaml'))]
+        for path in files:
+            for name, service in yaml.safe_load(path.read_text()).get('services', {}).items():
+                build = service.get('build')
+                if not build:
+                    continue
+                context = build if isinstance(build, str) else build.get('context', '.')
+                dockerfile = 'Dockerfile' if isinstance(build, str) else build.get('dockerfile', 'Dockerfile')
+                with self.subTest(compose=path.relative_to(root), service=name):
+                    self.assertTrue((path.parent / context / dockerfile).is_file())
+
     def test_archive_formats_preserve_exact_checked_binary(self):
         payload = b'synthetic-bootstrap-binary'
         zipped, tarred = io.BytesIO(), io.BytesIO()

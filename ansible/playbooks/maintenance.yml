@@ -1,0 +1,9 @@
+---
+- name: Require explicit maintenance scope
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Refuse unspecified maintenance before mutation
+      ansible.builtin.fail:
+        msg: "Maintenance requires a scoped operation and reviewed inputs; no mutation performed."

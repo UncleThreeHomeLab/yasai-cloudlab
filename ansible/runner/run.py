@@ -83,12 +83,21 @@ def main():
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.infra.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)
     action = sys.argv[1] if len(sys.argv) == 2 else ''
+    action = {'apply': 'setup', 'backup': 'recovery-monthly'}.get(action, action)
+    if action in {'maintenance', 'upgrade', 'nuke', 'recovery'}:
+        if action == 'recovery':
+            raise SystemExit('Select an explicit recovery-* operation and its required inputs.')
+        playbook('playbooks/' + action + '.yml')
+        return
+    if action == 'validate':
+        subprocess.run([sys.executable, '/workspace/ansible/runner/validate.py'], check=True)
+        return
     identity_phase = {'identity-server': 'server', 'identity-bootstrap': 'bootstrap', 'identity-primary': 'primary', 'identity-scoped': 'scoped', 'identity-health': 'health', 'identity-argo': 'argo', 'identity-recover-startup': 'recover-startup'}.get(action)
     if identity_phase:
         os.environ['LAB_IDENTITY_PHASE'] = identity_phase
         action = 'inspect'
     if action == 'test':
-        subprocess.run([sys.executable, '/workspace/automation/runner/test.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/runner/test.py'], check=True)
         return
     if action == 'service-check':
         subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
@@ -122,8 +131,8 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
-        raise SystemExit('Unknown action; expected a supported runner action such as apply, verify, or prove.')
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
+        raise SystemExit('Unknown action; expected a supported runner action such as setup, validate, test, verify, or prove.')
     if action in {'publish-platform', 'github-app-check', 'private-fixture-prepare'}:
         module = {'publish-platform': 'publish_snapshot.py',
                   'github-app-check': 'github_app.py', 'private-fixture-prepare': 'private_fixture.py'}[action]
@@ -170,6 +179,8 @@ def main():
     if action == 'syntax':
         for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml', 'access-cutover.yml'):
             playbook(name, syntax=True)
+        for path in sorted(Path('/workspace/ansible/playbooks').glob('*.yml')):
+            playbook(str(path), syntax=True)
         playbook('data.yml', syntax=True)
         playbook('identity.yml', syntax=True)
         return
@@ -203,7 +214,7 @@ def main():
             os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
         subprocess.run([sys.executable, '/workspace/automation/tailscale/control.py', 'policy'], check=True)
         return
-    if action in {'apply', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
+    if action in {'setup', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
                      for suffix in ('_HOST', '_USER', '_PASSWORD'))
@@ -256,9 +267,9 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', 'retrieve'], check=True)
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'migrate'
         playbook('k3s-migration.yml')
-        playbook('apply.yml')
-        playbook('apply.yml', unchanged=True)
-        playbook('verify.yml')
+        playbook('playbooks/setup.yml')
+        playbook('playbooks/setup.yml', unchanged=True)
+        playbook('playbooks/verify.yml')
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'accept'
         playbook('k3s-migration.yml')
     elif action == 'k3s-migrate-rollback':
@@ -329,14 +340,16 @@ def main():
         subprocess.run([sys.executable, '/workspace/automation/tailscale/verify_access.py'], check=True)
     elif action in {'recovery-monthly', 'recovery-initial', 'recovery-replacement-test'}:
         playbook('recovery.yml')
-    elif action in {'inspect', 'baseline', 'storage-check', 'verify'}:
+    elif action in {'inspect', 'verify'}:
+        playbook('playbooks/' + action + '.yml')
+    elif action in {'baseline', 'storage-check'}:
         playbook(action + '.yml')
     else:
         gitops_preflight()
-        playbook('apply.yml')
+        playbook('playbooks/setup.yml')
         if action == 'prove':
-            playbook('apply.yml', unchanged=True)
-        playbook('verify.yml')
+            playbook('playbooks/setup.yml', unchanged=True)
+        playbook('playbooks/verify.yml')
 
 
 if __name__ == '__main__':

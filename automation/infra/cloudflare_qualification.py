@@ -160,7 +160,7 @@ def upload_recovery(directory, env, bundle, identities, desired, imports):
     decrypt.mkdir(mode=0o700, exist_ok=True)
     protected = decrypt / 'recovery.encrypted'
     shutil.copyfile(recovery, protected)
-    provider = json.loads(Path('/workspace/automation/runner/cloudflare-provider.lock.json').read_text())
+    provider = json.loads(Path('/workspace/ansible/runner/cloudflare-provider.lock.json').read_text())
     (decrypt / 'main.tf.json').write_text(json.dumps({'terraform': {
         'required_version': '= 1.13.1', 'backend': {'local': {'path': str(protected)}},
         'required_providers': {'cloudflare': {'source': 'cloudlab/cloudflare', 'version': '= ' + provider['version']}}}}))
@@ -443,7 +443,7 @@ def exercise(directory, bundle):
     retention = retention_probe(directory, env, bundle)
     retention.update(bounded_retention_probe(directory, env, bundle))
     retention.update(concurrent_apply_probe(directory, env, bundle))
-    provider = json.loads(Path('/workspace/automation/runner/cloudflare-provider.lock.json').read_text())
+    provider = json.loads(Path('/workspace/ansible/runner/cloudflare-provider.lock.json').read_text())
     (directory / 'result.json').write_text(json.dumps({'native_import': True,
         'dns_tunnel_application_update': True, 'legacy_policy_update_supported': not policy_unsupported,
         'repeat_plan_empty': True, 'identity_audience_selectors_preserved': True,

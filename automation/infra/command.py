@@ -126,7 +126,7 @@ def validate_inventory(root, desired, inventory):
 def source_binding(root):
     files = list((WORKSPACE / 'automation/infra').glob('*.py'))
     files += list((WORKSPACE / 'infra' / root).rglob('*'))
-    files += list((WORKSPACE / 'automation/runner').glob('*')) + [WORKSPACE / name for name in (
+    files += list((WORKSPACE / 'ansible/runner').glob('*')) + [WORKSPACE / name for name in (
         'compose.yaml', '.gitignore', '.gitattributes')]
     if root == 'cloudflare':
         files += list((WORKSPACE / 'automation/connectivity').glob('*.py'))
@@ -141,7 +141,7 @@ def source_binding(root):
             content.update(str(path.relative_to(WORKSPACE)).encode() + b'\0' + path.read_bytes())
     revision = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'rev-parse', 'HEAD'],
                               cwd=WORKSPACE, capture_output=True, check=True, text=True).stdout.strip()
-    paths = ['automation/infra', 'automation/runner', 'infra/' + root, 'compose.yaml', '.gitignore', '.gitattributes']
+    paths = ['automation/infra', 'ansible/runner', 'infra/' + root, 'compose.yaml', '.gitignore', '.gitattributes']
     if root == 'cloudflare':
         paths += ['automation/connectivity', 'automation/identity', 'automation/services', 'charts/service']
     else:

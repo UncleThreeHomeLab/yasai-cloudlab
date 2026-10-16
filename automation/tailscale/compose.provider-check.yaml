@@ -2,7 +2,7 @@
 name: cloudlab-tailnet-provider-check
 services:
   check:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [/bin/sh, -ec]
     command:
       - |

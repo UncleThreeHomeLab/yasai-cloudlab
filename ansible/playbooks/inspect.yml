@@ -1,0 +1,3 @@
+---
+- name: Inspect through existing component owners
+  ansible.builtin.import_playbook: ../inspect.yml

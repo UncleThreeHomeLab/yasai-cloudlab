@@ -10,7 +10,7 @@ services:
     tmpfs: [/run, /var/lib/rancher/k3s]
     volumes: [operator_fixture:/fixture]
   proof:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/operator_proof.py]
     working_dir: /workspace
     volumes: ["../..:/workspace:ro", "operator_fixture:/fixture:ro"]

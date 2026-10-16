@@ -2,7 +2,7 @@ services:
   lab:
     platform: linux/amd64
     build:
-      context: ./automation/runner
+      context: ./ansible/runner
     volumes:
       - type: bind
         source: .
@@ -21,16 +21,20 @@ services:
       - type: volume
         source: infra_work
         target: /infra-work
-    command: [apply]
+    command: [setup]
 
   infra:
     profiles: [infra]
     platform: linux/amd64
     build:
-      context: ./automation/runner
+      context: ./ansible/runner
     entrypoint: [python, -m, automation.infra.command]
     working_dir: /workspace
     volumes:
+      - type: bind
+        source: ./ansible/runner
+        target: /workspace/ansible/runner
+        read_only: true
       - type: bind
         source: ./automation
         target: /workspace/automation
@@ -72,10 +76,14 @@ services:
     profiles: [infra]
     platform: linux/amd64
     build:
-      context: ./automation/runner
+      context: ./ansible/runner
     entrypoint: [python, -m, automation.infra.command]
     working_dir: /workspace
     volumes:
+      - type: bind
+        source: ./ansible/runner
+        target: /workspace/ansible/runner
+        read_only: true
       - type: bind
         source: ./automation
         target: /workspace/automation
@@ -113,7 +121,7 @@ services:
     profiles: [infra]
     platform: linux/amd64
     build:
-      context: ./automation/runner
+      context: ./ansible/runner
     entrypoint: [python, -m, automation.harbor.api]
     working_dir: /workspace
     volumes:
@@ -134,7 +142,7 @@ services:
     profiles: [services]
     platform: linux/amd64
     build:
-      context: ./automation/runner
+      context: ./ansible/runner
     entrypoint: [python, -m, automation.services.command]
     working_dir: /workspace
     volumes:
