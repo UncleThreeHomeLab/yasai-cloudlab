@@ -4,7 +4,7 @@ name: yasai-cloudlab
 services:
   session-controller:
     profiles: [live-sessions]
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, -m, automation.identity.session_acceptance]
     working_dir: /workspace
     volumes: ["../..:/workspace:ro", "ssh_known_hosts:/state", "recovery_outputs:/recovery"]
@@ -46,7 +46,7 @@ services:
     network_mode: bridge
     mem_limit: 256m
   pki:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/fixture_pki.py]
     volumes: ["../..:/workspace:ro", "identity_fixture:/fixture"]
     network_mode: none
@@ -84,7 +84,7 @@ services:
         aliases: [admin.fixture.test]
     mem_limit: 1536m
   admin-gateway:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/fixture_gateway.py]
     volumes: ["../..:/workspace:ro", "identity_fixture:/fixture:ro"]
     depends_on:
@@ -138,7 +138,7 @@ services:
       - ../../platform/identity/keycloak/config-cli.properties:/code/config-cli.properties:ro
     network_mode: service:server
   proof:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/local_proof.py]
     working_dir: /workspace
     volumes:
@@ -148,7 +148,7 @@ services:
     depends_on: [server, writer, admin-gateway]
     network_mode: service:server
   reference:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/reference.py]
     volumes: ["../..:/workspace:ro", "identity_fixture:/fixture:ro"]
     depends_on:
@@ -183,7 +183,7 @@ services:
     mem_limit: 1536m
   emergency-proof:
     profiles: [recovery]
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/identity/emergency_proof.py]
     working_dir: /workspace
     volumes: ["../..:/workspace:ro", "identity_fixture:/fixture"]

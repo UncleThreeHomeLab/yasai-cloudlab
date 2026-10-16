@@ -6,5 +6,5 @@ platform/connectivity/gateway-api/upstream.yaml -text whitespace=-blank-at-eol
 platform/identity/keycloak/upstream/* -text whitespace=-blank-at-eol
 
 # Unified patch context preserves upstream indentation and blank lines.
-automation/runner/cloudflare-legacy.patch whitespace=-blank-at-eol,-space-before-tab
-automation/runner/harbor-quota.patch whitespace=-blank-at-eol,-space-before-tab
+ansible/runner/cloudflare-legacy.patch whitespace=-blank-at-eol,-space-before-tab
+ansible/runner/harbor-quota.patch whitespace=-blank-at-eol,-space-before-tab

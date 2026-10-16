@@ -3,7 +3,7 @@
 name: cloudlab-data-provider-fixture
 services:
   provider-init:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [/bin/sh, -ec]
     command:
       - |
@@ -55,7 +55,7 @@ services:
       database: {condition: service_healthy}
     networks: [fixture]
   proof:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/data/provider_proof.py]
     working_dir: /workspace
     volumes: ["../:/workspace/automation:ro", "candidate:/candidate"]

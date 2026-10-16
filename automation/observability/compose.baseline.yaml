@@ -1,7 +1,7 @@
 name: yasai-cloudlab
 services:
   baseline-controller:
-    build: ../runner
+    build: ../../ansible/runner
     platform: linux/amd64
     entrypoint: [python, -m, automation.observability.baseline, run]
     working_dir: /workspace

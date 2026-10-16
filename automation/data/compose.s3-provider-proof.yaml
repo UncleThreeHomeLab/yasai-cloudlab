@@ -4,7 +4,7 @@
 name: cloudlab-s3-provider-fixture
 services:
   provider-init:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [/bin/sh, -ec]
     command:
       - |
@@ -20,7 +20,7 @@ services:
     networks: [fixture]
     mem_limit: 768m
   proof:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, /workspace/automation/data/s3_provider_proof.py]
     working_dir: /workspace
     volumes: ["../:/workspace/automation:ro", "candidate:/candidate"]

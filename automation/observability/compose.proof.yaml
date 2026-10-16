@@ -1,6 +1,6 @@
 services:
   prepare:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint: [python, -m, automation.observability.native_proof, prepare]
     working_dir: /workspace
     volumes: ["../..:/workspace:ro", "fixture:/fixture"]

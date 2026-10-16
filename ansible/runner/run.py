@@ -83,7 +83,7 @@ def main():
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.infra.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    action = {'setup': 'apply', 'backup': 'recovery-monthly'}.get(action, action)
+    action = {'apply': 'setup', 'backup': 'recovery-monthly'}.get(action, action)
     if action in {'maintenance', 'upgrade', 'nuke', 'recovery'}:
         if action == 'recovery':
             raise SystemExit('Select an explicit recovery-* operation and its required inputs.')
@@ -131,7 +131,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'apply', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as setup, validate, test, verify, or prove.')
     if action in {'publish-platform', 'github-app-check', 'private-fixture-prepare'}:
         module = {'publish-platform': 'publish_snapshot.py',
@@ -214,7 +214,7 @@ def main():
             os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
         subprocess.run([sys.executable, '/workspace/automation/tailscale/control.py', 'policy'], check=True)
         return
-    if action in {'apply', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
+    if action in {'setup', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
                      for suffix in ('_HOST', '_USER', '_PASSWORD'))

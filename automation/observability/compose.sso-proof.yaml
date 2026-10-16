@@ -50,7 +50,7 @@ services:
     logging:
       driver: none
   setup:
-    build: ../runner
+    build: ../../ansible/runner
     entrypoint:
     - python
     - -m
