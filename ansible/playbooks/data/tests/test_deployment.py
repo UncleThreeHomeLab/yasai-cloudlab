@@ -35,12 +35,22 @@ class DeploymentTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, '-I', '-c',
                  'import sys; sys.path.insert(0, sys.argv[1]); '
-                 'from playbooks.data.files import control, configuration, backup, verify, rotation; '
+                 'from playbooks.data.files import control, configuration, backup, verify, rotation, public_ca; '
                  'from playbooks.keycloak.files import maintenance, recovery, isolated_restore; '
                  'assert control.ROOT == __import__("pathlib").Path(sys.argv[1]); '
                  'assert callable(configuration.configure); assert callable(backup.freshness)', str(base)],
                 cwd=base, env=environment, capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_new_repair_dependency_precedes_its_active_timer_consumer(self):
+        modules = next(task['loop'] for task in TASKS if task['name'] == 'Install application data automation from its owner')
+        self.assertEqual(len(modules), len(set(modules)))
+        self.assertLess(modules.index('public_ca.py'), modules.index('control.py'))
+        helper = next(index for index, task in enumerate(TASKS)
+                      if task['name'] == 'Install the shared Kubernetes helper from its owner')
+        consumers = next(index for index, task in enumerate(TASKS)
+                         if task['name'] == 'Install application data automation from its owner')
+        self.assertLess(helper, consumers)
 
     def test_schedules_keep_runtime_and_cloud_boundaries(self):
         tasks = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/schedules.yml').read_text())
