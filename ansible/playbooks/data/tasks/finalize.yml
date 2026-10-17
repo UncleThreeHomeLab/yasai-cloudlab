@@ -1,0 +1,15 @@
+---
+- name: Reconcile SQL grants and buckets after private DNS is ready
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/data/files/control.py reconcile
+  register: data_reconciled
+  changed_when: data_reconciled.rc == 0 and (data_reconciled.stdout | from_json).changed
+  failed_when: false
+  until: data_reconciled.rc == 0 or 'Another application-data operation holds the owner lock' not in data_reconciled.stderr
+  retries: 12
+  delay: 10
+  no_log: true
+
+- name: Require data provisioning and credential reload to pass
+  ansible.builtin.assert:
+    that: data_reconciled.rc == 0
+    fail_msg: '{{ data_reconciled.stderr }}'

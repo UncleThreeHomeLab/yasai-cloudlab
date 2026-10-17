@@ -65,7 +65,7 @@ def payload():
 
 def committed_payload():
     data = payload()
-    paths = ['ansible/playbooks/setup.yml', 'ansible/playbooks/gitops.yml', 'ansible/playbooks/certificates/010-bootstrap.yml', 'ansible/playbooks/istio/010-bootstrap.yml', 'ansible/playbooks/access/010-bootstrap.yml', 'ansible/application_data-setup.yml', 'ansible/playbooks/bootstrap-recovery.yml', 'ansible/apply.yml', 'ansible/runner', 'platform/delivery/argocd', 'gitops', 'ansible/playbooks/argocd',
+    paths = ['ansible/playbooks/setup.yml', 'ansible/playbooks/gitops.yml', 'ansible/playbooks/certificates/010-bootstrap.yml', 'ansible/playbooks/istio/010-bootstrap.yml', 'ansible/playbooks/access/010-bootstrap.yml', 'ansible/playbooks/data', 'ansible/playbooks/backup', 'ansible/apply.yml', 'ansible/runner', 'platform/delivery/argocd', 'gitops', 'ansible/playbooks/argocd',
              'platform/secrets/external-secrets', 'ansible/playbooks/secrets/files',
              'ansible/playbooks/secrets', 'ansible/group_vars/all/secrets.yml',
              'platform/storage/longhorn', 'ansible/playbooks/longhorn',
@@ -76,8 +76,8 @@ def committed_payload():
                'ansible/group_vars/all/connectivity.yml', 'ansible/playbooks/access/setup.yml', 'ansible/playbooks/access/cutover.yml',
                'ansible/playbooks/k3s',
                'ansible/playbooks/istio/files', 'ansible/playbooks/istio', 'ansible/group_vars/all/mesh.yml',
-               'platform/data', 'automation/data', 'ansible/roles/application_data',
-               'ansible/group_vars/all/data.yml', 'ansible/data.yml',
+               'platform/data', 'ansible/playbooks/data/files', 'ansible/playbooks/data',
+               'ansible/group_vars/all/data.yml',
                'platform/identity', 'automation/identity', 'ansible/roles/identity',
                'ansible/group_vars/all/identity.yml', 'ansible/identity.yml',
                'charts/service', 'apps', 'automation/services', 'platform/delivery/services',

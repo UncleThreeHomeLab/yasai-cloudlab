@@ -14,10 +14,10 @@ def inspect(request):
     notes = approval.get('chartPath') == 'apps/notes'
     workload_names = ['notes-web', 'notes-api'] if notes else [name]
     if action.startswith('fixture-'):
-        from automation.data.service_proof import fixture
+        from playbooks.data.files.service_proof import fixture
         fixture({'definition': definition, 'approval': approval})
         if action == 'fixture-data':
-            from automation.data.service_proof import run
+            from playbooks.data.files.service_proof import run
             return run({'definition': definition, 'approval': approval})
         if action == 'fixture-snapshot':
             import hashlib

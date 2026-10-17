@@ -1,0 +1,34 @@
+# Anonymous HTTP compatibility fixture only; production uses scoped verified TLS.
+# Run: docker compose -f ansible/playbooks/data/tests/compose.s3-provider-proof.yaml run --build --rm proof
+# Reset this disposable project after each run with down --volumes.
+name: cloudlab-s3-provider-fixture
+services:
+  provider-init:
+    build: ../../../runner
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        cp /source/versions.tf /source/.terraform.lock.hcl /candidate/
+        cd /candidate
+        tofu init -backend=false -lockfile=readonly -input=false
+    volumes: ["./s3-provider-fixture:/source:ro", "candidate:/candidate"]
+    network_mode: bridge
+  seaweed:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    command: [server, -dir=/tmp/data, -s3, -ip=seaweed, -volume.max=5]
+    tmpfs: [/tmp/data]
+    networks: [fixture]
+    mem_limit: 768m
+  proof:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/data/tests/s3_provider_proof.py]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "candidate:/candidate"]
+    depends_on:
+      seaweed: {condition: service_started}
+      provider-init: {condition: service_completed_successfully}
+    networks: [fixture]
+networks:
+  fixture: {internal: true}
+volumes:
+  candidate:

@@ -18,9 +18,7 @@
       ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/controller-verify.yml
       when: longhorn_gitops_enabled | bool
     - name: Verify consistent local capture without cloud writes
-      ansible.builtin.include_role:
-        name: recovery
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/backup/tasks/verify.yml
     - name: Verify B2 credential migration after successful backup restoration
       ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/backup-verify.yml
       when: longhorn_backup_enabled | bool
@@ -51,9 +49,7 @@
       ansible.builtin.import_tasks: /workspace/ansible/playbooks/access/tasks/verify.yml
       when: access_enabled | bool
     - name: Verify application data and coordinated local recovery
-      ansible.builtin.include_role:
-        name: application_data
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/data/tasks/verify.yml
       when: data_enabled | bool
 
     - name: Verify configured application services and their authorization boundaries

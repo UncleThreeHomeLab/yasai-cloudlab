@@ -1,0 +1,20 @@
+---
+- name: Capture registry through its coordinated recovery owner
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require explicitly enabled registry recovery
+      ansible.builtin.assert:
+        that: harbor_enabled | bool
+        fail_msg: Registry recovery requires its configured component.
+    - name: Run monthly registry capture and verified retention
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/automation/harbor/recovery.py, monthly]
+      register: harbor_backup
+      no_log: true
+      changed_when: not (harbor_backup.stdout | from_json).get('already_verified_this_month', false)
+    - name: Report sanitized registry recovery result
+      ansible.builtin.debug:
+        msg: '{{ harbor_backup.stdout | from_json }}'

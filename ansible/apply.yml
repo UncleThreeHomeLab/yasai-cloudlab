@@ -6,9 +6,7 @@
   any_errors_fatal: true
   tasks:
     - name: Reconcile application data grants and buckets
-      ansible.builtin.include_role:
-        name: application_data
-        tasks_from: finalize
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/data/tasks/finalize.yml
       when: data_enabled | bool
 
     - name: Resolve the current source for the accepted identity owner

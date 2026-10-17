@@ -20,8 +20,8 @@
 - name: Run longhorn/030-backup-configuration.yml
   ansible.builtin.import_playbook: longhorn/030-backup-configuration.yml
   when: longhorn_backup_enabled | bool
-- name: Run bootstrap-recovery.yml
-  ansible.builtin.import_playbook: bootstrap-recovery.yml
+- name: Run backup/010-bootstrap.yml
+  ansible.builtin.import_playbook: backup/010-bootstrap.yml
 - name: Run argocd/010-bootstrap.yml
   ansible.builtin.import_playbook: argocd/010-bootstrap.yml
 - name: Run argocd/020-private-sources.yml
@@ -36,7 +36,9 @@
   ansible.builtin.import_playbook: access/010-bootstrap.yml
 - name: Configure independent private resolvers
   ansible.builtin.import_playbook: access/020-private-dns.yml
-- name: Run ../application_data-setup.yml
-  ansible.builtin.import_playbook: ../application_data-setup.yml
+- name: Run data/010-bootstrap.yml
+  ansible.builtin.import_playbook: data/010-bootstrap.yml
 - name: Run ../apply.yml
   ansible.builtin.import_playbook: ../apply.yml
+- name: Retire replaced runtime after every consumer converges
+  ansible.builtin.import_playbook: data/030-retire-runtime.yml

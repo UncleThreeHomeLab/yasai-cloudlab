@@ -1,0 +1,14 @@
+---
+- name: Reconcile the bounded data Applications
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/playbooks/data/files/configuration.py]
+    stdin: '{{ data_payload.stdout }}'
+  no_log: true
+  register: data_configured
+  changed_when: data_configured.rc == 0 and (data_configured.stdout | from_json).changed
+  failed_when: false
+
+- name: Require data configuration convergence
+  ansible.builtin.assert:
+    that: data_configured.rc == 0
+    fail_msg: '{{ data_configured.stderr }}'

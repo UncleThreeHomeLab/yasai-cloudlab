@@ -1,0 +1,7 @@
+---
+- name: Install data artifacts and component runtime
+  ansible.builtin.import_tasks: runtime.yml
+- name: Accept scoped data ownership under its shared transaction lock
+  ansible.builtin.import_tasks: configure.yml
+- name: Configure independent data repair and monthly schedules
+  ansible.builtin.import_tasks: schedules.yml

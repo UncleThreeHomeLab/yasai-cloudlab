@@ -1,0 +1,70 @@
+# Run: docker compose -f ansible/playbooks/data/tests/compose.provider-proof.yaml run --build --rm proof
+# Reset this disposable project after each run with down --volumes.
+name: cloudlab-data-provider-fixture
+services:
+  provider-init:
+    build: ../../../runner
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        cp /source/versions.tf /source/.terraform.lock.hcl /candidate/
+        cd /candidate
+        tofu init -backend=false -lockfile=readonly -input=false
+    volumes: ["./provider-fixture:/source:ro", "candidate:/candidate"]
+    networks: [download]
+  database:
+    image: ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec
+    user: '26:26'
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        initdb -D /tmp/provider-db --auth=trust --encoding=UTF8
+        printf '\nhost all all 0.0.0.0/0 trust\n' >> /tmp/provider-db/pg_hba.conf
+        exec postgres -D /tmp/provider-db -c listen_addresses='*' -c unix_socket_directories=/tmp
+    tmpfs: [/tmp]
+    networks: [fixture]
+    healthcheck:
+      test: [CMD, pg_isready, -h, localhost, -U, postgres]
+      interval: 2s
+      retries: 30
+  sql:
+    image: ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec
+    user: '0:0'
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        umask 077
+        psql -h database -U postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE provider_reader LOGIN CONNECTION LIMIT 20 PASSWORD 'disposable-only-password'; CREATE ROLE unrelated_fixture NOLOGIN;"
+        psql -h database -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE provider_fixture;'
+        psql -h database -U postgres -v ON_ERROR_STOP=1 -c 'REVOKE ALL ON DATABASE provider_fixture FROM PUBLIC; GRANT CONNECT ON DATABASE provider_fixture TO provider_reader;'
+        touch /candidate/seeded
+        until test -f /candidate/drift; do sleep 1; done
+        psql -h database -U postgres -v ON_ERROR_STOP=1 -c 'ALTER ROLE provider_reader CONNECTION LIMIT 99; REVOKE CONNECT ON DATABASE provider_fixture FROM provider_reader;'
+        touch /candidate/drifted
+        until test -f /candidate/repaired; do sleep 1; done
+        result=$$(psql -h database -U postgres -Atc "SELECT rolconnlimit=20 AND has_database_privilege('provider_reader','provider_fixture','CONNECT') FROM pg_roles WHERE rolname='provider_reader';")
+        test "$$result" = t
+        touch /candidate/verified
+        until test -f /candidate/deleted; do sleep 1; done
+        result=$$(psql -h database -U postgres -Atc "SELECT NOT EXISTS(SELECT FROM pg_roles WHERE rolname='provider_reader') AND NOT EXISTS(SELECT FROM pg_database WHERE datname='provider_fixture') AND EXISTS(SELECT FROM pg_roles WHERE rolname='unrelated_fixture');")
+        test "$$result" = t
+        touch /candidate/delete-verified
+        echo 'Native SQL catalog: drift repaired; scoped delete; unrelated role preserved'
+    volumes: ["candidate:/candidate"]
+    depends_on:
+      database: {condition: service_healthy}
+    networks: [fixture]
+  proof:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/data/tests/provider_proof.py]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "candidate:/candidate"]
+    depends_on:
+      sql: {condition: service_started}
+      provider-init: {condition: service_completed_successfully}
+    networks: [fixture]
+networks:
+  fixture: {internal: true}
+  download: {}
+volumes:
+  candidate:

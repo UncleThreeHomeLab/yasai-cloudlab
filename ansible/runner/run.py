@@ -135,7 +135,7 @@ def main():
                 raise SystemExit(native_exit())
         return
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    action = {'apply': 'setup', 'backup': 'recovery-monthly'}.get(action, action)
+    action = {'apply': 'setup'}.get(action, action)
     if action in {'maintenance', 'upgrade', 'nuke', 'recovery'}:
         if action == 'recovery':
             raise SystemExit('Select an explicit recovery-* operation and its required inputs.')
@@ -170,7 +170,7 @@ def main():
                     'data-cleanup-fixtures': 'cleanup-fixtures', 'data-bootstrap': 'bootstrap', 'data-check': 'check'}
     if action in ('data-credentials', 'data-retrieve', 'data-rotate'):
         module = {'data-credentials': 'credentials.py', 'data-retrieve': 'independent.py', 'data-rotate': 'rotation.py'}[action]
-        subprocess.run([sys.executable, '/workspace/automation/data/' + module], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/data/files/' + module], check=True)
         return
     if action in data_actions:
         os.environ['LAB_DATA_ACTION'] = data_actions[action]
@@ -183,7 +183,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'backup', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'private-fixture-prepare', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as setup, validate, test, verify, or prove.')
     if action in {'publish-platform', 'github-app-check', 'private-fixture-prepare'}:
         module = {'publish-platform': 'publish_snapshot.py',
@@ -202,7 +202,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/istio/files/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/dns_check.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/data/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/data/files/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
         subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
         return
@@ -215,25 +215,25 @@ def main():
     os.environ['LAB_RECOVERY_ACTION'] = 'initial' if action == 'recovery-initial' else 'monthly'
     if action == 'recovery-replacement-test':
         os.environ['LAB_RECOVERY_ACTION'] = 'replacement-test'
-        sys.path.insert(0, '/workspace/automation/recovery')
+        sys.path.insert(0, '/workspace/ansible/playbooks/backup/files')
         from write_window import authorize_replacement
         authorize_replacement()
     if action == 'recovery-initial':
-        sys.path.insert(0, '/workspace/automation/recovery')
+        sys.path.insert(0, '/workspace/ansible/playbooks/backup/files')
         from write_window import authorize_initial
         authorize_initial()
-    if action in {'monthly-proof', 'recovery-monthly'}:
+    if action in {'monthly-proof', 'recovery-monthly', 'backup'}:
         sys.path.insert(0, '/workspace/ansible/playbooks/longhorn/files')
         from monthly_window import require_window
         require_window(reserve=3600)
         if action == 'monthly-proof':
             os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
-        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'playbooks/tailscale/lifecycle.yml', 'playbooks/tailscale/policy.yml', 'playbooks/tailscale/access.yml', 'playbooks/k3s/migrate.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'playbooks/istio/verify.yml', 'playbooks/access/setup.yml', 'playbooks/access/cutover.yml'):
+        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'playbooks/tailscale/lifecycle.yml', 'playbooks/tailscale/policy.yml', 'playbooks/tailscale/access.yml', 'playbooks/k3s/migrate.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'playbooks/istio/verify.yml', 'playbooks/access/setup.yml', 'playbooks/access/cutover.yml'):
             playbook(name, syntax=True)
         for path in sorted(Path('/workspace/ansible/playbooks').glob('*.yml')):
             playbook(str(path), syntax=True)
-        playbook('data.yml', syntax=True)
+        playbook('playbooks/data/operate.yml', syntax=True)
         playbook('identity.yml', syntax=True)
         return
 
@@ -260,7 +260,7 @@ def main():
         from automation.identity.access_inputs import runtime
         runtime(os.environ, public_settings)
     if action in {'recovery-retrieve', 'recovery-preflight'}:
-        subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', action.removeprefix('recovery-')], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/backup/files/runner.py', action.removeprefix('recovery-')], check=True)
         return
     if action == 'tailnet-policy':
         for prefix in ('VM', 'VM2'):
@@ -304,7 +304,7 @@ def main():
     elif selected_data_action:
         if selected_data_action in ('data-bootstrap', 'data-check'):
             gitops_preflight()
-        playbook('data.yml')
+        playbook('playbooks/data/operate.yml')
     elif action in {'access-preflight', 'access-external', 'access-prepare-tags'}:
         module = {'access-preflight': 'preflight.py', 'access-external': 'external.py',
                   'access-prepare-tags': 'prepare_tags.py'}[action]
@@ -317,7 +317,7 @@ def main():
         gitops_preflight()
         # Prove both management policy and independent recovery before mutation.
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/tailscale/files/verify_access.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', 'retrieve'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/backup/files/runner.py', 'retrieve'], check=True)
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'migrate'
         playbook('playbooks/k3s/migrate.yml')
         playbook('playbooks/setup.yml')
@@ -392,7 +392,9 @@ def main():
     elif action == 'host-access':
         playbook('playbooks/tailscale/access.yml')
     elif action in {'recovery-monthly', 'recovery-initial', 'recovery-replacement-test'}:
-        playbook('recovery.yml')
+        playbook('playbooks/backup/monthly.yml')
+    elif action == 'backup':
+        playbook('playbooks/backup.yml')
     elif action in {'inspect', 'verify'}:
         playbook('playbooks/' + action + '.yml')
     elif action in {'baseline', 'storage-check'}:

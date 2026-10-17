@@ -10,7 +10,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.data.control import atomic, identity
+from playbooks.data.files.control import atomic, identity
 from automation.identity.configuration import compile_state, exact_url
 from automation.identity.maintenance import APP, NAMESPACE, OWNER, BASE
 from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait

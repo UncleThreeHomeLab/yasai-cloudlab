@@ -125,7 +125,7 @@ def run(manifest, offsite=False):
             manifest['installation']['images'] != current_images):
         raise RuntimeError('Use the recorded Harbor checkout and pinned artifacts before restoring this generation')
     if offsite:
-        from automation.data.remote import require_window
+        from playbooks.data.files.remote import require_window
         from automation.harbor.remote import Repository
         require_window(reserve=3600)
         repository = Repository()

@@ -96,7 +96,7 @@ def enroll(request, *, stage=False, application_owner=False):
     from automation.identity.configuration import compile_state, private_request
     from automation.identity.emergency import phase_sync_patches, vault_secret
     from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER
-    from automation.data.control import atomic
+    from playbooks.data.files.control import atomic
     from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
     nonce = scope(request)
     realm = 'applications' if application_owner else request.get('realm', 'platform')

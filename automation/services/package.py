@@ -29,7 +29,7 @@ def service_chart():
 def shared_code():
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-        for relative in ('automation/identity/tokens.py', 'automation/data/s3.py'):
+        for relative in ('automation/identity/tokens.py', 'ansible/playbooks/data/files/s3.py'):
             info = zipfile.ZipInfo(Path(relative).name, date_time=(1980, 1, 1, 0, 0, 0))
             info.create_system = 3
             info.external_attr = 0o644 << 16

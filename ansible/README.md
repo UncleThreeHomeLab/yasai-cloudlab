@@ -36,3 +36,11 @@ unrelated grants. [Infrastructure](playbooks/infrastructure/) invokes the accept
 [native roots](../infra/); apply requires the exact reviewed plan, source and
 inputs. Encrypted state, backend locks and interrupted-operation recovery remain
 with each root. Ordinary setup never imports existing external resources.
+
+[Data](playbooks/data/) keeps scoped SQL grants, S3 credentials and bucket repair
+on its independent five-minute host timer. CNPG and Argo retain continuous data
+service ownership. Its shared lock protects adoption, capture and isolated restore.
+[Backup](playbooks/backup/) owns independent control-plane capture, restic/B2
+operations and local freshness checks. `backup` explicitly orders control-plane,
+data/identity and Harbor recovery owners within the existing monthly window.
+Capture and restore retain prior verified generations until replacement succeeds.

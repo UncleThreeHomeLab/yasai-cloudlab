@@ -1,0 +1,10 @@
+---
+- name: Reconcile data after private resolvers
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Reconcile scoped grants and buckets
+      ansible.builtin.import_tasks: tasks/finalize.yml
+      when: data_enabled | bool

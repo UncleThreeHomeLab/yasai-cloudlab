@@ -50,7 +50,7 @@ def run(payload):
             from automation.services.transport import run as transport_proof
             transport_proof(entry, payload['proof_image'])
         if entry['definition']['name'].startswith('fixture-'):
-            from automation.data.service_proof import run as data_proof
+            from playbooks.data.files.service_proof import run as data_proof
             data_proof(entry)
             if entry['publication'] == 'retired': inspect(dict(request, action='fixture-volume'))
         checked += 1

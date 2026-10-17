@@ -16,7 +16,7 @@ from automation.identity.configuration import REALMS, compile_state, name, priva
 from automation.identity.lease import available
 from automation.identity.maintenance import APP, NAMESPACE, OWNER
 from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
-from automation.data.control import atomic
+from playbooks.data.files.control import atomic
 
 
 def remove(request):
