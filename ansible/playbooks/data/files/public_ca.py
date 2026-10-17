@@ -47,9 +47,11 @@ def reconcile(values):
                 revision = source.get('targetRevision')
                 if (not source.get('helm', {}).get('valuesObject', {}).get('definition')
                         or status.get('sync', {}).get('revision') != revision
-                        or operation.get('phase') != 'Succeeded'
-                        or operation.get('syncResult', {}).get('revision') != revision or app.get('operation')):
-                    continue  # Successful new-chart sync releases the prior CA writer.
+                        or status.get('sync', {}).get('status') != 'Synced'
+                        or status.get('health', {}).get('status') != 'Healthy'
+                        or operation.get('phase') in ('Running', 'Terminating') or app.get('operation')
+                        or any(c.get('type', '').endswith('Error') for c in status.get('conditions', []))):
+                    continue  # Current rendered chart releases the writer, including a no-op Git revision.
 
             if current.get('data', {}).keys() - {'ca.crt'}:
                 raise RuntimeError('Database CA configuration contains unrelated fields')

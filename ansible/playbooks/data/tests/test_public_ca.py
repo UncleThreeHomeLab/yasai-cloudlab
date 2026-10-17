@@ -74,7 +74,7 @@ class PublicCATests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'approved service namespace'): public_ca.reconcile(values)
             kube.assert_not_called()
 
-    def test_handoff_waits_for_successful_new_chart_sync_and_keeps_configmap_uid(self):
+    def test_handoff_requires_current_rendered_chart_and_accepts_noop_revision(self):
         values = {'serviceConsumers': ['cloudlab-app-notes'], 'serviceRequests': []}
         ca = '-----BEGIN CERTIFICATE-----\nfixture'
         current = {'metadata': {'uid': 'retained', 'resourceVersion': '1', 'annotations': {
@@ -91,10 +91,29 @@ class PublicCATests(unittest.TestCase):
         with patch.object(public_ca, 'get', side_effect=get), patch.object(public_ca, 'kube') as kube:
             self.assertFalse(public_ca.reconcile(values)); kube.assert_not_called()
             app['spec']['source']['helm']['valuesObject']['definition'] = {'name': 'notes'}
-            app['status'] = {'sync': {'revision': 'a' * 40}, 'operationState': {
-                'phase': 'Running', 'syncResult': {'revision': 'a' * 40}}}
-            self.assertFalse(public_ca.reconcile(values)); kube.assert_not_called()
-            app['status']['operationState']['phase'] = 'Succeeded'
+            app['status'] = {'sync': {'revision': 'a' * 40, 'status': 'Synced'},
+                             'health': {'status': 'Healthy'}, 'operationState': {
+                                 'phase': 'Succeeded', 'syncResult': {'revision': 'b' * 40}}}
+            valid = copy.deepcopy(app)
+            rejected = [
+                ('stale revision', lambda: app['status']['sync'].update(revision='b' * 40)),
+                ('wrong target', lambda: app['spec']['source'].update(targetRevision='c' * 40)),
+                ('out of sync', lambda: app['status']['sync'].update(status='OutOfSync')),
+                ('unhealthy', lambda: app['status']['health'].update(status='Progressing')),
+                ('active operation', lambda: app.update(operation={'sync': {}})),
+                ('running operation', lambda: app['status']['operationState'].update(phase='Running')),
+                ('terminating operation', lambda: app['status']['operationState'].update(phase='Terminating')),
+                ('old chart', lambda: app['spec']['source']['helm']['valuesObject'].pop('definition')),
+            ]
+            rejected += [(kind, lambda kind=kind: app['status'].update(conditions=[{'type': kind}]))
+                         for kind in ('ComparisonError', 'SyncError', 'InvalidSpecError')]
+            for name, alter in rejected:
+                with self.subTest(name=name):
+                    app.clear(); app.update(copy.deepcopy(valid)); alter()
+                    self.assertFalse(public_ca.reconcile(values)); kube.assert_not_called()
+            # Argo can render an unchanged chart at a new revision without a new
+            # operation; its current Synced/Healthy revision is authoritative.
+            app.clear(); app.update(valid)
             self.assertTrue(public_ca.reconcile(values))
             patch_document = json.loads(kube.call_args.args[-1])
             self.assertEqual(patch_document[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'retained'})
