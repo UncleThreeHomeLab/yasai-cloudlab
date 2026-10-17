@@ -21,19 +21,34 @@ def snapshot():
     return result
 
 
-def run(payload):
+def source_managers(app):
+    return {row.get('manager') for row in app['metadata'].get('managedFields', [])
+            if 'f:sources' in row.get('fieldsV1', {}).get('f:spec', {})}
+
+
+def run(payload, *, recovery=None):
     app = get('application.argoproj.io', APP, 'argocd')
     if (not converged(payload) or app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
             or app['metadata'].get('ownerReferences') or app['metadata'].get('finalizers')):
         raise RuntimeError('Git outage proof requires the exact converged catalog owner')
-    before = snapshot()
     sources = app['spec']['sources']
     uid = app['metadata']['uid']
+    if recovery is not None:
+        if (not isinstance(recovery, dict) or not isinstance(recovery.get('time'), str)
+                or recovery != {'uid': uid, 'sources': sources, 'manager': 'kubectl-patch', 'time': recovery['time']}):
+            raise RuntimeError('Source ownership recovery differs from the exact known fixture')
+    legacy = [row for row in app['metadata'].get('managedFields', []) if row.get('manager') == 'kubectl-patch']
+    known_legacy = (recovery is not None and source_managers(app) == {'kubectl-patch'} and len(legacy) == 1
+                    and legacy[0].get('operation') == 'Update' and legacy[0].get('time') == recovery['time'])
+    if source_managers(app) != {OWNER} and not known_legacy:
+        raise RuntimeError('Catalog source has a foreign or ambiguous field manager')
+    before = snapshot()
     branch = 'cloudlab-unavailable-' + uuid.uuid4().hex
     replacement = json.loads(json.dumps(sources))
     replacement[1]['targetRevision'] = branch
     def patch(expected, desired):
-        kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json', '-p', json.dumps([
+        kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
+             '--field-manager=' + OWNER, '-p', json.dumps([
             {'op': 'test', 'path': '/metadata/uid', 'value': uid},
             {'op': 'test', 'path': '/spec/sources', 'value': expected},
             {'op': 'replace', 'path': '/spec/sources', 'value': desired}]))
@@ -48,7 +63,8 @@ def run(payload):
         current = get('application.argoproj.io', APP, 'argocd')
         if (current['metadata']['uid'] != uid
                 or current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
-                or current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers')):
+                or current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers')
+                or source_managers(current) != {OWNER}):
             raise RuntimeError('Catalog ownership changed; source repair refused')
         observed = current['spec']['sources']
         if observed == replacement:

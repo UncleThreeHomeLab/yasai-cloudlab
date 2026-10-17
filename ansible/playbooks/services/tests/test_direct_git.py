@@ -14,13 +14,70 @@ from playbooks.services.tests.fixtures import notes_values
 
 
 class DirectGitTests(unittest.TestCase):
+    def test_known_fixture_source_manager_recovery_and_repeat(self):
+        original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
+        recovery = {'uid': 'original', 'sources': original, 'manager': 'kubectl-patch', 'time': 'fixture-time'}
+        for manager, request in (('kubectl-patch', recovery), (source_outage.OWNER, None),
+                                 (source_outage.OWNER, recovery)):
+            with self.subTest(manager=manager, recovery=request is not None):
+                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER},
+                        'managedFields': [{'manager': manager, 'operation': 'Update', 'time': 'fixture-time',
+                                           'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
+                       'spec': {'sources': copy.deepcopy(original)}}
+                def kube(*args):
+                    self.assertIn('--field-manager=' + source_outage.OWNER, args)
+                    value = json.loads(args[-1])
+                    self.assertEqual(value[0]['value'], app['metadata']['uid'])
+                    self.assertEqual(value[1]['value'], app['spec']['sources'])
+                    app['spec']['sources'] = value[2]['value']
+                    app['metadata']['managedFields'][0]['manager'] = source_outage.OWNER
+                with patch.object(source_outage, 'get', return_value=app), \
+                        patch.object(source_outage, 'converged', return_value=True), \
+                        patch.object(source_outage, 'snapshot', return_value={}), \
+                        patch.object(source_outage, 'wait'), patch.object(source_outage, 'kube', side_effect=kube) as mutation:
+                    result = source_outage.run({}, recovery=request)
+                self.assertTrue(result['private_source_recovered'])
+                self.assertEqual(app['spec']['sources'], original)
+                self.assertEqual(source_outage.source_managers(app), {source_outage.OWNER})
+                self.assertEqual(mutation.call_count, 2)
+
+    def test_source_manager_recovery_refuses_unqualified_scope_before_mutation(self):
+        original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
+        recovery = {'uid': 'original', 'sources': original, 'manager': 'kubectl-patch', 'time': 'fixture-time'}
+        for case in ('no-request', 'foreign-manager', 'mixed-managers', 'uid', 'sources', 'time', 'owner', 'refs', 'finalizers'):
+            with self.subTest(case=case):
+                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER},
+                        'managedFields': [{'manager': 'kubectl-patch', 'operation': 'Update', 'time': 'fixture-time',
+                                           'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
+                       'spec': {'sources': copy.deepcopy(original)}}
+                request = copy.deepcopy(recovery)
+                if case == 'no-request': request = None
+                elif case == 'foreign-manager': app['metadata']['managedFields'][0]['manager'] = 'foreign'
+                elif case == 'mixed-managers':
+                    app['metadata']['managedFields'].append({'manager': source_outage.OWNER,
+                                                             'fieldsV1': {'f:spec': {'f:sources': {}}}})
+                elif case == 'uid': app['metadata']['uid'] = 'changed'
+                elif case == 'sources': app['spec']['sources'][1]['targetRevision'] = 'changed'
+                elif case == 'time': app['metadata']['managedFields'][0]['time'] = 'foreign-time'
+                elif case == 'owner': app['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                elif case == 'refs': app['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif case == 'finalizers': app['metadata']['finalizers'] = ['foreign']
+                with patch.object(source_outage, 'get', return_value=app), \
+                        patch.object(source_outage, 'converged', return_value=True), patch.object(source_outage, 'kube') as mutation:
+                    with self.assertRaises(RuntimeError):
+                        source_outage.run({}, recovery=request)
+                mutation.assert_not_called()
+
     def test_source_outage_repairs_after_failure_and_refuses_changed_owner(self):
         for changed_owner in (False, True):
             with self.subTest(changed_owner=changed_owner):
                 original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
-                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER}},
+                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER},
+                                    'managedFields': [{'manager': source_outage.OWNER,
+                                                       'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
                        'spec': {'sources': copy.deepcopy(original)}}
                 def kube(*args):
+                    self.assertIn('--field-manager=' + source_outage.OWNER, args)
                     patch_value = json.loads(args[-1])
                     self.assertEqual(patch_value[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'original'})
                     self.assertEqual(patch_value[1]['value'], app['spec']['sources'])
