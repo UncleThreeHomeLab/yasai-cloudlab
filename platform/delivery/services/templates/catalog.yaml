@@ -1,7 +1,13 @@
+{{- if hasKey .Values "argo-cd" }}
+{{- $config := index .Values "argo-cd" "configs" "cm" "oidc.config" | fromYaml }}
+{{- if not (hasSuffix "/realms/platform" $config.issuer) }}{{ fail "Approved platform identity issuer is required" }}{{- end }}
+{{- $_ := set .Values "issuer" (replace "/realms/platform" "/realms/applications" $config.issuer) }}
+{{- end }}
 {{- range .Values.catalog }}
 {{- $v := .definition }}
 {{- $a := .approval }}
 {{- $namespace := printf "cloudlab-app-%s" $a.name }}
+{{- if and (eq ($a.chartPath | default "charts/service") "apps/notes") (ne $a.repository $.Values.repository) }}{{ fail "Notes composition requires the administrator-owned application source" }}{{- end }}
 {{- $classes := list }}
 {{- range concat (list $v.exposure) ($v.additionalExposures | default list) }}
 {{- if ne .class "none" }}{{ $classes = append $classes .class }}{{- end }}
@@ -128,7 +134,7 @@ spec:
       project: {{ $a.name }}
       {{- $helm := dict "valuesObject" $v }}
       {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
-      {{- $_ := set $helm "valuesObject" .notesValues }}
+      {{- $_ := set $helm "valuesObject" (dict "definition" $v "issuer" $.Values.issuer "telemetry" $.Values.telemetry) }}
       {{- end }}
       {{- $source := dict "repoURL" $.Values.repository "targetRevision" $.Values.revision "path" ($a.chartPath | default "charts/service") "helm" $helm }}
       {{- if eq $a.repository $.Values.repository }}

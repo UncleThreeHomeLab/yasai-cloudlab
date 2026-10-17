@@ -55,7 +55,7 @@ class DeploymentTests(unittest.TestCase):
         plays = yaml.safe_load((ROOT / 'ansible/playbooks/setup.yml').read_text())
         imports = [play['ansible.builtin.import_playbook'] for play in plays]
         self.assertLess(imports.index('data/020-reconcile.yml'), imports.index('keycloak/050-retained.yml'))
-        self.assertLess(imports.index('keycloak/050-retained.yml'), imports.index('../apply.yml'))
+        self.assertLess(imports.index('keycloak/050-retained.yml'), imports.index('services/010-bootstrap.yml'))
         self.assertEqual([path for path in imports if path.startswith('keycloak/')],
                          ['keycloak/050-retained.yml', 'keycloak/060-retire-runtime.yml'])
         retained = yaml.safe_load((OWNER / '050-retained.yml').read_text())[0]

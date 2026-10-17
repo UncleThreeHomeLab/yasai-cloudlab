@@ -1,27 +1,30 @@
-{{- range .Values.catalog }}
-{{- $namespace := .approval.namespace }}
-{{- range .dataBindings }}
+{{- range $entry := .Values.catalog }}
+{{- range $kind, $request := $entry.definition.data }}
+{{- $scope := index $.Values.dataApprovals $request.credentialReference | required "Missing approved data scope" }}
+{{- if or (ne $scope.service $entry.approval.name) (ne $scope.name $request.name) (ne $scope.kind $kind) }}{{ fail "Unapproved data scope" }}{{- end }}
+{{- $fields := list "BUCKET" "ACCESS_KEY_ID" "SECRET_ACCESS_KEY" "ENDPOINT" "REGION" }}
+{{- if eq $kind "database" }}{{ $fields = list "username" "password" }}{{- end }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: {{ .name }}
-  namespace: {{ $namespace }}
+  name: {{ $request.credentialReference }}
+  namespace: {{ $entry.approval.namespace }}
 spec:
   refreshInterval: 24h
   secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
   target:
-    name: {{ .name }}
+    name: {{ $request.credentialReference }}
     creationPolicy: Owner
     deletionPolicy: Retain
     template:
       engineVersion: v2
       mergePolicy: Replace
       data:
-        {{- range .fields }}
+        {{- range $fields }}
         {{ . }}: {{ printf "{{ .%s }}" . | quote }}
         {{- end }}
   dataFrom:
-    - extract: {key: {{ .item }}}
+    - extract: {key: {{ $scope.item }}}
 {{- end }}
 {{- end }}

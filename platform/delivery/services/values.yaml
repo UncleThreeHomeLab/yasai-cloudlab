@@ -1,3 +1,6 @@
 repository: https://github.com/example/platform.git
 revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 catalog: []
+dataApprovals: {}
+issuer: https://login.example.invalid/realms/applications
+telemetry: false

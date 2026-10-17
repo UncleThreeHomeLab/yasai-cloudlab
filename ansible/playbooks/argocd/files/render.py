@@ -79,8 +79,8 @@ def committed_payload():
                'platform/data', 'ansible/playbooks/data/files', 'ansible/playbooks/data',
                'ansible/group_vars/all/data.yml',
                'platform/identity', 'ansible/playbooks/keycloak',
-               'charts/service', 'apps', 'automation/services', 'platform/delivery/services',
-               'ansible/roles/services', 'ansible/group_vars/all/services.yml']
+               'charts/service', 'apps', 'ansible/playbooks/services/files', 'platform/delivery/services',
+               'ansible/playbooks/services', 'ansible/group_vars/all/services.yml']
     paths += ['platform/observability', 'ansible/playbooks/observability',
               'ansible/group_vars/all/observability.yml']
     paths += ['platform/harbor', 'ansible/playbooks/harbor', 'ansible/group_vars/all/harbor.yml']

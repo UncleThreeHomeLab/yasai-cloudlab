@@ -1,0 +1,52 @@
+{{- range $name := list "web" "api" }}
+{{- $values := deepCopy (index $.Values $name) }}
+{{- if $.Values.definition }}
+{{- $definition := $.Values.definition }}
+{{- $private := dict }}
+{{- range $definition.additionalExposures }}
+{{- if eq .class "private" }}{{ $private = . }}{{- end }}
+{{- end }}
+{{- if not $private }}{{ fail "Notes requires its private operations exposure" }}{{- end }}
+{{- range $key := list "owner" "image" "replicas" "resources" "exposure" "oidc" }}
+{{- $_ := set $values $key (deepCopy (index $definition $key)) }}
+{{- end }}
+{{- $_ := set $values "additionalExposures" (list (deepCopy $private)) }}
+{{- $_ := set $values.environment "OIDC_ISSUER" $.Values.issuer }}
+{{- $_ := set $values.environment "OIDC_AUDIENCE" $definition.oidc.audience }}
+{{- $_ := set $values.environment "OPERATIONS_HOST" $private.hostname }}
+{{- if eq $name "web" }}
+{{- $_ := set $values.environment "OIDC_CLIENT" $definition.oidc.client }}
+{{- $_ := set $values.environment "OIDC_SCOPES" (join " " (prepend $definition.oidc.scopes "openid")) }}
+{{- else }}
+{{- $_ := set $values.exposure "path" "/api" }}
+{{- $_ := set (first $values.additionalExposures) "path" "/api" }}
+{{- $_ := set $values "data" $definition.data }}
+{{- $_ := set $values.environment "PGDATABASE" $definition.data.database.name }}
+{{- $_ := set $values.environment "PGHOST" "cloudlab-postgres-rw.cloudlab-data.svc" }}
+{{- $_ := set $values "secrets" (list (dict "name" $definition.data.database.credentialReference "mountPath" "/secrets/database") (dict "name" $definition.data.bucket.credentialReference "mountPath" "/secrets/objects")) }}
+{{- end }}
+{{- if $.Values.telemetry }}
+{{- $_ := set $values "ports" (append $values.ports (dict "name" "http-metrics" "port" 9091)) }}
+{{- $_ := set $values.environment "OTEL_ENABLED" "1" }}
+{{- $_ := set $values.environment "PYTHONPATH" "/dependencies:/config/source:/config/source/lib.zip" }}
+{{- $_ := set $values.environment "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" "http://cloudlab-alloy.cloudlab-observability.svc:4318/v1/traces" }}
+{{- if eq $name "api" }}
+{{- $_ := set $values "initCommand" (concat $values.initCommand (list "-r" "/config/source/telemetry-requirements.txt")) }}
+{{- else }}
+{{- $_ := set $values "initCommand" (list "python" "-m" "pip" "install" "--index-url" "https://pypi.org/simple" "--disable-pip-version-check" "--no-cache-dir" "--require-hashes" "--only-binary=:all:" "--target" "/dependencies" "-r" "/config/source/telemetry-requirements.txt") }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $files := list "web.py" "app.js" "index.html" "style.css" }}
+{{- if eq $name "api" }}{{ $files = list "api.py" "requirements.txt" "lib.zip" }}{{- end }}
+{{- $hashes := "" }}
+{{- range concat $files (list "telemetry.py" "telemetry-requirements.txt") }}
+{{- $hashes = printf "%s%s" $hashes ($.Files.Get . | sha256sum) }}
+{{- end }}
+{{- $_ := set $values.environment "SOURCE_SHA256" (sha256sum $hashes) }}
+{{- $context := dict "Values" $values "Release" $.Release "Capabilities" $.Capabilities }}
+---
+{{ include "cloudlab.service.workload" $context }}
+---
+{{ include "cloudlab.service.route" $context }}
+{{- end }}

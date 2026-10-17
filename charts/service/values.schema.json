@@ -514,6 +514,9 @@
         ]
       },
       "uniqueItems": true
+    },
+    "renderDisabled": {
+      "type": "boolean"
     }
   },
   "required": [

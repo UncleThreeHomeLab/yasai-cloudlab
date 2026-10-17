@@ -36,7 +36,7 @@ def payload():
         keycloak = fields('cnpg-keycloak', ('username', 'database'))
         result['values']['identity'] = {'enabled': True, 'database': keycloak['database'], 'role': keycloak['username']}
     if public.get('services', {}).get('enabled'):
-        from automation.services.inputs import catalog
+        from playbooks.services.files.inputs import catalog
         from playbooks.data.files.requests import request, resolve, protect
         service_catalog = catalog(required=True)
         requests = [request(entry['approval']['name'], entry['definition']['data'], service_catalog['dataApprovals'])

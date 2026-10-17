@@ -49,7 +49,7 @@ def verification_payload():
     from playbooks.observability.files.configuration import POLICY
     from playbooks.observability.files.chart import render
     from playbooks.observability.files.slo import rules
-    from automation.services.inputs import catalog
+    from playbooks.services.files.inputs import catalog
     source, discovered = committed_payload(), metadata()
     entries = [entry for entry in catalog(required=True)['catalog'] if entry['publication'] == 'published' and
                entry['definition']['name'] == 'notes' and entry['approval'].get('chartPath') == 'apps/notes']

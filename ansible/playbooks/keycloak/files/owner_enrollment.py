@@ -79,7 +79,7 @@ def provision():
         owner = fields('keycloak-applications-owner', ['username', 'password', 'email', 'ownership_id'])
         membership(source, revoked, owner)
         from playbooks.keycloak.files.credentials import ensure_login_items
-        from automation.services.inputs import catalog
+        from playbooks.services.files.inputs import catalog
         notes = [row for row in catalog(required=True)['catalog'] if row['approval']['name'] == 'notes']
         if len(notes) != 1:
             raise ValueError('Applications Login requires the approved notes exposure')

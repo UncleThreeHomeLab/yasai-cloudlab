@@ -53,9 +53,7 @@
       when: data_enabled | bool
 
     - name: Verify configured application services and their authorization boundaries
-      ansible.builtin.include_role:
-        name: services
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/services/tasks/verify.yml
       when: services_enabled | bool
 
     - name: Verify telemetry ownership, local storage and correlated service signals

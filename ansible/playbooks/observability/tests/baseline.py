@@ -48,7 +48,7 @@ def run():
     credentials = fields('keycloak-proof-' + request['nonce'], ('username', 'password', 'email', 'ownership_id'))
     if credentials['username'] != 'proof-' + request['nonce'] or credentials['ownership_id'] != request['nonce']:
         raise ValueError('Baseline viewer ownership changed')
-    from automation.services.inputs import catalog
+    from playbooks.services.files.inputs import catalog
     entries = [entry for entry in catalog(required=True)['catalog'] if entry['publication'] == 'published' and
                entry['definition']['name'] == 'notes' and entry['approval'].get('chartPath') == 'apps/notes']
     if len(entries) != 1: raise ValueError('One approved Notes service required')

@@ -1,0 +1,11 @@
+---
+- name: Retire replaced service runtime after all consumers converge
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Remove replaced service executables
+      ansible.builtin.file:
+        path: /opt/cloudlab/automation/services
+        state: absent
+      when: services_enabled | bool

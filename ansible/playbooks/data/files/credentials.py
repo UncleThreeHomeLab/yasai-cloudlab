@@ -85,7 +85,7 @@ def main():
         raise RuntimeError('Data provisioning requires the existing active DNS zone')
     endpoint = 'https://' + CONTRACT['s3_label'] + '.internal.' + zone['name']
     desired = definitions(endpoint)
-    from automation.services.inputs import catalog
+    from playbooks.services.files.inputs import catalog
     import yaml
     public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
     service_catalog = catalog(required=public.get('services', {}).get('enabled', False))

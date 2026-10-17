@@ -28,7 +28,7 @@ def prepare(api, values):
 def prepare_service(api, values, definition):
     """Create only one validated synthetic values file in the designated fixture repo."""
     import yaml
-    from automation.services.contract import validate
+    from playbooks.services.files.contract import validate
     definition = validate(definition)
     if not definition['name'].startswith('fixture-'):
         raise ValueError('Service fixture requires its explicit disposable name')

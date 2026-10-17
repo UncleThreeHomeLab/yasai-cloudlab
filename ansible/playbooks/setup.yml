@@ -42,8 +42,8 @@
   ansible.builtin.import_playbook: data/020-reconcile.yml
 - name: Reconcile accepted scoped identity
   ansible.builtin.import_playbook: keycloak/050-retained.yml
-- name: Run ../apply.yml
-  ansible.builtin.import_playbook: ../apply.yml
+- name: Configure direct Git application delivery
+  ansible.builtin.import_playbook: services/010-bootstrap.yml
 - name: Run observability/010-bootstrap.yml
   ansible.builtin.import_playbook: observability/010-bootstrap.yml
 - name: Run observability/020-converge.yml
@@ -62,3 +62,5 @@
   ansible.builtin.import_playbook: observability/030-retire-runtime.yml
 - name: Retire replaced registry runtime after all consumers converge
   ansible.builtin.import_playbook: harbor/040-retire-runtime.yml
+- name: Retire replaced service runtime after consumers converge
+  ansible.builtin.import_playbook: services/020-retire-runtime.yml

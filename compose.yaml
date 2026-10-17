@@ -36,10 +36,6 @@ services:
         target: /workspace/ansible
         read_only: true
       - type: bind
-        source: ./automation
-        target: /workspace/automation
-        read_only: true
-      - type: bind
         source: ./infra
         target: /workspace/infra
         read_only: true
@@ -83,10 +79,6 @@ services:
       - type: bind
         source: ./ansible
         target: /workspace/ansible
-        read_only: true
-      - type: bind
-        source: ./automation
-        target: /workspace/automation
         read_only: true
       - type: bind
         source: ./infra
@@ -143,7 +135,7 @@ services:
     platform: linux/amd64
     build:
       context: ./ansible/runner
-    entrypoint: [python, -m, automation.services.command]
+    entrypoint: [python, -m, playbooks.services.files.command]
     working_dir: /workspace
     volumes:
       - type: bind

@@ -127,16 +127,16 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_test_runner_isolates_owners_and_reports_failures_after_all_groups(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ('automation/services/tests', 'ansible/playbooks/data/tests', 'verification/integration'):
+            for name in ('ansible/playbooks/services/tests', 'ansible/playbooks/data/tests', 'verification/integration'):
                 folder = root / name
                 folder.mkdir(parents=True)
                 (folder / 'test_example.py').write_text('')
             with patch.object(test_runner.subprocess, 'run', side_effect=[Mock(returncode=1), Mock(returncode=0), Mock(returncode=0)]) as command, \
                     patch('builtins.print'), \
-                    self.assertRaisesRegex(RuntimeError, 'Tests failed: automation[/\\\\]services[/\\\\]tests'):
+                    self.assertRaisesRegex(RuntimeError, 'Tests failed: ansible[/\\\\]playbooks[/\\\\]data[/\\\\]tests'):
                 test_runner.run(root)
             self.assertEqual(command.call_count, 3)
-            for call, directory in zip(command.call_args_list, ('automation/services', 'ansible/playbooks/data', 'verification')):
+            for call, directory in zip(command.call_args_list, ('ansible/playbooks/data', 'ansible/playbooks/services', 'verification')):
                 self.assertEqual(call.kwargs['cwd'], root)
                 paths = call.kwargs['env']['PYTHONPATH'].split(os.pathsep)
                 self.assertEqual(paths[0], str(root / directory))
@@ -196,10 +196,10 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.assertNotIn('LAB_IDENTITY_REQUEST', runner.os.environ)
 
     def setUp(self):
-        service_dns = patch('automation.services.inputs.private_dns_names', return_value=[])
+        service_dns = patch('playbooks.services.files.inputs.private_dns_names', return_value=[])
         service_dns.start()
         self.addCleanup(service_dns.stop)
-        service_catalog = patch('automation.services.inputs.catalog', return_value={'catalog': []})
+        service_catalog = patch('playbooks.services.files.inputs.catalog', return_value={'catalog': []})
         service_catalog.start()
         self.addCleanup(service_catalog.stop)
         self.values = {
@@ -211,13 +211,13 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_published_private_service_names_extend_existing_dns_inputs(self):
         self.values['PRIVATE_ACCESS_HOSTS'] = '["cd", "notes"]'
         with patch.dict(os.environ, {}, clear=True), \
-                patch('automation.services.inputs.private_dns_names', return_value=['notes', 'fixture']):
+                patch('playbooks.services.files.inputs.private_dns_names', return_value=['notes', 'fixture']):
             self.invoke()
             self.assertEqual(set(json.loads(os.environ['PRIVATE_ACCESS_HOSTS'])),
                              {'cd', 'fixture', 'notes', 'identity-admin'})
 
     def test_missing_required_private_catalog_stops_before_public_preflight(self):
-        with patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog missing')), \
+        with patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog missing')), \
                 patch('yaml.safe_load', return_value={'services': {'enabled': True}}), \
                 patch.object(runner.subprocess, 'run') as command:
             with self.assertRaisesRegex(ValueError, 'Private catalog missing'): runner.gitops_preflight()
@@ -241,8 +241,8 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', return_value=self.values), \
                     patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                    patch('automation.services.inputs.private_dns_names', side_effect=ValueError('Private source unavailable')) as dns, \
-                    patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog unavailable')) as catalog, \
+                    patch('playbooks.services.files.inputs.private_dns_names', side_effect=ValueError('Private source unavailable')) as dns, \
+                    patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog unavailable')) as catalog, \
                     patch('playbooks.keycloak.files.access_inputs.runtime', side_effect=ValueError('Identity input unavailable')) as access, \
                     patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command, \
                     patch.object(runner, 'playbook') as playbook:
@@ -260,7 +260,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', return_value=self.values), \
                     patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                    patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog unavailable')), \
+                    patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog unavailable')), \
                     patch.object(runner.subprocess, 'run') as command, \
                     patch.object(runner, 'playbook') as playbook:
                 with self.assertRaisesRegex(ValueError, 'Private catalog unavailable'):

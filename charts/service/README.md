@@ -50,8 +50,10 @@ Privileged data credentials and migration credentials never reach application po
 3. For OIDC, run `service identity-provision <bundle>` through the same Compose
    entry point. Merge its scoped identity PR, then run `lab identity-scoped`.
 4. Enable `services.enabled` in the public root. Provision missing data items with
-   `lab data-credentials`; existing values persist. Then run `lab apply`. Argo deploys
-   the reviewed catalog and workloads; data owners reconcile requests and grants.
+   `lab data-credentials`; existing values persist. Then run `lab setup` for prerequisites. Argo reads
+   `services/catalog.json` directly from the protected private branch and deploys
+   supported definition changes without a local catalog apply or VM lookup.
+   Data owners reconcile approved requests and grants.
 5. Run `service ready <bundle>`, then `service publish <bundle>`. The bundle contains
    `definition`, `approval`, `platformRepository`, `platformRevision`, `origin` and
    `application` (null for public access). Backend, client, scoped credentials and
