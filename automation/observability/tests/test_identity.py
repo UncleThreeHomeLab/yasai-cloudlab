@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from automation.identity.configuration import client
+from playbooks.keycloak.files.configuration import client
 from automation.observability.identity import contracts
 
 

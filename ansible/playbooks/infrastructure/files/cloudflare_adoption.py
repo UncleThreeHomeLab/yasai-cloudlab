@@ -116,7 +116,7 @@ def write_json(path, document):
 def prerequisites(state, snapshot):
     if any(state.get(key, {}).get('phase') != 'accepted' for key in ('identity_cutover', 'identity_provider')):
         raise ValueError('Accepted central Access integration required before ownership maintenance')
-    from automation.identity.access_cutover import browser_gate
+    from playbooks.keycloak.files.access_cutover import browser_gate
     browser_gate(snapshot['organization']['auth_domain'].removesuffix('.cloudflareaccess.com'), None)
 
 

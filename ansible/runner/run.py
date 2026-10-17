@@ -16,33 +16,44 @@ FOUNDATION_ACTIONS = {
     'longhorn-backup-bootstrap', 'longhorn-backup-interruption-test', 'longhorn-backup-recover',
 }
 
-IDENTITY_COMMANDS = {
-    'identity-owner-credentials': ('owner_enrollment', 'provision'),
-    'identity-owner-stage': ('owner_enrollment', '--stage'),
-    'identity-owner-publish': ('owner_enrollment', 'publish'),
-    'identity-owner-enroll': ('owner_enrollment', 'local'),
-    'identity-private-publish': ('operations', '--publish'),
-    'identity-access-prepare': ('access_provider',),
-    'identity-access-cutover': ('access_cutover',),
-    'identity-access-canary': ('access_canary', 'prepare'),
-    'identity-access-canary-proof': ('access_canary', 'proof'),
-    'identity-access-canary-remove': ('access_canary', 'remove'),
-    'identity-primary-credentials': ('credentials', '--primary'),
-    'identity-primary-login-items': ('credentials', '--login-items'),
-    'identity-login-guide': ('credentials', '--login-guide'),
-    'identity-offboard': ('lifecycle', '--offboard'),
-    'identity-proof-credentials': ('session_fixture', 'provision'),
-    'identity-proof-stage': ('session_fixture', '--stage'),
-    'identity-proof-enroll': ('session_fixture', 'local'),
-    'identity-session-canary': ('session_access', 'prepare'),
-    'identity-session-canary-remove': ('session_access', 'remove'),
-    'identity-client-refresh': ('rotation', '--refresh'),
-    'identity-retire-bootstrap': ('emergency',),
-    'identity-credentials': ('credentials',),
-    'identity-operation': ('operations',),
-    'identity-client-credential': ('rotation',),
-    'identity-client-remove': ('lifecycle',),
-}
+IDENTITY_COMMANDS = {'identity-owner-credentials': 'owner-credentials.yml',
+ 'identity-owner-stage': 'owner-stage.yml',
+ 'identity-owner-publish': 'owner-publish.yml',
+ 'identity-owner-enroll': 'owner-enroll.yml',
+ 'identity-private-publish': 'private-publish.yml',
+ 'identity-access-prepare': 'access-prepare.yml',
+ 'identity-access-cutover': 'access-cutover.yml',
+ 'identity-access-canary': 'access-canary.yml',
+ 'identity-access-canary-proof': 'access-canary-proof.yml',
+ 'identity-access-canary-remove': 'access-canary-remove.yml',
+ 'identity-primary-credentials': 'primary-credentials.yml',
+ 'identity-primary-login-items': 'primary-login-items.yml',
+ 'identity-login-guide': 'login-guide.yml',
+ 'identity-offboard': 'offboard.yml',
+ 'identity-proof-credentials': 'proof-credentials.yml',
+ 'identity-proof-stage': 'proof-stage.yml',
+ 'identity-proof-enroll': 'proof-enroll.yml',
+ 'identity-session-canary': 'session-canary.yml',
+ 'identity-session-canary-remove': 'session-canary-remove.yml',
+ 'identity-client-refresh': 'client-refresh.yml',
+ 'identity-retire-bootstrap': 'retire-bootstrap.yml',
+ 'identity-credentials': 'credentials.yml',
+ 'identity-operation': 'operation.yml',
+ 'identity-client-credential': 'client-credential.yml',
+ 'identity-client-remove': 'client-remove.yml'}
+IDENTITY_REQUEST_COMMANDS = {'identity-access-canary-proof',
+ 'identity-client-credential',
+ 'identity-client-refresh',
+ 'identity-client-remove',
+ 'identity-offboard',
+ 'identity-operation',
+ 'identity-private-publish',
+ 'identity-proof-credentials',
+ 'identity-proof-enroll',
+ 'identity-proof-stage',
+ 'identity-retire-bootstrap',
+ 'identity-session-canary',
+ 'identity-session-canary-remove'}
 
 
 def playbook(name, *, syntax=False, unchanged=False):
@@ -155,14 +166,26 @@ def main():
         subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
         return
     if action == 'identity-check':
-        subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
-        subprocess.run([sys.executable, '-m', 'unittest', 'automation.identity.tests.test_identity'],
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/keycloak/files/chart.py'], check=True)
+        subprocess.run([sys.executable, '-m', 'unittest', 'playbooks.keycloak.tests.test_identity'],
                        cwd='/workspace', check=True)
         return
     command = IDENTITY_COMMANDS.get(action)
     if command:
-        subprocess.run([sys.executable, '-m', 'automation.identity.' + command[0], *command[1:]],
-                       cwd='/workspace', check=True)
+        if action in IDENTITY_REQUEST_COMMANDS:
+            # Keep secrets out of arguments, Ansible output and persistent state.
+            with tempfile.TemporaryDirectory(prefix='identity-request-') as directory:
+                request = Path(directory) / 'request.json'
+                with request.open('x') as stream:
+                    request.chmod(0o600)
+                    stream.write(sys.stdin.read())
+                os.environ['LAB_IDENTITY_REQUEST'] = str(request)
+                try:
+                    playbook('playbooks/keycloak/' + command)
+                finally:
+                    os.environ.pop('LAB_IDENTITY_REQUEST', None)
+        else:
+            playbook('playbooks/keycloak/' + command)
         return
     data_actions = {'data-monthly': 'monthly',
                     'data-acceptance-export': 'acceptance-export',
@@ -203,7 +226,7 @@ def main():
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/dns_check.py'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/data/files/chart.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/keycloak/files/chart.py'], check=True)
         subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
         return
     os.environ['LAB_MONTHLY_PROOF'] = '0'
@@ -234,7 +257,9 @@ def main():
         for path in sorted(Path('/workspace/ansible/playbooks').glob('*.yml')):
             playbook(str(path), syntax=True)
         playbook('playbooks/data/operate.yml', syntax=True)
-        playbook('identity.yml', syntax=True)
+
+        for path in sorted(Path('/workspace/ansible/playbooks/keycloak').glob('*.yml')):
+            playbook(str(path), syntax=True)
         return
 
     # No interpolation: passwords containing ${...} must remain literal.
@@ -257,7 +282,7 @@ def main():
         import yaml
         public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
         sys.path.insert(0, '/workspace')
-        from automation.identity.access_inputs import runtime
+        from playbooks.keycloak.files.access_inputs import runtime
         runtime(os.environ, public_settings)
     if action in {'recovery-retrieve', 'recovery-preflight'}:
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/backup/files/runner.py', action.removeprefix('recovery-')], check=True)
@@ -300,7 +325,7 @@ def main():
 
     if identity_phase:
         gitops_preflight()
-        playbook('identity.yml')
+        playbook('playbooks/keycloak/' + {'server': '010-server.yml', 'bootstrap': '020-bootstrap.yml', 'primary': '030-primary.yml', 'scoped': '040-scoped.yml', 'health': 'verify.yml', 'argo': 'argo-login.yml', 'recover-startup': 'repair-startup.yml'}[identity_phase])
     elif selected_data_action:
         if selected_data_action in ('data-bootstrap', 'data-check'):
             gitops_preflight()

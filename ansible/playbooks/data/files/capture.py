@@ -66,9 +66,9 @@ def capture():
             raise RuntimeError('Database exceeds the selected backup budget')
         manifest['extensions'] = json.loads(control.sql("SELECT coalesce(json_agg(json_build_object('name',extname,'version',extversion)), '[]'::json) FROM pg_extension", values['database']))
         manifest['postgres_version'] = control.sql('SHOW server_version')
-        from automation.identity.maintenance import set_maintenance
+        from playbooks.keycloak.files.maintenance import set_maintenance
         set_maintenance(True)
-        from automation.identity.recovery import capture_state
+        from playbooks.keycloak.files.recovery import capture_state
         identity_state = capture_state()
         if identity_state is not None:
             manifest['identity'] = identity_state

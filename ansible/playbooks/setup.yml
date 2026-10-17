@@ -38,7 +38,13 @@
   ansible.builtin.import_playbook: access/020-private-dns.yml
 - name: Run data/010-bootstrap.yml
   ansible.builtin.import_playbook: data/010-bootstrap.yml
+- name: Reconcile application data before identity
+  ansible.builtin.import_playbook: data/020-reconcile.yml
+- name: Reconcile accepted scoped identity
+  ansible.builtin.import_playbook: keycloak/050-retained.yml
 - name: Run ../apply.yml
   ansible.builtin.import_playbook: ../apply.yml
 - name: Retire replaced runtime after every consumer converges
   ansible.builtin.import_playbook: data/030-retire-runtime.yml
+- name: Retire replaced identity runtime after consumers converge
+  ansible.builtin.import_playbook: keycloak/060-retire-runtime.yml

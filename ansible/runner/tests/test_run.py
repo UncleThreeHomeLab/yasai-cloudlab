@@ -155,44 +155,27 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         playbook.assert_called_once_with('playbooks/nuke.yml')
 
 
-    def test_login_guide_never_runs_host_apply(self):
-        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            playbook = self.invoke('identity-login-guide')
-        playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.credentials', '--login-guide'])
-
-    def test_identity_canary_modes_are_explicit_without_host_apply(self):
-        for command, mode in (('identity-access-canary', 'prepare'), ('identity-access-canary-proof', 'proof'),
-                              ('identity-access-canary-remove', 'remove')):
-            with self.subTest(command=command), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+    def test_identity_operations_select_named_local_playbooks(self):
+        import io
+        for command, filename in runner.IDENTITY_COMMANDS.items():
+            with self.subTest(command=command), patch.object(runner.sys, 'stdin', io.StringIO('{}')):
                 playbook = self.invoke(command)
-            playbook.assert_not_called()
-            self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.access_canary', mode])
+            playbook.assert_called_once_with('playbooks/keycloak/' + filename)
 
-    def test_central_access_cutover_uses_identity_gate_without_host_apply(self):
-        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            playbook = self.invoke('identity-access-cutover')
-        playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.access_cutover'])
-    def test_bootstrap_retirement_uses_existing_identity_owner_without_host_apply(self):
-        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            playbook = self.invoke('identity-retire-bootstrap')
-        playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.emergency'])
-        self.assertTrue(run.call_args.kwargs['check'])
-
-    def test_primary_login_preparation_never_applies_hosts(self):
-        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            playbook = self.invoke('identity-primary-login-items')
-        playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.credentials', '--login-items'])
-
-    def test_identity_offboarding_uses_existing_lifecycle_owner_without_host_apply(self):
-        with patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            playbook = self.invoke('identity-offboard')
-        playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.identity.lifecycle', '--offboard'])
-        self.assertTrue(run.call_args.kwargs['check'])
+    def test_identity_request_custody_is_private_and_temporary(self):
+        import io
+        observed = []
+        def inspect(name):
+            path = __import__('pathlib').Path(runner.os.environ['LAB_IDENTITY_REQUEST'])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(path.read_text(), '{"literal":"${UNCHANGED}"}')
+            observed.append(path)
+        with patch.object(runner.sys, 'argv', ['run.py', 'identity-operation']), \
+                patch.object(runner.sys, 'stdin', io.StringIO('{"literal":"${UNCHANGED}"}')), \
+                patch.object(runner, 'playbook', side_effect=inspect):
+            runner.main()
+        self.assertFalse(observed[0].exists())
+        self.assertNotIn('LAB_IDENTITY_REQUEST', runner.os.environ)
 
     def setUp(self):
         service_dns = patch('automation.services.inputs.private_dns_names', return_value=[])
@@ -242,7 +225,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
                     patch('automation.services.inputs.private_dns_names', side_effect=ValueError('Private source unavailable')) as dns, \
                     patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog unavailable')) as catalog, \
-                    patch('automation.identity.access_inputs.runtime', side_effect=ValueError('Identity input unavailable')) as access, \
+                    patch('playbooks.keycloak.files.access_inputs.runtime', side_effect=ValueError('Identity input unavailable')) as access, \
                     patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command, \
                     patch.object(runner, 'playbook') as playbook:
                 runner.main()

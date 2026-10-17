@@ -1,0 +1,24 @@
+---
+- name: Identity retire-client
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    keycloak_request: '{{ lookup(''ansible.builtin.file'', lookup(''env'', ''LAB_IDENTITY_REQUEST''), rstrip=False)
+      | from_json }}'
+  tasks:
+    - name: Require the exact scoped lifecycle action
+      ansible.builtin.assert:
+        that: keycloak_request.operation.action == 'retire-client'
+        fail_msg: Select the explicit scoped lifecycle operation.
+      no_log: true
+    - name: Run the serialized retire-client transaction
+      ansible.builtin.command:
+        argv:
+          - python
+          - -m
+          - playbooks.keycloak.files.operations
+        chdir: /workspace
+        stdin: '{{ keycloak_request | to_json }}'
+      no_log: true
+      changed_when: true

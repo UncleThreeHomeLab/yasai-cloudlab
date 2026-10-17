@@ -82,7 +82,7 @@ class HumanTests(unittest.TestCase):
                         return {'status': 403, 'body': b'Forbidden'}
                     return {'status': 200, 'body': b'mesh-ok'}
                 with patch.object(human, 'transaction') as transaction, patch.object(human, 'https', side_effect=response), \
-                        patch('automation.identity.access_cutover.browser_gate') as browser_gate:
+                        patch('playbooks.keycloak.files.access_cutover.browser_gate') as browser_gate:
                     store = transaction.return_value.__enter__.return_value
                     store.load.side_effect = lambda name: copy.deepcopy(state) if name == 'external' else saved.get(name)
                     store.save.side_effect = lambda name, value: saved.update({name: copy.deepcopy(value)})

@@ -1,8 +1,8 @@
 """Harbor consumes the retained platform realm; no second identity writer."""
 from urllib.parse import urlsplit
 
-from automation.identity.configuration import exact_url
-from automation.identity.integrations import issuer
+from playbooks.keycloak.files.configuration import exact_url
+from playbooks.keycloak.files.integrations import issuer
 
 
 def client(identity_issuer, origin):

@@ -1,11 +1,11 @@
 services:
   pki:
     extends:
-      file: ../identity/compose.identity-proof.yaml
+      file: ../../ansible/playbooks/keycloak/tests/compose.identity-proof.yaml
       service: pki
   database:
     extends:
-      file: ../identity/compose.identity-proof.yaml
+      file: ../../ansible/playbooks/keycloak/tests/compose.identity-proof.yaml
       service: database
     mem_limit: 512m
     cpus: 1
@@ -92,7 +92,7 @@ services:
     security_opt:
     - no-new-privileges:true
   browser:
-    build: ../identity/browser
+    build: ../../ansible/playbooks/keycloak/tests/browser
     entrypoint:
     - node
     - /proof/grafana.mjs

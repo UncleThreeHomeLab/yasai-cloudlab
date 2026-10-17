@@ -78,8 +78,7 @@ def committed_payload():
                'ansible/playbooks/istio/files', 'ansible/playbooks/istio', 'ansible/group_vars/all/mesh.yml',
                'platform/data', 'ansible/playbooks/data/files', 'ansible/playbooks/data',
                'ansible/group_vars/all/data.yml',
-               'platform/identity', 'automation/identity', 'ansible/roles/identity',
-               'ansible/group_vars/all/identity.yml', 'ansible/identity.yml',
+               'platform/identity', 'ansible/playbooks/keycloak',
                'charts/service', 'apps', 'automation/services', 'platform/delivery/services',
                'ansible/roles/services', 'ansible/group_vars/all/services.yml']
     paths += ['platform/observability', 'automation/observability', 'ansible/roles/observability',

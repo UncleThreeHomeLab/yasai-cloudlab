@@ -1,0 +1,29 @@
+# Overlay only the disposable identity project. No production inputs or ports.
+# Run: docker compose -f ansible/playbooks/keycloak/tests/compose.identity-proof.yaml -f ansible/playbooks/keycloak/tests/compose.provider-proof.yaml run --build --rm provider-proof
+# Reset this disposable project after each run with the same files and down --volumes.
+name: cloudlab-identity-provider-fixture
+services:
+  provider-init:
+    build: ../../../runner
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        cp /source/versions.tf /source/.terraform.lock.hcl /candidate/
+        cd /candidate
+        tofu init -backend=false -lockfile=readonly -input=false
+    volumes: ["./provider-fixture:/source:ro", "provider_fixture:/candidate"]
+    networks: [provider-download]
+  provider-proof:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/keycloak/tests/provider_proof.py]
+    working_dir: /workspace
+    environment: {SSL_CERT_FILE: /fixture/ca.crt}
+    volumes: ["../../../..:/workspace:ro", "identity_fixture:/fixture:ro", "provider_fixture:/candidate"]
+    depends_on:
+      provider-init: {condition: service_completed_successfully}
+      proof: {condition: service_completed_successfully}
+    network_mode: service:server
+networks:
+  provider-download: {}
+volumes:
+  provider_fixture:

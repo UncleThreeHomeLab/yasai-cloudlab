@@ -12,7 +12,7 @@ from playbooks.infrastructure.files.command import Client
 from automation.services import native
 from automation.services.contract import ROOT
 from automation.services.gitops import resources
-from automation.identity.health import NoRedirect
+from playbooks.keycloak.files.health import NoRedirect
 
 
 class Owners:
@@ -214,7 +214,7 @@ class Owners:
 
     def identity_retire(self, definition):
         if definition['oidc']['enabled']:
-            from automation.identity.lifecycle import local
+            from playbooks.keycloak.files.lifecycle import local
             local({'realm': definition['oidc']['realm'], 'client_id': definition['oidc']['client']})
 
     def workload_retire(self, definition):

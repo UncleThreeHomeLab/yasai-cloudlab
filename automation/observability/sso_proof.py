@@ -11,8 +11,8 @@ import urllib.request
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from automation.identity.configuration import baseline, client
-from automation.identity.local_proof import request, administrator
+from playbooks.keycloak.files.configuration import baseline, client
+from playbooks.keycloak.tests.local_proof import request, administrator
 from automation.observability.configuration import grafana
 from automation.observability.native_proof import wait
 

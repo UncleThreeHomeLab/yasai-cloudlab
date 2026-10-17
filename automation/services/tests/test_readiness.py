@@ -33,8 +33,8 @@ class ReadinessTests(unittest.TestCase):
             Path(folder, 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': 'a' * 40}))
             with patch('automation.services.remote.get', side_effect=get), \
                     patch('automation.services.remote.application_ready', return_value=True), \
-                    patch('automation.identity.bootstrap.BASE', Path(folder)), \
-                    patch('automation.identity.bootstrap.reconciled', return_value=True) as reconciled:
+                    patch('playbooks.keycloak.files.bootstrap.BASE', Path(folder)), \
+                    patch('playbooks.keycloak.files.bootstrap.reconciled', return_value=True) as reconciled:
                 request = {'definition': value, 'approval': approval(), 'action': 'identity'}
                 inspect(request)
                 reconciled.assert_called_once_with('b' * 40, 'owned')

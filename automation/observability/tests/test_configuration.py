@@ -1,7 +1,7 @@
 import unittest
 
 from automation.observability.configuration import grafana
-from automation.identity.configuration import client
+from playbooks.keycloak.files.configuration import client
 
 
 class AuthenticationContractTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class AuditProjectionTests(unittest.TestCase):
         self.assertIn('KeycloakAuditIncomplete', rules)
 
     def test_secret_looking_values_cannot_pass_field_name_allowlisting(self):
-        from automation.identity.health import redact
+        from playbooks.keycloak.files.health import redact
         event = {'time': 100, 'type': 'SecretPassword', 'error': 'SecretPassword',
                  'operationType': 'SecretPassword', 'resourceType': 'SecretPassword',
                  'representation': {'password': 'must-not-export'}}

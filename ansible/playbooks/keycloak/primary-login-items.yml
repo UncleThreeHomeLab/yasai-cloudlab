@@ -1,0 +1,20 @@
+---
+- name: Identity primary login items
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run the scoped primary login items operation
+      ansible.builtin.command:
+        argv:
+          - python
+          - -m
+          - playbooks.keycloak.files.credentials
+          - --login-items
+        chdir: /workspace
+      register: keycloak_operation
+      no_log: true
+      changed_when: true
+    - name: Report the redacted operation result
+      ansible.builtin.debug:
+        msg: '{{ keycloak_operation.stdout | from_json }}'

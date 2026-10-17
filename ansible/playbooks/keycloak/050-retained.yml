@@ -1,0 +1,12 @@
+---
+- name: Converge identity retained
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    keycloak_phase: retained
+  tasks:
+    - name: Reconcile accepted identity before consumers
+      ansible.builtin.import_tasks: tasks/retained.yml
+      when: (observability_enabled | bool) or (harbor_enabled | bool)

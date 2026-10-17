@@ -1,0 +1,19 @@
+---
+- name: Resolve the accepted identity source
+  ansible.builtin.command:
+    argv:
+      - python
+      - /workspace/ansible/playbooks/keycloak/files/inputs.py
+  environment:
+    LAB_IDENTITY_PHASE: retained
+  delegate_to: localhost
+  become: false
+  register: identity_public_source
+  changed_when: false
+  no_log: true
+- name: Install independent identity runtime
+  ansible.builtin.import_tasks: runtime.yml
+- name: Reconcile retained scoped identity
+  ansible.builtin.import_tasks: converge.yml
+  vars:
+    keycloak_phase: retained

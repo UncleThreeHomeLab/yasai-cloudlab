@@ -58,9 +58,9 @@ def main(arguments=None):
         print(json.dumps(publish_catalog(validate_catalog(value)), sort_keys=True))
         return
     if args.action.startswith('identity-'):
-        from automation.identity.service_client import prepare
+        from playbooks.keycloak.files.service_client import prepare
         if args.action == 'identity-rotate':
-            from automation.identity.rotation import local
+            from playbooks.keycloak.files.rotation import local
             definition = validate(value['definition'])
             oidc = definition['oidc']
             if not oidc['enabled'] or oidc['public']:

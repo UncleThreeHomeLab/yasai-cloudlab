@@ -15,7 +15,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   baseline-browser:
-    build: ../identity/browser
+    build: ../../ansible/playbooks/keycloak/tests/browser
     platform: linux/amd64
     entrypoint: [node, /proof/notes-baseline.mjs]
     volumes: ["./browser/notes-baseline.mjs:/proof/notes-baseline.mjs:ro"]

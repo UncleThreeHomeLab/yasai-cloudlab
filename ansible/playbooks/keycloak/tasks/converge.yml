@@ -1,0 +1,38 @@
+---
+- name: Install the bounded public root handoff from its GitOps owner
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/argocd/files/{{ item }}
+    dest: /opt/cloudlab/playbooks/argocd/files/{{ item }}
+    mode: '0600'
+  loop:
+    - bootstrap.py
+    - source_transition.py
+    - sync_recovery.py
+- name: Discover existing CNPG and private access inputs
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /opt/cloudlab/playbooks/keycloak/files/bootstrap.py
+      - inputs
+  register: identity_private_inputs
+  changed_when: false
+  no_log: true
+- name: Converge the scoped identity owner under its existing transaction lock
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /opt/cloudlab/playbooks/keycloak/files/bootstrap.py
+      - '{{ keycloak_phase }}'
+    stdin: '{{ (identity_public_source.stdout | from_json) | combine({''values'': identity_private_inputs.stdout
+      | from_json}) | to_json }}'
+  register: identity_result
+  changed_when: identity_result.rc == 0 and (identity_result.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+- name: Require identity convergence
+  ansible.builtin.assert:
+    that: identity_result.rc == 0
+    fail_msg: '{{ identity_result.stderr }}'
+- name: Report the redacted identity phase result
+  ansible.builtin.debug:
+    msg: '{{ identity_result.stdout | from_json }}'

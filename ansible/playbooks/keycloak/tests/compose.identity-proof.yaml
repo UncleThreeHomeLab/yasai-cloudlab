@@ -1,0 +1,206 @@
+# Disposable compatibility fixtures and explicit, transient live browser proofs.
+# Keep shared runner volumes in the root Compose project.
+name: yasai-cloudlab
+services:
+  session-controller:
+    profiles: [live-sessions]
+    build: ../../../runner
+    entrypoint: [python, -m, playbooks.keycloak.tests.session_acceptance]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "ssh_known_hosts:/state", "recovery_outputs:/recovery"]
+    logging: {driver: none}
+    depends_on: [sessions]
+    networks: [session-control, session-internet]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+  sessions:
+    profiles: [live-sessions]
+    build: ./browser
+    entrypoint: [node, /proof/sessions.mjs]
+    logging: {driver: none}
+    stdin_open: true
+    read_only: true
+    user: '1000:1000'
+    tmpfs: ["/tmp:uid=1000,gid=1000,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [session-control, session-internet]
+    mem_limit: 768m
+  access-browser:
+    profiles: [live-access]
+    image: cloudflare/cloudflared:2026.9.1@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4
+    logging: {driver: none}
+    read_only: true
+    user: '65532:65532'
+    tmpfs: ["/home/nonroot/.cloudflared:uid=65532,gid=65532,mode=0700"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    network_mode: bridge
+    mem_limit: 256m
+  private-routing:
+    profiles: [live-routing]
+    build: ./browser
+    entrypoint: [node, /workspace/ansible/playbooks/keycloak/tests/browser/private-routing.mjs]
+    volumes: ["../../../..:/workspace:ro"]
+    network_mode: bridge
+    mem_limit: 256m
+  pki:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/keycloak/tests/fixture_pki.py]
+    volumes: ["../../../..:/workspace:ro", "identity_fixture:/fixture"]
+    network_mode: none
+  database:
+    image: ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:ebf3919504d7523a63e8e2fee9b051211de714644b36469275558c624afd50ec
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        initdb -D /tmp/identity-db --auth=trust --encoding=UTF8
+        printf '\nhost all all 0.0.0.0/0 trust\n' >> /tmp/identity-db/pg_hba.conf
+        exec postgres -D /tmp/identity-db -c listen_addresses='*' -c unix_socket_directories=/tmp
+    user: '26:26'
+    healthcheck:
+      test: [CMD, pg_isready, -h, localhost, -U, postgres]
+      interval: 3s
+      retries: 40
+    tmpfs: [/tmp]
+    networks: [fixture]
+  server:
+    image: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
+    command: [start, --http-enabled=false, --hostname=https://localhost:8443, --hostname-strict=true, --hostname-admin=https://admin.fixture.test,
+              --proxy-headers=xforwarded, --proxy-trusted-addresses=127.0.0.1,
+              --https-certificate-file=/fixture/tls.crt, --https-certificate-key-file=/fixture/tls.key,
+              --db=postgres, --db-url=jdbc:postgresql://database:5432/postgres,
+              --db-username=postgres, --db-password=fixture-unused, --health-enabled=true, --log-level=WARN]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: fixture-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: fixture-only-isolated-admin
+    depends_on:
+      database: {condition: service_healthy}
+      pki: {condition: service_completed_successfully}
+    volumes: ["identity_fixture:/fixture:ro"]
+    networks:
+      fixture:
+        aliases: [admin.fixture.test]
+    mem_limit: 1536m
+  admin-gateway:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/keycloak/tests/fixture_gateway.py]
+    volumes: ["../../../..:/workspace:ro", "identity_fixture:/fixture:ro"]
+    depends_on:
+      pki: {condition: service_completed_successfully}
+      server: {condition: service_started}
+    network_mode: service:server
+  writer:
+    image: quay.io/adorsys/keycloak-config-cli:6.5.1-26.5.5@sha256:0955d98c8a341898b7aa177477edf8a1e90569ae50bbe7598141c1270b773274
+    user: '1000:1000'
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        mkdir -p /fixture
+        if ! test -f /fixture/truststore.p12; then
+          keytool -importcert -noprompt -alias fixture-ca -file /fixture/ca.crt -keystore /fixture/truststore.p12 -storepass fixture-trust >/dev/null 2>&1
+        fi
+        while :; do
+          if test -f /fixture/request; then
+            rm /fixture/request
+            scope=$$(cat /fixture/scope)
+            case "$$scope" in main|client-reference) ;; *) exit 2 ;; esac
+            managed=no-delete
+            if test -f /fixture/remove; then managed=full; fi
+            unset KEYCLOAK_CLIENTSECRET
+            export KEYCLOAK_GRANTTYPE=password KEYCLOAK_LOGINREALM=master KEYCLOAK_CLIENTID=admin-cli
+            if test -f /fixture/scoped-secret; then
+              export KEYCLOAK_GRANTTYPE=client_credentials KEYCLOAK_LOGINREALM=applications KEYCLOAK_CLIENTID=realm-writer KEYCLOAK_SKIPSERVERINFO=true
+              export KEYCLOAK_CLIENTSECRET="$$(cat /fixture/scoped-secret)"
+            fi
+            if test -f /fixture/use-emergency; then
+              export KEYCLOAK_GRANTTYPE=client_credentials KEYCLOAK_LOGINREALM=master KEYCLOAK_CLIENTID="$$(cat /fixture/emergency-client)" KEYCLOAK_SKIPSERVERINFO=true
+              export KEYCLOAK_CLIENTSECRET="$$(cat /fixture/emergency-secret)"
+            fi
+            remote=true
+            if test -f /fixture/creation-only; then remote=false; fi
+            java -jar /app/keycloak-config-cli.jar --spring.config.additional-location=file:/code/config-cli.properties --import.cache.key="$$scope" --import.managed.client="$$managed" --import.remote-state.enabled="$$remote" --logging.level.root=ERROR >/fixture/private-result 2>&1 && echo 0 >/fixture/result || echo 1 >/fixture/result
+          fi
+          sleep 1
+        done
+    environment:
+      KEYCLOAK_URL: https://admin.fixture.test
+      KEYCLOAK_USER: fixture-admin
+      KEYCLOAK_PASSWORD: fixture-only-isolated-admin
+      IMPORT_FILES_LOCATIONS: /fixture/input.json
+      JAVA_TOOL_OPTIONS: '-Djavax.net.ssl.trustStore=/fixture/truststore.p12 -Djavax.net.ssl.trustStorePassword=fixture-trust'
+    depends_on:
+      pki: {condition: service_completed_successfully}
+      server: {condition: service_started}
+    volumes:
+      - identity_fixture:/fixture
+      - ../../../../platform/identity/keycloak/config-cli.properties:/code/config-cli.properties:ro
+    network_mode: service:server
+  proof:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/keycloak/tests/local_proof.py]
+    working_dir: /workspace
+    volumes:
+      - ../../../..:/workspace:ro
+      - identity_fixture:/fixture
+    environment: {SSL_CERT_FILE: /fixture/ca.crt}
+    depends_on: [server, writer, admin-gateway]
+    network_mode: service:server
+  reference:
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/keycloak/tests/reference.py]
+    volumes: ["../../../..:/workspace:ro", "identity_fixture:/fixture:ro"]
+    depends_on:
+      pki: {condition: service_completed_successfully}
+      server: {condition: service_started}
+    network_mode: service:server
+  browser:
+    build: ./browser
+    environment:
+      NODE_EXTRA_CA_CERTS: /fixture/ca.crt
+    volumes: ["identity_fixture:/fixture"]
+    depends_on:
+      proof: {condition: service_completed_successfully}
+      reference: {condition: service_started}
+    network_mode: service:reference
+  emergency-bootstrap:
+    profiles: [recovery]
+    image: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        export RECOVERY_CLIENT_SECRET="$$(cat /fixture/emergency-secret)"
+        /opt/keycloak/bin/kc.sh bootstrap-admin service --client-id="$$(cat /fixture/emergency-client)" --client-secret:env=RECOVERY_CLIENT_SECRET --no-prompt >/tmp/recovery-output 2>&1 || { echo 'Isolated emergency bootstrap failed; diagnostics withheld'; exit 1; }
+        echo 'Isolated emergency service created with server stopped'
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://database:5432/postgres
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: fixture-unused
+    volumes: ["identity_fixture:/fixture:ro"]
+    networks: [fixture]
+    mem_limit: 1536m
+  emergency-proof:
+    profiles: [recovery]
+    build: ../../../runner
+    entrypoint: [python, /workspace/ansible/playbooks/keycloak/tests/emergency_proof.py]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "identity_fixture:/fixture"]
+    environment: {SSL_CERT_FILE: /fixture/ca.crt}
+    network_mode: service:server
+  failure:
+    build: ./browser
+    command: [--failure]
+    environment:
+      NODE_EXTRA_CA_CERTS: /fixture/ca.crt
+    volumes: ["identity_fixture:/fixture:ro"]
+    network_mode: service:reference
+networks:
+  session-control: {internal: true}
+  session-internet: {}
+  fixture: {internal: true}
+volumes:
+  ssh_known_hosts:
+  recovery_outputs:
+  identity_fixture:

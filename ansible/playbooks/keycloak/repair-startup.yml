@@ -1,0 +1,25 @@
+---
+- name: Converge identity recover-startup
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    keycloak_phase: recover-startup
+  tasks:
+    - name: Resolve the exact published identity source
+      ansible.builtin.command:
+        argv:
+          - python
+          - /workspace/ansible/playbooks/keycloak/files/inputs.py
+      environment:
+        LAB_IDENTITY_PHASE: recover-startup
+      delegate_to: localhost
+      become: false
+      register: identity_public_source
+      changed_when: false
+      no_log: true
+    - name: Install independent identity runtime
+      ansible.builtin.import_tasks: tasks/runtime.yml
+    - name: Converge the explicit identity phase
+      ansible.builtin.import_tasks: tasks/converge.yml

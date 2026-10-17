@@ -1,0 +1,51 @@
+---
+- name: Install identity protocol and recovery parsers
+  ansible.builtin.apt:
+    name:
+      - python3-yaml
+      - python3-cryptography
+    state: present
+- name: Create private identity automation directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop:
+    - /opt/cloudlab/playbooks/keycloak/files
+    - /opt/cloudlab/playbooks/argocd/files
+    - /opt/cloudlab/playbooks/access/files
+    - /var/lib/cloudlab/identity
+- name: Install the independent public DNS probe from its connectivity owner
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/access/files/dns_wire.py
+    dest: /opt/cloudlab/playbooks/access/files/dns_wire.py
+    mode: '0600'
+- name: Install the shared private Git credential template from its owner
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/argocd/files/private_sources.py
+    dest: /opt/cloudlab/playbooks/argocd/files/private_sources.py
+    mode: '0600'
+- name: Install identity runtime from its owning module
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/keycloak/files/{{ item }}
+    dest: /opt/cloudlab/playbooks/keycloak/files/{{ item }}
+    mode: '0600'
+  loop:
+    - bootstrap.py
+    - ownership.py
+    - configuration.py
+    - maintenance.py
+    - recovery.py
+    - rotation.py
+    - lifecycle.py
+    - lease.py
+    - argo.py
+    - health.py
+    - integrations.py
+    - access_provider.py
+    - access_cutover.py
+    - access_canary.py
+    - verify.py
+    - emergency.py
+    - session_fixture.py
+    - owner_enrollment.py

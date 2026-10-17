@@ -1,0 +1,33 @@
+---
+- name: Retire replaced identity executable paths
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Remove only replaced non-data identity modules
+      ansible.builtin.file:
+        path: /opt/cloudlab/automation/identity/{{ item }}
+        state: absent
+      when: (observability_enabled | bool) or (harbor_enabled | bool)
+      loop:
+        - bootstrap.py
+        - ownership.py
+        - configuration.py
+        - maintenance.py
+        - recovery.py
+        - rotation.py
+        - lifecycle.py
+        - lease.py
+        - argo.py
+        - health.py
+        - integrations.py
+        - access_provider.py
+        - access_cutover.py
+        - access_canary.py
+        - verify.py
+        - emergency.py
+        - session_fixture.py
+        - owner_enrollment.py
+        - isolated_restore.py
+        - tokens.py

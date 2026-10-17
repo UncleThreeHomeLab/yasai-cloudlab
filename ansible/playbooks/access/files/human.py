@@ -27,7 +27,7 @@ RECEIPT = Path('/state/connectivity/human-proof.json')
 
 
 def selected():
-    from automation.identity.access_cutover import approved_email, selection
+    from playbooks.keycloak.files.access_cutover import approved_email, selection
     with transaction() as receipts:
         state = receipts.load('external') or {}
     identity_provider, identity_group = selection(state, os.environ['CLOUDFLARE_IDP_ID'])
@@ -35,7 +35,7 @@ def selected():
     dns_values = fields('cloudlab-dns01', ('API_TOKEN', 'ZONE_ID'))
     admin, dns = API(admin_values['API_TOKEN']), API(dns_values['API_TOKEN'])
     if identity_group:
-        from automation.identity.access_provider import public_provider
+        from playbooks.keycloak.files.access_provider import public_provider
         provider = admin.request('GET', 'accounts/' + admin_values['ACCOUNT_ID'] + '/access/identity_providers/' + identity_provider)
         if not matches(public_provider(provider), state['identity_provider']['intent']):
             raise RuntimeError('Central Access provider differs from the verified OIDC contract')
@@ -121,9 +121,9 @@ def record(token):
     since = None
     if captured.get('identity_cutover'):
         since = captured['identity_provider']['credential_ready_at']
-        from automation.identity.access_cutover import browser_gate
+        from playbooks.keycloak.files.access_cutover import browser_gate
         browser_gate(organization.removesuffix('.cloudflareaccess.com'), since)
-    from automation.identity.access_cutover import approved_email
+    from playbooks.keycloak.files.access_cutover import approved_email
     now = verify_token(token, applications[0]['aud'], organization,
                        approved_email(captured, os.environ['CLOUDFLARE_HUMAN_EMAIL']), issued_after=since)
     headers = {'Cookie': 'CF_Authorization=' + token}

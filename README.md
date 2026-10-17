@@ -97,7 +97,7 @@ Merge the returned private client PR before enabling `observability.enabled` in
 the public root. Add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`. Apply with
 `prove`. Dashboards require Keycloak; telemetry PVCs exclude off-site backups.
 Normal apply resumes only the accepted retired identity owner before its consumers.
-Initial identity enrollment remains explicit.
+Initial identity enrollment and [lifecycle operations](ansible/playbooks/keycloak/README.md) remain explicit.
 
 Harbor prerequisites use the [registry contract](automation/harbor/contract.json).
 Inspect inputs with `docker compose run --rm --entrypoint python service -m automation.harbor.preflight`.

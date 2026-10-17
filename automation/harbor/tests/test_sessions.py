@@ -27,7 +27,7 @@ class SessionTests(unittest.TestCase):
             current = {'realm': 'platform', 'username': 'proof-' + request['nonce'],
                        'user_id': pending['user_id'], 'preservation': pending['preservation'], 'enabled': False}
             with patch.object(sessions, 'PENDING', pending_path), patch.object(sessions, 'RESULT', result_path), \
-                    patch('automation.identity.session_acceptance.remote_state', return_value=current) as state:
+                    patch('playbooks.keycloak.tests.session_acceptance.remote_state', return_value=current) as state:
                 with self.assertRaises(RuntimeError): sessions.complete(client, request, pending)
                 self.assertEqual(json.loads(pending_path.read_text()), pending)
                 self.assertFalse(result_path.exists())
@@ -63,8 +63,8 @@ class SessionTests(unittest.TestCase):
             with patch.object(sessions.api, 'WORK', root), patch.object(sessions, 'CHECKPOINT', checkpoint), \
                     patch.object(sessions, 'PENDING', pending), patch.object(sessions, 'complete') as complete, \
                     patch.object(sessions.api, 'Client') as client, \
-                    patch('automation.identity.owner_enrollment.inputs', return_value=({}, Mock(), {}, revoked)), \
-                    patch('automation.identity.session_setup.environment'), patch.object(sessions, 'prepare_viewer') as enroll:
+                    patch('playbooks.keycloak.files.owner_enrollment.inputs', return_value=({}, Mock(), {}, revoked)), \
+                    patch('playbooks.keycloak.tests.session_setup.environment'), patch.object(sessions, 'prepare_viewer') as enroll:
                 with self.assertRaises(ValueError): sessions.verify()
                 client.assert_not_called()
                 complete.assert_not_called()
@@ -88,10 +88,10 @@ class SessionTests(unittest.TestCase):
             request = {'nonce': 'a' * 32, 'realm': 'platform'}
             checkpoint.write_text(json.dumps(request))
             with patch.object(sessions.api, 'WORK', Path(temporary)), patch.object(sessions, 'CHECKPOINT', checkpoint), \
-                    patch('automation.identity.owner_enrollment.inputs', return_value=({}, Mock(), {}, {})), \
-                    patch('automation.identity.session_setup.environment'), \
+                    patch('playbooks.keycloak.files.owner_enrollment.inputs', return_value=({}, Mock(), {}, {})), \
+                    patch('playbooks.keycloak.tests.session_setup.environment'), \
                     patch('playbooks.secrets.files.vault.fields') as fields, \
-                    patch('automation.identity.session_setup.retire') as retire:
+                    patch('playbooks.keycloak.tests.session_setup.retire') as retire:
                 fields.return_value = {'username': 'primary', 'ownership_id': 'a' * 32}
                 with self.assertRaises(ValueError): sessions.cleanup()
                 retire.assert_not_called()
