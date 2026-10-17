@@ -35,7 +35,7 @@ def membership(source, revoked, values):
 
 
 def inputs():
-    from automation.gitops.github_setup import inputs as github_inputs, repository
+    from playbooks.argocd.files.github_setup import inputs as github_inputs, repository
     from automation.identity.private_source import decode_contents
     import yaml
     environment, api = github_inputs()
@@ -53,8 +53,8 @@ def inputs():
 
 def provision():
     import fcntl
-    from automation.credentials.provision import ensure_items
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.provision import ensure_items
+    from playbooks.secrets.files.vault import fields
     environment, _, source, revoked = inputs()
     username = fields('keycloak-primary-admin', ['platform_username'])['platform_username']
     owners = [row for row in source['realms']['platform']['memberships'] if row['username'] == username]
@@ -90,7 +90,7 @@ def provision():
 
 
 def publish():
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.identity.operations import private_files
     from automation.identity.private_source import publish as private_publish
     environment, api, source, revoked = inputs()
@@ -106,7 +106,7 @@ def publish():
 
 def local(stage=False):
     from dotenv import dotenv_values
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.connectivity.preflight import ssh
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):

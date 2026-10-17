@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'ansible/playbooks/tailscale/files'))
 from control import API
 from verify_access import ssh
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.connectivity.contract import host_rules, private_names
 from automation.connectivity.dns_wire import absent_answer, private_answer, query, public_address
 from automation.connectivity.traffic import denied, https as request_https, success

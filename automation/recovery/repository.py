@@ -8,7 +8,6 @@ import sys
 import time
 import urllib.parse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'longhorn'))
 from write_window import require_window, initial_active, replacement_active, REPLACEMENT_TAG
 from capture import digest, verify_archive
 

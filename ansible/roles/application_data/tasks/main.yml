@@ -21,7 +21,7 @@
     - /opt/cloudlab/automation/data
     - /opt/cloudlab/automation/mesh
     - /opt/cloudlab/automation/identity
-    - /opt/cloudlab/automation/gitops
+    - /opt/cloudlab/playbooks/argocd/files
     - /opt/cloudlab/platform/data
     - /var/lib/cloudlab/application-data
 
@@ -41,8 +41,8 @@
 
 - name: Install the public convergence helper from its GitOps owner
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/gitops/source_revision.py'
-    dest: /opt/cloudlab/automation/gitops/source_revision.py
+    src: '{{ playbook_dir }}/../ansible/playbooks/argocd/files/source_revision.py'
+    dest: /opt/cloudlab/playbooks/argocd/files/source_revision.py
     mode: '0600'
 
 - name: Install the shared Kubernetes helper from its owner

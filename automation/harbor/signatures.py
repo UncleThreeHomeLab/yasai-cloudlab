@@ -12,7 +12,7 @@ import tempfile
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from automation.credentials.provision import command, ensure_items
+from playbooks.secrets.files.provision import command, ensure_items
 
 SIGNER = 'harbor-recovery-signer'
 VERIFIER = 'harbor-recovery-verifier'
@@ -100,7 +100,7 @@ class Cosign:
 
 
 def prove(client):
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.harbor import api, artifacts, api_policy
     from automation.harbor.recovery import atomic
     from automation.harbor.registry import Registry

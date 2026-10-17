@@ -16,7 +16,7 @@ import urllib.request
 import uuid
 
 from dotenv import dotenv_values
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.infra.backend import environment
 
 

@@ -34,7 +34,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result.exception.code, 0)
         dotenv.assert_not_called()
         playbook.assert_not_called()
-        self.assertIn('automation.gitops.recover', run.call_args.args[0])
+        self.assertIn('playbooks.argocd.files.recover', run.call_args.args[0])
     def test_real_ansible_workdir_imports_workspace_before_missing_input_gate(self):
         code = '''import importlib.util,sys
 from unittest.mock import patch
@@ -434,7 +434,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             with self.subTest(action=action), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
                 playbook = self.invoke(action)
                 playbook.assert_not_called()
-                self.assertEqual(command.call_args.args[0][-1], '/workspace/automation/gitops/' + module)
+                self.assertEqual(command.call_args.args[0][-1], '/workspace/ansible/playbooks/argocd/files/' + module)
 
     def test_retired_repository_creator_has_no_runner_dispatch(self):
         with patch.object(runner.subprocess, 'run') as command:

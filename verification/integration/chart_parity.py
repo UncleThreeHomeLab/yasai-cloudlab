@@ -15,6 +15,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULES = [('secrets/external-secrets', 'external_secrets'), ('storage/longhorn', 'longhorn')]
+CHARTS = {
+    'external_secrets': ROOT / 'ansible/playbooks/secrets/files/chart.py',
+    'longhorn': ROOT / 'ansible/playbooks/longhorn/files/chart.py',
+}
 
 
 def identity(item):
@@ -93,7 +97,7 @@ def verify(module, owner):
     # Each module verifies its archive, vendor patch, all images, hooks and identity
     # boundaries before returning the same declarations used for bootstrap.
     payload = json.loads(subprocess.check_output(
-        [sys.executable, str(ROOT / 'automation' / owner / 'chart.py')], timeout=180))
+        [sys.executable, str(CHARTS[owner])], timeout=180))
     objects = payload['items'] + payload.get('generated', [])
     digest = semantic_digest(objects, owner)
     if digest != lock['semantic_sha256']:

@@ -7,7 +7,7 @@ import uuid
 from dotenv import dotenv_values
 
 from automation.connectivity.cloudflare import API
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 
 
 def capture(admin, dns, state, management, tunnel):

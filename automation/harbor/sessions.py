@@ -64,7 +64,7 @@ def diagnostic(document):
 
 
 def cleanup():
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.identity.owner_enrollment import inputs
     from automation.identity.session_fixture import scope
     from automation.identity.session_setup import environment, retire
@@ -127,7 +127,7 @@ def verify():
 
 def run():
     from automation.connectivity.verify import remote
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.harbor.artifacts import receipt
     from automation.harbor.recovery import atomic
     from automation.identity.lifecycle import local_offboard

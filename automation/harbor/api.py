@@ -17,8 +17,8 @@ import time
 from dotenv import dotenv_values
 import yaml
 
-from automation.credentials.provision import ensure_items
-from automation.credentials.vault import fields
+from playbooks.secrets.files.provision import ensure_items
+from playbooks.secrets.files.vault import fields
 from automation.connectivity.preflight import ssh
 from automation.harbor import api_policy, credentials, transport
 from automation.harbor.configuration import client as identity_client

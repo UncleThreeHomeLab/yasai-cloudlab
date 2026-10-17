@@ -53,7 +53,7 @@ Use `lab setup` for convergence and verification. Run credential-free checks wit
 `prove` applies the configuration twice and requires no changes on the second
 apply on either VM. It then checks behaviour. GitOps bootstrap needs verified
 Tailscale host access and a fresh recovery point for the control plane.
-The [prerequisite checks](ansible/roles/gitops/tasks/prerequisites.yml) run first.
+The [prerequisite checks](ansible/playbooks/argocd/tasks/prerequisites.yml) run first.
 Running the configuration again preserves existing secrets and data.
 If the accepted Argo application controller cannot start after an OOM kill, run
 `docker compose run --rm lab gitops-controller-recover`. This uses published memory

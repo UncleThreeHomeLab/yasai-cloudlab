@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 from dotenv import dotenv_values
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.data.s3 import NS, S3, S3Error
 
 

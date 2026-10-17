@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import uuid
 
-from automation.gitops.github_setup import GitHub, repository
+from playbooks.argocd.files.github_setup import GitHub, repository
 from automation.infra.command import SCHEMAS, reject_unknown, validate_inventory, Client, WORK, source_binding, identity, digest
 from automation.infra.cloudflare_adoption import write_json, import_document
 
@@ -138,8 +138,8 @@ def preserved(checkpoint, token, *, history=True):
 
 
 def prepare(destination):
-    from automation.credentials.vault import fields
-    from automation.gitops import github_setup
+    from playbooks.secrets.files.vault import fields
+    from playbooks.argocd.files import github_setup
     if (hasattr(github_setup, 'provision') and
             getattr(github_setup, 'REPOSITORY_CREATION_SUSPENDED', False) is not True):
         raise ValueError('Legacy repository creation must be suspended by reviewed source before native import')

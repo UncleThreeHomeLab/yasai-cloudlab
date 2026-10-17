@@ -3,7 +3,7 @@ import json
 import subprocess
 import time
 try:
-    from automation.gitops.source_revision import matches_revision
+    from playbooks.argocd.files.source_revision import matches_revision
 except ModuleNotFoundError:
     from source_revision import matches_revision  # Installed beside the standalone VM modules.
 

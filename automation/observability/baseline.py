@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.identity.owner_enrollment import inputs
 from automation.identity.session_fixture import scope
 from automation.identity.session_setup import environment, wait_private_source

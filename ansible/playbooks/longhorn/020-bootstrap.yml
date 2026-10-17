@@ -1,0 +1,9 @@
+---
+- name: Seed and release replicated storage ownership
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Seed and release replicated storage ownership tasks
+      ansible.builtin.import_tasks: tasks/controller-main.yml

@@ -14,8 +14,8 @@ def prepare(definition, action):
         return {'identity_change_required': False}
     if action not in ('provision-client', 'retire-client', 'remove-client'):
         raise ValueError('Unsupported service client lifecycle')
-    from automation.gitops.github_setup import inputs, repository
-    from automation.credentials.vault import fields
+    from playbooks.argocd.files.github_setup import inputs, repository
+    from playbooks.secrets.files.vault import fields
     values, api = inputs()
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     credentials = json.loads(fields('keycloak-client-secrets', ('client_secrets',))['client_secrets'])

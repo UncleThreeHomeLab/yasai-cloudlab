@@ -12,7 +12,7 @@
       ansible.builtin.import_tasks: "/workspace/ansible/playbooks/host/tasks/identity.yml"
 
     - name: Validate published handoff inputs
-      ansible.builtin.command: python /workspace/automation/gitops/render.py
+      ansible.builtin.command: python /workspace/ansible/playbooks/argocd/files/render.py
       delegate_to: localhost
       become: false
       register: gitops_payload

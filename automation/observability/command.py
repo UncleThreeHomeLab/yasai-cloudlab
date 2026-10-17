@@ -17,7 +17,7 @@ def environment():
     if not values.get('OP_SERVICE_ACCOUNT_TOKEN'):
         raise ValueError('Missing .env input: OP_SERVICE_ACCOUNT_TOKEN')
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values['OP_SERVICE_ACCOUNT_TOKEN']
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     return API(fields('uptimerobot-management', ('API_KEY',))['API_KEY'])
 
 

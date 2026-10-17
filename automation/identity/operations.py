@@ -116,7 +116,7 @@ def main():
         compile_state(realm, request['rp_id'], source, request['client_secrets'], revocations)
     if sys.argv[1:] == ['--publish']:
         from automation.identity.private_source import publish
-        from automation.gitops.github_setup import inputs
+        from playbooks.argocd.files.github_setup import inputs
         values, api = inputs()
         print(json.dumps(publish(api, values, private_files(source, revocations,
             request['client_secrets'], request['rp_id'], integration)), sort_keys=True))

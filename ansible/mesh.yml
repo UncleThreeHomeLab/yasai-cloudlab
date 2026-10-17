@@ -13,7 +13,7 @@
 
     - name: Render committed public inputs for the bounded mesh check
       ansible.builtin.command:
-        argv: [python, /workspace/automation/gitops/render.py]
+        argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
       delegate_to: localhost
       become: false
       register: gitops_payload

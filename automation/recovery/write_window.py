@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'longhorn'))
-from monthly_window import seconds_remaining
+try:
+    from playbooks.longhorn.files.monthly_window import seconds_remaining
+except ModuleNotFoundError:
+    from monthly_window import seconds_remaining  # Installed beside independent recovery tooling.
 
 _initial = False
 _replacement = False

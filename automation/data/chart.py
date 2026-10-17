@@ -11,7 +11,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from automation.data.vendor_cnpg import patched
-from automation.gitops.render import images
+from playbooks.argocd.files.render import images
 
 
 def render(name, values=None):

@@ -62,7 +62,7 @@ def gitops_preflight():
     import yaml
     settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
     catalog(required=settings.get('services', {}).get('enabled', False))
-    result = subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'preflight'], check=False)
+    result = subprocess.run([sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'preflight'], check=False)
     if result.returncode:
         raise SystemExit('Public GitOps preflight failed before host mutation.')
 
@@ -71,7 +71,7 @@ def main():
     if '/workspace' not in sys.path:
         sys.path.insert(0, '/workspace')
     if sys.argv[1:] == ['gitops-controller-recover']:
-        raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.gitops.recover'],
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'playbooks.argocd.files.recover'],
                                        cwd='/workspace', check=False).returncode)
     if sys.argv[1:2] == ['observe']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.observability.command', *sys.argv[2:]],
@@ -136,16 +136,16 @@ def main():
     if action in {'publish-platform', 'github-app-check', 'private-fixture-prepare'}:
         module = {'publish-platform': 'publish_snapshot.py',
                   'github-app-check': 'github_app.py', 'private-fixture-prepare': 'private_fixture.py'}[action]
-        result = subprocess.run([sys.executable, '/workspace/automation/gitops/' + module], check=False)
+        result = subprocess.run([sys.executable, '/workspace/ansible/playbooks/argocd/files/' + module], check=False)
         if result.returncode:
             raise SystemExit(result.returncode)
         return
     if action == 'charts':
         subprocess.run([sys.executable, '/workspace/verification/integration/chart_parity.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/external_secrets/chart.py', 'check'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/longhorn/chart.py', 'check'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/longhorn/backup_parity.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/gitops/render.py', 'check'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/secrets/files/chart.py', 'check'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/longhorn/files/chart.py', 'check'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/longhorn/files/backup_parity.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/certificates/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/mesh/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/connectivity/chart.py'], check=True)
@@ -171,7 +171,7 @@ def main():
         from write_window import authorize_initial
         authorize_initial()
     if action in {'monthly-proof', 'recovery-monthly'}:
-        sys.path.insert(0, '/workspace/automation/longhorn')
+        sys.path.insert(0, '/workspace/ansible/playbooks/longhorn/files')
         from monthly_window import require_window
         require_window(reserve=3600)
         if action == 'monthly-proof':

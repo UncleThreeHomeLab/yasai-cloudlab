@@ -5,7 +5,7 @@ from pathlib import Path
 import shlex
 import sys
 
-from automation.gitops.render import committed_payload
+from playbooks.argocd.files.render import committed_payload
 from automation.connectivity.preflight import ssh
 from automation.observability.configuration import grafana
 from automation.observability.values import values

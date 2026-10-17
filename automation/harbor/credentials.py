@@ -7,7 +7,7 @@ import secrets
 
 from dotenv import dotenv_values
 
-from automation.credentials.provision import ensure_items, command
+from playbooks.secrets.files.provision import ensure_items, command
 from automation.harbor.preflight import CONTRACT
 
 PROJECTS = tuple(CONTRACT['projects'])

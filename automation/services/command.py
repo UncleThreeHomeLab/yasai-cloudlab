@@ -47,8 +47,8 @@ def main(arguments=None):
         print(json.dumps(bundles(value),sort_keys=True))
         return
     if args.action == 'private-fixture':
-        from automation.gitops.github_setup import inputs
-        from automation.gitops.private_fixture import prepare_service
+        from playbooks.argocd.files.github_setup import inputs
+        from playbooks.argocd.files.private_fixture import prepare_service
         environment, api = inputs()
         print(json.dumps(prepare_service(api, environment, value), sort_keys=True))
         return

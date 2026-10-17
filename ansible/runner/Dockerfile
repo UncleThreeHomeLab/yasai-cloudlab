@@ -28,6 +28,7 @@ COPY --from=provider-build /provider-mirror /opt/providers
 COPY providers.tfrc /opt/runner/providers.tfrc
 COPY run.py /opt/runner/run.py
 ENV ANSIBLE_CONFIG=/workspace/ansible/ansible.cfg \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/workspace/ansible:/workspace
 WORKDIR /workspace/ansible
 ENTRYPOINT ["python", "/opt/runner/run.py"]

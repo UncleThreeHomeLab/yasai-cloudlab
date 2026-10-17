@@ -8,36 +8,29 @@
     wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
   tasks:
     - name: Verify persistent storage prerequisites
-      ansible.builtin.include_role:
-        name: longhorn_host
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/host-verify.yml
 
 - name: Verify cluster readiness and cross-component behavior
   hosts: k3s_servers
   become: true
   gather_facts: false
   any_errors_fatal: true
+  vars_files: [/workspace/ansible/playbooks/longhorn/vars.yml]
   tasks:
     - name: Run disposable integration checks
       ansible.builtin.include_role:
         name: cluster_checks
     - name: Verify External Secrets and CloudLab vault access
-      ansible.builtin.include_role:
-        name: external_secrets
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/secrets/tasks/verify.yml
     - name: Accept the Longhorn owner after disposable restore checks
-      ansible.builtin.include_role:
-        name: longhorn
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/controller-verify.yml
       when: longhorn_gitops_enabled | bool
     - name: Verify consistent local capture without cloud writes
       ansible.builtin.include_role:
         name: recovery
         tasks_from: verify
     - name: Verify B2 credential migration after successful backup restoration
-      ansible.builtin.include_role:
-        name: longhorn_backup
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/backup-verify.yml
       when: longhorn_backup_enabled | bool
     - name: Observe foundation controllers without restarts or rollouts for sixty seconds
       ansible.builtin.command:
@@ -55,9 +48,22 @@
       ansible.builtin.debug:
         msg: '{{ controller_stability.stdout | from_json }}'
     - name: Verify public GitOps convergence and authorization
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/verify.yml
+    - name: Verify certificate issuance and reissuance
       ansible.builtin.include_role:
-        name: gitops
+        name: certificates
         tasks_from: verify
+      when: certificates_enabled | bool
+    - name: Verify ambient identity and gateway isolation
+      ansible.builtin.include_role:
+        name: mesh
+        tasks_from: verify
+      when: mesh_enabled | bool
+    - name: Verify outside and tailnet access
+      ansible.builtin.include_role:
+        name: connectivity
+        tasks_from: verify
+      when: access_enabled | bool
     - name: Verify application data and coordinated local recovery
       ansible.builtin.include_role:
         name: application_data

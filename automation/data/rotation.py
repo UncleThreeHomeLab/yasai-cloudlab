@@ -39,7 +39,7 @@ def replacement(document, names):
 
 def local():
     from dotenv import dotenv_values
-    from automation.credentials.provision import command
+    from playbooks.secrets.files.provision import command
     from automation.connectivity.preflight import ssh
     from automation.data.control import atomic
     os.umask(0o077)

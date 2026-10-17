@@ -21,7 +21,7 @@
 
 - name: Install the shared cloud-write window contract
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/longhorn/monthly_window.py'
+    src: '{{ playbook_dir }}/../ansible/playbooks/longhorn/files/monthly_window.py'
     dest: /opt/cloudlab/longhorn/monthly_window.py
     mode: '0600'
 

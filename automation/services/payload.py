@@ -1,7 +1,7 @@
 """Compile the administrator catalog from one private input and committed sources."""
 import json
 
-from automation.gitops.render import committed_payload
+from playbooks.argocd.files.render import committed_payload
 from automation.services.inputs import catalog
 
 

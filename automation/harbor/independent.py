@@ -9,7 +9,7 @@ import time
 
 from dotenv import dotenv_values
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.data.remote import require_window
 from automation.harbor import recovery
 from automation.harbor.remote import Repository

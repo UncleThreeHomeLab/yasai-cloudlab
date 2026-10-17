@@ -90,7 +90,7 @@ class SessionTests(unittest.TestCase):
             with patch.object(sessions.api, 'WORK', Path(temporary)), patch.object(sessions, 'CHECKPOINT', checkpoint), \
                     patch('automation.identity.owner_enrollment.inputs', return_value=({}, Mock(), {}, {})), \
                     patch('automation.identity.session_setup.environment'), \
-                    patch('automation.credentials.vault.fields') as fields, \
+                    patch('playbooks.secrets.files.vault.fields') as fields, \
                     patch('automation.identity.session_setup.retire') as retire:
                 fields.return_value = {'username': 'primary', 'ownership_id': 'a' * 32}
                 with self.assertRaises(ValueError): sessions.cleanup()

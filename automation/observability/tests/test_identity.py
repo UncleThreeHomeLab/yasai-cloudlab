@@ -17,7 +17,7 @@ class ClientContractTests(unittest.TestCase):
         def metadata():
             order.append('inspection')
             return {'metadata': True}
-        with patch('automation.gitops.github_setup.inputs', side_effect=inputs), \
+        with patch('playbooks.argocd.files.github_setup.inputs', side_effect=inputs), \
                 patch('automation.observability.payload.metadata', side_effect=metadata), \
                 patch('automation.observability.identity.provision', return_value={'private_source_changed': False}) as publish, \
                 patch.dict('os.environ', {}, clear=True):

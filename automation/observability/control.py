@@ -5,7 +5,7 @@ import os
 def identity_prepare():
     from automation.observability.payload import metadata
     from automation.observability.identity import provision
-    from automation.gitops.github_setup import inputs
+    from playbooks.argocd.files.github_setup import inputs
     values, api = inputs()
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
         if not values.get(key): raise ValueError('Missing VM input: ' + key)

@@ -11,8 +11,8 @@ from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.credentials.provision import ensure_items, command
-from automation.credentials.vault import fields
+from playbooks.secrets.files.provision import ensure_items, command
+from playbooks.secrets.files.vault import fields
 
 
 def definitions():

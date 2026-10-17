@@ -9,7 +9,7 @@
     path: '{{ item }}'
     state: directory
     mode: '0700'
-  loop: [/opt/cloudlab/automation/identity, /opt/cloudlab/automation/gitops, /opt/cloudlab/automation/connectivity, /var/lib/cloudlab/identity]
+  loop: [/opt/cloudlab/automation/identity, /opt/cloudlab/playbooks/argocd/files, /opt/cloudlab/automation/connectivity, /var/lib/cloudlab/identity]
 
 - name: Install the independent public DNS probe from its connectivity owner
   ansible.builtin.copy:
@@ -19,8 +19,8 @@
 
 - name: Install the shared private Git credential template from its owner
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/gitops/private_sources.py'
-    dest: /opt/cloudlab/automation/gitops/private_sources.py
+    src: '{{ playbook_dir }}/../ansible/playbooks/argocd/files/private_sources.py'
+    dest: /opt/cloudlab/playbooks/argocd/files/private_sources.py
     mode: '0600'
 
 - name: Install identity runtime from its owning module
@@ -32,8 +32,8 @@
 
 - name: Install the bounded public root handoff from its GitOps owner
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/gitops/{{ item }}'
-    dest: '/opt/cloudlab/automation/gitops/{{ item }}'
+    src: '{{ playbook_dir }}/../ansible/playbooks/argocd/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/argocd/files/{{ item }}'
     mode: '0600'
   loop: [bootstrap.py, source_transition.py, sync_recovery.py]
 

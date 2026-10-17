@@ -1,7 +1,7 @@
 """Validate App grants and exact repository boundaries without write-capable tokens."""
-from automation.credentials.vault import fields
-from automation.gitops.github_app import app_token
-from automation.gitops.github_setup import GitHub, configuration
+from playbooks.secrets.files.vault import fields
+from playbooks.argocd.files.github_app import app_token
+from playbooks.argocd.files.github_setup import GitHub, configuration
 
 APPS = {
     'github-arc': (('private-fixture',), {'administration': 'write', 'metadata': 'read'}),

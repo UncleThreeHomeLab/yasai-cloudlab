@@ -1,0 +1,9 @@
+---
+- name: Verify public and private GitOps boundaries
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Verify public and private GitOps boundaries tasks
+      ansible.builtin.import_tasks: tasks/verify.yml

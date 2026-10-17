@@ -45,8 +45,8 @@ def membership(source, revoked, values, request):
 
 def provision(request):
     from dotenv import dotenv_values
-    from automation.credentials.provision import ensure_items
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.provision import ensure_items
+    from playbooks.secrets.files.vault import fields
     nonce = scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     writer = environment.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN')

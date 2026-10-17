@@ -6,7 +6,7 @@ from pathlib import Path
 import secrets
 
 from dotenv import dotenv_values
-from automation.credentials.provision import ensure_items
+from playbooks.secrets.files.provision import ensure_items
 
 ROOT = Path(__file__).resolve().parents[2]
 

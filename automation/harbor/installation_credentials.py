@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from dotenv import dotenv_values
 
-from automation.credentials.provision import ensure_items
+from playbooks.secrets.files.provision import ensure_items
 
 
 def signing_material():

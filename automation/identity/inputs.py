@@ -9,16 +9,16 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.gitops.render import committed_payload
-from automation.gitops.github_setup import repository
+from playbooks.argocd.files.render import committed_payload
+from playbooks.argocd.files.github_setup import repository
 
 
 def native_argo(values):
     import urllib.request
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.connectivity.cloudflare import API
-    from automation.gitops.github_app import app_token, verify_installation
-    from automation.gitops.github_setup import GitHub
+    from playbooks.argocd.files.github_app import app_token, verify_installation
+    from playbooks.argocd.files.github_setup import GitHub
     from automation.identity.private_source import argo_values
     from automation.connectivity.contract import host_rules
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
