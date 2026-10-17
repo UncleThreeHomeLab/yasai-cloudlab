@@ -91,10 +91,12 @@
   until:
     - (services_notes_application.stdout | from_json).spec.source.helm.valuesObject.definition is defined
     - ((services_notes_application.stdout | from_json).status.sync.revision | default('')) == (services_payload.stdout | from_json).revision
-    - ((services_notes_application.stdout | from_json).status.operationState.phase | default('')) == 'Succeeded'
+    - ((services_notes_application.stdout | from_json).status.sync.status | default('')) == 'Synced'
+    - ((services_notes_application.stdout | from_json).status.health.status | default('')) == 'Healthy'
+    - ((services_notes_application.stdout | from_json).status.operationState.phase | default('')) not in ['Running', 'Terminating']
     - >-
-      ((services_notes_application.stdout | from_json).status.operationState.syncResult.revision | default(''))
-      == (services_payload.stdout | from_json).revision
+      ((services_notes_application.stdout | from_json).status.conditions | default([])
+       | selectattr('type', 'match', '.*Error$') | list | length) == 0
     - (services_notes_application.stdout | from_json).operation is not defined
   retries: 60
   delay: 5
