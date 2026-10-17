@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit, quote
 
-from automation.identity.integrations import issuer
-from automation.identity.configuration import exact_url
+from playbooks.keycloak.files.integrations import issuer
+from playbooks.keycloak.files.configuration import exact_url
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT / 'platform/observability/policy.json').read_text())

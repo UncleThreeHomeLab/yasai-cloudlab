@@ -36,7 +36,7 @@ class DeploymentTests(unittest.TestCase):
                 [sys.executable, '-I', '-c',
                  'import sys; sys.path.insert(0, sys.argv[1]); '
                  'from playbooks.data.files import control, configuration, backup, verify, rotation; '
-                 'from automation.identity import maintenance, recovery, isolated_restore; '
+                 'from playbooks.keycloak.files import maintenance, recovery, isolated_restore; '
                  'assert control.ROOT == __import__("pathlib").Path(sys.argv[1]); '
                  'assert callable(configuration.configure); assert callable(backup.freshness)', str(base)],
                 cwd=base, env=environment, capture_output=True, text=True, timeout=15)

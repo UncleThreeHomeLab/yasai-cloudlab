@@ -72,7 +72,7 @@ class HandoffTests(unittest.TestCase):
     def test_access_prerequisite_requires_accepted_integration_and_current_repair_gate(self):
         snapshot, _ = cloudflare_owner()
         state = copy.deepcopy(snapshot['owner'])
-        with patch('automation.identity.access_cutover.browser_gate') as gate:
+        with patch('playbooks.keycloak.files.access_cutover.browser_gate') as gate:
             subject.prerequisites(state, snapshot)
             gate.assert_called_once_with('synthetic', None)
             state['identity_cutover']['phase'] = 'configured'

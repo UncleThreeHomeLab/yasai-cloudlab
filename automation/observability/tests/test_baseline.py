@@ -11,7 +11,7 @@ from automation.observability.slo import definition
 
 class ReleaseEvidenceTests(unittest.TestCase):
     def test_failed_viewer_cleanup_requires_exact_applications_ownership(self):
-        from automation.identity.lifecycle import offboard_scope
+        from playbooks.keycloak.files.lifecycle import offboard_scope
         nonce = 'a' * 32
         with tempfile.TemporaryDirectory() as directory:
             checkpoint = Path(directory, 'fixture.json')
@@ -25,9 +25,9 @@ class ReleaseEvidenceTests(unittest.TestCase):
                   patch('automation.observability.baseline.inputs', return_value=({}, object(), {}, {})),
                   patch('automation.observability.baseline.environment'),
                   patch('automation.observability.baseline.fields', return_value=credentials) as vault,
-                  patch('automation.identity.session_acceptance.remote_state', return_value=identity),
-                  patch('automation.identity.session_acceptance.offboard_inputs') as tombstone,
-                  patch('automation.identity.lifecycle.local_offboard', side_effect=offboard_scope) as revoke):
+                  patch('playbooks.keycloak.tests.session_acceptance.remote_state', return_value=identity),
+                  patch('playbooks.keycloak.tests.session_acceptance.offboard_inputs') as tombstone,
+                  patch('playbooks.keycloak.files.lifecycle.local_offboard', side_effect=offboard_scope) as revoke):
                 for invalid in (dict(credentials, ownership_id='b' * 32), dict(credentials, username='primary')):
                     vault.return_value = invalid
                     with self.assertRaises(ValueError): cleanup()
@@ -44,7 +44,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 self.assertFalse(checkpoint.exists())
 
     def test_logout_waits_for_native_disable_and_preserves_checkpoint_on_drift(self):
-        from automation.identity.lifecycle import offboard_scope
+        from playbooks.keycloak.files.lifecycle import offboard_scope
         active = {'realm': 'applications', 'username': 'proof-' + 'a' * 32,
                   'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid',
                   'enabled': True, 'preservation': 'unchanged'}
@@ -52,9 +52,9 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             checkpoint = Path(directory, 'fixture.json')
             with (patch('automation.observability.baseline.CHECKPOINT', checkpoint),
-                  patch('automation.identity.session_acceptance.remote_state') as state,
-                  patch('automation.identity.session_acceptance.offboard_inputs'),
-                  patch('automation.identity.lifecycle.local_offboard', side_effect=offboard_scope) as revoke,
+                  patch('playbooks.keycloak.tests.session_acceptance.remote_state') as state,
+                  patch('playbooks.keycloak.tests.session_acceptance.offboard_inputs'),
+                  patch('playbooks.keycloak.files.lifecycle.local_offboard', side_effect=offboard_scope) as revoke,
                   patch('automation.observability.baseline.time.sleep') as sleep):
                 checkpoint.write_text('{}')
                 state.side_effect = [active, dict(disabled, user_id='foreign')]

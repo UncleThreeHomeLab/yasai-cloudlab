@@ -93,7 +93,7 @@ def bundles(value):
     from playbooks.argocd.files.private_fixture import prepare_service
     value = validate_catalog(copy.deepcopy(value))
     environment, api = inputs()
-    from automation.identity.private_source import decode_contents
+    from playbooks.keycloak.files.private_source import decode_contents
     current = api.request('GET', 'repos/' + repository(environment['PRIVATE_CONFIG_REPOSITORY']) +
                           '/contents/services/catalog.json?ref=main', missing=True)
     accepted = validate_catalog(json.loads(decode_contents(current)))['catalog'] if current else []

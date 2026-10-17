@@ -4,7 +4,7 @@ import json
 from playbooks.secrets.files.vault import fields
 from playbooks.argocd.files.github_app import app_token, verify_installation
 from playbooks.argocd.files.github_setup import GitHub, repository
-from automation.identity.private_source import decode_contents
+from playbooks.keycloak.files.private_source import decode_contents
 
 WRITER = None
 

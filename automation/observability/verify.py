@@ -9,7 +9,7 @@ import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from playbooks.istio.files.kube import get, kube, application_ready, condition, wait
-from automation.identity.health import direct_https
+from playbooks.keycloak.files.health import direct_https
 
 NAMESPACE = 'cloudlab-observability'
 

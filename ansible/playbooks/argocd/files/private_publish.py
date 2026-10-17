@@ -4,7 +4,7 @@ import json
 from urllib.parse import quote
 
 from playbooks.argocd.files.github_setup import inspect, repository
-from automation.identity.private_source import decode_contents
+from playbooks.keycloak.files.private_source import decode_contents
 
 
 def publish(api, values, files, *, scope="identity"):

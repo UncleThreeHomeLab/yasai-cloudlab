@@ -280,10 +280,10 @@ def run(manifest, offsite=False):
             if recovered != manifest['notes_probe']:
                 raise RuntimeError('Restart lost restored notes or attachment references')
         authenticated_sql(manifest)
-        from automation.identity.recovery import verify_restored
+        from playbooks.keycloak.files.recovery import verify_restored
         identity_evidence = verify_restored(manifest, sql)
         if 'identity' in manifest:
-            from automation.identity.isolated_restore import run as restore_identity
+            from playbooks.keycloak.files.isolated_restore import run as restore_identity
             identity_evidence.update(restore_identity(manifest, sql))
         return {**identity_evidence, 'restored': True, 'objects': len(manifest['objects']), 'roles': len(manifest['roles']),
                 'extensions': len(actual_extensions), 'seconds': round(time.monotonic() - started, 3),

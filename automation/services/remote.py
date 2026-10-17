@@ -3,7 +3,7 @@ import json
 import sys
 
 from playbooks.istio.files.kube import get, condition, application_ready, kube, wait
-from automation.identity.health import direct_https
+from playbooks.keycloak.files.health import direct_https
 
 
 def inspect(request):
@@ -119,7 +119,7 @@ def inspect(request):
         revision = private.get('status', {}).get('sync', {}).get('revision') if private else None
         if not revision or not application_ready('cloudlab-identity-private', revision):
             raise RuntimeError('Private identity source is not converged')
-        from automation.identity.bootstrap import APP, BASE, reconciled
+        from playbooks.keycloak.files.bootstrap import APP, BASE, reconciled
         state = json.loads((BASE / 'ownership.json').read_text())
         root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
         identity = get('application.argoproj.io', APP, 'argocd') or {}

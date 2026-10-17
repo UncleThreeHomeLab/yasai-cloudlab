@@ -11,9 +11,9 @@ import yaml
 
 from playbooks.secrets.files.vault import fields
 from playbooks.argocd.files.github_setup import inputs, repository
-from automation.identity.operations import change, private_files
-from automation.identity.private_source import decode_contents, publish
-from automation.identity.rotation import local
+from playbooks.keycloak.files.operations import change, private_files
+from playbooks.keycloak.files.private_source import decode_contents, publish
+from playbooks.keycloak.files.rotation import local
 from automation.observability.payload import metadata
 from automation.harbor.configuration import client
 

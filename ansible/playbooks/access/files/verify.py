@@ -143,7 +143,7 @@ def _run(*, failures=True, keep=False, reconcile=True):
     try:
         remote('prepare', **payload)
         if runtime.get('identity_server_present'):
-            from automation.identity.health import check, proxy_privacy
+            from playbooks.keycloak.files.health import check, proxy_privacy
             edge_address = public_address(protocol)
             output['identity_protocols'] = {realm: check('https://' + protocol + '/realms/' + realm, address=edge_address)
                                              for realm in ('platform', 'applications')}

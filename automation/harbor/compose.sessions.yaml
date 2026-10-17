@@ -18,7 +18,7 @@ services:
     mem_limit: 384m
     cpus: 0.5
   harbor-browser:
-    build: ../identity/browser
+    build: ../../ansible/playbooks/keycloak/tests/browser
     platform: linux/amd64
     entrypoint: [node, /proof/harbor.mjs]
     volumes: ["./browser.mjs:/proof/harbor.mjs:ro"]

@@ -8,7 +8,7 @@ import subprocess
 import yaml
 
 from playbooks.access.files.contract import runtime_rule, zone_name
-from automation.identity.configuration import client
+from playbooks.keycloak.files.configuration import client
 
 ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / 'charts/service'

@@ -20,7 +20,7 @@
   loop:
     - /opt/cloudlab/playbooks/data/files
     - /opt/cloudlab/playbooks/istio/files
-    - /opt/cloudlab/automation/identity
+    - /opt/cloudlab/playbooks/keycloak/files
     - /opt/cloudlab/playbooks/argocd/files
     - /opt/cloudlab/playbooks/longhorn/files
     - /opt/cloudlab/platform/data
@@ -100,7 +100,7 @@
 
 - name: Install identity hooks for the shared monthly capture and restore boundary
   ansible.builtin.copy:
-    src: '/workspace/automation/identity/{{ item }}'
-    dest: '/opt/cloudlab/automation/identity/{{ item }}'
+    src: '/workspace/ansible/playbooks/keycloak/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/keycloak/files/{{ item }}'
     mode: '0600'
   loop: [maintenance.py, recovery.py, configuration.py, isolated_restore.py, tokens.py]

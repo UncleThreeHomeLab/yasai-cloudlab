@@ -44,3 +44,8 @@ service ownership. Its shared lock protects adoption, capture and isolated resto
 operations and local freshness checks. `backup` explicitly orders control-plane,
 data/identity and Harbor recovery owners within the existing monthly window.
 Capture and restore retain prior verified generations until replacement succeeds.
+
+[Identity](playbooks/keycloak/) preserves the shared config-cli Lease, five-minute
+repair and private retirement tombstones. Setup reconciles only accepted identity;
+enrollment, client changes, offboarding and emergency repair remain named operations.
+Data capture and isolated restore retain physical signing state and current input checks.

@@ -8,9 +8,9 @@ import sys
 import time
 
 from playbooks.secrets.files.vault import fields
-from automation.identity.owner_enrollment import inputs
-from automation.identity.session_fixture import scope
-from automation.identity.session_setup import environment, wait_private_source
+from playbooks.keycloak.files.owner_enrollment import inputs
+from playbooks.keycloak.files.session_fixture import scope
+from playbooks.keycloak.tests.session_setup import environment, wait_private_source
 
 CHECKPOINT = Path('/recovery/notes-baseline-fixture.json')
 RESULT = Path('/recovery/notes-baseline-result.json')
@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def prepare():
-    from automation.identity.session_setup import prepare as prepare_viewer
+    from playbooks.keycloak.tests.session_setup import prepare as prepare_viewer
     prepare_viewer(CHECKPOINT, 'applications')
     return {'disposable_applications_viewer': True, 'primary_users_changed': False, 'baseline_measured': False}
 
@@ -81,7 +81,7 @@ def cleanup():
 
 
 def retire(api, values, request):
-    from automation.identity.session_setup import retire as retire_viewer
+    from playbooks.keycloak.tests.session_setup import retire as retire_viewer
     retire_viewer(api, values, request, CHECKPOINT)
 
 

@@ -8,7 +8,7 @@ import sys
 import time
 
 from playbooks.infrastructure.files import harbor as api
-from automation.identity.session_setup import prepare as prepare_viewer
+from playbooks.keycloak.tests.session_setup import prepare as prepare_viewer
 
 CHECKPOINT = api.WORK / 'browser/fixture.json'
 RESULT = api.WORK / 'browser/result.json'
@@ -65,9 +65,9 @@ def diagnostic(document):
 
 def cleanup():
     from playbooks.secrets.files.vault import fields
-    from automation.identity.owner_enrollment import inputs
-    from automation.identity.session_fixture import scope
-    from automation.identity.session_setup import environment, retire
+    from playbooks.keycloak.files.owner_enrollment import inputs
+    from playbooks.keycloak.files.session_fixture import scope
+    from playbooks.keycloak.tests.session_setup import environment, retire
     with (api.WORK / 'client.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         values, github, _source, _revoked = inputs()
@@ -84,8 +84,8 @@ def cleanup():
 def complete(client, request, pending):
     """Finish read-only acceptance without creating another browser session."""
     from automation.harbor.recovery import atomic
-    from automation.identity.session_acceptance import remote_state
-    from automation.identity.session_fixture import scope
+    from playbooks.keycloak.tests.session_acceptance import remote_state
+    from playbooks.keycloak.files.session_fixture import scope
     nonce = scope(request)
     if (request.get('realm') != 'platform' or set(pending) != {
             'nonce', 'user_id', 'preservation', 'binding', 'observation'} or pending['nonce'] != nonce):
@@ -110,9 +110,9 @@ def complete(client, request, pending):
 
 
 def verify():
-    from automation.identity.owner_enrollment import inputs
-    from automation.identity.session_setup import environment
-    from automation.identity.session_fixture import scope
+    from playbooks.keycloak.files.owner_enrollment import inputs
+    from playbooks.keycloak.tests.session_setup import environment
+    from playbooks.keycloak.files.session_fixture import scope
     os.umask(0o077)
     with (api.WORK / 'client.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -130,11 +130,11 @@ def run():
     from playbooks.secrets.files.vault import fields
     from automation.harbor.artifacts import receipt
     from automation.harbor.recovery import atomic
-    from automation.identity.lifecycle import local_offboard
-    from automation.identity.owner_enrollment import inputs
-    from automation.identity.session_acceptance import remote_state, offboard_inputs
-    from automation.identity.session_fixture import scope
-    from automation.identity.session_setup import environment
+    from playbooks.keycloak.files.lifecycle import local_offboard
+    from playbooks.keycloak.files.owner_enrollment import inputs
+    from playbooks.keycloak.tests.session_acceptance import remote_state, offboard_inputs
+    from playbooks.keycloak.files.session_fixture import scope
+    from playbooks.keycloak.tests.session_setup import environment
     os.umask(0o077)
     values, github, _source, _revoked = inputs()
     environment(values)
