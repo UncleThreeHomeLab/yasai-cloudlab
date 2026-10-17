@@ -4,10 +4,8 @@
   changed_when: false
 
 - name: Check the iSCSI daemon is active on each node
-  ansible.builtin.systemd_service:
-    name: iscsid
-  register: longhorn_iscsi_service
+  ansible.builtin.service_facts:
 
 - name: Require the iSCSI daemon active on each node
   ansible.builtin.assert:
-    that: longhorn_iscsi_service.status.ActiveState == 'active'
+    that: ansible_facts.services['iscsid.service'].state == 'running'
