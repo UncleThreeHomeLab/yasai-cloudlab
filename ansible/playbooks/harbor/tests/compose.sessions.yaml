@@ -1,0 +1,39 @@
+name: yasai-cloudlab
+services:
+  harbor-session-controller:
+    build: ../../../runner
+    platform: linux/amd64
+    entrypoint: [python, -m, playbooks.harbor.tests.sessions]
+    working_dir: /workspace
+    command: [prepare]
+    stdin_open: true
+    volumes:
+      - ../../../..:/workspace:ro
+      - ssh_known_hosts:/state
+      - harbor_infra_work:/infra-work
+    networks: [session-control, session-internet]
+    logging: {driver: none}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.5
+  harbor-browser:
+    build: ../../keycloak/tests/browser
+    platform: linux/amd64
+    entrypoint: [node, /proof/harbor.mjs]
+    volumes: ["./browser.mjs:/proof/harbor.mjs:ro"]
+    logging: {driver: none}
+    read_only: true
+    user: '1000:1000'
+    tmpfs: ["/tmp:uid=1000,gid=1000,mode=1777,size=128m"]
+    networks: [session-control, session-internet]
+    mem_limit: 768m
+    cpus: 1
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+networks:
+  session-control: {internal: true}
+  session-internet: {}
+volumes:
+  ssh_known_hosts:
+  harbor_infra_work:

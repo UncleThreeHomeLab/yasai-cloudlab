@@ -11,7 +11,7 @@
         fail_msg: Registry recovery requires its configured component.
     - name: Run monthly registry capture and verified retention
       ansible.builtin.command:
-        argv: [python3, /opt/cloudlab/automation/harbor/recovery.py, monthly]
+        argv: [python3, /opt/cloudlab/playbooks/harbor/files/recovery.py, monthly]
       register: harbor_backup
       no_log: true
       changed_when: not (harbor_backup.stdout | from_json).get('already_verified_this_month', false)

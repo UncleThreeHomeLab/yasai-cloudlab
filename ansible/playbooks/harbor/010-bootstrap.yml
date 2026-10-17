@@ -1,0 +1,10 @@
+---
+- name: Install Harbor runtime
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Install Harbor runtime
+      ansible.builtin.import_tasks: tasks/runtime.yml
+      when: harbor_enabled | bool

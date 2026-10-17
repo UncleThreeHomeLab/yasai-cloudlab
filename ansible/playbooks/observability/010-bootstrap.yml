@@ -1,0 +1,10 @@
+---
+- name: Install telemetry runtime
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Install telemetry runtime
+      ansible.builtin.import_tasks: tasks/runtime.yml
+      when: observability_enabled | bool

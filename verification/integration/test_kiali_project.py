@@ -6,7 +6,7 @@ import subprocess
 import yaml
 
 from playbooks.argocd.files.render import payload
-from automation.observability.chart import configuration, render
+from playbooks.observability.files.chart import configuration, render
 
 
 class KialiProjectTests(unittest.TestCase):

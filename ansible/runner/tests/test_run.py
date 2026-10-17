@@ -35,6 +35,24 @@ class RunnerTests(unittest.TestCase):
         dotenv.assert_not_called()
         playbook.assert_not_called()
         self.assertIn('playbooks.argocd.files.recover', run.call_args.args[0])
+    def test_observation_fixtures_dispatch_outside_runtime_and_preserve_failures(self):
+        for arguments, module, tail in (
+                (['baseline-prepare'], 'playbooks.observability.tests.baseline', ['prepare']),
+                (['baseline-cleanup'], 'playbooks.observability.tests.baseline', ['cleanup']),
+                (['external-check'], 'playbooks.observability.files.command', ['external-check']),
+                (['baseline-prepare', 'unexpected'], 'playbooks.observability.files.command', ['baseline-prepare', 'unexpected'])):
+            with self.subTest(arguments=arguments), \
+                    patch.object(runner.sys, 'argv', ['run.py', 'observe', *arguments]), \
+                    patch.object(runner, 'dotenv_values') as inputs, \
+                    patch.object(runner, 'playbook') as apply, \
+                    patch.object(runner.subprocess, 'run', return_value=Mock(returncode=3)) as command:
+                with self.assertRaises(SystemExit) as stopped:
+                    runner.main()
+                self.assertEqual(stopped.exception.code, 3)
+                self.assertEqual(command.call_args.args[0][1:], ['-m', module, *tail])
+                inputs.assert_not_called()
+                apply.assert_not_called()
+
     def test_real_ansible_workdir_imports_workspace_before_missing_input_gate(self):
         code = '''import importlib.util,sys
 from unittest.mock import patch

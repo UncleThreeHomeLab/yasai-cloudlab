@@ -1,0 +1,22 @@
+---
+- name: Resolve published Harbor installation and private identity inputs
+  ansible.builtin.command: python -m playbooks.harbor.files.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  register: harbor_payload
+  changed_when: false
+  no_log: true
+
+- name: Reconcile Harbor only through Argo
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/harbor/files/bootstrap.py
+  args: {stdin: '{{ harbor_payload.stdout }}'}
+  register: harbor_applied
+  changed_when: harbor_applied.rc == 0 and (harbor_applied.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require Harbor installation convergence
+  ansible.builtin.assert:
+    that: harbor_applied.rc == 0
+    fail_msg: Harbor installation incomplete; existing credentials, volumes and owners retained.

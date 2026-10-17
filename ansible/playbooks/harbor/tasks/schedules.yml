@@ -1,0 +1,30 @@
+---
+- name: Install bounded Harbor recovery and local receipt services
+  ansible.builtin.template:
+    src: /workspace/ansible/playbooks/harbor/templates/service.j2
+    dest: '/etc/systemd/system/cloudlab-harbor-{{ item }}.service'
+    mode: '0644'
+  loop: [monthly, freshness]
+  notify: Reload Harbor units
+
+- name: Install monthly export and daily local-only receipt schedules
+  ansible.builtin.template:
+    src: /workspace/ansible/playbooks/harbor/templates/timer.j2
+    dest: '/etc/systemd/system/cloudlab-harbor-{{ item.name }}.timer'
+    mode: '0644'
+  vars:
+    harbor_policy: "{{ lookup('file', '/workspace/platform/harbor/policy.json') | from_json }}"
+  loop:
+    - {name: monthly, calendar: '{{ harbor_policy.monthly_calendar }}'}
+    - {name: freshness, calendar: '{{ harbor_policy.freshness_calendar }}'}
+  notify: Reload Harbor units
+
+- name: Load declared Harbor recovery units
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable monthly export and local-only freshness checks
+  ansible.builtin.systemd_service:
+    name: 'cloudlab-harbor-{{ item }}.timer'
+    enabled: true
+    state: started
+  loop: [monthly, freshness]

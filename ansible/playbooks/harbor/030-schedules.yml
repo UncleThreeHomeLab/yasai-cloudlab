@@ -1,0 +1,13 @@
+---
+- name: Install Harbor recovery schedules
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  handlers:
+    - name: Load Harbor handlers
+      ansible.builtin.import_tasks: handlers/handlers.yml
+  tasks:
+    - name: Install Harbor recovery schedules
+      ansible.builtin.import_tasks: tasks/schedules.yml
+      when: harbor_enabled | bool

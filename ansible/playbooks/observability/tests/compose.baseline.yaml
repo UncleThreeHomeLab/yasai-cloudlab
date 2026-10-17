@@ -1,0 +1,36 @@
+name: yasai-cloudlab
+services:
+  baseline-controller:
+    build: ../../../runner
+    platform: linux/amd64
+    entrypoint: [python, -m, playbooks.observability.tests.baseline, run]
+    working_dir: /workspace
+    stdin_open: true
+    volumes: ["../../../..:/workspace:ro", "ssh_known_hosts:/state", "recovery_outputs:/recovery"]
+    logging: {driver: none}
+    depends_on: [baseline-browser]
+    networks: [baseline-control, baseline-internet]
+    mem_limit: 384m
+    cpus: 0.5
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  baseline-browser:
+    build: ../../keycloak/tests/browser
+    platform: linux/amd64
+    entrypoint: [node, /proof/notes-baseline.mjs]
+    volumes: ["./browser/notes-baseline.mjs:/proof/notes-baseline.mjs:ro"]
+    logging: {driver: none}
+    read_only: true
+    user: '1000:1000'
+    tmpfs: ["/tmp:uid=1000,gid=1000,mode=1777,size=128m"]
+    networks: [baseline-control, baseline-internet]
+    mem_limit: 768m
+    cpus: 1
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+networks:
+  baseline-control: {internal: true}
+  baseline-internet: {}
+volumes:
+  ssh_known_hosts:
+  recovery_outputs:

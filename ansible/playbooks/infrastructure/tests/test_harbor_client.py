@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import yaml
 
 from playbooks.infrastructure.files import harbor as api
-from automation.harbor import api_policy
+from playbooks.harbor.files import api_policy
 
 
 class ClientTests(unittest.TestCase):

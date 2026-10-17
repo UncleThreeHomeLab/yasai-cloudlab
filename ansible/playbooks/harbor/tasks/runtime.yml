@@ -1,0 +1,33 @@
+---
+- name: Install the parser used for independent Harbor restores
+  ansible.builtin.apt:
+    name: python3-yaml
+    state: present
+
+- name: Create private Harbor automation and recovery directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [/opt/cloudlab/playbooks/harbor/files, /opt/cloudlab/platform/harbor, /var/lib/cloudlab/harbor]
+
+- name: Install Harbor declaration and recovery owners
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/harbor/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/harbor/files/{{ item }}'
+    mode: '0600'
+  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, values.py, deployments.py]
+
+- name: Retain independent pinned artifacts for isolated Harbor restores
+  ansible.builtin.copy:
+    src: '/workspace/platform/harbor/server/'
+    dest: /opt/cloudlab/platform/harbor/server/
+    mode: '0600'
+    directory_mode: '0700'
+
+- name: Install the Harbor export policy and independent image pins
+  ansible.builtin.copy:
+    src: '/workspace/platform/harbor/{{ item }}'
+    dest: '/opt/cloudlab/platform/harbor/{{ item }}'
+    mode: '0600'
+  loop: [policy.json, images.lock.json, cosign.lock.json]

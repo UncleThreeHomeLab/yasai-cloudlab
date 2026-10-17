@@ -1,0 +1,13 @@
+---
+- name: Retire replaced non-data telemetry runtime
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Retire only replaced telemetry executables
+      ansible.builtin.file:
+        path: /opt/cloudlab/automation/observability/{{ item }}
+        state: absent
+      loop: [bootstrap.py, verify.py]
+      when: observability_enabled | bool
