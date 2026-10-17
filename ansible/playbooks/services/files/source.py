@@ -33,7 +33,8 @@ def publish(value, *, expected=None):
     if WRITER is None: WRITER = inputs()
     values, api = WRITER
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
-    current = api.request('GET', 'repos/' + repo + '/contents/services/catalog.json?ref=main', missing=True)
+    base = api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+    current = api.request('GET', 'repos/' + repo + '/contents/services/catalog.json?ref=' + base, missing=True)
     before = json.loads(decode_contents(current)) if current else None
     if expected is not None and before != expected:
         raise RuntimeError('Private catalog advanced; reread its complete input before changing publication intent')
@@ -49,7 +50,7 @@ def publish(value, *, expected=None):
             for kind, request in row['definition']['data'].items():
                 if new[name]['definition']['data'].get(kind) != request:
                     raise ValueError('Existing service data requests must be retained')
-    result = publish_owned(api, values, {'services/catalog.json': json.dumps(value, sort_keys=True, indent=2) + '\n'}, scope='services')
+    result = publish_owned(api, values, {'services/catalog.json': json.dumps(value, sort_keys=True, indent=2) + '\n'}, scope='services', expected_base=base)
     if result['private_source_changed']:
         pull = api.request('GET', 'repos/' + repo + '/pulls/' + str(result['private_pull_request']))
         merged = api.request('PUT', 'repos/' + repo + '/pulls/' + str(pull['number']) + '/merge',

@@ -7,7 +7,7 @@ from playbooks.argocd.files.github_setup import inspect, repository
 from playbooks.keycloak.files.private_source import decode_contents
 
 
-def publish(api, values, files, *, scope="identity"):
+def publish(api, values, files, *, scope="identity", expected_base=None):
     repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
     target = inspect(api, 'private-config', repo, True)
     if target is None:
@@ -22,6 +22,8 @@ def publish(api, values, files, *, scope="identity"):
     try:
         base = api.request('GET', prefix + '/git/ref/heads/main')['object']['sha']
     except RuntimeError as error:
+        if expected_base is not None:
+            raise RuntimeError('Private base is unavailable after validation; publication refused') from None
         if str(error) != 'GitHub repository operation failed: HTTP 409' or target.get('size') != 0:
             raise
         # GitHub cannot create a PR in an empty repository. Seed no identity data;
@@ -29,6 +31,8 @@ def publish(api, values, files, *, scope="identity"):
         api.request('PUT', prefix + '/contents/.gitkeep', {
             'message': 'Initialize private configuration repository', 'content': '', 'branch': 'main'})
         base = api.request('GET', prefix + '/git/ref/heads/main')['object']['sha']
+    if expected_base is not None and base != expected_base:
+        raise RuntimeError('Private base advanced after validation; regenerate before publication')
     changed = {}
     for path, content in files.items():
         current = api.request('GET', prefix + '/contents/' + path + '?ref=' + base, missing=True)
