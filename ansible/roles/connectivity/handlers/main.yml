@@ -1,0 +1,3 @@
+---
+- name: Load K3s service handler
+  ansible.builtin.import_tasks: "/workspace/ansible/playbooks/k3s/handlers/main.yml"

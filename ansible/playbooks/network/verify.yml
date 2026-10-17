@@ -1,0 +1,15 @@
+---
+- name: Verify encrypted transport and host firewall
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
+    wireguard_peer_endpoint: "{{ hostvars[wireguard_peer_host]['wireguard_public_endpoint'] }}"
+    wireguard_peer_public_key: "{{ hostvars[wireguard_peer_host]['wireguard_public_key'] }}"
+  tasks:
+    - name: Check encrypted traffic
+      ansible.builtin.import_tasks: tasks/wireguard-verify.yml
+    - name: Check host firewall
+      ansible.builtin.import_tasks: tasks/firewall-verify.yml

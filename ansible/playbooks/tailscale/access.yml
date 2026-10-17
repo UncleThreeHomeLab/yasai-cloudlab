@@ -1,0 +1,14 @@
+---
+- name: Verify allowed and denied independent SSH
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Verify allowed and denied independent SSH
+      ansible.builtin.command: python /workspace/ansible/playbooks/tailscale/files/verify_access.py
+      register: tailscale_operation
+      changed_when: false
+      no_log: true
+    - name: Report sanitized operation result
+      ansible.builtin.debug:
+        msg: "{{ tailscale_operation.stdout_lines }}"

@@ -9,7 +9,7 @@
   changed_when: false
 - name: Prove allowed and denied host access from the runner
   ansible.builtin.command:
-    argv: [python, /workspace/automation/tailscale/verify_access.py]
+    argv: [python, /workspace/ansible/playbooks/tailscale/files/verify_access.py]
   delegate_to: localhost
   become: false
   changed_when: false

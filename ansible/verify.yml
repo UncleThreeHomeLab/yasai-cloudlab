@@ -7,26 +7,10 @@
   vars:
     wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
   tasks:
-    - name: Derive the node identity
+    - name: Verify persistent storage prerequisites
       ansible.builtin.include_role:
-        name: host
-        tasks_from: identity
-    - name: Verify synchronized host clocks
-      ansible.builtin.include_role:
-        name: host
-        tasks_from: clock
-    - name: Verify independent host access
-      ansible.builtin.include_role:
-        name: tailscale
+        name: longhorn_host
         tasks_from: verify
-      when: tailscale_enabled | bool
-    - name: Verify each component on its host
-      ansible.builtin.include_role:
-        name: "{{ component_role }}"
-        tasks_from: verify
-      loop: [wireguard, firewall, k3s, longhorn_host]
-      loop_control:
-        loop_var: component_role
 
 - name: Verify cluster readiness and cross-component behavior
   hosts: k3s_servers
@@ -34,10 +18,6 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
-    - name: Verify Kubernetes readiness
-      ansible.builtin.include_role:
-        name: k3s
-        tasks_from: verify_cluster
     - name: Run disposable integration checks
       ansible.builtin.include_role:
         name: cluster_checks

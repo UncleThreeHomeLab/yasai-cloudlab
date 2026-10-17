@@ -6,9 +6,7 @@
   any_errors_fatal: true
   tasks:
     - name: Derive the node identity
-      ansible.builtin.include_role:
-        name: host
-        tasks_from: identity
+      ansible.builtin.import_tasks: "/workspace/ansible/playbooks/host/tasks/identity.yml"
 
 - name: Recover Longhorn only after its Argo writer is suspended in Git
   hosts: k3s_servers

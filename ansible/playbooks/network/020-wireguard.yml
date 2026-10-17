@@ -1,0 +1,16 @@
+---
+- name: Configure the encrypted point-to-point transport
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
+    wireguard_peer_endpoint: "{{ hostvars[wireguard_peer_host]['wireguard_public_endpoint'] }}"
+    wireguard_peer_public_key: "{{ hostvars[wireguard_peer_host]['wireguard_public_key'] }}"
+  tasks:
+    - name: Configure WireGuard
+      ansible.builtin.import_tasks: tasks/wireguard-main.yml
+  handlers:
+    - name: Load component service handlers
+      ansible.builtin.import_tasks: handlers/wireguard-main.yml

@@ -1,0 +1,11 @@
+---
+- name: Verify host identity and synchronized clocks
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Derive node identity
+      ansible.builtin.import_tasks: tasks/identity.yml
+    - name: Check host clocks
+      ansible.builtin.import_tasks: tasks/clock.yml

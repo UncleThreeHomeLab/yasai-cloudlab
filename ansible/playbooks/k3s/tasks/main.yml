@@ -1,0 +1,24 @@
+---
+- name: Validate K3s component inputs
+  ansible.builtin.validate_argument_spec:
+    argument_spec: "{{ (lookup('file', '/workspace/ansible/playbooks/k3s/argument_specs.yml') | from_yaml).argument_specs.main.options }}"
+    provided_arguments:
+      k3s_mode: "{{ k3s_mode }}"
+      k3s_service_name: "{{ k3s_service_name }}"
+      k3s_version: "{{ k3s_version }}"
+      k3s_binaries: "{{ k3s_binaries }}"
+      lab_node_name: "{{ lab_node_name }}"
+      wireguard_address: "{{ wireguard_address }}"
+      wireguard_interface: "{{ wireguard_interface }}"
+
+- name: Check the existing K3s installation
+  ansible.builtin.import_tasks: preflight.yml
+
+- name: Configure the node
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Install the pinned release
+  ansible.builtin.import_tasks: install.yml
+
+- name: Apply and start the service
+  ansible.builtin.import_tasks: service.yml

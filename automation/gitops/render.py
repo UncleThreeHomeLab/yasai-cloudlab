@@ -74,7 +74,7 @@ def committed_payload():
              'ansible/roles/certificates', 'ansible/group_vars/all/certificates.yml',
                'platform/connectivity', 'automation/connectivity', 'ansible/roles/connectivity',
                'ansible/group_vars/all/connectivity.yml', 'ansible/access.yml', 'ansible/access-cutover.yml',
-               'ansible/roles/k3s',
+               'ansible/playbooks/k3s',
                'automation/mesh', 'ansible/roles/mesh', 'ansible/group_vars/all/mesh.yml',
                'platform/data', 'automation/data', 'automation/credentials', 'ansible/roles/application_data',
                'ansible/group_vars/all/data.yml', 'ansible/data.yml',

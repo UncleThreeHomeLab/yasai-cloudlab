@@ -343,15 +343,26 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     with self.assertRaisesRegex(SystemExit, message):
                         runner.playbook('apply.yml', unchanged=True)
 
+    def test_policy_uses_named_operation_without_vm_access_inputs(self):
+        self.values = {'TAILSCALE_ADMIN_LOGIN': 'owner@example.test'}
+        self.invoke('tailnet-policy').assert_called_once_with('playbooks/tailscale/policy.yml')
+
+    def test_host_access_and_lifecycle_use_explicit_component_operations(self):
+        self.invoke('host-access').assert_called_once_with('playbooks/tailscale/access.yml')
+        for action, target, operation in [('host-reauth-worker', 'cloudlab-worker', 'reauth'), ('host-logout-server', 'cloudlab', 'logout')]:
+            self.invoke(action).assert_called_once_with('playbooks/tailscale/lifecycle.yml')
+            self.assertEqual(os.environ['LAB_TAILSCALE_TARGET'], target)
+            self.assertEqual(os.environ['LAB_TAILSCALE_ACTION'], operation)
+
     def test_migration_retrieves_backup_and_accepts_only_after_full_proof(self):
         self.values.update(TAILSCALE_HOSTS_ENABLED='1', K3S_BACKUP_ENABLED='1')
         with patch.object(runner.subprocess, 'run') as command:
             playbook = self.invoke('k3s-migrate')
         self.assertEqual(command.call_count, 2)
-        self.assertEqual(command.call_args_list[0].args[0][-1], '/workspace/automation/tailscale/verify_access.py')
+        self.assertEqual(command.call_args_list[0].args[0][-1], '/workspace/ansible/playbooks/tailscale/files/verify_access.py')
         self.assertEqual(command.call_args.args[0][-1], 'retrieve')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                         ['k3s-migration.yml', 'playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml', 'k3s-migration.yml'])
+                         ['playbooks/k3s/migrate.yml', 'playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml', 'playbooks/k3s/migrate.yml'])
         self.assertEqual(playbook.call_args_list[2].kwargs, {'unchanged': True})
 
     def test_migration_cannot_skip_host_access_or_recovery_gate(self):

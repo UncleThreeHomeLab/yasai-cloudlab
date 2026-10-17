@@ -11,7 +11,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / 'automation/tailscale'))
+sys.path.insert(0, str(ROOT / 'ansible/playbooks/tailscale/files'))
 from control import API
 from verify_access import binaries, tailnet_connect
 from automation.connectivity.traffic import https

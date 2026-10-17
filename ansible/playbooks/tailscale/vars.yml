@@ -1,0 +1,2 @@
+---
+tailscale_release: "{{ lookup('file', '/workspace/ansible/playbooks/tailscale/files/release.json') | from_json }}"

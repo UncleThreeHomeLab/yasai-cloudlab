@@ -1,0 +1,16 @@
+---
+- name: Configure control plane and publish worker join credential
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - /workspace/ansible/playbooks/k3s/vars.yml
+  tasks:
+    - name: Configure server
+      ansible.builtin.import_tasks: tasks/main.yml
+    - name: Publish private join credential
+      ansible.builtin.import_tasks: tasks/join_token.yml
+  handlers:
+    - name: Load component service handlers
+      ansible.builtin.import_tasks: handlers/main.yml

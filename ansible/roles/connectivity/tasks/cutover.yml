@@ -22,23 +22,17 @@
   when: lab_node_name is not defined
 
 - name: Export the existing host identity through its owner
-  ansible.builtin.include_role:
-    name: host
-    tasks_from: identity
+  ansible.builtin.import_tasks: "/workspace/ansible/playbooks/host/tasks/identity.yml"
   when: lab_node_name is not defined
 
 - name: Disable unused ServiceLB only after its controller removes the legacy Service finalizer
-  ansible.builtin.include_role:
-    name: k3s
-    tasks_from: configure
+  ansible.builtin.import_tasks: "/workspace/ansible/playbooks/k3s/tasks/configure.yml"
 
 - name: Apply the final packaged controller configuration
   ansible.builtin.meta: flush_handlers
 
 - name: Require the single server to return ready after ServiceLB retirement
-  ansible.builtin.include_role:
-    name: k3s
-    tasks_from: ready
+  ansible.builtin.import_tasks: "/workspace/ansible/playbooks/k3s/tasks/ready.yml"
 
 - name: Read the applied packaged controller configuration
   ansible.builtin.slurp:

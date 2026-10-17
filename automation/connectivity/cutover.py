@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import yaml
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1] / 'tailscale')]
+sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[2] / 'ansible/playbooks/tailscale/files')]
 from verify_access import ssh
 from automation.connectivity.checkpoint import transaction
 from automation.connectivity.preflight import audit
