@@ -1,6 +1,7 @@
 """Project the CNPG public CA under the existing data-owner lock and repair cadence."""
 import base64
 import json
+import re
 from playbooks.istio.files.kube import get, kube
 
 OWNER = 'cloudlab-data-bootstrap'
@@ -16,12 +17,12 @@ def reconcile(values):
     if '-----BEGIN CERTIFICATE-----' not in public:
         raise RuntimeError('Database public CA is invalid')
     changed = False
-    for row in values.get('serviceRequests', []):
-        if 'database' not in row:
-            continue
-        service, namespace = row['service'], row['namespace']
-        if namespace != 'cloudlab-app-' + service:
+    # Consumers include the existing Notes database, whose provisioning request
+    # is removed by inputs after verifying its original data-owner scope.
+    for namespace in values.get('serviceConsumers', []):
+        if not isinstance(namespace, str) or not re.fullmatch(r'cloudlab-app-[a-z][a-z0-9-]{0,30}', namespace):
             raise ValueError('CA projection requires an approved service namespace')
+        service = namespace.removeprefix('cloudlab-app-')
         ns = get('namespace', namespace)
         if not ns:
             continue  # Git creates namespaces; required external data provisioning stays explicit.
