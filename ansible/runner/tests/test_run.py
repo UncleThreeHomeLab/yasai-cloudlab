@@ -190,6 +190,59 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             with self.assertRaisesRegex(ValueError, 'Private catalog missing'): runner.gitops_preflight()
             command.assert_not_called()
 
+    def test_foundation_actions_reach_only_their_playbooks_without_private_inputs(self):
+        expected = {
+            'eso-bootstrap': ['eso.yml'],
+            'eso-interruption-test': ['eso.yml', 'eso.yml'],
+            'eso-recover': ['eso-recovery.yml'],
+            'longhorn-bootstrap': ['longhorn.yml'],
+            'longhorn-interruption-test': ['longhorn.yml', 'longhorn.yml'],
+            'longhorn-recover': ['longhorn-recovery.yml'],
+            'longhorn-backup-bootstrap': ['longhorn-backup.yml'],
+            'longhorn-backup-interruption-test': ['longhorn-backup.yml', 'longhorn-backup.yml'],
+            'longhorn-backup-recover': ['longhorn-backup-recovery.yml'],
+        }
+        self.assertEqual(set(expected), runner.FOUNDATION_ACTIONS)
+        for action, names in expected.items():
+            with self.subTest(action=action), \
+                    patch.object(runner.sys, 'argv', ['run.py', action]), \
+                    patch.object(runner, 'dotenv_values', return_value=self.values), \
+                    patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
+                    patch('automation.services.inputs.private_dns_names', side_effect=ValueError('Private source unavailable')) as dns, \
+                    patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog unavailable')) as catalog, \
+                    patch('automation.identity.access_inputs.runtime', side_effect=ValueError('Identity input unavailable')) as access, \
+                    patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command, \
+                    patch.object(runner, 'playbook') as playbook:
+                runner.main()
+                self.assertEqual([call.args[0] for call in playbook.call_args_list], names)
+                dns.assert_not_called()
+                catalog.assert_not_called()
+                access.assert_not_called()
+                command.assert_called_once_with(
+                    [sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'preflight'], check=False)
+
+    def test_setup_and_gitops_still_require_catalog_before_any_host_operation(self):
+        for action in ('setup', 'prove', 'gitops-bootstrap', 'gitops-verify', 'gitops-interruption-test'):
+            with self.subTest(action=action), \
+                    patch.object(runner.sys, 'argv', ['run.py', action]), \
+                    patch.object(runner, 'dotenv_values', return_value=self.values), \
+                    patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
+                    patch('automation.services.inputs.catalog', side_effect=ValueError('Private catalog unavailable')), \
+                    patch.object(runner.subprocess, 'run') as command, \
+                    patch.object(runner, 'playbook') as playbook:
+                with self.assertRaisesRegex(ValueError, 'Private catalog unavailable'):
+                    runner.main()
+                command.assert_not_called()
+                playbook.assert_not_called()
+
+    def test_foundation_actions_preserve_reader_and_vm_input_gates(self):
+        for action in runner.FOUNDATION_ACTIONS:
+            for field in ('OP_SERVICE_ACCOUNT_TOKEN', 'VM_PASSWORD', 'VM2_PASSWORD'):
+                with self.subTest(action=action, field=field), \
+                        patch.dict(self.values, {field: ''}):
+                    with self.assertRaisesRegex(SystemExit, field):
+                        self.invoke(action)
+
     def invoke(self, action='inspect'):
         with patch.object(runner.sys, 'argv', ['run.py', action]), \
                 patch.object(runner, 'dotenv_values', return_value=self.values), \
@@ -416,7 +469,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
 
     def test_unreadable_public_source_fails_before_any_host_operation(self):
-        for action in ('apply', 'prove', 'gitops-bootstrap', 'gitops-interruption-test', 'mesh-check'):
+        for action in ('apply', 'prove', 'gitops-bootstrap', 'gitops-interruption-test', 'mesh-check', *runner.FOUNDATION_ACTIONS):
             with self.subTest(action=action), \
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', return_value=self.values), \

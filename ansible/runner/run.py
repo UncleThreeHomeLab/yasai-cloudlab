@@ -9,6 +9,12 @@ import sys
 
 from dotenv import dotenv_values
 
+FOUNDATION_ACTIONS = {
+    'eso-bootstrap', 'eso-interruption-test', 'eso-recover',
+    'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover',
+    'longhorn-backup-bootstrap', 'longhorn-backup-interruption-test', 'longhorn-backup-recover',
+}
+
 IDENTITY_COMMANDS = {
     'identity-owner-credentials': ('owner_enrollment', 'provision'),
     'identity-owner-stage': ('owner_enrollment', '--stage'),
@@ -56,12 +62,13 @@ def playbook(name, *, syntax=False, unchanged=False):
         print('Repeat apply: zero changes.', flush=True)
 
 
-def gitops_preflight():
-    sys.path.insert(0, '/workspace')
-    from automation.services.inputs import catalog
-    import yaml
-    settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
-    catalog(required=settings.get('services', {}).get('enabled', False))
+def gitops_preflight(*, require_catalog=True):
+    if require_catalog:
+        sys.path.insert(0, '/workspace')
+        from automation.services.inputs import catalog
+        import yaml
+        settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
+        catalog(required=settings.get('services', {}).get('enabled', False))
     result = subprocess.run([sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'preflight'], check=False)
     if result.returncode:
         raise SystemExit('Public GitOps preflight failed before host mutation.')
@@ -196,16 +203,17 @@ def main():
     for name in ('CLOUDFLARE_ACCESS_HOSTS', 'PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
-    from automation.services.inputs import private_dns_names
-    service_names = private_dns_names()
-    if service_names:
-        os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(sorted(set(
-            json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]') + service_names)))
-    import yaml
-    public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
-    sys.path.insert(0, '/workspace')
-    from automation.identity.access_inputs import runtime
-    runtime(os.environ, public_settings)
+    if action not in FOUNDATION_ACTIONS:
+        from automation.services.inputs import private_dns_names
+        service_names = private_dns_names()
+        if service_names:
+            os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(sorted(set(
+                json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]') + service_names)))
+        import yaml
+        public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
+        sys.path.insert(0, '/workspace')
+        from automation.identity.access_inputs import runtime
+        runtime(os.environ, public_settings)
     if action in {'recovery-retrieve', 'recovery-preflight'}:
         subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', action.removeprefix('recovery-')], check=True)
         return
@@ -294,19 +302,19 @@ def main():
             os.environ['LAB_GITOPS_ACTION'] = 'verify'
             playbook('gitops.yml')
     elif action == 'eso-bootstrap':
-        gitops_preflight()
+        gitops_preflight(require_catalog=False)
         playbook('eso.yml')
     elif action == 'eso-interruption-test':
-        gitops_preflight()
+        gitops_preflight(require_catalog=False)
         os.environ['LAB_ESO_STOP_AFTER_SEED'] = '1'
         playbook('eso.yml')
         os.environ['LAB_ESO_STOP_AFTER_SEED'] = '0'
         playbook('eso.yml')
     elif action == 'eso-recover':
-        gitops_preflight()
+        gitops_preflight(require_catalog=False)
         playbook('eso-recovery.yml')
     elif action in {'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover'}:
-        gitops_preflight()
+        gitops_preflight(require_catalog=False)
         if action == 'longhorn-recover':
             playbook('longhorn-recovery.yml')
         else:
@@ -316,7 +324,7 @@ def main():
                 os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
             playbook('longhorn.yml')
     elif action in {'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'}:
-        gitops_preflight()
+        gitops_preflight(require_catalog=False)
         if action == 'longhorn-backup-interruption-test':
             os.environ['LAB_BACKUP_STOP_AFTER_SEED'] = '1'
             playbook('longhorn-backup.yml')
