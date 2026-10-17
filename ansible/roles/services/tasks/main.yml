@@ -34,14 +34,14 @@
     dest: /opt/cloudlab/apps/notes/schema.sql
     mode: '0600'
 
-- name: Install the data owner's creation-only synthetic seed
+- name: Install the application creation-only synthetic seed
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/data/notes_seed.py'
-    dest: /opt/cloudlab/automation/data/notes_seed.py
+    src: '{{ playbook_dir }}/../apps/notes/seed.py'
+    dest: /opt/cloudlab/apps/notes/seed.py
     mode: '0600'
 
 - name: Seed only the approved notes application and preserve existing data
-  ansible.builtin.command: python3 -c 'import sys,json;sys.path.insert(0,"/opt/cloudlab");from automation.data.notes_seed import run;print(json.dumps(run()))'
+  ansible.builtin.command: python3 -c 'import sys,json;sys.path.insert(0,"/opt/cloudlab");from apps.notes.seed import run;print(json.dumps(run()))'
   register: notes_seeded
   changed_when: notes_seeded.rc == 0 and (notes_seeded.stdout | from_json).changed
   failed_when: notes_seeded.rc != 0 and 'Another application-data operation holds the owner lock' not in notes_seeded.stderr

@@ -70,7 +70,7 @@ def set_maintenance(enabled):
 
 def recover_startup():
     """Replace a failed initial Pod through its sole Argo/Operator owners."""
-    from automation.data.control import atomic
+    from playbooks.data.files.control import atomic
     with (BASE / 'owner.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         ownership = json.loads((BASE / 'ownership.json').read_text())

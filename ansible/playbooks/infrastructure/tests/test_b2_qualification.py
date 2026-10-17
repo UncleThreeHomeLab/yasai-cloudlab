@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 
-from automation.data.s3 import S3Error
+from playbooks.data.files.s3 import S3Error
 from playbooks.infrastructure.tests import b2_qualification as subject
 
 VALUES = {'ENDPOINT': 's3.us-west-004.backblazeb2.com', 'REGION': 'display label',

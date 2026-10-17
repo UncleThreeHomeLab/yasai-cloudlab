@@ -350,7 +350,7 @@ def run(action):
         return freshness()
     monthly = action == 'monthly'
     if monthly:
-        from automation.data.remote import require_window
+        from playbooks.data.files.remote import require_window
         require_window(reserve=4 * 3600)
     with locked():
         resume()

@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 
-from automation.data.remote import require_window
+from playbooks.data.files.remote import require_window
 from automation.harbor import recovery, remote, restore
 from automation.harbor.tests.fixtures import manifest
 
@@ -125,7 +125,7 @@ class RecoveryTests(unittest.TestCase):
     def test_completed_monthly_repeat_has_no_capture_or_cloud_access(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(recovery, 'BASE', Path(directory)), \
                 patch.object(recovery, 'locked', return_value=nullcontext()), patch.object(recovery, 'resume'), \
-                patch('automation.data.remote.require_window'), patch.object(recovery, 'capture') as capture:
+                patch('playbooks.data.files.remote.require_window'), patch.object(recovery, 'capture') as capture:
             (Path(directory) / 'monthly-receipt.json').write_text(json.dumps({'captured_at': datetime.now(timezone.utc).timestamp(),
                 'retention_complete': True}))
             self.assertEqual(recovery.run('monthly'), {'already_verified_this_month': True, 'b2_reads': 0})
@@ -141,7 +141,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_restore_quarantine_validates_offsite_url_before_creating_namespace(self):
         value = manifest()
-        with patch('automation.data.remote.require_window'), patch.object(remote, 'Repository') as factory, \
+        with patch('playbooks.data.files.remote.require_window'), patch.object(remote, 'Repository') as factory, \
                 patch.object(restore, 'kube') as writes:
             factory.return_value.validate_url.side_effect = ValueError('foreign URL')
             with self.assertRaises(ValueError): restore.run(value, offsite=True)

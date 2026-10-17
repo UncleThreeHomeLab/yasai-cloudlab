@@ -32,7 +32,7 @@ def prepare(checkpoint, realm):
         if request.get('realm') != realm: raise ValueError('Session checkpoint has another realm')
     else:
         request = {'nonce': secrets.token_hex(16), 'realm': realm}
-        from automation.data.control import atomic
+        from playbooks.data.files.control import atomic
         atomic(checkpoint, request)
     provision(request)
     try:

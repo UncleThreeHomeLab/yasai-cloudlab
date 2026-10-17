@@ -12,7 +12,7 @@ def payload():
     settings = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
     telemetry = settings.get('observability', {}).get('enabled', False)
     value = catalog(required=True)
-    from automation.data.requests import request
+    from playbooks.data.files.requests import request
     for entry in value['catalog']:
         requested = request(entry['approval']['name'], entry['definition']['data'], value['dataApprovals'])
         entry['dataBindings'] = [

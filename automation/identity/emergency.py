@@ -13,7 +13,7 @@ from urllib.parse import urlencode, quote
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.data.control import atomic, sql
+from playbooks.data.files.control import atomic, sql
 from automation.identity.bootstrap import writer_idle, reconciled, private_inputs
 from automation.identity.configuration import email_profile, private_request
 from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER, _set_maintenance

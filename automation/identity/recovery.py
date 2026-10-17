@@ -3,7 +3,7 @@ import hashlib
 import json
 import time
 
-from automation.data import control
+from playbooks.data.files import control
 from automation.identity.maintenance import APP, OWNER
 from automation.identity.configuration import compile_state, REALMS
 from playbooks.istio.files.kube import get

@@ -1,0 +1,31 @@
+---
+- name: Retire replaced executable paths after all consumers converge
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Remove only replaced data runtime modules
+      ansible.builtin.file:
+        path: '/opt/cloudlab/automation/data/{{ item }}'
+        state: absent
+      loop:
+        - control.py
+        - requests.py
+        - service_proof.py
+        - s3.py
+        - capture.py
+        - remote.py
+        - backup.py
+        - restore.py
+        - verify.py
+        - rotation.py
+        - volumes.py
+        - physical.py
+        - notes_seed.py
+      when: data_enabled | bool
+    - name: Remove only replaced independent control plane modules
+      ansible.builtin.file:
+        path: '/opt/cloudlab/recovery/{{ item }}'
+        state: absent
+      loop: [backup.py, capture.py, repository.py, b2.py, write_window.py, monthly_window.py, policy.json]

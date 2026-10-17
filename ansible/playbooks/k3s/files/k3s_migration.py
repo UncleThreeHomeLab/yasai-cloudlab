@@ -194,7 +194,7 @@ def run(action, role, target):
                 validate_source(policy)
                 if role == 'server':
                     empty_cluster()
-                    command(['python3', '/opt/cloudlab/recovery/backup.py', 'freshness'])
+                    command(['python3', '/opt/cloudlab/playbooks/backup/files/backup.py', 'freshness'])
             print(json.dumps({'phase': phase, 'changed': False}))
             return
         if action == 'prepare':

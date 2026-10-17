@@ -8,7 +8,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-from automation.b2_native.api import NativeAPI
+from playbooks.backup.files.b2_native import NativeAPI
 from playbooks.secrets.files.vault import fields
 from monthly_window import require_window
 from backup_policy import load_policy

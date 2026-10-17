@@ -3,7 +3,7 @@ from automation.services.lifecycle import ready, publish, retire
 
 
 def run(bundle):
-    from automation.data.service_proof import fixture
+    from playbooks.data.files.service_proof import fixture
     from automation.services.owners import Owners
     fixture({'definition': bundle['definition'], 'approval': bundle['approval']})
     owners = Owners(bundle)

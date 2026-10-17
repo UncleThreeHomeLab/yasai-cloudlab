@@ -28,7 +28,7 @@
     - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
 - name: Configure application_data after public bootstrap
-  ansible.builtin.import_playbook: ../application_data-setup.yml
+  ansible.builtin.import_playbook: data/010-bootstrap.yml
   when:
     - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'

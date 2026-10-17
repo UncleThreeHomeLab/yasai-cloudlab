@@ -6,8 +6,8 @@ import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 
-from automation.data.remote import require_window, volume_prefix, storage_policy
-from automation.data.s3 import S3, NS
+from playbooks.data.files.remote import require_window, volume_prefix, storage_policy
+from playbooks.data.files.s3 import S3, NS
 from automation.harbor import recovery
 from playbooks.istio.files.kube import get, kube, wait
 
@@ -19,7 +19,7 @@ def policy():
 class Repository:
     def __init__(self, values=None):
         if values is None:
-            from automation.data.control import secret
+            from playbooks.data.files.control import secret
             values = secret('data-offsite')
         self.values = values
         endpoint = urllib.parse.urlsplit(self.values['AWS_ENDPOINT'])
@@ -58,7 +58,7 @@ class Repository:
         return max(rows, key=lambda row: row['captured_at'])
 
     def read_blocks(self, manifest):
-        from automation.data.remote import verify_blocks
+        from playbooks.data.files.remote import verify_blocks
         recovery.validate(manifest)
         return verify_blocks(self, manifest['volumes'], policy()['max_generation_bytes'])
 

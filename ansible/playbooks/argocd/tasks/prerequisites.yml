@@ -5,7 +5,7 @@
     fail_msg: GitOps bootstrap requires the verified host-access and early-recovery inputs.
 - name: Require a fresh recovery receipt without cloud polling
   ansible.builtin.command:
-    argv: [python3, /opt/cloudlab/recovery/backup.py, freshness]
+    argv: [python3, /opt/cloudlab/playbooks/backup/files/backup.py, freshness]
   changed_when: false
 - name: Prove allowed and denied host access from the runner
   ansible.builtin.command:
@@ -15,7 +15,7 @@
   changed_when: false
 - name: Independently retrieve and verify the recovery point
   ansible.builtin.command:
-    argv: [python, /workspace/automation/recovery/runner.py, retrieve]
+    argv: [python, /workspace/ansible/playbooks/backup/files/runner.py, retrieve]
   delegate_to: localhost
   become: false
   changed_when: false

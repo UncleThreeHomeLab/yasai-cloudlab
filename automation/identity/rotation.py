@@ -158,7 +158,7 @@ def local(request):
     from dotenv import dotenv_values
     from playbooks.secrets.files.provision import command
     from playbooks.access.files.preflight import ssh
-    from automation.data.control import atomic
+    from playbooks.data.files.control import atomic
     request_scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     token = environment.get('OP_PROVISION_SERVICE_ACCOUNT_TOKEN')

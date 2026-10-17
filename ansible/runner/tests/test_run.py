@@ -109,19 +109,19 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_test_runner_isolates_owners_and_reports_failures_after_all_groups(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ('automation/data/tests', 'automation/services/tests', 'verification/integration'):
+            for name in ('automation/services/tests', 'ansible/playbooks/data/tests', 'verification/integration'):
                 folder = root / name
                 folder.mkdir(parents=True)
                 (folder / 'test_example.py').write_text('')
             with patch.object(test_runner.subprocess, 'run', side_effect=[Mock(returncode=1), Mock(returncode=0), Mock(returncode=0)]) as command, \
                     patch('builtins.print'), \
-                    self.assertRaisesRegex(RuntimeError, 'Tests failed: automation[/\\\\]data[/\\\\]tests'):
+                    self.assertRaisesRegex(RuntimeError, 'Tests failed: automation[/\\\\]services[/\\\\]tests'):
                 test_runner.run(root)
             self.assertEqual(command.call_count, 3)
-            for call, owner in zip(command.call_args_list, ('data', 'services', None)):
+            for call, directory in zip(command.call_args_list, ('automation/services', 'ansible/playbooks/data', 'verification')):
                 self.assertEqual(call.kwargs['cwd'], root)
                 paths = call.kwargs['env']['PYTHONPATH'].split(os.pathsep)
-                self.assertEqual(paths[0], str(root / 'automation' / owner) if owner else str(root / 'verification'))
+                self.assertEqual(paths[0], str(root / directory))
                 self.assertIn(str(root), paths)
 
     def test_test_runner_rejects_empty_test_directories(self):
@@ -136,7 +136,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_migrated_and_legacy_tests_run_once_in_isolated_processes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            groups = ('automation/data/tests', 'ansible/playbooks/host/tests',
+            groups = ('ansible/playbooks/data/tests', 'ansible/playbooks/host/tests',
                       'ansible/runner/tests', 'verification/integration')
             for name in groups:
                 folder = root / name
@@ -355,9 +355,20 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         for action, expected in [('data-bootstrap', 'bootstrap'), ('data-check', 'check')]:
             with self.subTest(action=action), patch.dict(os.environ, {}, clear=True):
                 playbook = self.invoke(action)
-                playbook.assert_called_once_with('data.yml')
+                playbook.assert_called_once_with('playbooks/data/operate.yml')
                 self.assertEqual(os.environ['LAB_DATA_ACTION'], expected)
                 self.assertEqual(os.environ['VM2_PASSWORD'], self.values['VM2_PASSWORD'])
+
+    def test_coordinated_backup_refuses_off_window_before_credentials_or_hosts(self):
+        window = Mock()
+        window.require_window.side_effect = RuntimeError('B2 writes require day 1 UTC')
+        with patch.dict(runner.sys.modules, {'monthly_window': window}), \
+                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
+                patch.object(runner, 'playbook') as playbook, \
+                patch.object(runner.sys, 'argv', ['run.py', 'backup']):
+            with self.assertRaisesRegex(RuntimeError, 'day 1 UTC'):
+                runner.main()
+        playbook.assert_not_called()
 
     def test_initial_export_uses_host_playbook_and_does_not_enable_longhorn(self):
         window = Mock()
@@ -365,7 +376,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                 patch.object(runner.subprocess, 'run') as command:
             playbook = self.invoke('recovery-initial')
         window.authorize_initial.assert_called_once_with()
-        playbook.assert_called_once_with('recovery.yml')
+        playbook.assert_called_once_with('playbooks/backup/monthly.yml')
         command.assert_not_called()
         self.assertEqual(os.environ['LAB_RECOVERY_ACTION'], 'initial')
         self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
@@ -378,7 +389,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                 patch.object(runner.subprocess, 'run') as command:
             playbook = self.invoke('recovery-replacement-test')
         window.authorize_replacement.assert_called_once_with()
-        playbook.assert_called_once_with('recovery.yml')
+        playbook.assert_called_once_with('playbooks/backup/monthly.yml')
         command.assert_not_called()
         self.assertEqual(os.environ['LAB_RECOVERY_ACTION'], 'replacement-test')
         self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
@@ -408,7 +419,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         with patch.object(runner.subprocess, 'run') as command:
             playbook = self.invoke('recovery-retrieve')
         playbook.assert_not_called()
-        self.assertEqual(command.call_args.args[0][-2:], ['/workspace/automation/recovery/runner.py', 'retrieve'])
+        self.assertEqual(command.call_args.args[0][-2:], ['/workspace/ansible/playbooks/backup/files/runner.py', 'retrieve'])
 
     def test_zero_change_proof_requires_both_hosts_and_rejects_changes(self):
         with tempfile.TemporaryDirectory() as directory:

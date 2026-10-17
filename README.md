@@ -40,7 +40,7 @@ Distribution upgrades are managed separately.
    are defined in the [access](platform/connectivity/access/contract.json),
    [data](platform/data/contract.json) and [identity](platform/identity/keycloak/contract.json)
    contracts. Inputs for host access are listed in `.env.example`. Backup inputs
-   are defined by the [recovery module](automation/recovery/runner.py).
+   are defined by the [recovery module](ansible/playbooks/backup/files/runner.py).
 
 From the repo directory, apply twice and verify:
 

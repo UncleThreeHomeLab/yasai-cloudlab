@@ -1,0 +1,13 @@
+---
+- name: Configure independent control plane recovery
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Install independent capture and schedules
+      ansible.builtin.import_tasks: tasks/main.yml
+  handlers:
+    - name: Reload recovery units
+      ansible.builtin.systemd_service:
+        daemon_reload: true

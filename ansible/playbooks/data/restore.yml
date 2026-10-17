@@ -1,0 +1,5 @@
+---
+- name: Restore application data through its coordinated owner
+  ansible.builtin.import_playbook: operate.yml
+  vars:
+    data_action: restore-offsite

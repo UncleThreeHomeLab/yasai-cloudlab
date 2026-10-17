@@ -1,0 +1,50 @@
+---
+- name: Inspect independent data timers
+  ansible.builtin.systemd_service:
+    name: 'cloudlab-data-{{ item }}.timer'
+  register: data_timer_states
+  loop: [monthly, freshness, reconcile]
+
+- name: Require continuous repair and declared backup schedules
+  ansible.builtin.assert:
+    that:
+      - item.status.UnitFileState == 'enabled'
+      - item.status.ActiveState == 'active'
+    fail_msg: Data repair or recovery timer is disabled or inactive.
+  loop: '{{ data_timer_states.results }}'
+  loop_control:
+    label: '{{ item.item }}'
+
+- name: Prove outside data access and public isolation
+  ansible.builtin.command: python /workspace/ansible/playbooks/data/files/external.py
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  register: data_external
+  failed_when: false
+  no_log: true
+
+- name: Require outside data isolation
+  ansible.builtin.assert:
+    that: data_external.rc == 0
+    fail_msg: '{{ data_external.stderr }}'
+
+- name: Report outside data proof
+  ansible.builtin.debug:
+    msg: '{{ data_external.stdout | from_json }}'
+
+- name: Verify private data paths and local coordinated recovery without B2 access
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/data/files/verify.py
+  register: data_verified
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Require application data verification
+  ansible.builtin.assert:
+    that: data_verified.rc == 0
+    fail_msg: '{{ data_verified.stderr }}'
+
+- name: Report sanitized data evidence
+  ansible.builtin.debug:
+    msg: '{{ data_verified.stdout | from_json }}'

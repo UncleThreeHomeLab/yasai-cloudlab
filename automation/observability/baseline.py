@@ -60,7 +60,7 @@ def run():
         evidence = result(saved['evidence'], policy)
     else:
         evidence = measure(request, credentials, origin, issuer, policy)
-        from automation.data.control import atomic
+        from playbooks.data.files.control import atomic
         atomic(RESULT, {'nonce': request['nonce'], 'evidence': evidence})
     retire(api, values, request)
     return dict(evidence, viewer_mfa=True, disposable_viewer_offboarded=True, primary_users_changed=False)

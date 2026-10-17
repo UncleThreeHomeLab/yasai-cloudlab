@@ -38,7 +38,7 @@ def validate_catalog(value):
             not isinstance(value['dataApprovals'], dict) or len(value['dataApprovals']) > 40):
         raise ValueError('Private service catalog requires complete catalog and data approvals')
     names = set()
-    from automation.data.requests import request
+    from playbooks.data.files.requests import request
     for entry in value['catalog']:
         if set(entry) != {'definition', 'approval', 'publication'} or entry['publication'] not in ('ready', 'published', 'retired'):
             raise ValueError('Service catalog entries require explicit ready, published or retired intent')

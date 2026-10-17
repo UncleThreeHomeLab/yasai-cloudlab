@@ -32,7 +32,7 @@ class IndependentTests(unittest.TestCase):
                 independent.verify_material(value)
 
     def repository(self):
-        with patch('automation.data.control.secret') as cluster:
+        with patch('playbooks.data.files.control.secret') as cluster:
             repository = remote.Repository({'AWS_ENDPOINT': 'https://s3.us-west-004.backblazeb2.com',
                 'BUCKET': 'fixture-bucket', 'REGION': 'us-west-004',
                 'AWS_ACCESS_KEY_ID': 'synthetic', 'AWS_SECRET_ACCESS_KEY': 'synthetic'})
