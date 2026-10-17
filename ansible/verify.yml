@@ -1,14 +1,6 @@
 ---
-- name: Verify each node and its encrypted transport
-  hosts: k3s_cluster
-  become: true
-  gather_facts: true
-  any_errors_fatal: true
-  vars:
-    wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
-  tasks:
-    - name: Verify persistent storage prerequisites
-      ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/host-verify.yml
+- name: Verify persistent storage hosts
+  ansible.builtin.import_playbook: playbooks/longhorn/verify-host.yml
 
 - name: Verify cluster readiness and cross-component behavior
   hosts: k3s_servers
