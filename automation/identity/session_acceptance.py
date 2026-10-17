@@ -31,7 +31,7 @@ from automation.identity.session_fixture import scope
 from automation.identity.emergency import vault_secret
 from automation.identity.configuration import private_request
 from automation.identity.maintenance import APP,NAMESPACE,BASE
-from automation.mesh.kube import get,wait
+from playbooks.istio.files.kube import get,wait
 from automation.identity.bootstrap import reconciled
 from urllib.parse import urlencode
 request=json.load(sys.stdin);nonce=scope(request);realm=request.get('realm','platform')
@@ -66,7 +66,7 @@ print(json.dumps({'realm':realm,'username':user['username'],'user_id':user['id']
 
 
 def remote_state(request):
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     scope(request)
     return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c '+shlex.quote(REMOTE),
                           input=json.dumps(request), timeout=120))
@@ -110,8 +110,8 @@ def offboard_inputs(api, values, request, *, resume=False):
 def run():
     from playbooks.argocd.files.github_setup import inputs
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.checkpoint import transaction
-    from automation.connectivity.verify import remote
+    from playbooks.access.files.checkpoint import transaction
+    from playbooks.access.files.verify import remote
     from automation.identity.lifecycle import local_offboard
     values, api = inputs()
     for key, value in values.items():

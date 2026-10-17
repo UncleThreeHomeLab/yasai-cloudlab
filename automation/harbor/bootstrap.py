@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from automation.mesh.kube import get, kube, contains, application_ready, wait, condition
+from playbooks.istio.files.kube import get, kube, contains, application_ready, wait, condition
 
 NAMESPACE, OWNER = 'cloudlab-harbor', 'harbor-platform'
 SECRETS = ('harbor-emergency', 'harbor-database', 'harbor-runtime', 'harbor-token-signing', 'harbor-oidc',

@@ -80,10 +80,10 @@ def prepare(checkpoint, realm):
 def wait_private_source(revision):
     if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Disposable enrollment requires an immutable private revision')
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     script = """import sys,json
 sys.path.insert(0,'/opt/cloudlab')
-from automation.mesh.kube import application_ready,wait
+from playbooks.istio.files.kube import application_ready,wait
 revision=json.load(sys.stdin)['revision']
 wait(lambda:application_ready('cloudlab-identity-private',revision),'private fixture source convergence',timeout=600)
 print(json.dumps({'private_source_ready':True}))

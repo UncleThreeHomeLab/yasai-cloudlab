@@ -28,8 +28,8 @@ services:
     platform: linux/amd64
     build:
       context: ./ansible/runner
-    entrypoint: [python, -m, automation.infra.command]
-    working_dir: /workspace
+    entrypoint: [python, /opt/runner/run.py, infra]
+    working_dir: /workspace/ansible
     volumes:
       - type: bind
         source: ./ansible
@@ -77,8 +77,8 @@ services:
     platform: linux/amd64
     build:
       context: ./ansible/runner
-    entrypoint: [python, -m, automation.infra.command]
-    working_dir: /workspace
+    entrypoint: [python, /opt/runner/run.py, infra]
+    working_dir: /workspace/ansible
     volumes:
       - type: bind
         source: ./ansible
@@ -122,8 +122,8 @@ services:
     platform: linux/amd64
     build:
       context: ./ansible/runner
-    entrypoint: [python, -m, automation.harbor.api]
-    working_dir: /workspace
+    entrypoint: [python, /opt/runner/run.py, infra-harbor]
+    working_dir: /workspace/ansible
     volumes:
       - type: bind
         source: .

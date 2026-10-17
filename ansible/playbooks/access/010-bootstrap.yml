@@ -1,0 +1,13 @@
+---
+- name: Configure access after its dependencies
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  handlers:
+    - name: Load K3s service handler
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/k3s/handlers/main.yml
+  tasks:
+    - name: Configure access
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/access/tasks/main.yml
+      when: access_enabled | bool

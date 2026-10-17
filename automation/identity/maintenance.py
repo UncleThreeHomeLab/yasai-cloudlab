@@ -3,7 +3,7 @@ import json
 import fcntl
 from pathlib import Path
 
-from automation.mesh.kube import condition, get, kube, wait
+from playbooks.istio.files.kube import condition, get, kube, wait
 
 APP = 'cloudlab-identity'
 NAMESPACE = 'cloudlab-identity'

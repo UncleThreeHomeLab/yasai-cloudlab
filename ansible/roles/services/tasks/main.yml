@@ -52,14 +52,14 @@
 
 - name: Create the exposure interface directory
   ansible.builtin.file:
-    path: /opt/cloudlab/automation/connectivity
+    path: /opt/cloudlab/playbooks/access/files
     state: directory
     mode: '0700'
 
 - name: Install the exposure owner's validation interface
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/connectivity/contract.py'
-    dest: /opt/cloudlab/automation/connectivity/contract.py
+    src: '{{ playbook_dir }}/../ansible/playbooks/access/files/contract.py'
+    dest: /opt/cloudlab/playbooks/access/files/contract.py
     mode: '0600'
 
 - name: Reconcile the bounded service catalog Application

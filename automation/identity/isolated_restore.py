@@ -7,7 +7,7 @@ import subprocess
 from automation.data import control
 from automation.identity.configuration import REALMS, bootstrap_writer, bootstrap_health, restrict_password_grants
 from automation.identity.recovery import restore_configuration, signature_state
-from automation.mesh.kube import application_ready, condition, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, get, kube, wait
 
 NAMESPACE = 'cloudlab-data-restore'
 ORIGIN = 'https://identity-restore.' + NAMESPACE + '.svc:8443'

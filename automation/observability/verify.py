@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from automation.mesh.kube import get, kube, application_ready, condition, wait
+from playbooks.istio.files.kube import get, kube, application_ready, condition, wait
 from automation.identity.health import direct_https
 
 NAMESPACE = 'cloudlab-observability'

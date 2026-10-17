@@ -21,13 +21,13 @@ def set_intent(definition, publication):
 
 
 def private_dns(definition, *, published):
-    from automation.connectivity.preflight import ssh
-    from automation.connectivity.contract import private_names
+    from playbooks.access.files.preflight import ssh
+    from playbooks.access.files.contract import private_names
     import os
     import shlex
     values = dotenv_values(ROOT / '.env', interpolate=False)
     baseline = private_names(json.loads(values.get('PRIVATE_ACCESS_HOSTS') or '[]'))
-    helper = (ROOT / 'automation/connectivity/service_dns.py').read_text()
+    helper = (ROOT / 'ansible/playbooks/access/files/service_dns.py').read_text()
     # The existing DNS owner serializes and validates its complete generation.
     code = "import sys;sys.path.insert(0,'/var/lib/cloudlab/private-dns');\n" + helper
     code += "\nimport json,fcntl\nfrom pathlib import Path\nsys.path.insert(0,'/var/lib/cloudlab/private-dns')\nimport dns_host\n"

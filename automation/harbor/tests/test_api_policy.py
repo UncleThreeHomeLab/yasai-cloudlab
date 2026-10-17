@@ -4,10 +4,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from automation.harbor import api, api_policy
+from playbooks.infrastructure.files import harbor as api
+from automation.harbor import api_policy
 from automation.harbor.tests.fixtures import completed_api_plan
-from automation.infra.backend import environment
-from automation.infra.native import native
+from playbooks.infrastructure.files.backend import environment
+from playbooks.infrastructure.files.native import native
 
 
 class NativePolicyTests(unittest.TestCase):

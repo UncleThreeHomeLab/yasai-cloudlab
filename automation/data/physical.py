@@ -2,7 +2,7 @@
 import json
 
 from automation.data import control
-from automation.mesh.kube import condition, get, kube, wait
+from playbooks.istio.files.kube import condition, get, kube, wait
 
 NAMESPACE = 'cloudlab-data-restore'
 LABEL = {'cloudlab.io/fixture': 'application-data-restore'}

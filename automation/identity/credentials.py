@@ -178,7 +178,7 @@ def main():
     values['CLOUDFLARE_HUMAN_EMAIL'] = values.get('CLOUDFLARE_HUMAN_EMAIL') or values.get('TAILSCALE_ADMIN_LOGIN')
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     if sys.argv[1:] in (['--login-items'], ['--login-guide']):
-        from automation.connectivity.preflight import ssh
+        from playbooks.access.files.preflight import ssh
         for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
             os.environ[key] = values[key]
         os.environ['VM_PORT'] = values.get('VM_PORT') or '22'
@@ -200,7 +200,7 @@ def main():
             if value is not None:
                 os.environ[key] = value
         os.environ['VM_PORT'] = values.get('VM_PORT') or '22'
-        from automation.connectivity.human import retained
+        from playbooks.access.files.human import retained
         if not retained().get('human_policy_matches_signed_proof'):
             raise RuntimeError('Signed existing human Access proof must precede primary provisioning')
         selected = primary_definitions(values)

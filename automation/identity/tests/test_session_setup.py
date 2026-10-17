@@ -97,7 +97,7 @@ class SessionSetupTests(unittest.TestCase):
                 self.assertTrue(checkpoint.exists())
 
     def test_private_source_wait_rejects_mutable_or_malformed_revisions_before_ssh(self):
-        with patch('automation.connectivity.preflight.ssh') as ssh:
+        with patch('playbooks.access.files.preflight.ssh') as ssh:
             for revision in (None, 'main', 'x' * 40, 'a' * 40 + '\n'):
                 with self.assertRaises(ValueError): wait_private_source(revision)
             ssh.assert_not_called()

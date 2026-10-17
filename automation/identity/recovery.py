@@ -6,7 +6,7 @@ import time
 from automation.data import control
 from automation.identity.maintenance import APP, OWNER
 from automation.identity.configuration import compile_state, REALMS
-from automation.mesh.kube import get
+from playbooks.istio.files.kube import get
 
 
 def signature_state(sql, database):

@@ -6,9 +6,9 @@ import json
 from automation.identity.bootstrap import private_inputs, reconciled
 from automation.identity.configuration import private_request
 from automation.identity.health import check, proxy_privacy, redact, json_get, direct_https
-from automation.connectivity.dns_wire import public_address
+from playbooks.access.files.dns_wire import public_address
 from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER
-from automation.mesh.kube import condition, get
+from playbooks.istio.files.kube import condition, get
 
 
 def credentials():

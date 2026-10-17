@@ -7,7 +7,7 @@ import subprocess
 
 import yaml
 
-from automation.connectivity.contract import runtime_rule, zone_name
+from playbooks.access.files.contract import runtime_rule, zone_name
 from automation.identity.configuration import client
 
 ROOT = Path(__file__).resolve().parents[2]

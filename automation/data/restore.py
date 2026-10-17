@@ -13,7 +13,7 @@ import yaml
 from automation.data import control, physical
 from automation.data.capture import verify
 from automation.data.s3 import S3, S3Error
-from automation.mesh.kube import condition, get, kube, wait
+from playbooks.istio.files.kube import condition, get, kube, wait
 
 NAMESPACE = 'cloudlab-data-restore'
 LABEL = {'cloudlab.io/fixture': 'application-data-restore'}

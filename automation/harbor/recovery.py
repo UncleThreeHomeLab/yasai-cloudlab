@@ -19,7 +19,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from automation.harbor.bootstrap import OWNER, NAMESPACE, SECRETS
-from automation.mesh.kube import get, kube, condition, wait, application_ready
+from playbooks.istio.files.kube import get, kube, condition, wait, application_ready
 
 BASE = Path('/var/lib/cloudlab/harbor')
 CLAIMS = {'database': 'harbor-database', 'registry': 'harbor-registry', 'redis': 'harbor-redis'}

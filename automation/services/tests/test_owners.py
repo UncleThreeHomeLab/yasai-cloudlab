@@ -19,7 +19,7 @@ class OwnerInputTests(unittest.TestCase):
         with patch.dict(os.environ, {'VM_HOST': 'fixture'}), \
                 patch('automation.services.publication.set_intent') as intent, \
                 patch('automation.services.payload.payload', return_value=complete), \
-                patch('automation.connectivity.preflight.ssh') as ssh:
+                patch('playbooks.access.files.preflight.ssh') as ssh:
             owner.retire_catalog()
             intent.assert_called_once_with(owner.definition, 'retired')
             ssh.assert_called_once_with('VM', 'fixture',
@@ -60,7 +60,7 @@ class OwnerInputTests(unittest.TestCase):
             if changed: observed['include'] = [{'everyone': {}}]
             api = Mock()
             api.request.side_effect = [actual, [observed]]
-            with patch('automation.connectivity.cloudflare.API', return_value=api):
+            with patch('playbooks.access.files.cloudflare.API', return_value=api):
                 if changed:
                     with self.assertRaisesRegex(RuntimeError, 'selectors differ'): owner.protection_verified(value)
                 else: owner.protection_verified(value)

@@ -32,7 +32,7 @@ class NodePullTests(unittest.TestCase):
             received.append((prefix, data['project']))
             return json.dumps({'host_dns_tls': True, 'containerd_pull_by_digest': True, 'temporary_credentials_removed': True,
                                'host_identity': ('a' if prefix == 'VM' else 'b') * 64})
-        with patch.dict(os.environ), patch('automation.connectivity.preflight.ssh', side_effect=ssh):
+        with patch.dict(os.environ), patch('playbooks.access.files.preflight.ssh', side_effect=ssh):
             self.assertEqual(node_pull.verify_nodes(client, recorded), 4)
         self.assertEqual(set(received), {(prefix, project) for prefix in ('VM', 'VM2') for project in recorded['projects']})
 
@@ -47,7 +47,7 @@ class NodePullTests(unittest.TestCase):
             'cloudlab-public-pull': {'username': 'robot$cloudlab-public+pull', 'password': 'synthetic'}}}
         response = {'host_dns_tls': True, 'containerd_pull_by_digest': True,
                     'temporary_credentials_removed': True, 'host_identity': 'a' * 64}
-        with patch.dict(os.environ), patch('automation.connectivity.preflight.ssh', return_value=json.dumps(response)), \
+        with patch.dict(os.environ), patch('playbooks.access.files.preflight.ssh', return_value=json.dumps(response)), \
                 self.assertRaisesRegex(RuntimeError, 'same node kernel'):
             node_pull.verify_nodes(client, {'projects': {'cloudlab-public': {'digest': 'sha256:' + 'b' * 64}}})
 

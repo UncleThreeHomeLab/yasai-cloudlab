@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from automation.data.control import atomic, identity
 from automation.identity.configuration import compile_state, exact_url
 from automation.identity.maintenance import APP, NAMESPACE, OWNER, BASE
-from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
 from playbooks.argocd.files.private_sources import PEM_TEMPLATE
 from playbooks.argocd.files.sync_recovery import recovered_secret_sync
 from automation.identity.lease import available, previous_writer_done

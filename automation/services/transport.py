@@ -1,7 +1,7 @@
 """Cross-node callers prove workload identity policy separately from JWTs."""
 import uuid
 
-from automation.mesh.kube import condition, get, kube, wait
+from playbooks.istio.files.kube import condition, get, kube, wait
 
 
 def policy(entry):

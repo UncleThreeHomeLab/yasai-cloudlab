@@ -10,7 +10,7 @@ from dotenv import dotenv_values
 import yaml
 
 from playbooks.secrets.files.vault import fields
-from automation.connectivity.cloudflare import API
+from playbooks.access.files.cloudflare import API
 from automation.services.contract import ROOT, validate
 
 

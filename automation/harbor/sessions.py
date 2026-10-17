@@ -7,7 +7,7 @@ import socket
 import sys
 import time
 
-from automation.harbor import api
+from playbooks.infrastructure.files import harbor as api
 from automation.identity.session_setup import prepare as prepare_viewer
 
 CHECKPOINT = api.WORK / 'browser/fixture.json'
@@ -126,7 +126,7 @@ def verify():
 
 
 def run():
-    from automation.connectivity.verify import remote
+    from playbooks.access.files.verify import remote
     from playbooks.secrets.files.vault import fields
     from automation.harbor.artifacts import receipt
     from automation.harbor.recovery import atomic

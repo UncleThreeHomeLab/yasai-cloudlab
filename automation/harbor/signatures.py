@@ -101,10 +101,11 @@ class Cosign:
 
 def prove(client):
     from playbooks.secrets.files.vault import fields
-    from automation.harbor import api, artifacts, api_policy
+    from playbooks.infrastructure.files import harbor as api
+    from automation.harbor import artifacts, api_policy
     from automation.harbor.recovery import atomic
     from automation.harbor.registry import Registry
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     if client.plan(verify=True)['changes'] != 0:
         raise ValueError('Accept the unchanged native Harbor root before signing recovery artifacts')
     images = artifacts.receipt(client.path / 'artifacts/receipt.json')
@@ -154,7 +155,7 @@ def main():
     import argparse
     import fcntl
     from dotenv import dotenv_values
-    from automation.harbor import api
+    from playbooks.infrastructure.files import harbor as api
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=('provision', 'prove'))
     action = parser.parse_args().action

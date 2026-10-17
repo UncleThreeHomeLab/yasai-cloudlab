@@ -11,13 +11,14 @@ import tempfile
 import time
 import traceback
 
-from automation.harbor import api, api_policy
+from playbooks.infrastructure.files import harbor as api
+from automation.harbor import api_policy
 from automation.harbor.recovery import atomic
 from automation.harbor.registry import Registry
 from automation.harbor.node_pull import verify_nodes
 from automation.harbor.restore import PYTHON
-from automation.infra.retention import ciphertext
-from automation.connectivity.preflight import ssh
+from playbooks.infrastructure.files.retention import ciphertext
+from playbooks.access.files.preflight import ssh
 
 LARGE_LAYER = 256 * 1024**2
 PAYLOAD = 'cloudlab-proof/payload.bin'

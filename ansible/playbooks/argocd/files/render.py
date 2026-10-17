@@ -65,17 +65,17 @@ def payload():
 
 def committed_payload():
     data = payload()
-    paths = ['ansible/playbooks/setup.yml', 'ansible/playbooks/gitops.yml', 'ansible/certificates-setup.yml', 'ansible/mesh-setup.yml', 'ansible/connectivity-setup.yml', 'ansible/application_data-setup.yml', 'ansible/playbooks/bootstrap-recovery.yml', 'ansible/apply.yml', 'ansible/runner', 'platform/delivery/argocd', 'gitops', 'ansible/playbooks/argocd',
+    paths = ['ansible/playbooks/setup.yml', 'ansible/playbooks/gitops.yml', 'ansible/playbooks/certificates/010-bootstrap.yml', 'ansible/playbooks/istio/010-bootstrap.yml', 'ansible/playbooks/access/010-bootstrap.yml', 'ansible/application_data-setup.yml', 'ansible/playbooks/bootstrap-recovery.yml', 'ansible/apply.yml', 'ansible/runner', 'platform/delivery/argocd', 'gitops', 'ansible/playbooks/argocd',
              'platform/secrets/external-secrets', 'ansible/playbooks/secrets/files',
              'ansible/playbooks/secrets', 'ansible/group_vars/all/secrets.yml',
              'platform/storage/longhorn', 'ansible/playbooks/longhorn',
              'ansible/group_vars/all/storage.yml', 'platform/storage/longhorn-backup',
-             'ansible/playbooks/longhorn', 'platform/certificates', 'automation/certificates',
-             'ansible/roles/certificates', 'ansible/group_vars/all/certificates.yml',
-               'platform/connectivity', 'automation/connectivity', 'ansible/roles/connectivity',
-               'ansible/group_vars/all/connectivity.yml', 'ansible/access.yml', 'ansible/access-cutover.yml',
+             'ansible/playbooks/longhorn', 'platform/certificates', 'ansible/playbooks/certificates/files',
+             'ansible/playbooks/certificates', 'ansible/group_vars/all/certificates.yml',
+               'platform/connectivity', 'ansible/playbooks/access/files', 'ansible/playbooks/access',
+               'ansible/group_vars/all/connectivity.yml', 'ansible/playbooks/access/setup.yml', 'ansible/playbooks/access/cutover.yml',
                'ansible/playbooks/k3s',
-               'automation/mesh', 'ansible/roles/mesh', 'ansible/group_vars/all/mesh.yml',
+               'ansible/playbooks/istio/files', 'ansible/playbooks/istio', 'ansible/group_vars/all/mesh.yml',
                'platform/data', 'automation/data', 'ansible/roles/application_data',
                'ansible/group_vars/all/data.yml', 'ansible/data.yml',
                'platform/identity', 'automation/identity', 'ansible/roles/identity',

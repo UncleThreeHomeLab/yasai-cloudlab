@@ -12,7 +12,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
 from automation.data.s3 import S3, S3Error
 
 BASE = Path('/var/lib/cloudlab/application-data')

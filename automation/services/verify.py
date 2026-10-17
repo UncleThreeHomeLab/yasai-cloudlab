@@ -6,7 +6,7 @@ import subprocess
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from automation.mesh.kube import get, kube, wait
+from playbooks.istio.files.kube import get, kube, wait
 from automation.services.remote import inspect
 
 

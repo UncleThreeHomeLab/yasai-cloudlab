@@ -1,0 +1,27 @@
+---
+- name: Execute reviewed native infrastructure apply
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require explicit native apply inputs
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'LAB_INFRA_ROOT') in ['cloudflare', 'github']
+          - (lookup('ansible.builtin.env', 'LAB_INFRA_ARGUMENTS') | from_json)[0] == 'apply'
+    - name: Run the serialized native state and review transaction
+      ansible.builtin.command:
+        argv: "{{ ['python', '-m', 'playbooks.infrastructure.files.command'] + (lookup('ansible.builtin.env', 'LAB_INFRA_ARGUMENTS') | from_json) }}"
+        chdir: /workspace
+      register: infrastructure_result
+      changed_when: (infrastructure_result.stdout_lines | last | from_json).changed
+      failed_when: infrastructure_result.rc != 0
+    - name: Report sanitized native transaction result
+      ansible.builtin.debug:
+        var: infrastructure_result.stdout_lines
+    - name: Preserve native exit status for the portable CLI
+      ansible.builtin.copy:
+        content: '{{ infrastructure_result.rc | to_json }}'
+        dest: /tmp/lab-infrastructure-exit.json
+        mode: '0600'
+      changed_when: false

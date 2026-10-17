@@ -6,7 +6,7 @@ import shlex
 
 from dotenv import dotenv_values
 
-from automation.connectivity.preflight import ssh
+from playbooks.access.files.preflight import ssh
 from playbooks.argocd.files.render import committed_payload
 
 

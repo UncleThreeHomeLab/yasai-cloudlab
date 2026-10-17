@@ -42,19 +42,13 @@
     - name: Verify public GitOps convergence and authorization
       ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/verify.yml
     - name: Verify certificate issuance and reissuance
-      ansible.builtin.include_role:
-        name: certificates
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/certificates/tasks/verify.yml
       when: certificates_enabled | bool
     - name: Verify ambient identity and gateway isolation
-      ansible.builtin.include_role:
-        name: mesh
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/istio/tasks/verify.yml
       when: mesh_enabled | bool
     - name: Verify outside and tailnet access
-      ansible.builtin.include_role:
-        name: connectivity
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/access/tasks/verify.yml
       when: access_enabled | bool
     - name: Verify application data and coordinated local recovery
       ansible.builtin.include_role:

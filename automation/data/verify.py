@@ -16,7 +16,7 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from automation.data import backup, control
 from automation.data.s3 import S3, S3Error, NoRedirect
-from automation.mesh.kube import application_ready, condition, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, get, kube, wait
 
 NAMESPACE = 'cloudlab-data-proof'
 OWNER = 'cloudlab-data-proof'

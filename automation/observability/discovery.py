@@ -1,7 +1,7 @@
 """Read current identity/gateway peers without exporting credentials or private names."""
 import ipaddress
 
-from automation.mesh.kube import get, condition
+from playbooks.istio.files.kube import get, condition
 
 
 def run():

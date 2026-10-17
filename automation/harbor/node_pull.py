@@ -130,7 +130,7 @@ def run(payload):
 
 
 def verify_nodes(client, record):
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     endpoints = {(client.values.get(prefix + '_HOST'), client.values.get(prefix + '_PORT') or '22')
                  for prefix in ('VM', 'VM2')}
     if len(endpoints) != 2:

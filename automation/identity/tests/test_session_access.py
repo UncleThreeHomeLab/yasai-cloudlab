@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 import yaml
 
-from automation.connectivity.tests.fixtures import Provider
+from playbooks.access.tests.fixtures import Provider
 from automation.identity.session_access import configure, remove
 
 

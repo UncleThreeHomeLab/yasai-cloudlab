@@ -6,7 +6,7 @@ import re
 from automation.data import control
 from automation.data.s3 import S3, S3Error
 from automation.data.verify import NAMESPACE, OWNER, pod_query, sql_client
-from automation.mesh.kube import get, kube
+from playbooks.istio.files.kube import get, kube
 
 BODY = b'cloudlab retained service data\n'
 KEY = 'cloudlab-proof/retained-service-data'
