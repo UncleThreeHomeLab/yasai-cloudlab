@@ -7,8 +7,39 @@ from playbooks.data.files import public_ca
 
 
 class PublicCATests(unittest.TestCase):
+    def test_complete_consumers_cover_existing_owned_and_new_databases_without_expanding_scope(self):
+        values = {'serviceConsumers': ['cloudlab-app-notes', 'cloudlab-app-fixture'],
+                  'serviceRequests': [{'service': 'fixture', 'namespace': 'cloudlab-app-fixture', 'database': {}},
+                                      {'service': 'unapproved', 'namespace': 'cloudlab-app-unapproved', 'database': {}}]}
+        ca = '-----BEGIN CERTIFICATE-----\npublic fixture'
+        maps = {}
+        observed = []
+        def get(kind, name=None, namespace=None):
+            if kind == 'cluster.postgresql.cnpg.io': return {'metadata': {'uid': 'cluster'}}
+            if kind == 'secret': return {'metadata': {'ownerReferences': [{'uid': 'cluster'}]},
+                                        'data': {'ca.crt': base64.b64encode(ca.encode()).decode()}}
+            if kind == 'namespace':
+                observed.append(name)
+                return {'metadata': {'labels': {'cloudlab.io/owner': 'service-platform'},
+                        'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-services:/Namespace:/approved'}}}
+            return maps.get(namespace)
+        def create(*args, document):
+            self.assertEqual(args, ('create', '-f', '-'))
+            self.assertEqual(document['data'], {'ca.crt': ca})
+            document = copy.deepcopy(document)
+            document['metadata'].update(uid='retained-' + document['metadata']['namespace'], resourceVersion='1')
+            maps[document['metadata']['namespace']] = document
+        with patch.object(public_ca, 'get', side_effect=get), patch.object(public_ca, 'kube', side_effect=create) as kube:
+            self.assertTrue(public_ca.reconcile(values))
+            self.assertEqual(set(maps), set(values['serviceConsumers']))
+            self.assertEqual(observed, values['serviceConsumers'])
+            self.assertEqual(kube.call_count, 2)
+            kube.reset_mock()
+            self.assertFalse(public_ca.reconcile(values))
+            kube.assert_not_called()
+
     def test_projection_repairs_rotation_with_uid_precondition_and_preserves_foreign_objects(self):
-        values = {'serviceRequests': [{'service': 'notes', 'namespace': 'cloudlab-app-notes', 'database': {}}]}
+        values = {'serviceConsumers': ['cloudlab-app-notes'], 'serviceRequests': []}
         ca = '-----BEGIN CERTIFICATE-----\npublic fixture'
         current = {'metadata': {'uid': 'same-uid', 'resourceVersion': '1', 'labels': {'cloudlab.io/owner': public_ca.OWNER}},
                    'data': {'ca.crt': ca}}
@@ -39,12 +70,12 @@ class PublicCATests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'ambiguous owner'): public_ca.reconcile(values)
             kube.assert_not_called()
             current['metadata']['labels']['cloudlab.io/owner'] = public_ca.OWNER
-            values['serviceRequests'][0]['namespace'] = 'argocd'
+            values['serviceConsumers'] = ['argocd']
             with self.assertRaisesRegex(ValueError, 'approved service namespace'): public_ca.reconcile(values)
             kube.assert_not_called()
 
     def test_handoff_waits_for_successful_new_chart_sync_and_keeps_configmap_uid(self):
-        values = {'serviceRequests': [{'service': 'notes', 'namespace': 'cloudlab-app-notes', 'database': {}}]}
+        values = {'serviceConsumers': ['cloudlab-app-notes'], 'serviceRequests': []}
         ca = '-----BEGIN CERTIFICATE-----\nfixture'
         current = {'metadata': {'uid': 'retained', 'resourceVersion': '1', 'annotations': {
             'argocd.argoproj.io/tracking-id': 'notes-notes:/ConfigMap:cloudlab-app-notes/database-ca'}},
