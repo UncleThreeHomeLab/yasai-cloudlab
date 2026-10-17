@@ -22,7 +22,7 @@ def public_provider(provider):
 
 def prepare(api, account, previous, contract, state, save):
     """The external receipt lock protects creation, drift repair and rotation."""
-    from automation.connectivity.reconcile import matches
+    from playbooks.access.files.reconcile import matches
     if not re.fullmatch('[a-f0-9]{32}', account) or not re.fullmatch('[A-Za-z0-9-]{1,64}', previous):
         raise ValueError('Access provider requires exact existing account/provider identities')
     desired = contract['provider']
@@ -90,7 +90,7 @@ def snapshot(team):
     from automation.identity.bootstrap import private_inputs
     from automation.identity.configuration import private_request
     from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER
-    from automation.mesh.kube import application_ready, condition, get
+    from playbooks.istio.files.kube import application_ready, condition, get
     ownership = json.loads((BASE / 'ownership.json').read_text())
     app = get('application.argoproj.io', APP, 'argocd') or {}
     native = Path('/var/lib/cloudlab/gitops/identity-values-binding.json')
@@ -134,9 +134,9 @@ def snapshot(team):
 def local():
     from dotenv import dotenv_values
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.cloudflare import API
-    from automation.connectivity.checkpoint import transaction
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.cloudflare import API
+    from playbooks.access.files.checkpoint import transaction
+    from playbooks.access.files.preflight import ssh
     values = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'OP_SERVICE_ACCOUNT_TOKEN'):
         os.environ[key] = values.get(key) or ''

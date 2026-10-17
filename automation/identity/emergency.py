@@ -18,7 +18,7 @@ from automation.identity.bootstrap import writer_idle, reconciled, private_input
 from automation.identity.configuration import email_profile, private_request
 from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER, _set_maintenance
 from automation.identity.recovery import signature_state
-from automation.mesh.kube import get, kube, condition, contains, wait
+from playbooks.istio.files.kube import get, kube, condition, contains, wait
 
 
 def digest(value):
@@ -334,7 +334,7 @@ def run(nonce):
 
 def local(request):
     from dotenv import dotenv_values
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     from playbooks.secrets.files.provision import ensure_items
     values = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):

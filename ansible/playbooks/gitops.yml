@@ -13,17 +13,17 @@
     - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
 - name: Configure certificates after public bootstrap
-  ansible.builtin.import_playbook: ../certificates-setup.yml
+  ansible.builtin.import_playbook: certificates/010-bootstrap.yml
   when:
     - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
 - name: Configure mesh after public bootstrap
-  ansible.builtin.import_playbook: ../mesh-setup.yml
+  ansible.builtin.import_playbook: istio/010-bootstrap.yml
   when:
     - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
 - name: Configure connectivity after public bootstrap
-  ansible.builtin.import_playbook: ../connectivity-setup.yml
+  ansible.builtin.import_playbook: access/010-bootstrap.yml
   when:
     - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'

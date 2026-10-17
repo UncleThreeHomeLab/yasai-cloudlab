@@ -6,7 +6,7 @@ import shlex
 import sys
 
 from playbooks.argocd.files.render import committed_payload
-from automation.connectivity.preflight import ssh
+from playbooks.access.files.preflight import ssh
 from automation.observability.configuration import grafana
 from automation.observability.values import values
 

@@ -141,12 +141,12 @@ class ProofUserTests(unittest.TestCase):
                 if any(p.get('op')=='remove' and p['path'].endswith('/operation') for p in patches):
                     app['spec']['source']['helm']['valuesObject'].pop('operation')
             with patch('automation.identity.maintenance.BASE',root), \
-                    patch('automation.mesh.kube.get',side_effect=resources), \
-                    patch('automation.mesh.kube.condition',return_value=True), \
-                    patch('automation.mesh.kube.application_ready',side_effect=lambda *_:'operation' not in app['spec']['source']['helm']['valuesObject']), \
-                    patch('automation.mesh.kube.contains',return_value=True), \
-                    patch('automation.mesh.kube.wait',side_effect=lambda predicate,*a,**k:self.assertTrue(predicate())), \
-                    patch('automation.mesh.kube.kube',side_effect=write), \
+                    patch('playbooks.istio.files.kube.get',side_effect=resources), \
+                    patch('playbooks.istio.files.kube.condition',return_value=True), \
+                    patch('playbooks.istio.files.kube.application_ready',side_effect=lambda *_:'operation' not in app['spec']['source']['helm']['valuesObject']), \
+                    patch('playbooks.istio.files.kube.contains',return_value=True), \
+                    patch('playbooks.istio.files.kube.wait',side_effect=lambda predicate,*a,**k:self.assertTrue(predicate())), \
+                    patch('playbooks.istio.files.kube.kube',side_effect=write), \
                     patch('automation.identity.bootstrap.writer_idle',return_value=True), \
                     patch('automation.identity.bootstrap.reconciled',side_effect=RuntimeError('failed sync') if failed else None,return_value=True) as ready, \
                     patch('automation.identity.bootstrap.private_inputs',return_value=({}, {}, 'private-revision')), \
@@ -210,8 +210,8 @@ class ProofUserTests(unittest.TestCase):
             (root / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': 'a' * 40}))
             foreign = {'metadata': {'uid': 'foreign'}, 'spec': {'source': {'helm': {'valuesObject': {}}}}}
             with patch('automation.identity.maintenance.BASE', root), \
-                    patch('automation.mesh.kube.get', return_value=foreign), \
-                    patch('automation.mesh.kube.kube') as write:
+                    patch('playbooks.istio.files.kube.get', return_value=foreign), \
+                    patch('playbooks.istio.files.kube.kube') as write:
                 with self.assertRaises(RuntimeError):
                     enroll({'nonce': 'a' * 32})
                 write.assert_not_called()

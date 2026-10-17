@@ -8,10 +8,10 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from playbooks.secrets.files.vault import fields
-from automation.connectivity.verify import remote
-from automation.connectivity.traffic import https
-from automation.connectivity.contract import host_rules
-from automation.connectivity.dns_wire import query
+from playbooks.access.files.verify import remote
+from playbooks.access.files.traffic import https
+from playbooks.access.files.contract import host_rules
+from playbooks.access.files.dns_wire import query
 from automation.data.s3 import S3
 
 

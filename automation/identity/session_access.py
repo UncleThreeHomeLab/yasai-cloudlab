@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 import sys
 
-from automation.connectivity.cluster_fixture import CANARY_PATH
-from automation.connectivity.cloudflare import access_application
-from automation.connectivity.reconcile import Reconciler, matches
+from playbooks.access.files.cluster_fixture import CANARY_PATH
+from playbooks.access.files.cloudflare import access_application
+from playbooks.access.files.reconcile import Reconciler, matches
 from automation.identity.session_fixture import scope
 
 
@@ -66,10 +66,10 @@ def local(request, *, cleanup=False):
     from dotenv import dotenv_values
     import yaml
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.cloudflare import API
-    from automation.connectivity.checkpoint import transaction
-    from automation.connectivity.contract import host_rules
-    from automation.connectivity.verify import remote
+    from playbooks.access.files.cloudflare import API
+    from playbooks.access.files.checkpoint import transaction
+    from playbooks.access.files.contract import host_rules
+    from playbooks.access.files.verify import remote
     nonce = scope(request)
     root = Path(__file__).resolve().parents[2]
     environment = dotenv_values(root / '.env', interpolate=False)

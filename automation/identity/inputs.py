@@ -16,11 +16,11 @@ from playbooks.argocd.files.github_setup import repository
 def native_argo(values):
     import urllib.request
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.cloudflare import API
+    from playbooks.access.files.cloudflare import API
     from playbooks.argocd.files.github_app import app_token, verify_installation
     from playbooks.argocd.files.github_setup import GitHub
     from automation.identity.private_source import argo_values
-    from automation.connectivity.contract import host_rules
+    from playbooks.access.files.contract import host_rules
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     dns = fields('cloudlab-dns01', ('API_TOKEN', 'ZONE_ID'))
     zone = API(dns['API_TOKEN']).request('GET', 'zones/' + dns['ZONE_ID'])['name']

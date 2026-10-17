@@ -198,8 +198,8 @@ class IdentityTests(unittest.TestCase):
         request = {'realm': 'platform', 'username': 'fixture-person',
                    'user_id': '12345678-1234-1234-1234-123456789abc', 'email': 'fixture@example.invalid'}
         with patch('dotenv.dotenv_values', return_value={}), \
-                patch('automation.connectivity.checkpoint.transaction', transaction), \
-                patch('automation.connectivity.preflight.ssh') as ssh:
+                patch('playbooks.access.files.checkpoint.transaction', transaction), \
+                patch('playbooks.access.files.preflight.ssh') as ssh:
             with self.assertRaisesRegex(RuntimeError, 'accepted dedicated Access cutover'):
                 lifecycle.local_offboard(request)
             ssh.assert_not_called()
@@ -218,10 +218,10 @@ class IdentityTests(unittest.TestCase):
         api = Mock()
         api.request.side_effect = [{'policies': [{'decision': 'allow'}], 'allowed_idps': ['dedicated']}, True]
         with patch('dotenv.dotenv_values', return_value={'VM_HOST': 'fixture'}), \
-                patch('automation.connectivity.checkpoint.transaction', transaction), \
+                patch('playbooks.access.files.checkpoint.transaction', transaction), \
                 patch('playbooks.secrets.files.vault.fields', return_value={'API_TOKEN': 'private', 'ACCOUNT_ID': account}), \
-                patch('automation.connectivity.cloudflare.API', return_value=api), \
-                patch('automation.connectivity.preflight.ssh', return_value='{"keycloak_sessions_invalidated":true}'):
+                patch('playbooks.access.files.cloudflare.API', return_value=api), \
+                patch('playbooks.access.files.preflight.ssh', return_value='{"keycloak_sessions_invalidated":true}'):
             result = lifecycle.local_offboard(request)
         self.assertFalse(result['access_session_denial_measured'])
         self.assertEqual(api.request.call_args.args, ('POST', 'accounts/' + account + '/access/organizations/revoke_user',
@@ -558,7 +558,7 @@ class IdentityTests(unittest.TestCase):
             initialize_primary(state, [], values)
 
     def test_access_provider_repeat_drift_rotation_preserve_prior_and_hide_secrets(self):
-        from automation.connectivity.tests.fixtures import Provider
+        from playbooks.access.tests.fixtures import Provider
         api, state = Provider(), {}
         account, previous = 'a' * 32, 'prior-provider'
         path = 'accounts/' + account + '/access/identity_providers'
@@ -587,7 +587,7 @@ class IdentityTests(unittest.TestCase):
         self.assertFalse(run()['browser_and_credential_acceptance'])
 
     def test_access_provider_refuses_foreign_lost_and_ambiguous_creation(self):
-        from automation.connectivity.tests.fixtures import Provider
+        from playbooks.access.tests.fixtures import Provider
         api, state = Provider(), {}
         account, previous = 'a' * 32, 'prior-provider'
         path = 'accounts/' + account + '/access/identity_providers'
@@ -1093,11 +1093,11 @@ class IdentityTests(unittest.TestCase):
             return {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-identity-private:/ConfigMap:fixture'}},
                     'data': {'desired_state': json.dumps(source), 'revocations': json.dumps({'format': 1, 'realms': {}})}}
         with patch('automation.identity.bootstrap.private_inputs', return_value=(source, {'format': 1, 'realms': {}}, 'private')):
-            with patch('automation.mesh.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
+            with patch('playbooks.istio.files.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
             source['realms']['applications']['clients'][0]['public'] = False
-            with patch('automation.mesh.kube.get', side_effect=objects): self.assertIn('callback', inventory(operation))
+            with patch('playbooks.istio.files.kube.get', side_effect=objects): self.assertIn('callback', inventory(operation))
             source['realms']['applications']['clients'][0]['enabled'] = False
-            with patch('automation.mesh.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
+            with patch('playbooks.istio.files.kube.get', side_effect=objects), self.assertRaises(ValueError): inventory(operation)
 
     def test_initial_confidential_secret_can_precede_publication_without_reenabling_retired_clients(self):
         proposed = dict(self.source()['realms']['applications']['clients'][0], public=False)
@@ -1105,7 +1105,7 @@ class IdentityTests(unittest.TestCase):
         app = {'metadata': {'labels': {'cloudlab.io/owner': 'cloudlab-identity-bootstrap'}},
                'spec': {'source': {'helm': {'valuesObject': {'adminHost': 'identity-admin.internal.example.invalid'}}}}}
         source, revoked = {'format': 1, 'realms': {}}, {'format': 1, 'realms': {}}
-        with patch('automation.mesh.kube.get', return_value=app), \
+        with patch('playbooks.istio.files.kube.get', return_value=app), \
                 patch('automation.identity.bootstrap.private_inputs', return_value=(source, revoked, 'private')):
             self.assertEqual(inventory(request)['callback'], proposed['callbacks'][0])
             revoked['realms']['applications'] = {'clients': ['reference'], 'removed_clients': ['reference']}

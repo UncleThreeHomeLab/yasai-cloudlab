@@ -59,7 +59,7 @@ def replacement(document, request, value):
 
 def inventory(request):
     from automation.identity.maintenance import APP, NAMESPACE, OWNER
-    from automation.mesh.kube import get
+    from playbooks.istio.files.kube import get
     from automation.identity.bootstrap import private_inputs
     request_scope(request)
     app = get('application.argoproj.io', APP, 'argocd') or {}
@@ -99,7 +99,7 @@ def probe(settings, request, secret):
 def refresh(request):
     """Request delivery from the existing ESO owner without any realm mutation."""
     from automation.identity.maintenance import APP, NAMESPACE, OWNER
-    from automation.mesh.kube import get, kube
+    from playbooks.istio.files.kube import get, kube
     request_scope(request)
     app = get('application.argoproj.io', APP, 'argocd') or {}
     values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
@@ -122,7 +122,7 @@ def refresh(request):
 
 def local_refresh(request):
     from dotenv import dotenv_values
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     request_scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
@@ -133,7 +133,7 @@ def local_refresh(request):
 
 
 def verify(payload):
-    from automation.mesh.kube import get, kube, condition
+    from playbooks.istio.files.kube import get, kube, condition
     from automation.identity.maintenance import NAMESPACE
     request, old, new = payload['request'], payload['old'], payload['new']
     settings = inventory(request)
@@ -157,7 +157,7 @@ def verify(payload):
 def local(request):
     from dotenv import dotenv_values
     from playbooks.secrets.files.provision import command
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     from automation.data.control import atomic
     request_scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)

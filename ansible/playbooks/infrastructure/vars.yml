@@ -1,0 +1,19 @@
+---
+infrastructure_offline_environment:
+  TF_CLI_CONFIG_FILE: /opt/runner/providers.tfrc
+  TF_IN_AUTOMATION: 'true'
+  TF_ENCRYPTION: |
+    key_provider "pbkdf2" "recovery" {
+      passphrase = "synthetic-only-passphrase-never-used-for-live-state"
+    }
+    method "aes_gcm" "protected" {
+      keys = key_provider.pbkdf2.recovery
+    }
+    state {
+      method = method.aes_gcm.protected
+      enforced = true
+    }
+    plan {
+      method = method.aes_gcm.protected
+      enforced = true
+    }

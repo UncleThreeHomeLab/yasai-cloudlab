@@ -1,16 +1,4 @@
 ---
-- name: Configure independent private resolvers on both hosts
-  hosts: k3s_cluster
-  become: true
-  gather_facts: false
-  any_errors_fatal: true
-  tasks:
-    - name: Configure private DNS after access readiness
-      ansible.builtin.include_role:
-        name: connectivity
-        tasks_from: dns
-      when: access_enabled | bool
-
 - name: Provision application data after both private resolvers are ready
   hosts: k3s_servers
   become: true

@@ -66,7 +66,7 @@ def gate(team, since=None):
     from automation.identity.emergency import current_private, vault_secret
     from automation.identity.configuration import private_request
     from urllib.parse import urlencode, quote
-    from automation.mesh.kube import get
+    from playbooks.istio.files.kube import get
     ownership = json.loads((BASE / 'ownership.json').read_text())
     retired = json.loads((BASE / 'retirement.json').read_text())
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE)
@@ -125,7 +125,7 @@ def gate(team, since=None):
 
 def browser_gate(team, since):
     import shlex
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     script = "import sys,json;sys.path.insert(0,'/opt/cloudlab');from automation.identity.access_cutover import gate;gate(**json.load(sys.stdin));print('verified')"
     if ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
            input=json.dumps({'team': team, 'since': since}), timeout=60).strip() != 'verified':
@@ -170,12 +170,12 @@ def local():
     import yaml
     from dotenv import dotenv_values
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.cloudflare import API
-    from automation.connectivity.checkpoint import transaction
-    from automation.connectivity.preflight import ssh
-    from automation.connectivity.external import run
+    from playbooks.access.files.cloudflare import API
+    from playbooks.access.files.checkpoint import transaction
+    from playbooks.access.files.preflight import ssh
+    from playbooks.access.files.external import run
     from automation.identity.access_provider import public_provider
-    from automation.connectivity.reconcile import matches
+    from playbooks.access.files.reconcile import matches
     from automation.identity.access_inputs import runtime
     import shlex
     values = dotenv_values(ROOT / '.env', interpolate=False)

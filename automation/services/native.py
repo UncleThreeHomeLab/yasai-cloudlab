@@ -4,8 +4,8 @@ import fcntl
 import json
 from pathlib import Path
 
-from automation.infra import command
-from automation.infra.native import require
+from playbooks.infrastructure.files import command
+from playbooks.infrastructure.files.native import require
 from automation.services.external import declarations, guarded_plan
 
 

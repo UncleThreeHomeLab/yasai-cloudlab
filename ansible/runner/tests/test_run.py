@@ -55,13 +55,45 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'drift', 'github']), \
                 patch.object(runner, 'dotenv_values') as dotenv, \
                 patch.object(runner, 'playbook') as playbook, \
-                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=2)) as run:
+                patch.object(runner.Path, 'read_text', side_effect=lambda: json.dumps({
+                    'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': 2})):
             with self.assertRaises(SystemExit) as result:
                 runner.main()
         self.assertEqual(result.exception.code, 2)
         dotenv.assert_not_called()
+        playbook.assert_called_once_with('playbooks/infrastructure/drift.yml')
+        self.assertEqual(json.loads(runner.os.environ['LAB_INFRA_ARGUMENTS']), ['drift', 'github'])
+
+    def test_native_plan_failure_cannot_become_ansible_drift_exit(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'plan', 'github']), \
+                patch.object(runner, 'playbook', side_effect=SystemExit(2)), \
+                patch.object(runner.Path, 'read_text', side_effect=lambda: json.dumps({
+                    'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': 1})):
+            with self.assertRaises(SystemExit) as result:
+                runner.main()
+            self.assertEqual(result.exception.code, 1)
+
+    def test_missing_stale_or_malformed_native_status_cannot_report_drift(self):
+        cases = [FileNotFoundError(), '2', '{}', '{invalid',
+                 '{"invocation":"previous-invocation","exit":2}',
+                 lambda: json.dumps({'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': True})]
+        for case in cases:
+            def read():
+                if isinstance(case, Exception):
+                    raise case
+                return case() if callable(case) else case
+            with self.subTest(case=case), \
+                    patch.object(runner.sys, 'argv', ['run.py', 'infra', 'plan', 'github']), \
+                    patch.object(runner, 'playbook'), patch.object(runner.Path, 'read_text', side_effect=read):
+                with self.assertRaises(SystemExit) as result:
+                    runner.main()
+                self.assertEqual(result.exception.code, 1)
+
+    def test_infra_apply_requires_review_before_playbook(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'apply', 'github']), \
+                patch.object(runner, 'playbook') as playbook, self.assertRaises(SystemExit):
+            runner.main()
         playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0], [runner.sys.executable, '-m', 'automation.infra.command', 'drift', 'github'])
 
     def test_local_tests_need_no_credentials_dns_or_host_apply(self):
         with patch.object(runner.sys, 'argv', ['run.py', 'test']), \
@@ -77,16 +109,16 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_test_runner_isolates_owners_and_reports_failures_after_all_groups(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ('automation/mesh/tests', 'automation/certificates/tests', 'verification/integration'):
+            for name in ('automation/data/tests', 'automation/services/tests', 'verification/integration'):
                 folder = root / name
                 folder.mkdir(parents=True)
                 (folder / 'test_example.py').write_text('')
             with patch.object(test_runner.subprocess, 'run', side_effect=[Mock(returncode=1), Mock(returncode=0), Mock(returncode=0)]) as command, \
                     patch('builtins.print'), \
-                    self.assertRaisesRegex(RuntimeError, 'Tests failed: automation[/\\\\]certificates[/\\\\]tests'):
+                    self.assertRaisesRegex(RuntimeError, 'Tests failed: automation[/\\\\]data[/\\\\]tests'):
                 test_runner.run(root)
             self.assertEqual(command.call_count, 3)
-            for call, owner in zip(command.call_args_list, ('certificates', 'mesh', None)):
+            for call, owner in zip(command.call_args_list, ('data', 'services', None)):
                 self.assertEqual(call.kwargs['cwd'], root)
                 paths = call.kwargs['env']['PYTHONPATH'].split(os.pathsep)
                 self.assertEqual(paths[0], str(root / 'automation' / owner) if owner else str(root / 'verification'))
@@ -104,7 +136,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_migrated_and_legacy_tests_run_once_in_isolated_processes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            groups = ('automation/mesh/tests', 'ansible/playbooks/host/tests',
+            groups = ('automation/data/tests', 'ansible/playbooks/host/tests',
                       'ansible/runner/tests', 'verification/integration')
             for name in groups:
                 folder = root / name
@@ -267,7 +299,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
             playbook = self.invoke('access-preflight')
         playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0][-1], '/workspace/automation/connectivity/preflight.py')
+        self.assertEqual(run.call_args.args[0][-1], '/workspace/ansible/playbooks/access/files/preflight.py')
 
     def test_access_preflight_preserves_blocker_exit_without_traceback(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=2)):
@@ -280,7 +312,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             with self.subTest(action=action), patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
                 playbook = self.invoke(action)
                 playbook.assert_not_called()
-                self.assertEqual(run.call_args.args[0][-1], '/workspace/automation/connectivity/' + module)
+                self.assertEqual(run.call_args.args[0][-1], '/workspace/ansible/playbooks/access/files/' + module)
 
     def test_missing_worker_password_fails_before_any_playbook(self):
         del self.values['VM2_PASSWORD']
@@ -465,7 +497,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
 
     def test_mesh_check_uses_existing_credentials_without_new_vault_requests(self):
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
-        self.invoke('mesh-check').assert_called_once_with('mesh.yml')
+        self.invoke('mesh-check').assert_called_once_with('playbooks/istio/verify.yml')
         self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
 
     def test_unreadable_public_source_fails_before_any_host_operation(self):

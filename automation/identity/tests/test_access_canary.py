@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from automation.identity import access_canary as canary
-from automation.connectivity.tests.fixtures import Provider
+from playbooks.access.tests.fixtures import Provider
 
 
 class CanaryTests(unittest.TestCase):

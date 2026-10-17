@@ -6,12 +6,12 @@ import sys
 from pathlib import Path
 import time
 
-from automation.connectivity.cluster_fixture import CANARY_PATH
-from automation.connectivity.cloudflare import access_application
-from automation.connectivity.contract import host_rules
-from automation.connectivity.reconcile import Reconciler, matches
-from automation.connectivity.traffic import https, success, denied
-from automation.connectivity.human import verify_token, read_token
+from playbooks.access.files.cluster_fixture import CANARY_PATH
+from playbooks.access.files.cloudflare import access_application
+from playbooks.access.files.contract import host_rules
+from playbooks.access.files.reconcile import Reconciler, matches
+from playbooks.access.files.traffic import https, success, denied
+from playbooks.access.files.human import verify_token, read_token
 
 
 def desired(hostname, email, provider):
@@ -76,7 +76,7 @@ def record(api, account, state, save, organization, email, token, machine_hosts)
     headers = {'Cookie': 'CF_Authorization=' + token}
     if not success(https(canary['hostname'], headers=headers, path=CANARY_PATH)):
         raise RuntimeError('Signed canary session did not reach its disposable backend')
-    from automation.connectivity.cluster_fixture import PROOF_PATH
+    from playbooks.access.files.cluster_fixture import PROOF_PATH
     if any(not denied(https(host, headers=headers, path=PROOF_PATH)) for host in machine_hosts):
         raise RuntimeError('Canary human session crossed the independent machine boundary')
     canary.update(phase='proven', verified_at=now)
@@ -112,10 +112,10 @@ def local(action, token=None):
     import re
     from dotenv import dotenv_values
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.cloudflare import API
-    from automation.connectivity.checkpoint import transaction
-    from automation.connectivity.preflight import ssh
-    from automation.connectivity.verify import remote
+    from playbooks.access.files.cloudflare import API
+    from playbooks.access.files.checkpoint import transaction
+    from playbooks.access.files.preflight import ssh
+    from playbooks.access.files.verify import remote
     from automation.identity.access_cutover import validate_provider
     from automation.identity.access_provider import public_provider
     root = Path(__file__).resolve().parents[2]

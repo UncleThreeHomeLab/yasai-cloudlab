@@ -6,6 +6,7 @@ import socket
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 from dotenv import dotenv_values
 
@@ -86,9 +87,53 @@ def main():
     if sys.argv[1:2] == ['service']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.services.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)
-    if sys.argv[1:2] == ['infra']:
-        raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.infra.command', *sys.argv[2:]],
-                                       cwd='/workspace', check=False).returncode)
+    if sys.argv[1:2] in (['infra'], ['infra-harbor']):
+        import argparse
+        harbor = sys.argv[1] == 'infra-harbor'
+        if harbor:
+            arguments = sys.argv[2:]
+            root = 'harbor'
+            action = arguments[0] if arguments else ''
+            if action == 'check' and arguments != ['check']:
+                raise SystemExit('Harbor check accepts no mutation options')
+        else:
+            parser = argparse.ArgumentParser(description='Native infrastructure operation')
+            parser.add_argument('action', choices=('check', 'locks', 'plan', 'apply', 'verify', 'drift'))
+            parser.add_argument('root', choices=('cloudflare', 'github'))
+            parser.add_argument('--review')
+            selected = parser.parse_args(sys.argv[2:])
+            if (selected.action == 'apply') != (selected.review is not None):
+                parser.error('Apply alone requires the exact reviewed plan hash')
+            arguments, root, action = sys.argv[2:], selected.root, selected.action
+        os.environ['LAB_INFRA_ROOT'] = root
+        os.environ['LAB_INFRA_ARGUMENTS'] = json.dumps(arguments)
+        native_status = not harbor and action not in ('check', 'locks')
+        with tempfile.TemporaryDirectory(prefix='infra-invocation-') as temporary:
+            status_path = Path(temporary) / 'native-exit.json'
+            invocation = Path(temporary).name
+            os.environ['LAB_INFRA_STATUS_PATH'] = str(status_path)
+            os.environ['LAB_INFRA_INVOCATION'] = invocation
+
+            def native_exit():
+                try:
+                    document = json.loads(status_path.read_text())
+                    if (not isinstance(document, dict) or set(document) != {'invocation', 'exit'} or
+                            document['invocation'] != invocation or type(document['exit']) is not int or
+                            not 0 <= document['exit'] <= 255):
+                        return 1
+                    return document['exit']
+                except (OSError, ValueError):
+                    return 1
+
+            try:
+                playbook('playbooks/infrastructure/' + ('check' if action == 'check' else 'harbor' if harbor else action) + '.yml')
+            except SystemExit:
+                if not native_status:
+                    raise
+                raise SystemExit(native_exit() or 1) from None
+            if native_status:
+                raise SystemExit(native_exit())
+        return
     action = sys.argv[1] if len(sys.argv) == 2 else ''
     action = {'apply': 'setup', 'backup': 'recovery-monthly'}.get(action, action)
     if action in {'maintenance', 'upgrade', 'nuke', 'recovery'}:
@@ -153,10 +198,10 @@ def main():
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/longhorn/files/chart.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/longhorn/files/backup_parity.py'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'check'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/certificates/chart.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/mesh/chart.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/connectivity/chart.py'], check=True)
-        subprocess.run([sys.executable, '/workspace/automation/connectivity/dns_check.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/certificates/files/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/istio/files/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/chart.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/dns_check.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/data/chart.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/identity/chart.py'], check=True)
         subprocess.run([sys.executable, '-m', 'automation.services.check'], cwd='/workspace', check=True)
@@ -184,7 +229,7 @@ def main():
         if action == 'monthly-proof':
             os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
-        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'playbooks/tailscale/lifecycle.yml', 'playbooks/tailscale/policy.yml', 'playbooks/tailscale/access.yml', 'playbooks/k3s/migrate.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml', 'access-cutover.yml'):
+        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'playbooks/tailscale/lifecycle.yml', 'playbooks/tailscale/policy.yml', 'playbooks/tailscale/access.yml', 'playbooks/k3s/migrate.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'playbooks/istio/verify.yml', 'playbooks/access/setup.yml', 'playbooks/access/cutover.yml'):
             playbook(name, syntax=True)
         for path in sorted(Path('/workspace/ansible/playbooks').glob('*.yml')):
             playbook(str(path), syntax=True)
@@ -263,7 +308,7 @@ def main():
     elif action in {'access-preflight', 'access-external', 'access-prepare-tags'}:
         module = {'access-preflight': 'preflight.py', 'access-external': 'external.py',
                   'access-prepare-tags': 'prepare_tags.py'}[action]
-        result = subprocess.run([sys.executable, '/workspace/automation/connectivity/' + module], check=False)
+        result = subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/' + module], check=False)
         if result.returncode:
             raise SystemExit(result.returncode)
     elif action == 'k3s-migrate':
@@ -331,19 +376,19 @@ def main():
             os.environ['LAB_BACKUP_STOP_AFTER_SEED'] = '0'
         playbook('longhorn-backup-recovery.yml' if action.endswith('recover') else 'longhorn-backup.yml')
     elif action == 'access-human-proof':
-        subprocess.run([sys.executable, '/workspace/automation/connectivity/human.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/human.py'], check=True)
     elif action == 'access-check':
         gitops_preflight()
-        subprocess.run([sys.executable, '/workspace/automation/connectivity/verify.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/verify.py'], check=True)
     elif action == 'access-cutover':
         gitops_preflight()
-        playbook('access-cutover.yml')
+        playbook('playbooks/access/cutover.yml')
     elif action == 'access-bootstrap':
         gitops_preflight()
-        playbook('access.yml')
+        playbook('playbooks/access/setup.yml')
     elif action == 'mesh-check':
         gitops_preflight()
-        playbook('mesh.yml')
+        playbook('playbooks/istio/verify.yml')
     elif action == 'host-access':
         playbook('playbooks/tailscale/access.yml')
     elif action in {'recovery-monthly', 'recovery-initial', 'recovery-replacement-test'}:

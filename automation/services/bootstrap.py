@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from automation.mesh.kube import get, contains, kube, application_ready, wait
+from playbooks.istio.files.kube import get, contains, kube, application_ready, wait
 from automation.services.contract import exposure_bindings
 
 APP = 'cloudlab-services'

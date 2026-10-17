@@ -12,7 +12,7 @@ from automation.identity import maintenance, emergency
 from automation.identity.access_provider import public_provider
 from automation.identity.access_provider import prepare as prepare_provider
 from automation.identity.integrations import access, argo
-from automation.connectivity.cloudflare import access_application
+from playbooks.access.files.cloudflare import access_application
 
 
 class AccessCutoverTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class AccessCutoverTests(unittest.TestCase):
                 native_argo_contract({'realms': {'platform': {'clients': clients}}}, revoked, 'login.example.invalid')
 
     def test_unchanged_provider_preserves_acceptance_rotation_requires_new_proof(self):
-        from automation.connectivity.tests.fixtures import Provider
+        from playbooks.access.tests.fixtures import Provider
         api = Provider(); state = {'phase': 'configured', 'binding': 'owned'}
         path = 'accounts/' + 'a' * 32 + '/access/identity_providers'
         prior = {'id': 'previous', 'name': 'Prior provider', 'type': 'onetimepin', 'config': {}}
@@ -87,7 +87,7 @@ class AccessCutoverTests(unittest.TestCase):
             return changes.get('groups', [{'path': '/platform-admin'}])
         with tempfile.TemporaryDirectory() as directory, patch.object(maintenance, 'BASE', Path(directory)), \
                 patch('automation.identity.access_cutover.time.time', return_value=1800000000), \
-                patch('automation.mesh.kube.get', side_effect=get), \
+                patch('playbooks.istio.files.kube.get', side_effect=get), \
                 patch('automation.identity.bootstrap.private_inputs', return_value=(
                     {'realms': {'platform': {'clients': [contract['client']]}}}, {'realms': {'platform': {}}}, 'immutable')) as inputs, \
                 patch.object(emergency, 'current_private', return_value='fixture@example.invalid') as private, \

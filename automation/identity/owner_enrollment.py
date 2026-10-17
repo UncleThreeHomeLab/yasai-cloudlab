@@ -107,7 +107,7 @@ def publish():
 def local(stage=False):
     from dotenv import dotenv_values
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
         os.environ[key] = environment[key]

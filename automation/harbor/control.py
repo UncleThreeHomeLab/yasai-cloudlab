@@ -42,7 +42,7 @@ def identity_prepare(values, api):
 
 
 def private_dns_input():
-    from automation.connectivity.contract import private_names
+    from playbooks.access.files.contract import private_names
     path = '/workspace/.env'
     values = dotenv_values(path, interpolate=False)
     baseline = private_names(json.loads(values.get('PRIVATE_ACCESS_HOSTS') or '[]'))

@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 import yaml
 
-from automation.infra.command import Client
+from playbooks.infrastructure.files.command import Client
 from automation.services import native
 from automation.services.contract import ROOT
 from automation.services.gitops import resources
@@ -49,7 +49,7 @@ class Owners:
             self.client = Client('cloudflare')
 
     def read(self, action):
-        from automation.connectivity.preflight import ssh
+        from playbooks.access.files.preflight import ssh
         # Inspect versioned code through stdin; no manual host configuration.
         source = (ROOT / 'automation/services/remote.py').read_text()
         request = json.dumps({'action': action, 'definition': self.definition, 'approval': self.approval})
@@ -94,7 +94,7 @@ class Owners:
         selected = self.client.desired['applications'].get(self.bundle['application'])
         if not selected or selected['domain'] != exposure['hostname']:
             raise RuntimeError('Platform must provision the exact approved Access application before publication')
-        from automation.connectivity.cloudflare import API
+        from playbooks.access.files.cloudflare import API
         api = API(self.client.env['CLOUDFLARE_API_TOKEN'])
         address = 'cloudflare_zero_trust_access_application.application[' + json.dumps(self.bundle['application']) + ']'
         inventory = self.client.inventory[address]
@@ -113,13 +113,13 @@ class Owners:
     def private_protection(self):
         sys.path.insert(0, str(ROOT / 'ansible/playbooks/tailscale/files'))
         from control import API
-        from automation.connectivity.tailnet import candidate
+        from playbooks.access.files.tailnet import candidate
         actual, _ = API('tailscale-policy').request('GET', 'tailnet/-/acl')
         if candidate(actual, os.environ['TAILSCALE_ADMIN_LOGIN']) != actual:
             raise RuntimeError('Existing private service protection is not converged')
         if not self.private_denial_verified:
             peer = self.read('private-boundary')['privatePeer']
-            from automation.connectivity.tailnet_probe import client, tailnet_connect
+            from playbooks.access.files.tailnet_probe import client, tailnet_connect
             with client() as (control_socket, status):
                 peers = {ip for row in (status.get('Peer') or {}).values() for ip in row.get('TailscaleIPs', [])}
                 if tailnet_connect(control_socket, peer, 443, peers):
@@ -138,7 +138,7 @@ class Owners:
         if definition['exposure']['class'] != 'public':
             self.read('tls')
             return
-        from automation.connectivity.cloudflare import API
+        from playbooks.access.files.cloudflare import API
         desired = self.client.desired
         actual = API(self.client.env['CLOUDFLARE_API_TOKEN']).request('GET',
             'accounts/' + desired['account_id'] + '/cfd_tunnel/' + desired['tunnel_id'] + '/configurations')
@@ -200,7 +200,7 @@ class Owners:
         if definition['exposure']['class'] == 'private':
             self.read('route-absent')
             return
-        from automation.connectivity.cloudflare import API
+        from playbooks.access.files.cloudflare import API
         desired = self.client.desired
         actual = API(self.client.env['CLOUDFLARE_API_TOKEN']).request('GET',
             'accounts/' + desired['account_id'] + '/cfd_tunnel/' + desired['tunnel_id'] + '/configurations')
@@ -224,7 +224,7 @@ class Owners:
     def retire_catalog(self):
         from automation.services.publication import set_intent
         from automation.services.payload import payload
-        from automation.connectivity.preflight import ssh
+        from playbooks.access.files.preflight import ssh
         set_intent(self.definition, 'retired')
         ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/automation/services/bootstrap.py',
             input=json.dumps(payload()), timeout=660)

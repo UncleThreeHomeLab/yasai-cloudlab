@@ -1,0 +1,34 @@
+---
+- name: Execute reviewed native infrastructure drift
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require explicit native drift inputs
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'LAB_INFRA_ROOT') in ['cloudflare', 'github']
+          - (lookup('ansible.builtin.env', 'LAB_INFRA_ARGUMENTS') | from_json)[0] == 'drift'
+    - name: Run the serialized native state and review transaction
+      ansible.builtin.command:
+        argv: "{{ ['python', '-m', 'playbooks.infrastructure.files.command'] + (lookup('ansible.builtin.env', 'LAB_INFRA_ARGUMENTS') | from_json) }}"
+        chdir: /workspace
+      register: infrastructure_result
+      no_log: true
+      changed_when: false
+      failed_when: false
+    - name: Report sanitized native transaction result
+      ansible.builtin.debug:
+        var: infrastructure_result.stdout_lines
+    - name: Preserve native exit status for the portable CLI
+      ansible.builtin.copy:
+        content: >-
+          {{ {'invocation': lookup('ansible.builtin.env', 'LAB_INFRA_INVOCATION'),
+              'exit': infrastructure_result.rc} | to_json }}
+        dest: "{{ lookup('ansible.builtin.env', 'LAB_INFRA_STATUS_PATH') }}"
+        mode: '0600'
+      changed_when: false
+    - name: Require the native operation to complete
+      ansible.builtin.assert:
+        that: infrastructure_result.rc in [0, 2]
+        fail_msg: Native infrastructure operation failed; private diagnostics retained.

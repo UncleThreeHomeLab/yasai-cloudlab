@@ -48,9 +48,9 @@ class SessionAcceptanceTests(unittest.TestCase):
                     if url.endswith('/groups'):return [{'path':'/viewer'}]
                     raise AssertionError('Unexpected request')
                 with patch('automation.identity.maintenance.BASE',base), \
-                        patch('automation.mesh.kube.get',return_value=app), \
+                        patch('playbooks.istio.files.kube.get',return_value=app), \
                         patch('automation.identity.bootstrap.reconciled',side_effect=ready), \
-                        patch('automation.mesh.kube.time.sleep'), \
+                        patch('playbooks.istio.files.kube.time.sleep'), \
                         patch('automation.identity.emergency.vault_secret',return_value={realm+'_client_secret':'fixture'}), \
                         patch('automation.identity.configuration.private_request',side_effect=request) as api, \
                         patch('sys.stdin',io.StringIO(json.dumps(dict(nonce=nonce,realm=realm)))), redirect_stdout(io.StringIO()) as output:

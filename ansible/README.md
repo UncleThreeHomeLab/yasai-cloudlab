@@ -28,3 +28,11 @@ writer release. Argo then reconciles workloads; ESO alone writes generated
 Secrets. Bounded ownership transactions retain durable checkpoints, identity
 checks and exclusive locks. Recovery requires the declared Argo writer suspended;
 ordinary setup preserves its accepted ownership and existing data.
+
+[Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
+[access](playbooks/access/) order staging issuance, gateways and private resolvers.
+Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
+unrelated grants. [Infrastructure](playbooks/infrastructure/) invokes the accepted
+[native roots](../infra/); apply requires the exact reviewed plan, source and
+inputs. Encrypted state, backend locks and interrupted-operation recovery remain
+with each root. Ordinary setup never imports existing external resources.

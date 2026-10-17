@@ -1,0 +1,40 @@
+---
+- name: Check native external declarations without live credentials
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    infrastructure_root: "{{ lookup('ansible.builtin.env', 'LAB_INFRA_ROOT') }}"
+  vars_files: [/workspace/ansible/playbooks/infrastructure/vars.yml]
+  tasks:
+    - name: Require one accepted native root
+      ansible.builtin.assert:
+        that: infrastructure_root in ['cloudflare', 'github', 'harbor']
+    - name: Allocate isolated native validation workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: infrastructure-check-
+      register: infrastructure_check
+    - name: Validate native declarations in isolation
+      block:
+        - name: Copy declared root with pinned provider lock
+          ansible.builtin.copy:
+            src: '/workspace/infra/{{ infrastructure_root }}/'
+            dest: '{{ infrastructure_check.path }}/'
+            mode: preserve
+        - name: Run native format, initialization, validation and contract checks
+          ansible.builtin.command:
+            argv: '{{ item }}'
+            chdir: '{{ infrastructure_check.path }}'
+          loop:
+            - [tofu, fmt, -check, -recursive, -no-color]
+            - [tofu, init, -backend=false, -lockfile=readonly, -input=false, -no-color]
+            - [tofu, validate, -no-color]
+            - [tofu, test, -no-color]
+          environment: '{{ infrastructure_offline_environment }}'
+          changed_when: false
+      always:
+        - name: Remove only this disposable native workspace
+          ansible.builtin.file:
+            path: '{{ infrastructure_check.path }}'
+            state: absent

@@ -14,7 +14,7 @@
     "quay.io/jetstack/cert-manager-cainjector:v1.21.2": "sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562",
     "quay.io/jetstack/cert-manager-acmesolver:v1.21.2": "sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503"
   },
-  "vendor_patch": "Add only Argo server-side apply and retention annotations to six CRDs; reproduce with automation/certificates/vendor_chart.py.",
+  "vendor_patch": "Add only Argo server-side apply and retention annotations to six CRDs; reproduce with ansible/playbooks/certificates/files/vendor_chart.py.",
   "compatibility_sources": [
     "https://cert-manager.io/docs/releases/",
     "https://cert-manager.io/docs/installation/helm/"

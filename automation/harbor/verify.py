@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from automation.harbor import recovery, deployments
 from automation.harbor.values import POLICY
 from automation.identity.health import direct_https
-from automation.mesh.kube import get, contains, application_ready
+from playbooks.istio.files.kube import get, contains, application_ready
 
 
 def oidc_discovery(login_host):

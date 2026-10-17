@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from automation.data import control, volumes
 from automation.data.capture import POLICY, verify
 from automation.data.s3 import S3, NS, S3Error
-from automation.mesh.kube import get, kube, wait
+from playbooks.istio.files.kube import get, kube, wait
 
 
 def require_window(acceptance=False, now=None, reserve=0):

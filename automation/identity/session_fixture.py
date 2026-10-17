@@ -97,7 +97,7 @@ def enroll(request, *, stage=False, application_owner=False):
     from automation.identity.emergency import phase_sync_patches, vault_secret
     from automation.identity.maintenance import APP, BASE, NAMESPACE, OWNER
     from automation.data.control import atomic
-    from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
+    from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
     nonce = scope(request)
     realm = 'applications' if application_owner else request.get('realm', 'platform')
     secret = 'keycloak-applications-owner' if application_owner else 'keycloak-proof'
@@ -234,7 +234,7 @@ def enroll(request, *, stage=False, application_owner=False):
 
 def local(request, *, stage=False):
     from dotenv import dotenv_values
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):

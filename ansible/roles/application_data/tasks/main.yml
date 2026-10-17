@@ -19,7 +19,7 @@
     mode: '0700'
   loop:
     - /opt/cloudlab/automation/data
-    - /opt/cloudlab/automation/mesh
+    - /opt/cloudlab/playbooks/istio/files
     - /opt/cloudlab/automation/identity
     - /opt/cloudlab/playbooks/argocd/files
     - /opt/cloudlab/platform/data
@@ -47,8 +47,8 @@
 
 - name: Install the shared Kubernetes helper from its owner
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/mesh/kube.py'
-    dest: /opt/cloudlab/automation/mesh/kube.py
+    src: '{{ playbook_dir }}/../ansible/playbooks/istio/files/kube.py'
+    dest: /opt/cloudlab/playbooks/istio/files/kube.py
     mode: '0600'
 
 - name: Retain the locked restore artifacts and recovery policy

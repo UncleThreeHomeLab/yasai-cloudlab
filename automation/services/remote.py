@@ -2,7 +2,7 @@
 import json
 import sys
 
-from automation.mesh.kube import get, condition, application_ready, kube, wait
+from playbooks.istio.files.kube import get, condition, application_ready, kube, wait
 from automation.identity.health import direct_https
 
 

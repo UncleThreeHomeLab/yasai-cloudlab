@@ -28,12 +28,14 @@
   ansible.builtin.import_playbook: argocd/020-private-sources.yml
 - name: Run longhorn/040-argo-handoff.yml
   ansible.builtin.import_playbook: longhorn/040-argo-handoff.yml
-- name: Run ../certificates-setup.yml
-  ansible.builtin.import_playbook: ../certificates-setup.yml
-- name: Run ../mesh-setup.yml
-  ansible.builtin.import_playbook: ../mesh-setup.yml
-- name: Run ../connectivity-setup.yml
-  ansible.builtin.import_playbook: ../connectivity-setup.yml
+- name: Run certificates/010-bootstrap.yml
+  ansible.builtin.import_playbook: certificates/010-bootstrap.yml
+- name: Run istio/010-bootstrap.yml
+  ansible.builtin.import_playbook: istio/010-bootstrap.yml
+- name: Run access/010-bootstrap.yml
+  ansible.builtin.import_playbook: access/010-bootstrap.yml
+- name: Configure independent private resolvers
+  ansible.builtin.import_playbook: access/020-private-dns.yml
 - name: Run ../application_data-setup.yml
   ansible.builtin.import_playbook: ../application_data-setup.yml
 - name: Run ../apply.yml

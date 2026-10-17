@@ -9,7 +9,7 @@ import time
 import yaml
 
 from automation.harbor import recovery
-from automation.mesh.kube import get, kube, condition, wait
+from playbooks.istio.files.kube import get, kube, condition, wait
 
 NAMESPACE = 'cloudlab-harbor-restore'
 LABEL = {'cloudlab.io/fixture': 'harbor-restore'}

@@ -40,7 +40,7 @@ def replacement(document, names):
 def local():
     from dotenv import dotenv_values
     from playbooks.secrets.files.provision import command
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     from automation.data.control import atomic
     os.umask(0o077)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
@@ -98,7 +98,7 @@ def local():
 def remote(payload):
     from automation.data import control, verify
     from automation.data.s3 import S3, S3Error
-    from automation.mesh.kube import get, kube, wait
+    from playbooks.istio.files.kube import get, kube, wait
     with control.locked():
         desired = control.settings()
         if desired['maintenance']:
@@ -142,7 +142,7 @@ def remote(payload):
 
 def cleanup_sql():
     from automation.data import verify
-    from automation.mesh.kube import get, kube
+    from playbooks.istio.files.kube import get, kube
     namespace = get('namespace', verify.NAMESPACE)
     if namespace:
         if namespace['metadata'].get('labels', {}).get('cloudlab.io/fixture') != verify.OWNER:

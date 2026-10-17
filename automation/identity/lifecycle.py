@@ -15,7 +15,7 @@ from automation.identity.bootstrap import BASE
 from automation.identity.configuration import REALMS, compile_state, name, private_request
 from automation.identity.lease import available
 from automation.identity.maintenance import APP, NAMESPACE, OWNER
-from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
 from automation.data.control import atomic
 
 
@@ -100,7 +100,7 @@ def remove(request):
 
 def local(request):
     from dotenv import dotenv_values
-    from automation.connectivity.preflight import ssh
+    from playbooks.access.files.preflight import ssh
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
         os.environ[key] = environment[key]
@@ -187,10 +187,10 @@ def offboard(request):
 def local_offboard(request):
     """Use the existing independent external owner for Access revocation."""
     from dotenv import dotenv_values
-    from automation.connectivity.preflight import ssh
-    from automation.connectivity.checkpoint import transaction
+    from playbooks.access.files.preflight import ssh
+    from playbooks.access.files.checkpoint import transaction
     from playbooks.secrets.files.vault import fields
-    from automation.connectivity.cloudflare import API
+    from playbooks.access.files.cloudflare import API
     offboard_scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'OP_SERVICE_ACCOUNT_TOKEN'):

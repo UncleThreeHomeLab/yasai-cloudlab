@@ -18,14 +18,14 @@ class RotationProofTests(unittest.TestCase):
                              'dataFrom': [{'extract': {'key': rotation.TITLE, 'conversionStrategy': 'Default'}}],
                              'target': {'name': rotation.TITLE}}}
         request = {'action': 'provision', 'realm': 'applications', 'client_id': 'disposable'}
-        with patch('automation.mesh.kube.get', side_effect=[app, external]), patch('automation.mesh.kube.kube') as write:
+        with patch('playbooks.istio.files.kube.get', side_effect=[app, external]), patch('playbooks.istio.files.kube.kube') as write:
             self.assertEqual(rotation.refresh(request), {'credential_delivery_requested': True, 'realm_changes': 0})
             patch_body = json.loads(write.call_args.args[-1])
             self.assertEqual(set(patch_body), {'metadata'})
             self.assertEqual(patch_body['metadata']['uid'], 'owned')
             self.assertEqual(patch_body['metadata']['resourceVersion'], '42')
         changed = copy.deepcopy(external); changed['spec']['dataFrom'][0]['extract']['key'] = 'unrelated-item'
-        with patch('automation.mesh.kube.get', side_effect=[app, changed]), patch('automation.mesh.kube.kube') as write:
+        with patch('playbooks.istio.files.kube.get', side_effect=[app, changed]), patch('playbooks.istio.files.kube.kube') as write:
             with self.assertRaises(RuntimeError): rotation.refresh(request)
             write.assert_not_called()
     def test_probe_preserves_http_status_and_sends_credentials_only_in_request_body(self):
@@ -48,8 +48,8 @@ class RotationProofTests(unittest.TestCase):
         for new, old, accepted in cases:
             with self.subTest(new=new, old=old), patch.object(rotation, 'inventory', return_value={}), \
                     patch.object(rotation, 'probe', side_effect=[new, old]), \
-                    patch('automation.mesh.kube.get', return_value={}), patch('automation.mesh.kube.condition', return_value=True), \
-                    patch('automation.mesh.kube.kube'), patch.object(rotation.time, 'sleep', side_effect=RuntimeError('pending')):
+                    patch('playbooks.istio.files.kube.get', return_value={}), patch('playbooks.istio.files.kube.condition', return_value=True), \
+                    patch('playbooks.istio.files.kube.kube'), patch.object(rotation.time, 'sleep', side_effect=RuntimeError('pending')):
                 if accepted:
                     result = rotation.verify(payload)
                     self.assertTrue(result['credential_accepted']); self.assertTrue(result['old_credential_denied'])

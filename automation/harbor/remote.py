@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from automation.data.remote import require_window, volume_prefix, storage_policy
 from automation.data.s3 import S3, NS
 from automation.harbor import recovery
-from automation.mesh.kube import get, kube, wait
+from playbooks.istio.files.kube import get, kube, wait
 
 
 def policy():

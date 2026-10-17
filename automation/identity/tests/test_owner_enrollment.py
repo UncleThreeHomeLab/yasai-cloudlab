@@ -96,11 +96,11 @@ class OwnerEnrollmentTests(unittest.TestCase):
                         'keycloak-primary-admin': {'platform_username': 'operator-owner'},
                         'keycloak-realm-writers': {'applications_client_secret': 'scoped'}}[name]
             with patch('automation.identity.maintenance.BASE', root), \
-                    patch('automation.mesh.kube.get', side_effect=get), \
-                    patch('automation.mesh.kube.condition', return_value=True), \
-                    patch('automation.mesh.kube.application_ready', return_value=True), \
-                    patch('automation.mesh.kube.wait', side_effect=lambda predicate, *a, **k: self.assertTrue(predicate())), \
-                    patch('automation.mesh.kube.kube') as kube, \
+                    patch('playbooks.istio.files.kube.get', side_effect=get), \
+                    patch('playbooks.istio.files.kube.condition', return_value=True), \
+                    patch('playbooks.istio.files.kube.application_ready', return_value=True), \
+                    patch('playbooks.istio.files.kube.wait', side_effect=lambda predicate, *a, **k: self.assertTrue(predicate())), \
+                    patch('playbooks.istio.files.kube.kube') as kube, \
                     patch('automation.identity.bootstrap.writer_idle', return_value=True) as idle, \
                     patch('automation.identity.bootstrap.reconciled', return_value=True), \
                     patch('automation.identity.bootstrap.private_inputs', return_value=(self.source, self.revoked, 'revision')), \
