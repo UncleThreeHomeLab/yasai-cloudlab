@@ -6,6 +6,12 @@
     mode: '0700'
   loop: [/etc/cloudlab/recovery, /var/lib/cloudlab/recovery, /opt/cloudlab/recovery]
 
+- name: Install the shared cloud-write window contract
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/longhorn/files/monthly_window.py'
+    dest: /opt/cloudlab/recovery/monthly_window.py
+    mode: '0600'
+
 - name: Install recovery modules from the checkout
   ansible.builtin.copy:
     src: '/workspace/automation/recovery/{{ item }}'
@@ -18,12 +24,6 @@
     path: '/opt/cloudlab/recovery/{{ item }}'
     state: absent
   loop: [runner.py, test_recovery.py]
-
-- name: Install the shared cloud-write window contract
-  ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/longhorn/files/monthly_window.py'
-    dest: /opt/cloudlab/recovery/monthly_window.py
-    mode: '0600'
 
 - name: Install the same pinned restic binary as the independent runner
   ansible.builtin.copy:

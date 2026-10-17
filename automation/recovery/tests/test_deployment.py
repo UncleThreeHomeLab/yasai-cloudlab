@@ -31,15 +31,21 @@ class DeploymentTests(unittest.TestCase):
             base = Path(directory)
             installed = base / 'recovery'
             installed.mkdir()
-            for name in MODULES['loop']:
-                shutil.copyfile(ROOT / 'automation/recovery' / name, installed / name)
-            destination = base / Path(WINDOW['ansible.builtin.copy']['dest']).relative_to('/opt/cloudlab')
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / 'ansible/playbooks/longhorn/files/monthly_window.py', destination)
-            result = subprocess.run(
-                [sys.executable, '-I', '-S', '-c',
-                 'import sys; sys.path.insert(0, sys.argv[1]); '
-                 'import backup, repository, write_window; assert callable(backup.freshness); '
-                 'assert callable(repository.require_window); assert callable(write_window.seconds_remaining)',
-                 str(installed)], capture_output=True, text=True, timeout=15)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            for task in TASKS:
+                if task is WINDOW:
+                    destination = base / Path(WINDOW['ansible.builtin.copy']['dest']).relative_to('/opt/cloudlab')
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ROOT / 'ansible/playbooks/longhorn/files/monthly_window.py', destination)
+                if task is not MODULES:
+                    continue
+                for name in MODULES['loop']:
+                    shutil.copyfile(ROOT / 'automation/recovery' / name, installed / name)
+                # An interrupted deployment must leave updated consumers importable
+                # immediately, before any later task can repair missing prerequisites.
+                result = subprocess.run(
+                    [sys.executable, '-I', '-S', '-c',
+                     'import sys; sys.path.insert(0, sys.argv[1]); '
+                     'import backup, repository, write_window; assert callable(backup.freshness); '
+                     'assert callable(repository.require_window); assert callable(write_window.seconds_remaining)',
+                     str(installed)], capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
