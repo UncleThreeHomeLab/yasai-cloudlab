@@ -106,7 +106,7 @@ class SessionAcceptanceTests(unittest.TestCase):
                     if path.endswith('/files'):return [{'filename':'identity/configmap.yaml','status':'modified'}]
                     raise AssertionError('Unexpected API operation')
             with patch('automation.identity.private_source.publish',return_value={'private_source_changed':True,'private_pull_request':8}), \
-                    patch('automation.credentials.vault.fields',return_value={'client_secrets':'{}'}):
+                    patch('playbooks.secrets.files.vault.fields',return_value={'client_secrets':'{}'}):
                 if drift:
                     with self.assertRaises(RuntimeError):
                         offboard_inputs(API(),{'PRIVATE_CONFIG_REPOSITORY':'https://github.com/fixture/private.git'},{'nonce':nonce})

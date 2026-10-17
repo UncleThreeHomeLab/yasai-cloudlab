@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 import yaml
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.identity.owner_enrollment import inputs
 from automation.identity.operations import private_files
 from automation.identity.private_source import publish
@@ -39,12 +39,12 @@ def prepare(checkpoint, realm):
         local(request, stage=True)
     except RuntimeError:
         # Interrupted enrollment may already own the account; native guards verify it.
-        from automation.gitops.github_setup import repository
+        from playbooks.argocd.files.github_setup import repository
         repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
         wait_private_source(api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha'])
         local(request)
         return {'disposable_viewer_ready': True, 'primary_users_changed': False}
-    from automation.gitops.github_setup import repository
+    from playbooks.argocd.files.github_setup import repository
     from automation.identity.private_source import decode_contents
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
     prefix = 'repos/' + repo

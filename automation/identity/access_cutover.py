@@ -169,7 +169,7 @@ def prepare(state, previous, contract):
 def local():
     import yaml
     from dotenv import dotenv_values
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.connectivity.cloudflare import API
     from automation.connectivity.checkpoint import transaction
     from automation.connectivity.preflight import ssh

@@ -9,7 +9,7 @@ import subprocess
 from dotenv import dotenv_values
 import yaml
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.connectivity.cloudflare import API
 from automation.services.contract import ROOT, validate
 
@@ -89,8 +89,8 @@ def prepare(nonce):
 
 def bundles(value):
     from automation.services.inputs import validate_catalog
-    from automation.gitops.github_setup import inputs, repository
-    from automation.gitops.private_fixture import prepare_service
+    from playbooks.argocd.files.github_setup import inputs, repository
+    from playbooks.argocd.files.private_fixture import prepare_service
     value = validate_catalog(copy.deepcopy(value))
     environment, api = inputs()
     from automation.identity.private_source import decode_contents

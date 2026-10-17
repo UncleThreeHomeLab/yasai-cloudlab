@@ -23,7 +23,7 @@
 
 - name: Install the public source convergence helper from its GitOps owner
   ansible.builtin.copy:
-    src: '{{ playbook_dir }}/../automation/gitops/source_revision.py'
+    src: '{{ playbook_dir }}/../ansible/playbooks/argocd/files/source_revision.py'
     dest: /var/lib/cloudlab/mesh/source_revision.py
     mode: '0600'
 

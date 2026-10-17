@@ -7,7 +7,7 @@ import subprocess
 
 import yaml
 
-from automation.gitops.render import images
+from playbooks.argocd.files.render import images
 from automation.observability.package import retained, kiali_declarative, tempo_protocols
 from automation.observability.values import values
 from automation.observability.configuration import POLICY

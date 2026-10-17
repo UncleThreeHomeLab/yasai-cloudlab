@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.credentials.vault import fields
-from automation.gitops.render import committed_payload
+from playbooks.secrets.files.vault import fields
+from playbooks.argocd.files.render import committed_payload
 from automation.data.chart import check, render
 
 

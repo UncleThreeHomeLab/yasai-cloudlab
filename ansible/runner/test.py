@@ -19,7 +19,7 @@ def run(root):
         print('\n' + str(directory.relative_to(root)), flush=True)
         # Standalone VM modules use local imports; isolate owners with overlapping names.
         environment = dict(os.environ, PYTHONPATH=os.pathsep.join(map(str, (
-            directory.parent, directory.parent / 'files', root, root / 'automation/longhorn', root / 'verification/integration'))))
+            directory.parent, directory.parent / 'files', root / 'ansible', root, root / 'ansible/playbooks/longhorn/files', root / 'verification/integration'))))
         result = subprocess.run(
             [sys.executable, '-m', 'unittest', 'discover', '-s', str(directory)],
             cwd=root, env=environment, check=False)

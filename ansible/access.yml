@@ -7,7 +7,7 @@
   pre_tasks:
     - name: Validate the published GitOps source
       ansible.builtin.command:
-        argv: [python, /workspace/automation/gitops/render.py]
+        argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
       delegate_to: localhost
       become: false
       register: gitops_payload

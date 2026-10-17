@@ -2,7 +2,7 @@
 import json
 import os
 
-from automation.gitops.render import committed_payload
+from playbooks.argocd.files.render import committed_payload
 from automation.observability.payload import metadata
 from automation.harbor.values import values
 from automation.harbor.configuration import client

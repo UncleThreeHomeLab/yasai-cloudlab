@@ -1,0 +1,11 @@
+---
+- name: Configure data after its dependencies
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Configure data
+      ansible.builtin.include_role:
+        name: application_data
+      when: data_enabled | bool

@@ -335,7 +335,7 @@ def run(nonce):
 def local(request):
     from dotenv import dotenv_values
     from automation.connectivity.preflight import ssh
-    from automation.credentials.provision import ensure_items
+    from playbooks.secrets.files.provision import ensure_items
     values = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
         os.environ[key] = values[key]

@@ -8,8 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'automation/credentials'))
-from vault import fields
+from playbooks.secrets.files.vault import fields
 
 HOST_TAG = 'tag:cloudlab-host'
 TEST_TAG = 'tag:cloudlab-denied'

@@ -9,8 +9,8 @@ from pathlib import Path
 import re
 import yaml
 
-from automation.credentials.vault import fields
-from automation.gitops.github_setup import inputs, repository
+from playbooks.secrets.files.vault import fields
+from playbooks.argocd.files.github_setup import inputs, repository
 from automation.identity.operations import change, private_files
 from automation.identity.private_source import decode_contents, publish
 from automation.identity.rotation import local

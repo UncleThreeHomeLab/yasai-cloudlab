@@ -22,8 +22,8 @@ from automation.identity.integrations import argo, access
 from automation.identity.access_provider import prepare as prepare_access_provider
 from automation.identity.isolated_restore import policies, pod, client_inventory, run as restore_issuer
 from automation.identity.access_inputs import names, runtime
-from automation.gitops.source_revision import matches_revision
-from automation.gitops.private_sources import PEM_TEMPLATE
+from playbooks.argocd.files.source_revision import matches_revision
+from playbooks.argocd.files.private_sources import PEM_TEMPLATE
 from automation.identity.bootstrap import application, private_resources, discover
 from automation.identity.private_source import publish, argo_values, decode_contents
 from automation.identity.argo import validate as validate_native_argo
@@ -219,7 +219,7 @@ class IdentityTests(unittest.TestCase):
         api.request.side_effect = [{'policies': [{'decision': 'allow'}], 'allowed_idps': ['dedicated']}, True]
         with patch('dotenv.dotenv_values', return_value={'VM_HOST': 'fixture'}), \
                 patch('automation.connectivity.checkpoint.transaction', transaction), \
-                patch('automation.credentials.vault.fields', return_value={'API_TOKEN': 'private', 'ACCOUNT_ID': account}), \
+                patch('playbooks.secrets.files.vault.fields', return_value={'API_TOKEN': 'private', 'ACCOUNT_ID': account}), \
                 patch('automation.connectivity.cloudflare.API', return_value=api), \
                 patch('automation.connectivity.preflight.ssh', return_value='{"keycloak_sessions_invalidated":true}'):
             result = lifecycle.local_offboard(request)

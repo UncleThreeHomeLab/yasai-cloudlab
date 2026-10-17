@@ -21,3 +21,10 @@ and [K3s](playbooks/k3s/) stages preserve host identities and independent access
 Tailscale logout and reauthentication require one explicit host. K3s migration
 and rollback retain checkpoints and require independent access and recovery;
 ordinary maintenance and upgrades require reviewed scope and pinned artifacts.
+
+[Secrets](playbooks/secrets/), [Longhorn](playbooks/longhorn/) and
+[Argo CD](playbooks/argocd/) stages seed locked charts only before their recorded
+writer release. Argo then reconciles workloads; ESO alone writes generated
+Secrets. Bounded ownership transactions retain durable checkpoints, identity
+checks and exclusive locks. Recovery requires the declared Argo writer suspended;
+ordinary setup preserves its accepted ownership and existing data.

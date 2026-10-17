@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import yaml
 
-from automation.gitops.render import payload
+from playbooks.argocd.files.render import payload
 from automation.observability.chart import configuration, render
 
 

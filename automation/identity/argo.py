@@ -10,7 +10,7 @@ from automation.identity.health import check, proxy_privacy
 from automation.connectivity.dns_wire import public_address
 from automation.identity.integrations import argo
 from automation.identity.maintenance import APP, BASE, OWNER
-from automation.gitops.source_transition import bind_identity
+from playbooks.argocd.files.source_transition import bind_identity
 from automation.mesh.kube import application_ready, get
 
 

@@ -1,0 +1,11 @@
+---
+- name: Configure certificates after its dependencies
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Configure certificates
+      ansible.builtin.include_role:
+        name: certificates
+      when: certificates_enabled | bool

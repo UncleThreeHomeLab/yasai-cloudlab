@@ -1,0 +1,11 @@
+---
+- name: Configure storage backup Application after public project readiness
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [/workspace/ansible/playbooks/longhorn/vars.yml]
+  tasks:
+    - name: Configure storage backup Application after public project readiness tasks
+      ansible.builtin.import_tasks: tasks/backup-gitops.yml
+      when: longhorn_backup_gitops_enabled | bool

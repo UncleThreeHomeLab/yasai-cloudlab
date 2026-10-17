@@ -7,8 +7,8 @@ from automation.observability.configuration import grafana, kiali
 from automation.identity.operations import change, private_files
 from automation.identity.private_source import decode_contents, publish
 from automation.identity.rotation import local
-from automation.credentials.vault import fields
-from automation.gitops.github_setup import repository
+from playbooks.secrets.files.vault import fields
+from playbooks.argocd.files.github_setup import repository
 
 
 def contracts(metadata):

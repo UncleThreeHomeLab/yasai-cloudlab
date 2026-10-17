@@ -1,0 +1,10 @@
+---
+- name: Seed and release backup declaration ownership
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [/workspace/ansible/playbooks/longhorn/vars.yml]
+  tasks:
+    - name: Seed and release backup declaration ownership tasks
+      ansible.builtin.import_tasks: tasks/backup-main.yml

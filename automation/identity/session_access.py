@@ -65,7 +65,7 @@ def remove(api, account, state, save, request):
 def local(request, *, cleanup=False):
     from dotenv import dotenv_values
     import yaml
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.connectivity.cloudflare import API
     from automation.connectivity.checkpoint import transaction
     from automation.connectivity.contract import host_rules

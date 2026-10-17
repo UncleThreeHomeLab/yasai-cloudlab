@@ -6,8 +6,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-from automation.credentials.provision import command
-from automation.gitops.github_setup import repository
+from playbooks.secrets.files.provision import command
+from playbooks.argocd.files.github_setup import repository
 
 CONTRACT = json.loads((Path(__file__).parent / 'contract.json').read_text())
 CONTRACT['projects'] = list(json.loads((Path(__file__).resolve().parents[2] / 'infra/harbor/contract.json').read_text())['projects'])

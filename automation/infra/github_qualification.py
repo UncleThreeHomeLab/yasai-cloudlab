@@ -16,9 +16,9 @@ import time
 from types import SimpleNamespace
 import uuid
 
-from automation.credentials.vault import fields
-from automation.gitops.github_setup import GitHub
-from automation.gitops.github_app import app_token, verify_installation, verify_repositories
+from playbooks.secrets.files.vault import fields
+from playbooks.argocd.files.github_setup import GitHub
+from playbooks.argocd.files.github_app import app_token, verify_installation, verify_repositories
 from automation.infra.backend import environment
 from automation.infra.command import WORK, source_binding, identity, guarded_changes, digest
 from automation.infra.cloudflare_adoption import write_json, import_document

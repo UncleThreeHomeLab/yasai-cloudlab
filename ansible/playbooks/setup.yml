@@ -11,5 +11,30 @@
   ansible.builtin.import_playbook: k3s/010-server.yml
 - name: Run k3s/020-agent.yml
   ansible.builtin.import_playbook: k3s/020-agent.yml
+- name: Run longhorn/010-host-storage.yml
+  ansible.builtin.import_playbook: longhorn/010-host-storage.yml
+- name: Run secrets/010-bootstrap.yml
+  ansible.builtin.import_playbook: secrets/010-bootstrap.yml
+- name: Run longhorn/020-bootstrap.yml
+  ansible.builtin.import_playbook: longhorn/020-bootstrap.yml
+- name: Run longhorn/030-backup-configuration.yml
+  ansible.builtin.import_playbook: longhorn/030-backup-configuration.yml
+  when: longhorn_backup_enabled | bool
+- name: Run bootstrap-recovery.yml
+  ansible.builtin.import_playbook: bootstrap-recovery.yml
+- name: Run argocd/010-bootstrap.yml
+  ansible.builtin.import_playbook: argocd/010-bootstrap.yml
+- name: Run argocd/020-private-sources.yml
+  ansible.builtin.import_playbook: argocd/020-private-sources.yml
+- name: Run longhorn/040-argo-handoff.yml
+  ansible.builtin.import_playbook: longhorn/040-argo-handoff.yml
+- name: Run ../certificates-setup.yml
+  ansible.builtin.import_playbook: ../certificates-setup.yml
+- name: Run ../mesh-setup.yml
+  ansible.builtin.import_playbook: ../mesh-setup.yml
+- name: Run ../connectivity-setup.yml
+  ansible.builtin.import_playbook: ../connectivity-setup.yml
+- name: Run ../application_data-setup.yml
+  ansible.builtin.import_playbook: ../application_data-setup.yml
 - name: Run ../apply.yml
   ansible.builtin.import_playbook: ../apply.yml

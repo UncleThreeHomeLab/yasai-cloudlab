@@ -9,8 +9,7 @@ import base64
 import urllib.request
 import urllib.error
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'credentials'))
-from vault import fields
+from playbooks.secrets.files.vault import fields
 from repository import Repository
 
 POLICY = json.loads(Path(__file__).with_name('policy.json').read_text())

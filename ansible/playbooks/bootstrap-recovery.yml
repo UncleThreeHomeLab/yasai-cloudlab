@@ -1,0 +1,8 @@
+---
+- name: Configure independent control plane recovery
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - recovery

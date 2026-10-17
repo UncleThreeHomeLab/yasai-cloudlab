@@ -1,9 +1,9 @@
 """Read versioned private intent with the existing scoped GitHub App."""
 import json
 
-from automation.credentials.vault import fields
-from automation.gitops.github_app import app_token, verify_installation
-from automation.gitops.github_setup import GitHub, repository
+from playbooks.secrets.files.vault import fields
+from playbooks.argocd.files.github_app import app_token, verify_installation
+from playbooks.argocd.files.github_setup import GitHub, repository
 from automation.identity.private_source import decode_contents
 
 WRITER = None
@@ -28,8 +28,8 @@ def read(values):
 
 def publish(value, *, expected=None):
     global WRITER
-    from automation.gitops.github_setup import inputs
-    from automation.gitops.private_publish import publish as publish_owned
+    from playbooks.argocd.files.github_setup import inputs
+    from playbooks.argocd.files.private_publish import publish as publish_owned
     if WRITER is None: WRITER = inputs()
     values, api = WRITER
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])

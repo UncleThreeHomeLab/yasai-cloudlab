@@ -23,8 +23,8 @@ class ExampleTests(unittest.TestCase):
         api.request.side_effect = [document(json.dumps(accepted)), document(yaml.safe_dump(accepted['catalog'][1]['definition']))]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
-            with patch('automation.gitops.github_setup.inputs', return_value=({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'}, api)), \
-                    patch('automation.gitops.private_fixture.prepare_service') as publish, \
+            with patch('playbooks.argocd.files.github_setup.inputs', return_value=({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'}, api)), \
+                    patch('playbooks.argocd.files.private_fixture.prepare_service') as publish, \
                     patch.object(examples.subprocess, 'check_output', return_value='c'*40), \
                     patch.object(examples, 'Path', side_effect=lambda value: target if value == '/recovery/services' else Path(value)):
                 examples.bundles(proposed)

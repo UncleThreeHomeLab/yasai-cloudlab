@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.connectivity.cloudflare import API, access_application
 from automation.connectivity.contract import host_rules
 from automation.connectivity.provider_http import open_request

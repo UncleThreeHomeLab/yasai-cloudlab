@@ -74,10 +74,10 @@ def remote_state(request):
 
 def offboard_inputs(api, values, request, *, resume=False):
     """Review the exact sole-user tombstone before the normal private PR merge."""
-    from automation.gitops.github_setup import repository
+    from playbooks.argocd.files.github_setup import repository
     from automation.identity.private_source import decode_contents, publish
     from automation.identity.operations import change, private_files
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     nonce = scope(request)
     prefix = 'repos/'+repository(values['PRIVATE_CONFIG_REPOSITORY'])
     base = api.request('GET', prefix+'/git/ref/heads/main')['object']['sha']
@@ -108,8 +108,8 @@ def offboard_inputs(api, values, request, *, resume=False):
 
 
 def run():
-    from automation.gitops.github_setup import inputs
-    from automation.credentials.vault import fields
+    from playbooks.argocd.files.github_setup import inputs
+    from playbooks.secrets.files.vault import fields
     from automation.connectivity.checkpoint import transaction
     from automation.connectivity.verify import remote
     from automation.identity.lifecycle import local_offboard

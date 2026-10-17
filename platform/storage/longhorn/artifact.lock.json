@@ -23,7 +23,7 @@
   },
   "upstream_sha256": "e57f010d2a8bcf0da5b8b03ffecf49c5bc35ddc2663588ce8f22b7567b6133ed",
   "archive": "charts/longhorn-1.13.0.tgz",
-  "vendor_patch": "automation/longhorn/vendor_chart.py",
+  "vendor_patch": "ansible/playbooks/longhorn/files/vendor_chart.py",
   "semantic_sha256": "cc17d1c0fe54a7c1c00ed0057db20bbe18d26c47e5767313ee1a6cf80fd41494",
   "migration_baseline_revision": "fd37b98e604a4df5ae44852609e27dd6a8f817f4"
 }

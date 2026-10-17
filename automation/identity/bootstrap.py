@@ -14,8 +14,8 @@ from automation.data.control import atomic, identity
 from automation.identity.configuration import compile_state, exact_url
 from automation.identity.maintenance import APP, NAMESPACE, OWNER, BASE
 from automation.mesh.kube import application_ready, condition, contains, get, kube, wait
-from automation.gitops.private_sources import PEM_TEMPLATE
-from automation.gitops.sync_recovery import recovered_secret_sync
+from playbooks.argocd.files.private_sources import PEM_TEMPLATE
+from playbooks.argocd.files.sync_recovery import recovered_secret_sync
 from automation.identity.lease import available, previous_writer_done
 
 PHASES = ('server', 'bootstrap', 'primary', 'scoped')

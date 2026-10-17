@@ -5,6 +5,4 @@
   gather_facts: false
   tasks:
     - name: Inspect storage prerequisites
-      ansible.builtin.include_role:
-        name: longhorn_host
-        tasks_from: check
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/longhorn/tasks/host-check.yml

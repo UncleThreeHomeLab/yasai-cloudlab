@@ -189,7 +189,7 @@ def local_offboard(request):
     from dotenv import dotenv_values
     from automation.connectivity.preflight import ssh
     from automation.connectivity.checkpoint import transaction
-    from automation.credentials.vault import fields
+    from playbooks.secrets.files.vault import fields
     from automation.connectivity.cloudflare import API
     offboard_scope(request)
     environment = dotenv_values(ROOT / '.env', interpolate=False)

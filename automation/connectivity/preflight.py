@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'ansible/playbooks/tailscale/files'))
 
-from automation.credentials.vault import fields
+from playbooks.secrets.files.vault import fields
 from automation.connectivity.cloudflare import API
 from automation.connectivity.contract import host_rules, policy, private_names, tunnel_identity
 from automation.connectivity.provider_http import open_request

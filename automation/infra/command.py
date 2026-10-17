@@ -134,7 +134,7 @@ def source_binding(root):
         files += list((WORKSPACE / 'charts/service').rglob('*'))
         files += list((WORKSPACE / 'automation/identity').glob('access_*.py'))
     else:
-        files += list((WORKSPACE / 'automation/gitops').glob('*.py'))
+        files += list((WORKSPACE / 'ansible/playbooks/argocd/files').glob('*.py'))
     content = hashlib.sha256()
     for path in sorted(files):
         if path.is_file() and '.terraform' not in path.parts and '__pycache__' not in path.parts:
@@ -145,7 +145,7 @@ def source_binding(root):
     if root == 'cloudflare':
         paths += ['automation/connectivity', 'automation/identity', 'automation/services', 'charts/service']
     else:
-        paths += ['automation/gitops']
+        paths += ['ansible/playbooks/argocd/files']
     dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--', *paths],
                            cwd=WORKSPACE, capture_output=True, check=True).stdout
     if dirty:

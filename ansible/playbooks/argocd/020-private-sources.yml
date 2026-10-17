@@ -1,0 +1,9 @@
+---
+- name: Reconcile administrator owned private sources
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Reconcile administrator owned private sources tasks
+      ansible.builtin.import_tasks: tasks/private.yml

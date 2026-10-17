@@ -11,8 +11,8 @@ from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from automation.credentials.provision import ensure_items
-from automation.credentials.vault import fields
+from playbooks.secrets.files.provision import ensure_items
+from playbooks.secrets.files.vault import fields
 from automation.connectivity.cloudflare import API
 
 CONTRACT = json.loads((ROOT / 'platform/data/contract.json').read_text())

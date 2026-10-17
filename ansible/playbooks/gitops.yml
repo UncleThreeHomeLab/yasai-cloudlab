@@ -1,0 +1,40 @@
+---
+- name: Bootstrap public ownership when requested
+  ansible.builtin.import_playbook: argocd/010-bootstrap.yml
+  when: lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+- name: Reconcile selected private sources
+  ansible.builtin.import_playbook: argocd/020-private-sources.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') != 'verify'
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Configure accepted backup Application
+  ansible.builtin.import_playbook: longhorn/040-argo-handoff.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Configure certificates after public bootstrap
+  ansible.builtin.import_playbook: ../certificates-setup.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Configure mesh after public bootstrap
+  ansible.builtin.import_playbook: ../mesh-setup.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Configure connectivity after public bootstrap
+  ansible.builtin.import_playbook: ../connectivity-setup.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Configure application_data after public bootstrap
+  ansible.builtin.import_playbook: ../application_data-setup.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') not in ['verify', 'private-remove']
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Verify GitOps when requested
+  ansible.builtin.import_playbook: argocd/verify.yml
+  when: lookup('env', 'LAB_GITOPS_ACTION') == 'verify'
+- name: Verify accepted dependent component behavior
+  ansible.builtin.import_playbook: ../gitops-verify-components.yml
+  when: lookup('env', 'LAB_GITOPS_ACTION') == 'verify'

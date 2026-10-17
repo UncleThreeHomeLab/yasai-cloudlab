@@ -156,7 +156,7 @@ def verify(payload):
 
 def local(request):
     from dotenv import dotenv_values
-    from automation.credentials.provision import command
+    from playbooks.secrets.files.provision import command
     from automation.connectivity.preflight import ssh
     from automation.data.control import atomic
     request_scope(request)
@@ -199,7 +199,7 @@ def local(request):
             command(['item', 'edit', current['id'], '--vault', 'CloudLab'], token, current)
         if request['action'] == 'provision':
             os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = environment.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
-            from automation.credentials.vault import fields
+            from playbooks.secrets.files.vault import fields
             delivered = json.loads(fields(TITLE, ['client_secrets'])['client_secrets'])
             if delivered[request['realm']].get(request['client_id']) != state['new']:
                 raise RuntimeError('Read-only vault reader cannot retrieve the provisioned credential')

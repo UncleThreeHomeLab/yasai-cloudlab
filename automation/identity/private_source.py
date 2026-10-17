@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 import yaml
 
-from automation.gitops.github_setup import inspect, repository
+from playbooks.argocd.files.github_setup import inspect, repository
 from automation.identity.integrations import argo
 
 
@@ -58,5 +58,5 @@ def argo_values(api, values, revision, identity_issuer, origin, additional_origi
 
 
 def publish(api, values, files):
-    from automation.gitops.private_publish import publish as publish_owned
+    from playbooks.argocd.files.private_publish import publish as publish_owned
     return publish_owned(api, values, files, scope='identity')
