@@ -6,6 +6,7 @@ import socket
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 from dotenv import dotenv_values
 
@@ -106,11 +107,32 @@ def main():
             arguments, root, action = sys.argv[2:], selected.root, selected.action
         os.environ['LAB_INFRA_ROOT'] = root
         os.environ['LAB_INFRA_ARGUMENTS'] = json.dumps(arguments)
-        status_path = Path('/tmp/lab-infrastructure-exit.json')
-        status_path.unlink(missing_ok=True)
-        playbook('playbooks/infrastructure/' + ('check' if action == 'check' else 'harbor' if harbor else action) + '.yml')
-        if not harbor and action not in ('check', 'locks'):
-            raise SystemExit(json.loads(status_path.read_text()))
+        native_status = not harbor and action not in ('check', 'locks')
+        with tempfile.TemporaryDirectory(prefix='infra-invocation-') as temporary:
+            status_path = Path(temporary) / 'native-exit.json'
+            invocation = Path(temporary).name
+            os.environ['LAB_INFRA_STATUS_PATH'] = str(status_path)
+            os.environ['LAB_INFRA_INVOCATION'] = invocation
+
+            def native_exit():
+                try:
+                    document = json.loads(status_path.read_text())
+                    if (not isinstance(document, dict) or set(document) != {'invocation', 'exit'} or
+                            document['invocation'] != invocation or type(document['exit']) is not int or
+                            not 0 <= document['exit'] <= 255):
+                        return 1
+                    return document['exit']
+                except (OSError, ValueError):
+                    return 1
+
+            try:
+                playbook('playbooks/infrastructure/' + ('check' if action == 'check' else 'harbor' if harbor else action) + '.yml')
+            except SystemExit:
+                if not native_status:
+                    raise
+                raise SystemExit(native_exit() or 1) from None
+            if native_status:
+                raise SystemExit(native_exit())
         return
     action = sys.argv[1] if len(sys.argv) == 2 else ''
     action = {'apply': 'setup', 'backup': 'recovery-monthly'}.get(action, action)

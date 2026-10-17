@@ -55,14 +55,39 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'drift', 'github']), \
                 patch.object(runner, 'dotenv_values') as dotenv, \
                 patch.object(runner, 'playbook') as playbook, \
-                patch.object(runner.Path, 'unlink'), \
-                patch.object(runner.Path, 'read_text', return_value='2'):
+                patch.object(runner.Path, 'read_text', side_effect=lambda: json.dumps({
+                    'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': 2})):
             with self.assertRaises(SystemExit) as result:
                 runner.main()
         self.assertEqual(result.exception.code, 2)
         dotenv.assert_not_called()
         playbook.assert_called_once_with('playbooks/infrastructure/drift.yml')
         self.assertEqual(json.loads(runner.os.environ['LAB_INFRA_ARGUMENTS']), ['drift', 'github'])
+
+    def test_native_plan_failure_cannot_become_ansible_drift_exit(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'plan', 'github']), \
+                patch.object(runner, 'playbook', side_effect=SystemExit(2)), \
+                patch.object(runner.Path, 'read_text', side_effect=lambda: json.dumps({
+                    'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': 1})):
+            with self.assertRaises(SystemExit) as result:
+                runner.main()
+            self.assertEqual(result.exception.code, 1)
+
+    def test_missing_stale_or_malformed_native_status_cannot_report_drift(self):
+        cases = [FileNotFoundError(), '2', '{}', '{invalid',
+                 '{"invocation":"previous-invocation","exit":2}',
+                 lambda: json.dumps({'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': True})]
+        for case in cases:
+            def read():
+                if isinstance(case, Exception):
+                    raise case
+                return case() if callable(case) else case
+            with self.subTest(case=case), \
+                    patch.object(runner.sys, 'argv', ['run.py', 'infra', 'plan', 'github']), \
+                    patch.object(runner, 'playbook'), patch.object(runner.Path, 'read_text', side_effect=read):
+                with self.assertRaises(SystemExit) as result:
+                    runner.main()
+                self.assertEqual(result.exception.code, 1)
 
     def test_infra_apply_requires_review_before_playbook(self):
         with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'apply', 'github']), \

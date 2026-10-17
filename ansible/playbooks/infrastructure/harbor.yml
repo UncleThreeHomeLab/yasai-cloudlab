@@ -9,6 +9,7 @@
         argv: "{{ ['python', '-m', 'playbooks.infrastructure.files.harbor'] + (lookup('ansible.builtin.env', 'LAB_INFRA_ARGUMENTS') | from_json) }}"
         chdir: /workspace
       register: infrastructure_harbor
+      no_log: true
       changed_when: >-
         (lookup('ansible.builtin.env', 'LAB_INFRA_ARGUMENTS') | from_json)[0]
         in ['apply', 'recover-apply', 'recover-state', 'recover-import', 'inputs']
