@@ -13,17 +13,15 @@
     - name: Allocate disposable lock review workspace
       ansible.builtin.tempfile:
         state: directory
-        prefix: infrastructure-lock-review-
+        path: /infra-work
+        prefix: infrastructure-lock-review-{{ infrastructure_root }}-
       register: infrastructure_lock_review
     - name: Copy native declarations without changing tracked pins
       ansible.builtin.copy:
-        src: '/workspace/infra/{{ infrastructure_root }}/'
+        src: '{{ item }}'
         dest: '{{ infrastructure_lock_review.path }}/'
         mode: preserve
-    - name: Remove only the disposable copied lock
-      ansible.builtin.file:
-        path: '{{ infrastructure_lock_review.path }}/.terraform.lock.hcl'
-        state: absent
+      loop: "{{ query('ansible.builtin.fileglob', '/workspace/infra/' + infrastructure_root + '/*.tf') }}"
     - name: Prepare and validate provider locks through native commands
       ansible.builtin.command:
         argv: '{{ item }}'
