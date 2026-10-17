@@ -25,7 +25,9 @@ def reconcile(values):
         ns = get('namespace', namespace)
         if not ns:
             continue  # Git creates namespaces; required external data provisioning stays explicit.
-        if ns['metadata'].get('labels', {}).get('cloudlab.io/owner') != 'service-platform':
+        if (ns['metadata'].get('labels', {}).get('cloudlab.io/owner') != 'service-platform'
+                or not ns['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:')
+                or ns['metadata'].get('ownerReferences')):
             raise RuntimeError('CA projection namespace has an ambiguous owner')
         current = get('configmap', 'database-ca', namespace)
         if current:
@@ -55,6 +57,7 @@ def reconcile(values):
             if owner == OWNER and current.get('data') == {'ca.crt': public}:
                 continue
             patch = [{'op': 'test', 'path': '/metadata/uid', 'value': meta['uid']},
+                     {'op': 'test', 'path': '/metadata/resourceVersion', 'value': meta['resourceVersion']},
                      {'op': 'add', 'path': '/data', 'value': {'ca.crt': public}},
                      {'op': 'add', 'path': '/metadata/labels',
                       'value': dict(meta.get('labels', {}), **{'cloudlab.io/owner': OWNER})}]
