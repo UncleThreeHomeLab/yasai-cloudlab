@@ -51,5 +51,5 @@ The redacted result remains in the recovery volume. Primary accounts stay unchan
 
 Python and dependency wheels are pinned. The API installs hash-checked wheels into
 a bounded ephemeral volume during startup. Regenerate first-party artifacts with
-`python -m playbooks.services.files.package build`; `lab service-check` verifies source
+`docker compose run --rm --volume "${PWD}:/workspace" --entrypoint python lab -m playbooks.services.files.package build`; `lab service-check` verifies source
 parity and deterministic rendering. Dependency changes require repeating these checks.

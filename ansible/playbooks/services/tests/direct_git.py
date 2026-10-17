@@ -25,6 +25,20 @@ def wait_backend(owner):
     raise RuntimeError('Git deployment did not converge; preserve the scoped recovery checkpoint')
 
 
+def restored_catalog(current, entry):
+    value = copy.deepcopy(current)
+    selected = [row for row in value['catalog'] if row['approval']['name'] == entry['approval']['name']]
+    if len(selected) != 1:
+        raise RuntimeError('Owned fixture record is missing; restoration refused')
+    expected = copy.deepcopy(entry)
+    expected['definition']['environment']['DIRECT_GIT_PROOF'] = 'approved-declaration'
+    if selected[0] != expected:
+        raise RuntimeError('Owned fixture intent changed independently; restoration refused')
+    index = value['catalog'].index(selected[0])
+    value['catalog'][index] = copy.deepcopy(entry)
+    return value
+
+
 def run():
     os.umask(0o077)
     environment = dotenv_values(ROOT / '.env', interpolate=False)
@@ -93,8 +107,9 @@ def run():
         raise RuntimeError('Direct Git retirement changed retained identities or scoped credentials')
     active.read('fixture-data'); active.read('fixture-volume')
     retired = catalog(required=True)
-    source.publish(original, expected=retired)
-    if catalog(required=True) != original:
+    restored = restored_catalog(retired, entry)
+    source.publish(restored, expected=retired)
+    if catalog(required=True) != restored:
         raise RuntimeError('Original retired catalog intent was not restored')
     _, final_revision = catalog(required=True, coordinates=True)
     payload['private_revision'] = final_revision
