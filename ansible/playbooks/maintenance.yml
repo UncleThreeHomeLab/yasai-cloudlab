@@ -6,4 +6,4 @@
   tasks:
     - name: Refuse unspecified maintenance before mutation
       ansible.builtin.fail:
-        msg: "Maintenance requires a scoped operation and reviewed inputs; no mutation performed."
+        msg: "Maintenance requires explicit node/resource scope, independent access, readiness and recovery gates; no mutation performed."

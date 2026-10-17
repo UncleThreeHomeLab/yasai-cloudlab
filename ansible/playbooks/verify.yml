@@ -1,3 +1,13 @@
 ---
-- name: Verify through existing component owners
+- name: Run host/verify.yml
+  ansible.builtin.import_playbook: host/verify.yml
+- name: Run tailscale/verify.yml
+  ansible.builtin.import_playbook: tailscale/verify.yml
+- name: Run network/verify.yml
+  ansible.builtin.import_playbook: network/verify.yml
+- name: Run k3s/verify.yml
+  ansible.builtin.import_playbook: k3s/verify.yml
+- name: Run k3s/verify-cluster.yml
+  ansible.builtin.import_playbook: k3s/verify-cluster.yml
+- name: Run ../verify.yml
   ansible.builtin.import_playbook: ../verify.yml

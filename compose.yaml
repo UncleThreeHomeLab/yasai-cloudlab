@@ -32,8 +32,8 @@ services:
     working_dir: /workspace
     volumes:
       - type: bind
-        source: ./ansible/runner
-        target: /workspace/ansible/runner
+        source: ./ansible
+        target: /workspace/ansible
         read_only: true
       - type: bind
         source: ./automation
@@ -81,8 +81,8 @@ services:
     working_dir: /workspace
     volumes:
       - type: bind
-        source: ./ansible/runner
-        target: /workspace/ansible/runner
+        source: ./ansible
+        target: /workspace/ansible
         read_only: true
       - type: bind
         source: ./automation

@@ -1,0 +1,20 @@
+# Static candidate check only. No tailnet, tokens, hosts or policy inputs.
+name: cloudlab-tailnet-provider-check
+services:
+  check:
+    build: ../../runner
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        cp /source/versions.tf /source/.terraform.lock.hcl /candidate/
+        cd /candidate
+        tofu init -backend=false -lockfile=readonly -input=false
+        tofu fmt -check
+        tofu validate
+        tofu providers schema -json > /candidate/schema.json
+        python -c 'import json; p=json.load(open("schema.json"))["provider_schemas"]["registry.opentofu.org/tailscale/tailscale"]; assert {"tailscale_dns_split_nameservers", "tailscale_tailnet_settings", "tailscale_acl"} <= p["resource_schemas"].keys(); print("Pinned Tailscale schema only; no API parity or adoption claim")'
+    volumes: ["./provider-fixture:/source:ro"]
+    tmpfs: ["/candidate:exec"]
+    network_mode: bridge
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

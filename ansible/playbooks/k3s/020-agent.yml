@@ -1,0 +1,16 @@
+---
+- name: Join worker over WireGuard
+  hosts: k3s_agents
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - /workspace/ansible/playbooks/k3s/vars.yml
+  vars:
+    k3s_join_token: "{{ hostvars[k3s_server_host]['k3s_agent_join_token'] }}"
+  tasks:
+    - name: Configure agent
+      ansible.builtin.import_tasks: tasks/main.yml
+  handlers:
+    - name: Load component service handlers
+      ansible.builtin.import_tasks: handlers/main.yml

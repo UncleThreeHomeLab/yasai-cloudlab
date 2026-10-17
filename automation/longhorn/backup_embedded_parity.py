@@ -12,7 +12,7 @@ import yaml
 
 from backup_chart import ROOT, render
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tailscale'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'ansible/playbooks/tailscale/files'))
 from verify_access import ssh
 
 

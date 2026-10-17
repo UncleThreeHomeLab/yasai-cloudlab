@@ -15,3 +15,9 @@ roots retain external state and review gates. See [AGENTS.md](../AGENTS.md).
 in ignored `.env`, using [`.env.example`](../.env.example). Values are literal.
 Use explicit `recovery-*` operations for recovery. `backup` retains monthly export
 restrictions. Maintenance, upgrade and destruction refuse unspecified scope.
+
+[Host](playbooks/host/), [network](playbooks/network/), [Tailscale](playbooks/tailscale/)
+and [K3s](playbooks/k3s/) stages preserve host identities and independent access.
+Tailscale logout and reauthentication require one explicit host. K3s migration
+and rollback retain checkpoints and require independent access and recovery;
+ordinary maintenance and upgrades require reviewed scope and pinned artifacts.

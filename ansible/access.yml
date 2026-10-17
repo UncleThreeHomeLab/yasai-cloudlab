@@ -24,9 +24,12 @@
   vars:
     wireguard_peer_address: "{{ hostvars[wireguard_peer_host]['wireguard_address'] }}"
     wireguard_peer_endpoint: "{{ hostvars[wireguard_peer_host]['wireguard_public_endpoint'] }}"
-  roles:
-    - firewall
+  handlers:
+    - name: Load host firewall handler
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/network/handlers/firewall-main.yml
   tasks:
+    - name: Configure host firewall through its owner
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/network/tasks/firewall-main.yml
     - name: Configure private DNS
       ansible.builtin.include_role:
         name: connectivity

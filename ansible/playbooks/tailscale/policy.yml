@@ -1,0 +1,14 @@
+---
+- name: Reconcile scoped host policy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Reconcile scoped host policy
+      ansible.builtin.command: python /workspace/ansible/playbooks/tailscale/files/control.py policy
+      register: tailscale_operation
+      changed_when: (tailscale_operation.stdout | from_json).changed
+      no_log: true
+    - name: Report sanitized operation result
+      ansible.builtin.debug:
+        msg: "{{ tailscale_operation.stdout | from_json }}"

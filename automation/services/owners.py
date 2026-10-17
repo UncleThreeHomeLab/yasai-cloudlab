@@ -111,7 +111,8 @@ class Owners:
                 raise RuntimeError('Access policy decisions or selectors differ from approved protection')
 
     def private_protection(self):
-        from automation.tailscale.control import API
+        sys.path.insert(0, str(ROOT / 'ansible/playbooks/tailscale/files'))
+        from control import API
         from automation.connectivity.tailnet import candidate
         actual, _ = API('tailscale-policy').request('GET', 'tailnet/-/acl')
         if candidate(actual, os.environ['TAILSCALE_ADMIN_LOGIN']) != actual:

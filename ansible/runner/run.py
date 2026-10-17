@@ -177,7 +177,7 @@ def main():
         if action == 'monthly-proof':
             os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
-        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'tailscale-lifecycle.yml', 'k3s-migration.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml', 'access-cutover.yml'):
+        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'recovery.yml', 'playbooks/tailscale/lifecycle.yml', 'playbooks/tailscale/policy.yml', 'playbooks/tailscale/access.yml', 'playbooks/k3s/migrate.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'mesh.yml', 'access.yml', 'access-cutover.yml'):
             playbook(name, syntax=True)
         for path in sorted(Path('/workspace/ansible/playbooks').glob('*.yml')):
             playbook(str(path), syntax=True)
@@ -212,7 +212,7 @@ def main():
     if action == 'tailnet-policy':
         for prefix in ('VM', 'VM2'):
             os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
-        subprocess.run([sys.executable, '/workspace/automation/tailscale/control.py', 'policy'], check=True)
+        playbook('playbooks/tailscale/policy.yml')
         return
     if action in {'setup', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
@@ -263,22 +263,22 @@ def main():
             raise SystemExit('Migration requires enabled milestone 01 host access and recovery.')
         gitops_preflight()
         # Prove both management policy and independent recovery before mutation.
-        subprocess.run([sys.executable, '/workspace/automation/tailscale/verify_access.py'], check=True)
+        subprocess.run([sys.executable, '/workspace/ansible/playbooks/tailscale/files/verify_access.py'], check=True)
         subprocess.run([sys.executable, '/workspace/automation/recovery/runner.py', 'retrieve'], check=True)
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'migrate'
-        playbook('k3s-migration.yml')
+        playbook('playbooks/k3s/migrate.yml')
         playbook('playbooks/setup.yml')
         playbook('playbooks/setup.yml', unchanged=True)
         playbook('playbooks/verify.yml')
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'accept'
-        playbook('k3s-migration.yml')
+        playbook('playbooks/k3s/migrate.yml')
     elif action == 'k3s-migrate-rollback':
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'rollback'
-        playbook('k3s-migration.yml')
+        playbook('playbooks/k3s/migrate.yml')
         playbook('baseline.yml')
     elif action in lifecycle:
         os.environ['LAB_TAILSCALE_TARGET'], os.environ['LAB_TAILSCALE_ACTION'] = lifecycle[action]
-        playbook('tailscale-lifecycle.yml')
+        playbook('playbooks/tailscale/lifecycle.yml')
     elif action == 'gitops-interruption-test':
         gitops_preflight()
         os.environ['LAB_GITOPS_STOP_AFTER_SEED'] = '1'
@@ -337,7 +337,7 @@ def main():
         gitops_preflight()
         playbook('mesh.yml')
     elif action == 'host-access':
-        subprocess.run([sys.executable, '/workspace/automation/tailscale/verify_access.py'], check=True)
+        playbook('playbooks/tailscale/access.yml')
     elif action in {'recovery-monthly', 'recovery-initial', 'recovery-replacement-test'}:
         playbook('recovery.yml')
     elif action in {'inspect', 'verify'}:

@@ -13,7 +13,7 @@ import yaml
 from chart import ROOT, render, generated
 from bootstrap import contains
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tailscale'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'ansible/playbooks/tailscale/files'))
 from verify_access import ssh
 
 

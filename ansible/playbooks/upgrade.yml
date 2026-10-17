@@ -6,4 +6,6 @@
   tasks:
     - name: Refuse unspecified upgrade before mutation
       ansible.builtin.fail:
-        msg: "Upgrade requires a scoped operation and reviewed inputs; no mutation performed."
+        msg: >-
+          Upgrade requires reviewed pinned artifacts, a compatible datastore transition,
+          independent access, readiness and recovery gates; no mutation performed.

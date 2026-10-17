@@ -1,3 +1,15 @@
 ---
-- name: Setup through existing component owners
+- name: Run host/010-bootstrap.yml
+  ansible.builtin.import_playbook: host/010-bootstrap.yml
+- name: Run network/010-firewall.yml
+  ansible.builtin.import_playbook: network/010-firewall.yml
+- name: Run network/020-wireguard.yml
+  ansible.builtin.import_playbook: network/020-wireguard.yml
+- name: Run tailscale/010-enroll.yml
+  ansible.builtin.import_playbook: tailscale/010-enroll.yml
+- name: Run k3s/010-server.yml
+  ansible.builtin.import_playbook: k3s/010-server.yml
+- name: Run k3s/020-agent.yml
+  ansible.builtin.import_playbook: k3s/020-agent.yml
+- name: Run ../apply.yml
   ansible.builtin.import_playbook: ../apply.yml

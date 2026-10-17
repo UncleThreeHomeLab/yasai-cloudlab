@@ -1,0 +1,11 @@
+---
+- name: Verify cluster readiness and private node registration
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - /workspace/ansible/playbooks/k3s/vars.yml
+  tasks:
+    - name: Check cluster readiness
+      ansible.builtin.import_tasks: tasks/verify_cluster.yml
