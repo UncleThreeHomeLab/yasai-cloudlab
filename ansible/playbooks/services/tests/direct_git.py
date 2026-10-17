@@ -25,6 +25,11 @@ def wait_backend(owner):
     raise RuntimeError('Git deployment did not converge; preserve the scoped recovery checkpoint')
 
 
+def wait_catalog(payload):
+    check = "import sys,json;sys.path.insert(0,'/opt/cloudlab');from playbooks.istio.files.kube import wait;from playbooks.services.files.bootstrap import converged;p=json.load(sys.stdin);wait(lambda:converged(p),'approved Git intent');print('{}')"
+    ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(check), input=json.dumps(payload), timeout=660)
+
+
 def restored_catalog(current, entry):
     value = copy.deepcopy(current)
     selected = [row for row in value['catalog'] if row['approval']['name'] == entry['approval']['name']]
@@ -96,6 +101,7 @@ def run():
     current, private_revision = catalog(required=True, coordinates=True)
     payload = {'repository': public, 'revision': revision, 'private_repository': environment['PRIVATE_CONFIG_REPOSITORY'],
                'private_revision': private_revision}
+    wait_catalog(payload)
     script = (ROOT / 'ansible/playbooks/services/tests/source_outage.py').read_text()
     script = "import sys;sys.path.insert(0,'/opt/cloudlab');\n" + script + "\nprint(json.dumps(run(json.load(sys.stdin))))"
     result = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
@@ -113,8 +119,7 @@ def run():
         raise RuntimeError('Original retired catalog intent was not restored')
     _, final_revision = catalog(required=True, coordinates=True)
     payload['private_revision'] = final_revision
-    check = "import sys,json;sys.path.insert(0,'/opt/cloudlab');from playbooks.istio.files.kube import wait;from playbooks.services.files.bootstrap import converged;p=json.load(sys.stdin);wait(lambda:converged(p),'final retired Git intent');print('{}')"
-    ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(check), input=json.dumps(payload), timeout=660)
+    wait_catalog(payload)
     checkpoint.unlink()
     return {'direct_git_delivery': True, 'no_new_application_module_or_command': True,
             'retired_intent_restored': True, 'retained_sql_s3_pvc_credentials': True,
