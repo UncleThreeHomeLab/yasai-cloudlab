@@ -1,0 +1,10 @@
+---
+- name: Configure service delivery
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Configure approved Git sources
+      ansible.builtin.import_tasks: tasks/bootstrap.yml
+      when: services_enabled | bool

@@ -87,6 +87,8 @@
     - configuration.py
     - control.py
     - requests.py
+    - public_ca.py
+    - public_ca.py
     - service_proof.py
     - s3.py
     - capture.py

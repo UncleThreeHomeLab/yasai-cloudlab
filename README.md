@@ -78,6 +78,8 @@ Application onboarding uses the [service contract](charts/service/README.md),
 administrator-controlled ApplicationSets and scoped data/OIDC references. The
 [notes example](apps/notes/README.md) contains the web/API demonstration. Enable
 services only with a reviewed catalog in the designated private configuration repo.
+Argo reads approved service changes directly from Git; external provisioning and
+retirement retain their explicit owner operations.
 
 Independent public monitoring uses the [monitoring contract](platform/observability/contract.json).
 Keep `CloudLab/uptimerobot-management/API_KEY` in 1Password. Run

@@ -129,7 +129,7 @@ def source_binding(root):
         'compose.yaml', '.gitignore', '.gitattributes')]
     if root == 'cloudflare':
         files += list((WORKSPACE / 'ansible/playbooks/access/files').glob('*.py'))
-        files += list((WORKSPACE / 'automation/services').glob('*.py'))
+        files += list((WORKSPACE / 'ansible/playbooks/services/files').glob('*.py'))
         files += list((WORKSPACE / 'charts/service').rglob('*'))
         files += list((WORKSPACE / 'ansible/playbooks/keycloak/files').glob('access_*.py'))
     else:
@@ -142,7 +142,7 @@ def source_binding(root):
                               cwd=WORKSPACE, capture_output=True, check=True, text=True).stdout.strip()
     paths = ['ansible/playbooks/infrastructure', 'ansible/runner', 'infra/' + root, 'compose.yaml', '.gitignore', '.gitattributes']
     if root == 'cloudflare':
-        paths += ['ansible/playbooks/access/files', 'ansible/playbooks/keycloak/files', 'automation/services', 'charts/service']
+        paths += ['ansible/playbooks/access/files', 'ansible/playbooks/keycloak/files', 'ansible/playbooks/services/files', 'charts/service']
     else:
         paths += ['ansible/playbooks/argocd/files']
     dirty = subprocess.run(['git', '-c', 'safe.directory=/workspace', 'status', '--porcelain', '--', *paths],

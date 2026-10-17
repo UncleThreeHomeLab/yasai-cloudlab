@@ -100,95 +100,22 @@
               "published",
               "retired"
             ]
-          },
-          "dataBindings": {
-            "type": "array",
-            "maxItems": 2,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "name",
-                "item",
-                "fields"
-              ],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
-                },
-                "item": {
-                  "type": "string",
-                  "pattern": "^(cnpg|s3)-[a-z0-9-]+-production$"
-                },
-                "fields": {
-                  "oneOf": [
-                    {
-                      "const": [
-                        "username",
-                        "password"
-                      ]
-                    },
-                    {
-                      "const": [
-                        "BUCKET",
-                        "ACCESS_KEY_ID",
-                        "SECRET_ACCESS_KEY",
-                        "ENDPOINT",
-                        "REGION"
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "notesValues": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "web",
-              "api",
-              "databaseCA"
-            ],
-            "properties": {
-              "web": {
-                "$ref": "#/definitions/service"
-              },
-              "api": {
-                "$ref": "#/definitions/service"
-              },
-              "databaseCA": {
-                "type": "string",
-                "maxLength": 16384
-              }
-            }
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "approval": {
-                  "properties": {
-                    "chartPath": {
-                      "const": "apps/notes"
-                    }
-                  },
-                  "required": [
-                    "chartPath"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "required": [
-                "notesValues"
-              ]
-            }
-          }
-        ]
+        }
       }
+    },
+    "dataApprovals": {
+      "type": "object"
+    },
+    "issuer": {
+      "type": "string",
+      "pattern": "^https://[a-z0-9.-]+/realms/applications$"
+    },
+    "telemetry": {
+      "type": "boolean"
+    },
+    "argo-cd": {
+      "type": "object"
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -709,6 +636,9 @@
             ]
           },
           "uniqueItems": true
+        },
+        "renderDisabled": {
+          "type": "boolean"
         }
       },
       "required": [

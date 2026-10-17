@@ -200,6 +200,8 @@ def reconcile():
     changed = s3().ensure_bucket(values['bucket']) or changed
     from playbooks.data.files.requests import reconcile as service_requests
     changed = service_requests(values, sql, grants, s3()) or changed
+    from playbooks.data.files.public_ca import reconcile as public_ca
+    changed = public_ca(values) or changed
     return changed
 
 

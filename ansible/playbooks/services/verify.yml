@@ -1,0 +1,10 @@
+---
+- name: Verify service delivery
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Verify approved application behavior
+      ansible.builtin.import_tasks: tasks/verify.yml
+      when: services_enabled | bool

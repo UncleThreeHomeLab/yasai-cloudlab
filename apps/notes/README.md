@@ -7,8 +7,10 @@ hostname. Tokens stay in browser memory; reloading starts another PKCE/SSO trans
 
 Use the [service contract](../../charts/service/README.md) for onboarding. The
 administrator selects `approval.chartPath: apps/notes` and supplies one `notes`
-definition with its public exposure and one private operations exposure. The compiler
-derives both workloads, callbacks, origins and route paths from that definition.
+definition with its public exposure and one private operations exposure. Its Helm chart
+derives both workloads and route paths directly from the approved Git definition.
+Identity callbacks remain with their owner. The data owner projects the public
+database CA under its existing lock and five-minute repair schedule.
 Use `reader`, `writer` and `operator` client roles with explicit group mappings.
 Request the existing notes database/bucket through their scoped references.
 
@@ -49,5 +51,5 @@ The redacted result remains in the recovery volume. Primary accounts stay unchan
 
 Python and dependency wheels are pinned. The API installs hash-checked wheels into
 a bounded ephemeral volume during startup. Regenerate first-party artifacts with
-`python -m automation.services.package build`; `lab service-check` verifies source
+`python -m playbooks.services.files.package build`; `lab service-check` verifies source
 parity and deterministic rendering. Dependency changes require repeating these checks.

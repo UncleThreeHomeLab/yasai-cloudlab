@@ -1,0 +1,24 @@
+---
+- name: Resolve the versioned service catalog for behavior checks
+  ansible.builtin.command: python -m playbooks.services.files.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: services_verification_payload
+
+- name: Verify real service readiness, credential scope and destination denial
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/services/files/verify.py
+  args:
+    stdin: >-
+      {{ (services_verification_payload.stdout | from_json)
+         | combine({'proof_image': (lookup('ansible.builtin.file', '/workspace/charts/service/values.yaml') | from_yaml).image})
+         | to_json }}
+  changed_when: false
+  no_log: true
+  register: services_verified
+
+- name: Report only the sanitized service behavior result
+  ansible.builtin.debug:
+    msg: '{{ services_verified.stdout | from_json }}'

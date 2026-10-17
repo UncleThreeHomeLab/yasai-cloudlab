@@ -22,7 +22,7 @@ def environment():
 
 
 def notes_origin():
-    from automation.services.inputs import catalog
+    from playbooks.services.files.inputs import catalog
     value = catalog(required=True)
     entries = [row for row in value['catalog'] if row['definition']['name'] == 'notes' and
                row['approval'].get('chartPath') == 'apps/notes' and row['publication'] == 'published']

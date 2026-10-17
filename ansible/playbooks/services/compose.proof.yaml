@@ -1,0 +1,21 @@
+name: cloudlab-service-proof
+services:
+  dependencies:
+    image: python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+    user: '10001:10001'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    tmpfs: ['/tmp:uid=10001,gid=10001,size=192m,exec']
+    volumes: ['../../../apps/notes:/source:ro']
+    network_mode: bridge
+    command:
+      - python
+      - -c
+      - |
+        import subprocess,sys
+        subprocess.run([sys.executable,'-m','pip','install','--index-url','https://pypi.org/simple','--disable-pip-version-check','--no-cache-dir','--require-hashes','--only-binary=:all:','--target','/tmp/dependencies','-r','/source/requirements.txt'],check=True)
+        sys.path[:0]=['/tmp/dependencies','/source/lib.zip','/source']
+        import psycopg,api
+        print('Pinned notes dependencies and API import pass within 128 MiB.')

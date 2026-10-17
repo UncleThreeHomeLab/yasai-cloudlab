@@ -1,11 +1,3 @@
 ---
-- name: Configure services after accepted identity
-  hosts: k3s_servers
-  become: true
-  gather_facts: false
-  any_errors_fatal: true
-  tasks:
-    - name: Configure services after scoped data grants and buckets converge
-      ansible.builtin.include_role:
-        name: services
-      when: services_enabled | bool
+- name: Configure direct Git application delivery
+  ansible.builtin.import_playbook: playbooks/services/010-bootstrap.yml

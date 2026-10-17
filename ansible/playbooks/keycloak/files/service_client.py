@@ -4,7 +4,7 @@ import os
 
 from playbooks.keycloak.files.operations import change, private_files
 from playbooks.keycloak.files.private_source import decode_contents, publish
-from automation.services.contract import identity_request, validate
+from playbooks.services.files.contract import identity_request, validate
 
 
 def prepare(definition, action):
