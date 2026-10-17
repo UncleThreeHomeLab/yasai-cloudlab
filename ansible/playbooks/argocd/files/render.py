@@ -81,9 +81,9 @@ def committed_payload():
                'platform/identity', 'ansible/playbooks/keycloak',
                'charts/service', 'apps', 'automation/services', 'platform/delivery/services',
                'ansible/roles/services', 'ansible/group_vars/all/services.yml']
-    paths += ['platform/observability', 'automation/observability', 'ansible/roles/observability',
+    paths += ['platform/observability', 'ansible/playbooks/observability',
               'ansible/group_vars/all/observability.yml']
-    paths += ['platform/harbor', 'automation/harbor', 'ansible/roles/harbor', 'ansible/group_vars/all/harbor.yml']
+    paths += ['platform/harbor', 'ansible/playbooks/harbor', 'ansible/group_vars/all/harbor.yml']
     result = subprocess.run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', *paths],
                             capture_output=True, text=True, timeout=30, check=True)
     if result.stdout.strip():

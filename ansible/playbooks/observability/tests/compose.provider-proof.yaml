@@ -1,0 +1,52 @@
+services:
+  grafana:
+    image: docker.io/grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    environment:
+      GF_SECURITY_ADMIN_USER: fixture-admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /fixture/grafana_password
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_LOG_LEVEL: error
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+      GF_PLUGINS_PREINSTALL: ''
+      GF_PLUGINS_PREINSTALL_SYNC: ''
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: 'true'
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: 'false'
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/var/lib/grafana:uid=472,gid=472,size=64m", "/tmp:mode=1777,size=32m"]
+    read_only: true
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks: [fixture]
+    mem_limit: 384m
+    cpus: 0.25
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  provider-init:
+    build: ../../../runner
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        cp /source/versions.tf /source/.terraform.lock.hcl /candidate/
+        cd /candidate
+        tofu init -backend=false -lockfile=readonly -input=false
+    volumes: ["./provider-fixture:/source:ro", "provider_fixture:/candidate"]
+    network_mode: bridge
+    mem_limit: 384m
+    cpus: 0.5
+  provider-proof:
+    build: ../../../runner
+    entrypoint: [python, -m, playbooks.observability.tests.provider_proof]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "fixture:/fixture:ro", "provider_fixture:/candidate"]
+    depends_on:
+      provider-init: {condition: service_completed_successfully}
+      grafana: {condition: service_started}
+    networks: [fixture]
+    mem_limit: 384m
+    cpus: 0.5
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+volumes:
+  provider_fixture:

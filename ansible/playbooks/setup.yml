@@ -44,7 +44,21 @@
   ansible.builtin.import_playbook: keycloak/050-retained.yml
 - name: Run ../apply.yml
   ansible.builtin.import_playbook: ../apply.yml
+- name: Run observability/010-bootstrap.yml
+  ansible.builtin.import_playbook: observability/010-bootstrap.yml
+- name: Run observability/020-converge.yml
+  ansible.builtin.import_playbook: observability/020-converge.yml
+- name: Run harbor/010-bootstrap.yml
+  ansible.builtin.import_playbook: harbor/010-bootstrap.yml
+- name: Run harbor/020-converge.yml
+  ansible.builtin.import_playbook: harbor/020-converge.yml
+- name: Run harbor/030-schedules.yml
+  ansible.builtin.import_playbook: harbor/030-schedules.yml
 - name: Retire replaced runtime after every consumer converges
   ansible.builtin.import_playbook: data/030-retire-runtime.yml
 - name: Retire replaced identity runtime after consumers converge
   ansible.builtin.import_playbook: keycloak/060-retire-runtime.yml
+- name: Retire replaced telemetry runtime after all consumers converge
+  ansible.builtin.import_playbook: observability/030-retire-runtime.yml
+- name: Retire replaced registry runtime after all consumers converge
+  ansible.builtin.import_playbook: harbor/040-retire-runtime.yml

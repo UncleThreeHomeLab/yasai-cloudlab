@@ -1,0 +1,10 @@
+---
+- name: Verify telemetry behavior
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Verify telemetry behavior
+      ansible.builtin.import_tasks: tasks/verify.yml
+      when: observability_enabled | bool

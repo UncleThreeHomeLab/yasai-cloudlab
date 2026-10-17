@@ -49,3 +49,9 @@ Capture and restore retain prior verified generations until replacement succeeds
 repair and private retirement tombstones. Setup reconciles only accepted identity;
 enrollment, client changes, offboarding and emergency repair remain named operations.
 Data capture and isolated restore retain physical signing state and current input checks.
+
+[Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
+redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installation,
+scoped registry credentials and coordinated recovery. Its host schedules use the
+same monthly export window and local-only freshness checks. Component tests own
+browser and provider fixtures.

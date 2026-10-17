@@ -1,0 +1,10 @@
+---
+- name: Converge telemetry through its guarded Argo owner
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Converge telemetry through its guarded Argo owner
+      ansible.builtin.import_tasks: tasks/converge.yml
+      when: observability_enabled | bool

@@ -90,7 +90,7 @@ provider status alone does not prove delivery.
 Private telemetry uses the same [monitoring contract](platform/observability/contract.json).
 Grafana provisions the Nodes home dashboard from
 [dashboard JSON](platform/observability/prometheus/dashboards). Edit panels and queries
-there; [Grafana settings](automation/observability/configuration.py) select the home dashboard.
+there; [Grafana settings](ansible/playbooks/observability/files/configuration.py) select the home dashboard.
 Run `lab observe credentials` through Compose with the local vault writer, then
 `gh auth token | docker compose run -T --rm lab observe identity-prepare`.
 Merge the returned private client PR before enabling `observability.enabled` in
@@ -99,11 +99,11 @@ the public root. Add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`. Apply with
 Normal apply resumes only the accepted retired identity owner before its consumers.
 Initial identity enrollment and [lifecycle operations](ansible/playbooks/keycloak/README.md) remain explicit.
 
-Harbor prerequisites use the [registry contract](automation/harbor/contract.json).
-Inspect inputs with `docker compose run --rm --entrypoint python service -m automation.harbor.preflight`.
+Harbor prerequisites use the [registry contract](ansible/playbooks/harbor/files/contract.json).
+Inspect inputs with `docker compose run --rm --entrypoint python service -m playbooks.harbor.files.preflight`.
 Keep ARC and public/private release Apps separate. Run the same Compose client with
-`-m automation.harbor.control credentials` to create missing installation secrets locally.
-Run `gh auth token | docker compose run -T --rm --entrypoint python service -m automation.harbor.control identity-prepare`
+`-m playbooks.harbor.files.control credentials` to create missing installation secrets locally.
+Run `gh auth token | docker compose run -T --rm --entrypoint python service -m playbooks.harbor.files.control identity-prepare`
 and merge its private client PR. Add `harbor` to `PRIVATE_ACCESS_HOSTS`, review
 `harbor.enabled` in the public root, then run `prove`. Argo owns installation;
 PostgreSQL, Valkey and blobs have separate retained Longhorn claims. Browser access
@@ -121,7 +121,7 @@ inputs and encrypted plans; use `recover-state`, exact `recover-import --address
 Never repeat bootstrap creation against existing resources. Routine applies
 cannot rotate robots; retention keeps all artifacts and automatic GC stays off.
 After import acceptance, run `docker compose run --build --rm --entrypoint python
-infra-harbor -m automation.harbor.artifacts` for independent push/pull, project
+infra-harbor -m playbooks.harbor.files.artifacts` for independent push/pull, project
 isolation and both-node containerd checks. Interrupted uploads retain their archive
 and digest. Node pulls use temporary five-minute tokens and preserve other images.
 Recovery signatures use a separate vault-held operator key. Follow `recovery_signing`

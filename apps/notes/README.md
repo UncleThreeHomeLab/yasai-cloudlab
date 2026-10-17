@@ -38,7 +38,7 @@ The shared [SLO definition](slo.json) generates user rules and dashboards. Relea
 traffic uses `/api/release/notes` and stays outside user indicators. Prepare a
 disposable applications viewer with `gh auth token | docker compose run -T --rm
 lab observe baseline-prepare`. Then run `gh auth token | docker compose -f
-automation/observability/compose.baseline.yaml run --build -T --rm
+ansible/playbooks/observability/tests/compose.baseline.yaml run --build -T --rm
 baseline-controller`. The pinned browser registers a disposable passkey; pinned
 k6 measures bounded authenticated reads. Successful measurement offboards the
 viewer. Keep the private recovery checkpoint on failure. Successful measurements

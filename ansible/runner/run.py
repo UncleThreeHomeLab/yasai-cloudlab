@@ -92,8 +92,12 @@ def main():
     if sys.argv[1:] == ['gitops-controller-recover']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'playbooks.argocd.files.recover'],
                                        cwd='/workspace', check=False).returncode)
+    if sys.argv[1:2] == ['observe'] and sys.argv[2:] in (['baseline-prepare'], ['baseline-cleanup']):
+        action = {'baseline-prepare': 'prepare', 'baseline-cleanup': 'cleanup'}[sys.argv[2]]
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'playbooks.observability.tests.baseline', action],
+                                       cwd='/workspace', check=False).returncode)
     if sys.argv[1:2] == ['observe']:
-        raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.observability.command', *sys.argv[2:]],
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'playbooks.observability.files.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)
     if sys.argv[1:2] == ['service']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'automation.services.command', *sys.argv[2:]],

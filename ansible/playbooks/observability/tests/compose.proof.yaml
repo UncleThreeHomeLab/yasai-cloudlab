@@ -1,0 +1,112 @@
+services:
+  prepare:
+    build: ../../../runner
+    entrypoint: [python, -m, playbooks.observability.tests.native_proof, prepare]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "fixture:/fixture"]
+    network_mode: none
+  loki:
+    image: docker.io/grafana/loki:3.6.12@sha256:2483b71b28b15dee230f85512cae2b20c4b5f6e98a6eabe686cbccfa5ea3ba4a
+    command: [-config.file=/fixture/loki.yaml]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/var/loki:uid=10001,gid=10001,mode=0700,size=256m"]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks: {fixture: {aliases: [cloudlab-loki, cloudlab-loki-memberlist.cloudlab-observability.svc.cluster.local]}}
+    mem_limit: 768m
+    cpus: 0.4
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  tempo:
+    image: docker.io/grafana/tempo:3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd
+    command: [-config.file=/fixture/tempo.yaml]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/var/tempo:uid=10001,gid=10001,mode=0700,size=256m"]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks: {fixture: {aliases: [cloudlab-tempo]}}
+    mem_limit: 768m
+    cpus: 0.4
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  alloy:
+    image: docker.io/grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    command: [run, /fixture/config.alloy, --storage.path=/tmp/alloy, --server.http.listen-addr=0.0.0.0:12345, --disable-reporting]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/tmp:mode=1777,size=32m"]
+    read_only: true
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks:
+      fixture:
+        aliases: [cloudlab-alloy.cloudlab-observability.svc]
+    mem_limit: 384m
+    cpus: 0.25
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  promtool:
+    image: quay.io/prometheus/prometheus:v3.15.0-distroless@sha256:b2a413d5a03ea6a76782a508d1c7947440bba3b973931a25676e278431891b01
+    entrypoint: [/bin/promtool]
+    command: [test, rules, /fixture/slo-test.json]
+    volumes: ["fixture:/fixture:ro"]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    network_mode: none
+    mem_limit: 256m
+    cpus: 0.5
+    read_only: true
+    tmpfs: ["/tmp:mode=1777,size=128m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  alert-fixture:
+    build: {context: ../../../../apps/notes, dockerfile: ../../ansible/playbooks/observability/tests/proof.Dockerfile}
+    entrypoint: [python, -m, playbooks.observability.tests.alert_fixture]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro"]
+    networks: [fixture]
+    mem_limit: 128m
+    cpus: 0.1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.15.0-distroless@sha256:b2a413d5a03ea6a76782a508d1c7947440bba3b973931a25676e278431891b01
+    command: [--config.file=/fixture/prometheus.yaml, --storage.tsdb.path=/tmp/prometheus, --storage.tsdb.retention.time=1h, --storage.tsdb.retention.size=128MB]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/tmp:mode=1777,size=256m"]
+    depends_on: {prepare: {condition: service_completed_successfully}, alert-fixture: {condition: service_started}}
+    networks: [fixture]
+    mem_limit: 384m
+    cpus: 0.25
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  alertmanager:
+    image: quay.io/prometheus/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    command: [--config.file=/fixture/alertmanager.yaml, --storage.path=/tmp/alertmanager, --cluster.listen-address=]
+    volumes: ["fixture:/fixture:ro"]
+    tmpfs: ["/tmp:mode=1777,size=32m"]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks: [fixture]
+    mem_limit: 128m
+    cpus: 0.1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  proof:
+    build: {context: ../../../../apps/notes, dockerfile: ../../ansible/playbooks/observability/tests/proof.Dockerfile}
+    entrypoint: [python, -m, playbooks.observability.tests.native_proof, verify]
+    working_dir: /workspace
+    volumes: ["../../../..:/workspace:ro", "fixture:/fixture:ro"]
+    depends_on:
+      loki: {condition: service_started}
+      tempo: {condition: service_started}
+      alloy: {condition: service_started}
+      promtool: {condition: service_completed_successfully}
+      prometheus: {condition: service_started}
+      alertmanager: {condition: service_started}
+    networks: [fixture]
+    mem_limit: 256m
+    cpus: 0.25
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+networks:
+  fixture: {internal: true}
+volumes:
+  fixture:

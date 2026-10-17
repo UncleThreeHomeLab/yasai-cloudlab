@@ -59,16 +59,11 @@
       when: services_enabled | bool
 
     - name: Verify telemetry ownership, local storage and correlated service signals
-      ansible.builtin.include_role:
-        name: observability
-        tasks_from: verify
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/observability/tasks/verify.yml
       when: observability_enabled | bool
 
     - name: Verify private registry ownership and current isolated recovery
-      ansible.builtin.include_role:
-        name: harbor
-        tasks_from: verify
-        apply: {tags: [harbor]}
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/harbor/tasks/verify.yml
       tags: [harbor]
       when: harbor_enabled | bool
 
@@ -80,7 +75,7 @@
   any_errors_fatal: true
   tasks:
     - name: Resolve published Harbor host verification inputs
-      ansible.builtin.command: python -m automation.harbor.payload
+      ansible.builtin.command: python -m playbooks.harbor.files.payload
       args: {chdir: /workspace}
       delegate_to: localhost
       become: false
@@ -92,7 +87,7 @@
 
     - name: Check each host resolver and HTTPS registry challenge
       ansible.builtin.command:
-        argv: [python3, -c, "{{ lookup('file', '../automation/harbor/host_verify.py') }}"]
+        argv: [python3, -c, "{{ lookup('file', '../ansible/playbooks/harbor/files/host_verify.py') }}"]
         stdin: '{{ harbor_host_payload.stdout }}'
       register: harbor_host_verified
       changed_when: false

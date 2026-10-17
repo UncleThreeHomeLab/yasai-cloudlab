@@ -20,10 +20,10 @@ import yaml
 from playbooks.secrets.files.provision import ensure_items
 from playbooks.secrets.files.vault import fields
 from playbooks.access.files.preflight import ssh
-from automation.harbor import api_policy, credentials, transport
-from automation.harbor.configuration import client as identity_client
-from automation.harbor.values import POLICY as INSTALLATION_POLICY
-from automation.harbor.recovery import atomic
+from playbooks.harbor.files import api_policy, credentials, transport
+from playbooks.harbor.files.configuration import client as identity_client
+from playbooks.harbor.files.values import POLICY as INSTALLATION_POLICY
+from playbooks.harbor.files.recovery import atomic
 from playbooks.infrastructure.files.backend import environment
 from playbooks.infrastructure.files.native import native, require
 from playbooks.infrastructure.files.retention import ciphertext, maintain, request
@@ -89,7 +89,7 @@ def binding():
 def metadata(values, *, browser=False):
     script = '''import sys,json
 sys.path.insert(0,'/opt/cloudlab')
-from automation.harbor.recovery import application,APPS,NAMESPACE
+from playbooks.harbor.files.recovery import application,APPS,NAMESPACE
 from playbooks.istio.files.kube import application_ready,get
 request=json.load(sys.stdin)
 apps=[application(name) for name in APPS]
@@ -97,7 +97,7 @@ revisions={app['spec']['source']['targetRevision'] for app in apps}
 if len(revisions)!=1 or not all(application_ready(app['metadata']['name'],app['spec']['source']['targetRevision']) for app in apps):raise RuntimeError('Harbor installation must converge')
 configuration=next(app for app in apps if app['metadata']['name']=='cloudlab-harbor-configuration')['spec']['source']['helm']['valuesObject']
 if request['browser']:
- from automation.harbor.verify import oidc_discovery
+ from playbooks.harbor.files.verify import oidc_discovery
  oidc_discovery(configuration['loginHost'])
 images=sorted(container['image'] for kind in ('deployment','statefulset') for obj in (get(kind,namespace=NAMESPACE) or {}).get('items',[]) for container in obj['spec']['template']['spec']['containers'])
 print(json.dumps({'harborHost':configuration['harborHost'],'loginHost':configuration['loginHost'],'images':images,'repositories':sorted({app['spec']['source']['repoURL'] for app in apps})}))

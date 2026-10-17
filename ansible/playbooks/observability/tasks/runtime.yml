@@ -1,0 +1,13 @@
+---
+- name: Create the telemetry owner module directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/playbooks/observability/files
+    state: directory
+    mode: '0700'
+
+- name: Install the bounded telemetry bootstrap from its owner
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/observability/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/observability/files/{{ item }}'
+    mode: '0600'
+  loop: [bootstrap.py, verify.py]
