@@ -8,11 +8,11 @@ from playbooks.services.files.bootstrap import APP, OWNER, converged
 
 def snapshot():
     result = {}
-    namespaces = [row['metadata']['name'] for row in get('namespaces')['items']
+    namespaces = [row['metadata']['name'] for row in (get('namespaces') or {'items': []})['items']
                   if row['metadata']['name'].startswith('cloudlab-app-')]
     for namespace in namespaces:
       for kind in ('deployments.apps', 'services', 'secrets', 'persistentvolumeclaims'):
-        for row in get(kind, namespace=namespace)['items']:
+        for row in (get(kind, namespace=namespace) or {'items': []})['items']:
             meta = row['metadata']
             if not meta.get('namespace', '').startswith('cloudlab-app-'):
                 continue
@@ -46,7 +46,9 @@ def run(payload):
             raise RuntimeError('Unavailable catalog changed retained workloads or credentials')
     finally:
         current = get('application.argoproj.io', APP, 'argocd')
-        if current['metadata']['uid'] != uid:
+        if (current['metadata']['uid'] != uid
+                or current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
+                or current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers')):
             raise RuntimeError('Catalog ownership changed; source repair refused')
         observed = current['spec']['sources']
         if observed == replacement:

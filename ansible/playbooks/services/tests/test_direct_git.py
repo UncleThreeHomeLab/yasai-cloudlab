@@ -1,5 +1,7 @@
 import copy
 import json
+import hashlib
+import os
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -7,10 +9,72 @@ import yaml
 from playbooks.services.files.contract import ROOT, render
 from playbooks.services.files.examples import definitions
 from playbooks.services.files import bootstrap
+from playbooks.services.tests import direct_git, source_outage
 from playbooks.services.tests.fixtures import notes_values
 
 
 class DirectGitTests(unittest.TestCase):
+    def test_source_outage_repairs_after_failure_and_refuses_changed_owner(self):
+        for changed_owner in (False, True):
+            with self.subTest(changed_owner=changed_owner):
+                original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
+                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER}},
+                       'spec': {'sources': copy.deepcopy(original)}}
+                def kube(*args):
+                    patch_value = json.loads(args[-1])
+                    self.assertEqual(patch_value[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'original'})
+                    self.assertEqual(patch_value[1]['value'], app['spec']['sources'])
+                    app['spec']['sources'] = patch_value[2]['value']
+                def fail_then_repair(predicate, label, timeout):
+                    if 'refusal' in label:
+                        if changed_owner:
+                            app['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                        raise RuntimeError('Injected proof failure')
+                    self.assertEqual(app['spec']['sources'], original)
+                with patch.object(source_outage, 'get', return_value=app), \
+                        patch.object(source_outage, 'converged', return_value=True), \
+                        patch.object(source_outage, 'snapshot', return_value={'retained': ['uid', 'hash']}), \
+                        patch.object(source_outage, 'kube', side_effect=kube) as mutation, \
+                        patch.object(source_outage, 'wait', side_effect=fail_then_repair):
+                    message = 'ownership changed' if changed_owner else 'Injected proof failure'
+                    with self.assertRaisesRegex(RuntimeError, message):
+                        source_outage.run({})
+                self.assertEqual(mutation.call_count, 1 if changed_owner else 2)
+
+    def test_source_outage_snapshot_accepts_absent_and_empty_collections(self):
+        for collection in (None, {'items': []}):
+            with self.subTest(collection=collection):
+                def get(kind, name=None, namespace=None):
+                    if kind == 'namespaces':
+                        return {'items': [{'metadata': {'name': 'cloudlab-app-example'}},
+                                          {'metadata': {'name': 'foreign'}}]}
+                    self.assertEqual(namespace, 'cloudlab-app-example')
+                    return collection
+                with patch.object(source_outage, 'get', side_effect=get):
+                    self.assertEqual(source_outage.snapshot(), {})
+
+    def test_source_outage_snapshot_preserves_uid_and_secret_content(self):
+        def get(kind, name=None, namespace=None):
+            if kind == 'namespaces':
+                return {'items': [{'metadata': {'name': 'cloudlab-app-example'}}]}
+            return {'items': [{'metadata': {'name': 'owned', 'namespace': namespace, 'uid': kind},
+                               'data': {'fixture': 'content'}}]}
+        with patch.object(source_outage, 'get', side_effect=get):
+            actual = source_outage.snapshot()
+        digest = hashlib.sha256(json.dumps({'fixture': 'content'}, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(actual, {kind + '/cloudlab-app-example/owned': [kind, digest]
+                                 for kind in ('deployments.apps', 'services', 'secrets', 'persistentvolumeclaims')})
+
+    def test_catalog_acknowledgement_wait_uses_exact_native_gate_and_bound(self):
+        payload = {'revision': 'a' * 40, 'private_revision': 'b' * 40}
+        with patch.dict(os.environ, {'VM_HOST': 'example.invalid'}), patch.object(direct_git, 'ssh') as ssh:
+            direct_git.wait_catalog(payload)
+        args, kwargs = ssh.call_args
+        self.assertEqual(args[:2], ('VM', 'example.invalid'))
+        self.assertIn('wait(lambda:converged(p)', args[2])
+        self.assertEqual(json.loads(kwargs['input']), payload)
+        self.assertEqual(kwargs['timeout'], 660)
+
     def test_native_notes_chart_preserves_workload_contract(self):
         definition = definitions('example.invalid', 'https://github.com/example/platform.git', 'a' * 40,
                                  'https://github.com/example/private.git', 'abcdef123456', 'notes', 'notes')['catalog'][0]['definition']
