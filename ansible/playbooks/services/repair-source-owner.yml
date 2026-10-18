@@ -44,4 +44,4 @@
               'recovery': services_source_record.content | b64decode | from_json} | to_json }}
       no_log: true
       register: services_source_repaired
-      changed_when: (services_source_repaired.stdout | from_json).changed
+      changed_when: services_source_repaired.rc == 0 and (services_source_repaired.stdout | from_json).changed
