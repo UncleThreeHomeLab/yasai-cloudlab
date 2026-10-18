@@ -53,6 +53,8 @@ Data capture and isolated restore retain physical signing state and current inpu
 [Services](playbooks/services/) binds the approved private catalog directly to Argo.
 Application charts consume Git definitions; the data owner repairs scoped public CA
 configuration. External publication, identity and retirement remain explicit.
+`playbooks/services/repair-source-owner.yml` requires `services_source_recovery_file` in
+`/recovery/`; it restores only the recorded fixture-created sources field conflict.
 
 [Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
 redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installation,

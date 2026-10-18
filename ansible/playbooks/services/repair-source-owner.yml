@@ -1,0 +1,47 @@
+---
+- name: Repair one recorded service source field owner
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the explicit protected recovery record
+      ansible.builtin.assert:
+        that:
+          - services_source_recovery_file is defined
+          - services_source_recovery_file is match('^/recovery/[^/]+[.]json$')
+
+    - name: Read the recorded Application identity and exact fixture-created field entry
+      ansible.builtin.slurp:
+        src: '{{ services_source_recovery_file }}'
+      delegate_to: localhost
+      become: false
+      no_log: true
+      register: services_source_record
+
+    - name: Resolve the complete committed administrator service catalog
+      ansible.builtin.command: python -m playbooks.services.files.payload
+      args:
+        chdir: /workspace
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: services_payload
+
+    - name: Install the versioned complete declaration and explicit recovery operation
+      ansible.builtin.copy:
+        src: '/workspace/ansible/playbooks/services/files/{{ item }}'
+        dest: '/opt/cloudlab/playbooks/services/files/{{ item }}'
+        mode: '0600'
+      loop: [bootstrap.py, repair_source_owner.py]
+
+    - name: Recover only the recorded sources conflict through the complete established Apply declaration
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/services/files/repair_source_owner.py
+      args:
+        stdin: >-
+          {{ {'configuration': services_payload.stdout | from_json,
+              'recovery': services_source_record.content | b64decode | from_json} | to_json }}
+      no_log: true
+      register: services_source_repaired
+      changed_when: (services_source_repaired.stdout | from_json).changed

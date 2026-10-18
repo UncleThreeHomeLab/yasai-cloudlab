@@ -13,6 +13,12 @@ def approval():
             'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': []}
 
 
+def catalog_payload():
+    return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+            'private_repository': 'https://github.com/example/private.git', 'private_revision': 'b' * 40,
+            'telemetry': False, 'values': {'catalog': [], 'dataApprovals': []}}
+
+
 """Pre-handoff semantic reference used only by parity checks."""
 import copy
 import hashlib

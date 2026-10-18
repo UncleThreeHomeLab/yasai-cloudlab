@@ -12,6 +12,7 @@ from playbooks.services.files.inputs import catalog
 from playbooks.services.files import source
 from playbooks.services.files.owners import Owners
 from playbooks.services.files.lifecycle import publish, retire
+from playbooks.services.files.payload import payload as catalog_payload
 
 
 def wait_backend(owner):
@@ -99,14 +100,18 @@ def run():
     publish(selected['definition'], active)
     print(json.dumps({'private_publication_repeat': True, 'public_gateway_and_denied_identity_isolation': True}), flush=True)
     current, private_revision = catalog(required=True, coordinates=True)
-    payload = {'repository': public, 'revision': revision, 'private_repository': environment['PRIVATE_CONFIG_REPOSITORY'],
-               'private_revision': private_revision}
+    payload = catalog_payload()
+    if payload['private_revision'] != private_revision or payload['revision'] != revision:
+        raise RuntimeError('Direct Git source changed before the outage proof')
     wait_catalog(payload)
     script = (ROOT / 'ansible/playbooks/services/tests/source_outage.py').read_text()
-    script = "import sys;sys.path.insert(0,'/opt/cloudlab');\n" + script + "\nprint(json.dumps(run(json.load(sys.stdin))))"
-    result = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
-                           input=json.dumps(payload), timeout=1200))
-    print(json.dumps(result), flush=True)
+    previous_revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD^'], text=True).strip()
+    script = ("import sys;sys.path.insert(0,'/opt/cloudlab');\n" + script
+              + "\np=json.load(sys.stdin);print(json.dumps(run(p['payload'],next_revision=p['next_revision'])))")
+    for _ in range(2):
+        result = json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script),
+                               input=json.dumps({'payload': payload, 'next_revision': previous_revision}), timeout=1200))
+        print(json.dumps(result), flush=True)
     retire(selected['definition'], active)
     after = active.read('fixture-snapshot')
     if before != after:

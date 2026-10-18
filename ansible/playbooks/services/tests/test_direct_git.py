@@ -3,6 +3,7 @@ import json
 import hashlib
 import os
 import subprocess
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import yaml
@@ -10,93 +11,105 @@ from playbooks.services.files.contract import ROOT, render
 from playbooks.services.files.examples import definitions
 from playbooks.services.files import bootstrap
 from playbooks.services.tests import direct_git, source_outage
-from playbooks.services.tests.fixtures import notes_values
+from playbooks.services.tests.fixtures import catalog_payload, notes_values
 
 
 class DirectGitTests(unittest.TestCase):
-    def test_known_fixture_source_manager_recovery_and_repeat(self):
-        original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
-        recovery = {'uid': 'original', 'sources': original, 'manager': 'kubectl-patch', 'time': 'fixture-time'}
-        for manager, request in (('kubectl-patch', recovery), (source_outage.OWNER, None),
-                                 (source_outage.OWNER, recovery)):
-            with self.subTest(manager=manager, recovery=request is not None):
-                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER},
-                        'managedFields': [{'manager': manager, 'operation': 'Update', 'time': 'fixture-time',
-                                           'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
-                       'spec': {'sources': copy.deepcopy(original)}}
-                def kube(*args):
-                    self.assertIn('--field-manager=' + source_outage.OWNER, args)
-                    value = json.loads(args[-1])
-                    self.assertEqual(value[0]['value'], app['metadata']['uid'])
-                    self.assertEqual(value[1]['value'], app['spec']['sources'])
-                    app['spec']['sources'] = value[2]['value']
-                    app['metadata']['managedFields'][0]['manager'] = source_outage.OWNER
+    def test_source_outage_preserves_complete_apply_owner_and_future_pin(self):
+        for failure in ('none', 'wait', 'owner', 'sources'):
+            with self.subTest(failure=failure):
+                payload = catalog_payload()
+                app = bootstrap.application(payload)
+                app['metadata'].update(uid='original', resourceVersion='1', managedFields=[{
+                    'manager': source_outage.OWNER, 'operation': 'Apply',
+                    'fieldsV1': {'f:spec': {'f:sources': {}}}}])
+                original = copy.deepcopy(app['spec']['sources'])
+                def kube(*args, document=None, allow_failure=False):
+                    self.assertTrue(allow_failure)
+                    self.assertEqual(args[:4], ('apply', '--server-side', '--field-manager=service-platform', '-f'))
+                    self.assertNotIn('--force-conflicts', args)
+                    self.assertEqual(document['metadata']['uid'], 'original')
+                    self.assertEqual(document['metadata']['resourceVersion'], app['metadata']['resourceVersion'])
+                    self.assertEqual(document['spec']['syncPolicy'], app['spec']['syncPolicy'])
+                    self.assertEqual(document['spec']['project'], app['spec']['project'])
+                    if '--dry-run=server' not in args:
+                        app['spec'] = copy.deepcopy(document['spec'])
+                        app['metadata']['resourceVersion'] += '1'
+                    return SimpleNamespace(returncode=0)
+                def wait(predicate, label, timeout):
+                    if 'refusal' in label and failure != 'none':
+                        if failure == 'owner': app['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                        if failure == 'sources': app['spec']['sources'][1]['targetRevision'] = 'foreign'
+                        raise RuntimeError('Injected proof failure')
                 with patch.object(source_outage, 'get', return_value=app), \
                         patch.object(source_outage, 'converged', return_value=True), \
                         patch.object(source_outage, 'snapshot', return_value={}), \
-                        patch.object(source_outage, 'wait'), patch.object(source_outage, 'kube', side_effect=kube) as mutation:
-                    result = source_outage.run({}, recovery=request)
-                self.assertTrue(result['private_source_recovered'])
-                self.assertEqual(app['spec']['sources'], original)
-                self.assertEqual(source_outage.source_managers(app), {source_outage.OWNER})
-                self.assertEqual(mutation.call_count, 2)
-
-    def test_source_manager_recovery_refuses_unqualified_scope_before_mutation(self):
-        original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
-        recovery = {'uid': 'original', 'sources': original, 'manager': 'kubectl-patch', 'time': 'fixture-time'}
-        for case in ('no-request', 'foreign-manager', 'mixed-managers', 'uid', 'sources', 'time', 'owner', 'refs', 'finalizers'):
-            with self.subTest(case=case):
-                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER},
-                        'managedFields': [{'manager': 'kubectl-patch', 'operation': 'Update', 'time': 'fixture-time',
-                                           'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
-                       'spec': {'sources': copy.deepcopy(original)}}
-                request = copy.deepcopy(recovery)
-                if case == 'no-request': request = None
-                elif case == 'foreign-manager': app['metadata']['managedFields'][0]['manager'] = 'foreign'
-                elif case == 'mixed-managers':
-                    app['metadata']['managedFields'].append({'manager': source_outage.OWNER,
-                                                             'fieldsV1': {'f:spec': {'f:sources': {}}}})
-                elif case == 'uid': app['metadata']['uid'] = 'changed'
-                elif case == 'sources': app['spec']['sources'][1]['targetRevision'] = 'changed'
-                elif case == 'time': app['metadata']['managedFields'][0]['time'] = 'foreign-time'
-                elif case == 'owner': app['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
-                elif case == 'refs': app['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
-                elif case == 'finalizers': app['metadata']['finalizers'] = ['foreign']
-                with patch.object(source_outage, 'get', return_value=app), \
-                        patch.object(source_outage, 'converged', return_value=True), patch.object(source_outage, 'kube') as mutation:
-                    with self.assertRaises(RuntimeError):
-                        source_outage.run({}, recovery=request)
-                mutation.assert_not_called()
-
-    def test_source_outage_repairs_after_failure_and_refuses_changed_owner(self):
-        for changed_owner in (False, True):
-            with self.subTest(changed_owner=changed_owner):
-                original = [{'targetRevision': 'public'}, {'targetRevision': 'main'}]
-                app = {'metadata': {'uid': 'original', 'labels': {'cloudlab.io/owner': source_outage.OWNER},
-                                    'managedFields': [{'manager': source_outage.OWNER,
-                                                       'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
-                       'spec': {'sources': copy.deepcopy(original)}}
-                def kube(*args):
-                    self.assertIn('--field-manager=' + source_outage.OWNER, args)
-                    patch_value = json.loads(args[-1])
-                    self.assertEqual(patch_value[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'original'})
-                    self.assertEqual(patch_value[1]['value'], app['spec']['sources'])
-                    app['spec']['sources'] = patch_value[2]['value']
-                def fail_then_repair(predicate, label, timeout):
-                    if 'refusal' in label:
-                        if changed_owner:
-                            app['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
-                        raise RuntimeError('Injected proof failure')
+                        patch.object(source_outage, 'wait', side_effect=wait), \
+                        patch.object(source_outage, 'kube', side_effect=kube) as mutation:
+                    if failure == 'none':
+                        self.assertTrue(source_outage.run(payload, next_revision='c' * 40)['next_source_pin_server_dry_run'])
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            source_outage.run(payload, next_revision='c' * 40)
+                self.assertEqual(mutation.call_count, {'none': 4, 'wait': 3, 'owner': 2, 'sources': 2}[failure])
+                if failure in ('none', 'wait'):
                     self.assertEqual(app['spec']['sources'], original)
-                with patch.object(source_outage, 'get', return_value=app), \
-                        patch.object(source_outage, 'converged', return_value=True), \
-                        patch.object(source_outage, 'snapshot', return_value={'retained': ['uid', 'hash']}), \
-                        patch.object(source_outage, 'kube', side_effect=kube) as mutation, \
-                        patch.object(source_outage, 'wait', side_effect=fail_then_repair):
-                    message = 'ownership changed' if changed_owner else 'Injected proof failure'
-                    with self.assertRaisesRegex(RuntimeError, message):
-                        source_outage.run({})
-                self.assertEqual(mutation.call_count, 1 if changed_owner else 2)
+
+    def test_source_outage_refuses_update_foreign_or_ambiguous_manager(self):
+        for operation, manager, extra in [('Update', 'service-platform', False), ('Apply', 'foreign', False),
+                                           ('Apply', 'service-platform', True)]:
+            app = bootstrap.application(catalog_payload())
+            entry = {'manager': manager, 'operation': operation, 'fieldsV1': {'f:spec': {'f:sources': {}}}}
+            app['metadata'].update(uid='original', managedFields=[entry] * (2 if extra else 1))
+            with patch.object(source_outage, 'get', return_value=app), \
+                    patch.object(source_outage, 'converged', return_value=True), patch.object(source_outage, 'kube') as mutation:
+                with self.assertRaises(RuntimeError):
+                    source_outage.run(catalog_payload(), next_revision='c' * 40)
+            mutation.assert_not_called()
+
+    def test_source_outage_retries_only_resource_version_conflict(self):
+        for retryable in (True, False):
+            payload = catalog_payload()
+            app = bootstrap.application(payload)
+            app['metadata'].update(uid='original', resourceVersion='1', managedFields=[{
+                'manager': source_outage.OWNER, 'operation': 'Apply', 'fieldsV1': {'f:spec': {'f:sources': {}}}}])
+            calls = []
+            def kube(*args, document=None, **kwargs):
+                calls.append(document)
+                if len(calls) == 1:
+                    app['metadata']['resourceVersion'] = '2'
+                    return SimpleNamespace(returncode=1, stderr='the object has been modified' if retryable else 'foreign conflict')
+                self.assertEqual(document['metadata']['resourceVersion'], '2')
+                if '--dry-run=server' not in args:
+                    app['spec'] = document['spec']
+                return SimpleNamespace(returncode=0)
+            with patch.object(source_outage, 'get', return_value=app), \
+                    patch.object(source_outage, 'converged', return_value=True), patch.object(source_outage, 'snapshot', return_value={}), \
+                    patch.object(source_outage, 'wait'), patch.object(source_outage.time, 'sleep'), \
+                    patch.object(source_outage, 'kube', side_effect=kube):
+                if retryable:
+                    self.assertTrue(source_outage.run(payload, next_revision='c' * 40)['private_source_recovered'])
+                    self.assertEqual(len(calls), 5)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'Apply failed'):
+                        source_outage.run(payload, next_revision='c' * 40)
+                    self.assertEqual(len(calls), 1)
+
+    def test_source_outage_refuses_unrelated_spec_and_mutable_next_revision(self):
+        payload = catalog_payload()
+        for revision in ('main', payload['revision']):
+            with self.assertRaises(ValueError), patch.object(source_outage, 'get') as get:
+                source_outage.run(payload, next_revision=revision)
+            get.assert_not_called()
+        app = bootstrap.application(payload)
+        app['spec']['project'] = 'foreign'
+        app['metadata']['managedFields'] = [{'manager': bootstrap.OWNER, 'operation': 'Apply',
+                                             'fieldsV1': {'f:spec': {'f:sources': {}}}}]
+        with patch.object(source_outage, 'get', return_value=app), patch.object(source_outage, 'converged', return_value=True), \
+                patch.object(source_outage, 'kube') as mutation:
+            with self.assertRaises(RuntimeError):
+                source_outage.run(payload, next_revision='c' * 40)
+        mutation.assert_not_called()
 
     def test_source_outage_snapshot_accepts_absent_and_empty_collections(self):
         for collection in (None, {'items': []}):
