@@ -1,0 +1,5 @@
+---
+host_kernel_settings:
+  net.ipv4.ip_forward: 1
+  # Container runtime shims and mesh agents share root's inotify allowance.
+  fs.inotify.max_user_instances: 1024

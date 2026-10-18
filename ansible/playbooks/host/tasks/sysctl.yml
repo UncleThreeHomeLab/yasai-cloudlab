@@ -1,0 +1,28 @@
+---
+- name: Persist host kernel prerequisites
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible for the cloud lab.
+      {% for key, value in host_kernel_settings.items() %}
+      {{ key }} = {{ value }}
+      {% endfor %}
+    dest: /etc/sysctl.d/90-cloudlab.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read current host kernel prerequisites
+  ansible.builtin.command:
+    argv: [sysctl, -n, '{{ item.key }}']
+  loop: '{{ host_kernel_settings | dict2items }}'
+  register: host_kernel_values
+  changed_when: false
+
+- name: Apply changed host kernel prerequisites
+  ansible.builtin.command:
+    argv: [sysctl, -w, '{{ item.item.key }}={{ item.item.value }}']
+  loop: '{{ host_kernel_values.results }}'
+  loop_control:
+    label: '{{ item.item.key }}'
+  when: item.stdout | trim != item.item.value | string
+  changed_when: true
