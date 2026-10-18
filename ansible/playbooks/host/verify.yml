@@ -9,3 +9,16 @@
       ansible.builtin.import_tasks: tasks/identity.yml
     - name: Check host clocks
       ansible.builtin.import_tasks: tasks/clock.yml
+    - name: Read host kernel prerequisites
+      ansible.builtin.command:
+        argv: [sysctl, -n, '{{ item.key }}']
+      loop: '{{ host_kernel_settings | dict2items }}'
+      register: host_verified_kernel_values
+      changed_when: false
+    - name: Require declared host kernel prerequisites
+      ansible.builtin.assert:
+        that: item.stdout | trim == item.item.value | string
+        quiet: true
+      loop: '{{ host_verified_kernel_values.results }}'
+      loop_control:
+        label: '{{ item.item.key }}'

@@ -70,20 +70,5 @@
     label: "{{ item.ifname }}"
   when: item.ifname != wireguard_interface
 
-- name: Persist IPv4 forwarding for Kubernetes
-  ansible.builtin.copy:
-    content: "# Managed by Ansible for the cloud lab.\nnet.ipv4.ip_forward = 1\n"
-    dest: /etc/sysctl.d/90-cloudlab.conf
-    owner: root
-    group: root
-    mode: '0644'
-
-- name: Read the current IPv4 forwarding setting
-  ansible.builtin.command: sysctl -n net.ipv4.ip_forward
-  register: host_forwarding
-  changed_when: false
-
-- name: Enable IPv4 forwarding when needed
-  ansible.builtin.command: sysctl -w net.ipv4.ip_forward=1
-  when: host_forwarding.stdout | trim != '1'
-  changed_when: true
+- name: Configure host kernel prerequisites
+  ansible.builtin.import_tasks: sysctl.yml
