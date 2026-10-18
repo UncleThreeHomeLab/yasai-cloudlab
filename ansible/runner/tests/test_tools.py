@@ -14,7 +14,7 @@ from install_tools import binary
 class BootstrapToolTests(unittest.TestCase):
     def test_compose_build_contexts_exist_for_every_packaged_fixture(self):
         root = Path(__file__).resolve().parents[3]
-        files = [root / 'compose.yaml', *sorted((root / 'automation').glob('*/compose*.yaml')),
+        files = [root / 'compose.yaml',
                  *sorted((root / 'ansible/playbooks').rglob('compose*.yaml'))]
         for path in files:
             for name, service in yaml.safe_load(path.read_text()).get('services', {}).items():

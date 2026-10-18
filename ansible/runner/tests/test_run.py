@@ -151,7 +151,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                 test_runner.run(root)
             command.assert_not_called()
 
-    def test_migrated_and_legacy_tests_run_once_in_isolated_processes(self):
+    def test_component_tests_run_once_in_isolated_processes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             groups = ('ansible/playbooks/data/tests', 'ansible/playbooks/host/tests',
@@ -212,9 +212,19 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.values['PRIVATE_ACCESS_HOSTS'] = '["cd", "notes"]'
         with patch.dict(os.environ, {}, clear=True), \
                 patch('playbooks.services.files.inputs.private_dns_names', return_value=['notes', 'fixture']):
-            self.invoke()
+            self.invoke('setup')
             self.assertEqual(set(json.loads(os.environ['PRIVATE_ACCESS_HOSTS'])),
                              {'cd', 'fixture', 'notes', 'identity-admin'})
+
+    def test_read_only_host_checks_need_no_private_catalog_or_identity_metadata(self):
+        for action, expected in (
+                ('inspect', 'playbooks/inspect.yml'),
+                ('baseline', 'playbooks/baseline.yml'),
+                ('storage-check', 'playbooks/longhorn/check-host.yml')):
+            with self.subTest(action=action), \
+                    patch('playbooks.services.files.inputs.private_dns_names', side_effect=AssertionError('Read private Git')), \
+                    patch('playbooks.keycloak.files.access_inputs.runtime', side_effect=AssertionError('Read identity metadata')):
+                self.invoke(action).assert_called_once_with(expected)
 
     def test_missing_required_private_catalog_stops_before_public_preflight(self):
         with patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog missing')), \
@@ -225,15 +235,15 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
 
     def test_foundation_actions_reach_only_their_playbooks_without_private_inputs(self):
         expected = {
-            'eso-bootstrap': ['eso.yml'],
-            'eso-interruption-test': ['eso.yml', 'eso.yml'],
-            'eso-recover': ['eso-recovery.yml'],
-            'longhorn-bootstrap': ['longhorn.yml'],
-            'longhorn-interruption-test': ['longhorn.yml', 'longhorn.yml'],
-            'longhorn-recover': ['longhorn-recovery.yml'],
-            'longhorn-backup-bootstrap': ['longhorn-backup.yml'],
-            'longhorn-backup-interruption-test': ['longhorn-backup.yml', 'longhorn-backup.yml'],
-            'longhorn-backup-recover': ['longhorn-backup-recovery.yml'],
+            'eso-bootstrap': ['playbooks/secrets/010-bootstrap.yml'],
+            'eso-interruption-test': ['playbooks/secrets/010-bootstrap.yml', 'playbooks/secrets/010-bootstrap.yml'],
+            'eso-recover': ['playbooks/secrets/recover.yml'],
+            'longhorn-bootstrap': ['playbooks/longhorn/bootstrap.yml'],
+            'longhorn-interruption-test': ['playbooks/longhorn/bootstrap.yml', 'playbooks/longhorn/bootstrap.yml'],
+            'longhorn-recover': ['playbooks/longhorn/recover.yml'],
+            'longhorn-backup-bootstrap': ['playbooks/longhorn/030-backup-configuration.yml'],
+            'longhorn-backup-interruption-test': ['playbooks/longhorn/030-backup-configuration.yml', 'playbooks/longhorn/030-backup-configuration.yml'],
+            'longhorn-backup-recover': ['playbooks/longhorn/recover-backup.yml'],
         }
         self.assertEqual(set(expected), runner.FOUNDATION_ACTIONS)
         for action, names in expected.items():
@@ -345,12 +355,30 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                          ['playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml'])
         self.assertEqual(playbook.call_args_list[1].kwargs, {'unchanged': True})
 
-    def test_setup_and_apply_share_canonical_playbook(self):
-        for action in ('setup', 'apply'):
-            with self.subTest(action=action):
-                playbook = self.invoke(action)
-                self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                                 ['playbooks/setup.yml', 'playbooks/verify.yml'])
+    def test_setup_converges_then_verifies(self):
+        playbook = self.invoke('setup')
+        self.assertEqual([call.args[0] for call in playbook.call_args_list],
+                         ['playbooks/setup.yml', 'playbooks/verify.yml'])
+
+    def test_retired_apply_alias_refuses_before_credentials_or_hosts(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'apply']), \
+                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
+                patch.object(runner, 'playbook') as playbook:
+            with self.assertRaises(SystemExit):
+                runner.main()
+        playbook.assert_not_called()
+
+    def test_unspecified_operations_preserve_failure_before_inputs_or_hosts(self):
+        for action in ('maintenance', 'upgrade', 'nuke', 'recovery'):
+            with self.subTest(action=action), \
+                    patch.object(runner.sys, 'argv', ['run.py', action]), \
+                    patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
+                    patch.object(runner.socket, 'gethostbyname', side_effect=AssertionError('VM access')), \
+                    patch.object(runner, 'playbook', side_effect=SystemExit(2)) as playbook:
+                with self.assertRaises(SystemExit) as failure:
+                    runner.main()
+                self.assertEqual(failure.exception.code, 2)
+            playbook.assert_called_once_with('playbooks/' + action + '.yml')
 
     def test_scoped_data_actions_keep_common_vm_validation(self):
         for action, expected in [('data-bootstrap', 'bootstrap'), ('data-check', 'check')]:
@@ -395,9 +423,9 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.assertEqual(os.environ['LAB_RECOVERY_ACTION'], 'replacement-test')
         self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
 
-    def test_external_secrets_token_is_required_before_apply_and_verify(self):
+    def test_external_secrets_token_is_required_before_setup_and_verify(self):
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
-        for action in ('apply', 'prove', 'verify'):
+        for action in ('setup', 'prove', 'verify'):
             with self.subTest(action=action), self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
                 self.invoke(action)
 
@@ -438,7 +466,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                         return type('Completed', (), {'returncode': 0})()
                     execute.side_effect = finish
                     with self.assertRaisesRegex(SystemExit, message):
-                        runner.playbook('apply.yml', unchanged=True)
+                        runner.playbook('playbooks/setup.yml', unchanged=True)
 
     def test_policy_uses_named_operation_without_vm_access_inputs(self):
         self.values = {'TAILSCALE_ADMIN_LOGIN': 'owner@example.test'}
@@ -475,36 +503,36 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
 
     def test_gitops_bootstrap_has_an_explicit_bounded_entrypoint(self):
         playbook = self.invoke('gitops-bootstrap')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['gitops.yml', 'gitops.yml'])
+        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['playbooks/gitops.yml', 'playbooks/gitops.yml'])
         self.assertEqual(os.environ['LAB_GITOPS_ACTION'], 'verify')
 
     def test_eso_recovery_uses_its_explicit_suspended_writer_gate(self):
-        self.invoke('eso-recover').assert_called_once_with('eso-recovery.yml')
-        self.invoke('eso-bootstrap').assert_called_once_with('eso.yml')
+        self.invoke('eso-recover').assert_called_once_with('playbooks/secrets/recover.yml')
+        self.invoke('eso-bootstrap').assert_called_once_with('playbooks/secrets/010-bootstrap.yml')
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
         with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
             self.invoke('eso-recover')
 
     def test_gitops_interruption_proof_resumes_the_same_playbook(self):
         playbook = self.invoke('gitops-interruption-test')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['gitops.yml', 'gitops.yml', 'gitops.yml'])
+        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['playbooks/gitops.yml', 'playbooks/gitops.yml', 'playbooks/gitops.yml'])
         self.assertEqual(os.environ['LAB_GITOPS_STOP_AFTER_SEED'], '0')
 
     def test_storage_interruption_resumes_and_recovery_uses_the_writer_gate(self):
         playbook = self.invoke('longhorn-interruption-test')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['longhorn.yml', 'longhorn.yml'])
+        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['playbooks/longhorn/bootstrap.yml', 'playbooks/longhorn/bootstrap.yml'])
         self.assertEqual(os.environ['LAB_LONGHORN_STOP_AFTER_SEED'], '0')
-        self.invoke('longhorn-recover').assert_called_once_with('longhorn-recovery.yml')
+        self.invoke('longhorn-recover').assert_called_once_with('playbooks/longhorn/recover.yml')
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
         with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
             self.invoke('longhorn-bootstrap')
 
     def test_backup_handoff_has_separate_bounded_entrypoints(self):
-        self.invoke('longhorn-backup-bootstrap').assert_called_once_with('longhorn-backup.yml')
-        self.invoke('longhorn-backup-recover').assert_called_once_with('longhorn-backup-recovery.yml')
+        self.invoke('longhorn-backup-bootstrap').assert_called_once_with('playbooks/longhorn/030-backup-configuration.yml')
+        self.invoke('longhorn-backup-recover').assert_called_once_with('playbooks/longhorn/recover-backup.yml')
         interrupted = self.invoke('longhorn-backup-interruption-test')
         self.assertEqual(interrupted.call_count, 2)
-        self.assertTrue(all(call.args == ('longhorn-backup.yml',) for call in interrupted.call_args_list))
+        self.assertTrue(all(call.args == ('playbooks/longhorn/030-backup-configuration.yml',) for call in interrupted.call_args_list))
         self.assertEqual(os.environ['LAB_BACKUP_STOP_AFTER_SEED'], '0')
 
     def test_mesh_check_uses_existing_credentials_without_new_vault_requests(self):
@@ -513,7 +541,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
 
     def test_unreadable_public_source_fails_before_any_host_operation(self):
-        for action in ('apply', 'prove', 'gitops-bootstrap', 'gitops-interruption-test', 'mesh-check', *runner.FOUNDATION_ACTIONS):
+        for action in ('setup', 'prove', 'gitops-bootstrap', 'gitops-interruption-test', 'mesh-check', *runner.FOUNDATION_ACTIONS):
             with self.subTest(action=action), \
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', return_value=self.values), \

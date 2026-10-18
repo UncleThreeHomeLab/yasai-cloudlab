@@ -13,14 +13,20 @@ roots retain external state and review gates. See [AGENTS.md](../AGENTS.md).
 [Inventory](inventory.yml) loads host connection inputs from the runner;
 [group variables](group_vars/all/) define shared settings. Put bootstrap secrets
 in ignored `.env`, using [`.env.example`](../.env.example). Values are literal.
-Use explicit `recovery-*` operations for recovery. `backup` retains monthly export
-restrictions. Maintenance, upgrade and destruction refuse unspecified scope.
+Use explicit `recovery-*` operations or named component recovery playbooks.
+`backup` retains monthly export restrictions. Maintenance and upgrade require
+an existing named component operation or reviewed pins followed by `setup` and
+`prove`. Unspecified operations refuse before credentials or host access.
+Distribution upgrades, reboots and arbitrary version overrides are unsupported.
+`nuke` always refuses until exact resource and data scope is separately authorized.
 
 [Host](playbooks/host/), [network](playbooks/network/), [Tailscale](playbooks/tailscale/)
 and [K3s](playbooks/k3s/) stages preserve host identities and independent access.
 Tailscale logout and reauthentication require one explicit host. K3s migration
 and rollback retain checkpoints and require independent access and recovery;
 ordinary maintenance and upgrades require reviewed scope and pinned artifacts.
+`inspect` reads sanitized host prerequisites before bootstrap; `baseline` reports
+capacity and existing controller ownership. Neither mutates hosts.
 
 [Secrets](playbooks/secrets/), [Longhorn](playbooks/longhorn/) and
 [Argo CD](playbooks/argocd/) stages seed locked charts only before their recorded

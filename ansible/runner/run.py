@@ -150,10 +150,7 @@ def main():
                 raise SystemExit(native_exit())
         return
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    action = {'apply': 'setup'}.get(action, action)
     if action in {'maintenance', 'upgrade', 'nuke', 'recovery'}:
-        if action == 'recovery':
-            raise SystemExit('Select an explicit recovery-* operation and its required inputs.')
         playbook('playbooks/' + action + '.yml')
         return
     if action == 'validate':
@@ -256,14 +253,10 @@ def main():
         if action == 'monthly-proof':
             os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
-        for name in ('inspect.yml', 'baseline.yml', 'storage-check.yml', 'apply.yml', 'verify.yml', 'playbooks/tailscale/lifecycle.yml', 'playbooks/tailscale/policy.yml', 'playbooks/tailscale/access.yml', 'playbooks/k3s/migrate.yml', 'gitops.yml', 'eso-recovery.yml', 'eso.yml', 'longhorn.yml', 'longhorn-recovery.yml', 'longhorn-backup.yml', 'longhorn-backup-recovery.yml', 'playbooks/istio/verify.yml', 'playbooks/access/setup.yml', 'playbooks/access/cutover.yml'):
-            playbook(name, syntax=True)
-        for path in sorted(Path('/workspace/ansible/playbooks').glob('*.yml')):
-            playbook(str(path), syntax=True)
-        playbook('playbooks/data/operate.yml', syntax=True)
-
-        for path in sorted(Path('/workspace/ansible/playbooks/keycloak').glob('*.yml')):
-            playbook(str(path), syntax=True)
+        for path in sorted(Path('/workspace/ansible/playbooks').glob('**/*.yml')):
+            if path.parent == Path('/workspace/ansible/playbooks') or path.parent.parent == Path('/workspace/ansible/playbooks'):
+                if path.name not in {'vars.yml', 'argument_specs.yml', 'retired-tooling.yml'}:
+                    playbook(str(path), syntax=True)
         return
 
     # No interpolation: passwords containing ${...} must remain literal.
@@ -277,7 +270,7 @@ def main():
     for name in ('CLOUDFLARE_ACCESS_HOSTS', 'PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
-    if action not in FOUNDATION_ACTIONS:
+    if action not in FOUNDATION_ACTIONS | {'inspect', 'baseline', 'storage-check'}:
         from playbooks.services.files.inputs import private_dns_names
         service_names = private_dns_names()
         if service_names:
@@ -357,53 +350,53 @@ def main():
     elif action == 'k3s-migrate-rollback':
         os.environ['LAB_K3S_MIGRATION_ACTION'] = 'rollback'
         playbook('playbooks/k3s/migrate.yml')
-        playbook('baseline.yml')
+        playbook('playbooks/baseline.yml')
     elif action in lifecycle:
         os.environ['LAB_TAILSCALE_TARGET'], os.environ['LAB_TAILSCALE_ACTION'] = lifecycle[action]
         playbook('playbooks/tailscale/lifecycle.yml')
     elif action == 'gitops-interruption-test':
         gitops_preflight()
         os.environ['LAB_GITOPS_STOP_AFTER_SEED'] = '1'
-        playbook('gitops.yml')
+        playbook('playbooks/gitops.yml')
         os.environ['LAB_GITOPS_STOP_AFTER_SEED'] = '0'
-        playbook('gitops.yml')
+        playbook('playbooks/gitops.yml')
         os.environ['LAB_GITOPS_ACTION'] = 'verify'
-        playbook('gitops.yml')
+        playbook('playbooks/gitops.yml')
     elif action in {'gitops-bootstrap', 'gitops-verify', 'gitops-source-migrate'}:
         gitops_preflight()
-        playbook('gitops.yml')
+        playbook('playbooks/gitops.yml')
         if action == 'gitops-bootstrap':
             os.environ['LAB_GITOPS_ACTION'] = 'verify'
-            playbook('gitops.yml')
+            playbook('playbooks/gitops.yml')
     elif action == 'eso-bootstrap':
         gitops_preflight(require_catalog=False)
-        playbook('eso.yml')
+        playbook('playbooks/secrets/010-bootstrap.yml')
     elif action == 'eso-interruption-test':
         gitops_preflight(require_catalog=False)
         os.environ['LAB_ESO_STOP_AFTER_SEED'] = '1'
-        playbook('eso.yml')
+        playbook('playbooks/secrets/010-bootstrap.yml')
         os.environ['LAB_ESO_STOP_AFTER_SEED'] = '0'
-        playbook('eso.yml')
+        playbook('playbooks/secrets/010-bootstrap.yml')
     elif action == 'eso-recover':
         gitops_preflight(require_catalog=False)
-        playbook('eso-recovery.yml')
+        playbook('playbooks/secrets/recover.yml')
     elif action in {'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover'}:
         gitops_preflight(require_catalog=False)
         if action == 'longhorn-recover':
-            playbook('longhorn-recovery.yml')
+            playbook('playbooks/longhorn/recover.yml')
         else:
             if action == 'longhorn-interruption-test':
                 os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '1'
-                playbook('longhorn.yml')
+                playbook('playbooks/longhorn/bootstrap.yml')
                 os.environ['LAB_LONGHORN_STOP_AFTER_SEED'] = '0'
-            playbook('longhorn.yml')
+            playbook('playbooks/longhorn/bootstrap.yml')
     elif action in {'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'}:
         gitops_preflight(require_catalog=False)
         if action == 'longhorn-backup-interruption-test':
             os.environ['LAB_BACKUP_STOP_AFTER_SEED'] = '1'
-            playbook('longhorn-backup.yml')
+            playbook('playbooks/longhorn/030-backup-configuration.yml')
             os.environ['LAB_BACKUP_STOP_AFTER_SEED'] = '0'
-        playbook('longhorn-backup-recovery.yml' if action.endswith('recover') else 'longhorn-backup.yml')
+        playbook('playbooks/longhorn/recover-backup.yml' if action.endswith('recover') else 'playbooks/longhorn/030-backup-configuration.yml')
     elif action == 'access-human-proof':
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/access/files/human.py'], check=True)
     elif action == 'access-check':
@@ -427,7 +420,7 @@ def main():
     elif action in {'inspect', 'verify'}:
         playbook('playbooks/' + action + '.yml')
     elif action in {'baseline', 'storage-check'}:
-        playbook(action + '.yml')
+        playbook({'baseline': 'playbooks/baseline.yml', 'storage-check': 'playbooks/longhorn/check-host.yml'}[action])
     else:
         gitops_preflight()
         playbook('playbooks/setup.yml')

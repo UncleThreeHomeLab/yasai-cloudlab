@@ -1,8 +1,0 @@
----
-argument_specs:
-  main:
-    short_description: Reconcile a rendered Kubernetes manifest on the server.
-    options:
-      manifest_path:
-        type: path
-        required: true

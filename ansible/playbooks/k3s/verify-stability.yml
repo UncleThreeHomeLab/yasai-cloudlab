@@ -1,0 +1,22 @@
+---
+- name: Verify foundation controller stability
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Observe foundation controllers without restarts or rollouts for sixty seconds
+      ansible.builtin.command:
+        argv: >-
+          {{ ['python3', '-', 'kube-system', 'external-secrets', 'longhorn-system']
+             + (['cert-manager'] if certificates_enabled | bool else [])
+             + (['istio-system', 'cloudlab-gateway-public', 'cloudlab-gateway-private'] if mesh_enabled | bool else [])
+             + (['cloudlab-observability'] if observability_enabled | bool else [])
+             + (['cloudlab-harbor'] if harbor_enabled | bool else []) }}
+        stdin: "{{ lookup('file', '/workspace/verification/integration/controller_stability.py') }}"
+      register: controller_stability
+      changed_when: false
+      no_log: true
+    - name: Report only the sanitized controller stability result
+      ansible.builtin.debug:
+        msg: '{{ controller_stability.stdout | from_json }}'

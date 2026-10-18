@@ -30,7 +30,7 @@
     - name: Run the repository baseline reader from stdin
       ansible.builtin.command:
         argv: [python3, '-']
-        stdin: "{{ lookup('file', '../verification/integration/live_baseline.py') }}"
+        stdin: "{{ lookup('file', '/workspace/verification/integration/live_baseline.py') }}"
       register: baseline_cluster
       changed_when: false
       no_log: true

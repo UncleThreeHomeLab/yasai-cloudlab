@@ -7,5 +7,7 @@
     - name: Refuse unspecified upgrade before mutation
       ansible.builtin.fail:
         msg: >-
-          Upgrade requires reviewed pinned artifacts, a compatible datastore transition,
-          independent access, readiness and recovery gates; no mutation performed.
+          Review pinned artifacts in Git, then use setup and prove for supported
+          convergence, or a named component transition with independent recovery.
+          Distribution upgrades, arbitrary version overrides and generic rollback
+          are unsupported. No mutation performed.

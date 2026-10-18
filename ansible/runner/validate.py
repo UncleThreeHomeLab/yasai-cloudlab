@@ -15,14 +15,10 @@ def main():
     if not required <= inputs.keys():
         raise SystemExit('Missing documented VM bootstrap input names.')
     subprocess.run([sys.executable, '/opt/runner/run.py', 'syntax'], check=True)
-    # Legacy owners are checked by syntax and behavior until their replacement.
-    # Lint all component playbooks as they arrive; never suppress a lint rule.
-    exclusions = [ROOT / 'ansible/roles', *sorted((ROOT / 'ansible').glob('*.yml'))]
     command = ['ansible-lint', '--offline', '--project-dir', str(ROOT / 'ansible')]
-    for path in exclusions:
-        command += ['--exclude', str(path)]
     command.append('--')
     command += [str(path) for path in sorted((ROOT / 'ansible/playbooks').rglob('*.yml'))]
+    command += [str(path) for path in sorted((ROOT / 'verification/integration/tasks').glob('*.yml'))]
     subprocess.run(command, cwd=ROOT / 'ansible', check=True)
     subprocess.run([sys.executable, '/opt/runner/run.py', 'charts'], check=True)
 

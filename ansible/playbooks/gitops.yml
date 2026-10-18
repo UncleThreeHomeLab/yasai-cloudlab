@@ -36,5 +36,5 @@
   ansible.builtin.import_playbook: argocd/verify.yml
   when: lookup('env', 'LAB_GITOPS_ACTION') == 'verify'
 - name: Verify accepted dependent component behavior
-  ansible.builtin.import_playbook: ../gitops-verify-components.yml
+  ansible.builtin.import_playbook: argocd/verify-components.yml
   when: lookup('env', 'LAB_GITOPS_ACTION') == 'verify'
