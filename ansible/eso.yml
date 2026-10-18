@@ -1,3 +1,0 @@
----
-- name: Run secrets/010-bootstrap.yml
-  ansible.builtin.import_playbook: playbooks/secrets/010-bootstrap.yml

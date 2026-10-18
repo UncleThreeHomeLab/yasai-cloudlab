@@ -1,3 +1,0 @@
----
-- name: Run secrets/recover.yml
-  ansible.builtin.import_playbook: playbooks/secrets/recover.yml

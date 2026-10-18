@@ -10,7 +10,10 @@
     src: "{{ item }}"
     dest: "/var/lib/cloudlab/checks/longhorn/{{ item | basename }}"
     mode: '0640'
-  loop: "{{ query('fileglob', playbook_dir ~ '/../ansible/playbooks/longhorn/files/verify*.py') + [playbook_dir ~ '/../ansible/playbooks/longhorn/files/kube.py', playbook_dir ~ '/../ansible/playbooks/longhorn/files/monthly_window.py'] }}"
+  loop: >-
+    {{ query('fileglob', '/workspace/ansible/playbooks/longhorn/files/verify*.py')
+       + ['/workspace/ansible/playbooks/longhorn/files/kube.py',
+          '/workspace/ansible/playbooks/longhorn/files/monthly_window.py'] }}
   loop_control:
     label: "{{ item | basename }}"
 

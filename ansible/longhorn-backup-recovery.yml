@@ -1,3 +1,0 @@
----
-- name: Run longhorn/recover-backup.yml
-  ansible.builtin.import_playbook: playbooks/longhorn/recover-backup.yml

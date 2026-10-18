@@ -1,0 +1,10 @@
+---
+- name: Prove persistent storage and local restoration
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [vars.yml]
+  tasks:
+    - name: Prove persistent storage and local restoration
+      ansible.builtin.import_tasks: tasks/verify-storage.yml

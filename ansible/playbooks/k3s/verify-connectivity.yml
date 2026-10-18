@@ -1,0 +1,9 @@
+---
+- name: Prove cross-node DNS and HTTP in a disposable namespace
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Prove cross-node DNS and HTTP in a disposable namespace
+      ansible.builtin.import_tasks: /workspace/verification/integration/tasks/http.yml

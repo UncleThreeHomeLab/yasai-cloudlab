@@ -1,3 +1,0 @@
----
-- name: Run longhorn/030-backup-configuration.yml
-  ansible.builtin.import_playbook: playbooks/longhorn/030-backup-configuration.yml

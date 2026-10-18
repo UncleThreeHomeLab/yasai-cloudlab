@@ -1,13 +1,43 @@
 ---
-- name: Run host/verify.yml
+- name: Verify host prerequisites
   ansible.builtin.import_playbook: host/verify.yml
-- name: Run tailscale/verify.yml
+- name: Verify independent host access
   ansible.builtin.import_playbook: tailscale/verify.yml
-- name: Run network/verify.yml
+- name: Verify host networking
   ansible.builtin.import_playbook: network/verify.yml
-- name: Run k3s/verify.yml
+- name: Verify K3s nodes
   ansible.builtin.import_playbook: k3s/verify.yml
-- name: Run k3s/verify-cluster.yml
+- name: Verify cluster readiness
   ansible.builtin.import_playbook: k3s/verify-cluster.yml
-- name: Run ../verify.yml
-  ansible.builtin.import_playbook: ../verify.yml
+- name: Verify storage host prerequisites
+  ansible.builtin.import_playbook: longhorn/verify-host.yml
+- name: Verify cross-node connectivity
+  ansible.builtin.import_playbook: k3s/verify-connectivity.yml
+- name: Verify storage restoration
+  ansible.builtin.import_playbook: longhorn/verify-storage.yml
+- name: Verify external credential delivery
+  ansible.builtin.import_playbook: secrets/verify.yml
+- name: Accept verified storage ownership
+  ansible.builtin.import_playbook: longhorn/verify-controller.yml
+- name: Verify independent local control plane recovery
+  ansible.builtin.import_playbook: backup/verify.yml
+- name: Verify backup credential handoff
+  ansible.builtin.import_playbook: longhorn/verify-backup.yml
+- name: Verify foundation stability
+  ansible.builtin.import_playbook: k3s/verify-stability.yml
+- name: Verify GitOps convergence and authorization
+  ansible.builtin.import_playbook: argocd/verify.yml
+- name: Verify certificate renewal
+  ansible.builtin.import_playbook: certificates/verify.yml
+- name: Verify mesh boundaries
+  ansible.builtin.import_playbook: istio/verify-behavior.yml
+- name: Verify external and private access
+  ansible.builtin.import_playbook: access/verify.yml
+- name: Verify data and coordinated local recovery
+  ansible.builtin.import_playbook: data/verify.yml
+- name: Verify application delivery and authorization
+  ansible.builtin.import_playbook: services/verify.yml
+- name: Verify telemetry behavior
+  ansible.builtin.import_playbook: observability/verify.yml
+- name: Verify registry behavior and host access
+  ansible.builtin.import_playbook: harbor/verify.yml

@@ -1,0 +1,35 @@
+---
+# Exact obsolete executables and owned bytecode; never remove an unknown file.
+retired_tooling:
+  - path: /opt/cloudlab/automation/connectivity/contract.py
+    sha256: 96217d6335df86d267666119a5b619a7a8ed3edb9d956769e2e82dd8757d9ebd
+  - path: /opt/cloudlab/automation/connectivity/__pycache__/contract.cpython-313.pyc
+    sha256: 0edf52656e0673056d24aea15a0e47b62c671ab1eca5f110cb57c521e5556060
+  - path: /opt/cloudlab/automation/connectivity/dns_wire.py
+    sha256: efc8027338f8737668ce304342df83a4788edf31618f9dd65cb56f02a51e499b
+  - path: /opt/cloudlab/automation/connectivity/__pycache__/dns_wire.cpython-313.pyc
+    sha256: b5e97feec151bf7e7bbaf31533bece56f75c6418edfca841f2a29f5fa64bdb53
+  - path: /opt/cloudlab/automation/gitops/bootstrap.py
+    sha256: f3842df54f301da5a1734c9e81cf429f8e84e454d1997f7077288b9d67f20377
+  - path: /opt/cloudlab/automation/gitops/__pycache__/bootstrap.cpython-313.pyc
+    sha256: 30be1f8e20bdaaf90bbdb7f284e7f9610f346f2ce2c711437857062d903d3ddf
+  - path: /opt/cloudlab/automation/gitops/private_sources.py
+    sha256: 783696b53f94503af92f866991300a33b6d03d4a19839269602b98cdb9679155
+  - path: /opt/cloudlab/automation/gitops/__pycache__/private_sources.cpython-313.pyc
+    sha256: 200763ed93f56ac947f6b3e083fcb4bd3c46eb2c0227aa41450edf65c1ecc55f
+  - path: /opt/cloudlab/automation/gitops/source_revision.py
+    sha256: af29fdd3e9bb01d171a46fd2539d3342b810691f6d4c536f4d724fc169a355bc
+  - path: /opt/cloudlab/automation/gitops/__pycache__/source_revision.cpython-313.pyc
+    sha256: dda350572a60d232490f3f53a7a33414920b427700d5be2f71c19701eab6d360
+  - path: /opt/cloudlab/automation/gitops/source_transition.py
+    sha256: 626647dbba6082eea36b6382b75c85aa8b20cd92f79629464c56d1fb99518a96
+  - path: /opt/cloudlab/automation/gitops/__pycache__/source_transition.cpython-313.pyc
+    sha256: 43000339fc98ae2ef2b601e65ce31a857e32ed9751fa452203385d93ba28ed02
+  - path: /opt/cloudlab/automation/gitops/sync_recovery.py
+    sha256: c2def97d401e03cd719500a4a00ec8a9ec5686b3895ea8b88a8f2fbd43e8a74f
+  - path: /opt/cloudlab/automation/gitops/__pycache__/sync_recovery.cpython-313.pyc
+    sha256: 2baf9c7e5d0810bc8da98d1d1c04b140ba7595fc2c75bf988ce3eb67857ccf7d
+  - path: /opt/cloudlab/automation/mesh/kube.py
+    sha256: 3b47b417018c3793aca4aebaa4efc660750586daa6e8b7884ea980c0f3041e66
+  - path: /opt/cloudlab/automation/mesh/__pycache__/kube.cpython-313.pyc
+    sha256: 2bb00d96d3d876033c8890704c3525f9806655950e3d80931d32c82584049c3d

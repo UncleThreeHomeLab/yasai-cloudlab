@@ -1,0 +1,11 @@
+---
+- name: Verify backup credential ownership after successful restoration
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [vars.yml]
+  tasks:
+    - name: Verify backup credential ownership after successful restoration
+      ansible.builtin.import_tasks: tasks/backup-verify.yml
+      when: longhorn_backup_enabled | bool

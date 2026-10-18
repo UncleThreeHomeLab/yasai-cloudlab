@@ -8,7 +8,7 @@ import validate
 
 
 class ValidationTests(unittest.TestCase):
-    def test_lint_gates_new_files_after_exclusions_without_consuming_arguments(self):
+    def test_lint_gates_all_component_files_without_exclusions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / '.env.example').write_text('\n'.join(
@@ -18,14 +18,12 @@ class ValidationTests(unittest.TestCase):
             playbooks.mkdir(parents=True)
             migrated = playbooks / 'setup.yml'
             migrated.write_text('---\n')
-            legacy = root / 'ansible/apply.yml'
-            legacy.write_text('---\n')
             with patch.object(validate, 'ROOT', root), \
                     patch.object(validate.subprocess, 'run') as run:
                 validate.main()
             command = run.call_args_list[1].args[0]
             separator = command.index('--')
-            self.assertIn(str(legacy), command[:separator])
+            self.assertNotIn('--exclude', command)
             self.assertEqual(command[separator + 1:], [str(migrated)])
             self.assertEqual(run.call_count, 3)
 

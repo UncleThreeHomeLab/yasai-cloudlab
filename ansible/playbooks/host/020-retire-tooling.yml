@@ -1,0 +1,92 @@
+---
+- name: Retire only recognized obsolete host tooling after consumer convergence
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [retired-tooling.yml]
+  tasks:
+    - name: Inspect legacy tooling ancestors without following symlinks
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+      loop: >-
+        {{ ['/opt', '/opt/cloudlab', '/opt/cloudlab/automation']
+           + (retired_tooling | map(attribute='path') | map('dirname') | unique | list)
+           + ['/opt/cloudlab/automation/connectivity', '/opt/cloudlab/automation/gitops', '/opt/cloudlab/automation/mesh'] }}
+      register: tooling_ancestors
+
+    - name: Reject foreign or redirected tooling directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+          - item.stat.gid == 0
+        fail_msg: Legacy tooling directory changed; preserve it for explicit inspection.
+        quiet: true
+      loop: '{{ tooling_ancestors.results }}'
+      loop_control:
+        label: '{{ item.item }}'
+      when: item.stat.exists
+
+    - name: Inspect the exact obsolete executable bytes
+      ansible.builtin.stat:
+        path: '{{ item.path }}'
+        follow: false
+        checksum_algorithm: sha256
+      loop: '{{ retired_tooling }}'
+      register: tooling_files
+
+    - name: Reject changed foreign or redirected executables before any removal
+      ansible.builtin.assert:
+        that:
+          - item.item.path.startswith('/opt/cloudlab/automation/')
+          - item.stat.isreg | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+          - item.stat.gid == 0
+          - item.stat.mode == '0600'
+          - item.stat.checksum == item.item.sha256
+        fail_msg: Obsolete tooling differs from its reviewed bytes; no tooling removed.
+        quiet: true
+      loop: '{{ tooling_files.results }}'
+      loop_control:
+        label: '{{ item.item.path }}'
+      when: item.stat.exists
+
+    - name: Refuse retirement while current executables or scheduled jobs reference legacy tooling
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -r
+          - -l
+          - -F
+          - --exclude-dir=__pycache__
+          - -e
+          - /opt/cloudlab/automation
+          - -e
+          - from automation.
+          - -e
+          - import automation.
+          - /etc/systemd/system
+          - /etc/cron.d
+          - /etc/cron.daily
+          - /etc/cron.weekly
+          - /etc/cron.monthly
+          - /opt/cloudlab/playbooks
+          - /opt/cloudlab/gitops
+      register: tooling_references
+      changed_when: false
+      failed_when: tooling_references.rc != 1
+      no_log: true
+      when: tooling_files.results | selectattr('stat.exists') | list | length > 0
+
+    - name: Remove only the recognized non-data executable files
+      ansible.builtin.file:
+        path: '{{ item.item.path }}'
+        state: absent
+      loop: '{{ tooling_files.results }}'
+      loop_control:
+        label: '{{ item.item.path }}'
+      when: item.stat.exists

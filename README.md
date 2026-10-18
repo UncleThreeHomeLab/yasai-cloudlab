@@ -62,17 +62,13 @@ Argo without vault access. It can replace only an OOM-failed pod stuck on old
 settings, with UID and version preconditions. Healthy controllers and unrelated
 failures cannot receive memory changes.
 
-Check external infrastructure declarations independently with
-`docker compose --profile infra run --build --rm infra check cloudflare`
-or `docker compose run --build --rm infra-github check github`.
-Verify GitHub governance separately with `docker compose run --rm infra-github verify github`
-alongside `prove`; its credentials and state remain outside deployment jobs.
-Live operations require private inputs and
-accepted ownership; required fields and write gates belong to the
-[infrastructure client](ansible/playbooks/infrastructure/files/command.py).
-Recover missing Cloudflare inputs from protected evidence and current vault values
-with `docker compose run --rm --entrypoint python service -m playbooks.infrastructure.files.input_recovery`.
-Every original input checksum must match; existing files are never overwritten.
+External infrastructure runs separately through Compose: use `infra check cloudflare`,
+`infra-github check github` and `infra-harbor check` before their named operations.
+Each [native root](infra/) retains its own credentials, encrypted state, locks,
+reviewed-plan gates and interrupted-operation recovery. Existing resources must
+not repeat bootstrap. [Required inputs](ansible/playbooks/infrastructure/files/command.py)
+remain outside deployment jobs; `infra-github verify github` checks governance
+alongside `prove`.
 
 Application onboarding uses the [service contract](charts/service/README.md),
 administrator-controlled ApplicationSets and scoped data/OIDC references. The
@@ -81,25 +77,18 @@ services only with a reviewed catalog in the designated private configuration re
 Argo reads approved service changes directly from Git; external provisioning and
 retirement retain their explicit owner operations.
 
-Independent public monitoring uses the [monitoring contract](platform/observability/contract.json).
-Keep `CloudLab/uptimerobot-management/API_KEY` in 1Password. Run
-`docker compose run --build --rm lab observe external-check` before `external-apply`.
-Only the account's active registered-email contact receives notifications. Disposable
-`fixture-ready`, `fixture-fail`, `fixture-status` and `fixture-remove` commands test
-delivery without interrupting production. Confirm outage and recovery email receipt;
-provider status alone does not prove delivery.
-
-Private telemetry uses the same [monitoring contract](platform/observability/contract.json).
-Grafana provisions the Nodes home dashboard from
-[dashboard JSON](platform/observability/prometheus/dashboards). Edit panels and queries
-there; [Grafana settings](ansible/playbooks/observability/files/configuration.py) select the home dashboard.
-Run `lab observe credentials` through Compose with the local vault writer, then
-`gh auth token | docker compose run -T --rm lab observe identity-prepare`.
-Merge the returned private client PR before enabling `observability.enabled` in
-the public root. Add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`. Apply with
-`prove`. Dashboards require Keycloak; telemetry PVCs exclude off-site backups.
-Normal apply resumes only the accepted retired identity owner before its consumers.
-Initial identity enrollment and [lifecycle operations](ansible/playbooks/keycloak/README.md) remain explicit.
+Monitoring uses the [monitoring contract](platform/observability/contract.json).
+Keep `CloudLab/uptimerobot-management/API_KEY` in 1Password. Run `lab observe
+external-check` before `external-apply`; verify outage and recovery email delivery
+with its disposable notification fixture. Private Grafana and Kiali require
+Keycloak. Run `lab observe credentials` with the local vault writer, then pipe
+`gh auth token` to `docker compose run -T --rm lab observe identity-prepare`.
+Merge its private client PR, add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`,
+review `observability.enabled` in the public root, then run `prove`.
+Git owns [dashboards](platform/observability/prometheus/dashboards) and
+[Grafana settings](ansible/playbooks/observability/files/configuration.py).
+Telemetry PVCs have local retention and no off-site backup. Identity enrollment
+and [lifecycle operations](ansible/playbooks/keycloak/) remain explicit.
 
 Harbor prerequisites use the [registry contract](ansible/playbooks/harbor/files/contract.json).
 Inspect inputs with `docker compose run --rm --entrypoint python service -m playbooks.harbor.files.preflight`.
@@ -112,23 +101,12 @@ PostgreSQL, Valkey and blobs have separate retained Longhorn claims. Browser acc
 uses Keycloak; registry clients use scoped robots. Local restore checks use no B2;
 coordinated off-site export and restore run on day 1 UTC only.
 Daily freshness checks read local receipts; they report the initial off-site gap.
-Manage projects separately through `docker compose run --build --rm infra-harbor`.
-Its [API contract](infra/harbor/contract.json) defines vault fields, retained fields
-and import formats. Run `inputs` locally, then `plan --bootstrap`; inspect the
-protected review in its dedicated work volume and run `apply --review <hash>`.
-Run `qualify-imports` before ordinary `plan`, `apply --review <hash>` and `verify`.
-`state-check` needs no lab connection. Interrupted operations preserve original
-inputs and encrypted plans; use `recover-state`, exact `recover-import --address
-<address> --id <id>`, then `recover-plan` and `recover-apply --review <hash>`.
-Never repeat bootstrap creation against existing resources. Routine applies
-cannot rotate robots; retention keeps all artifacts and automatic GC stays off.
-After import acceptance, run `docker compose run --build --rm --entrypoint python
-infra-harbor -m playbooks.harbor.files.artifacts` for independent push/pull, project
-isolation and both-node containerd checks. Interrupted uploads retain their archive
-and digest. Node pulls use temporary five-minute tokens and preserve other images.
-Recovery signatures use a separate vault-held operator key. Follow `recovery_signing`
-in the registry contract to provision locally, deliver only its public verifier,
-sign preserved digests and verify the coordinated restore.
+Manage registry projects through `docker compose run --build --rm infra-harbor`.
+Its [API contract](infra/harbor/contract.json) defines vault fields, ownership,
+native import formats and reviewed-plan requirements. Preserve existing robot
+credentials. Retention keeps artifacts; automatic garbage collection stays off.
+The [registry contract](ansible/playbooks/harbor/files/contract.json) owns separate
+recovery signing inputs and coordinated restore requirements.
 
 ## The stack
 

@@ -1,3 +1,22 @@
 ---
-- name: Inspect through existing component owners
-  ansible.builtin.import_playbook: ../inspect.yml
+- name: Inspect host prerequisites without exposing deployment identities
+  hosts: k3s_cluster
+  gather_facts: false
+  tasks:
+    - name: Read operating system capacity and bootstrap prerequisites
+      ansible.builtin.raw: |
+        set -eu
+        cat /etc/os-release
+        uname -m
+        nproc
+        free -m
+        lsblk -b -d -o SIZE,TYPE
+        timedatectl show -p NTPSynchronized
+        command -v python3 || true
+        command -v sudo || true
+        if command -v k3s >/dev/null 2>&1; then k3s --version; fi
+      register: host_inspection
+      changed_when: false
+    - name: Report only host capacity and prerequisite fields
+      ansible.builtin.debug:
+        msg: '{{ host_inspection.stdout_lines }}'

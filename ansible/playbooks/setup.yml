@@ -64,3 +64,5 @@
   ansible.builtin.import_playbook: harbor/040-retire-runtime.yml
 - name: Retire replaced service runtime after consumers converge
   ansible.builtin.import_playbook: services/020-retire-runtime.yml
+- name: Retire recognized obsolete host tooling after all consumers converge
+  ansible.builtin.import_playbook: host/020-retire-tooling.yml

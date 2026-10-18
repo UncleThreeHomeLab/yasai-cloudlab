@@ -9,4 +9,4 @@
       ansible.builtin.import_tasks: "/workspace/ansible/playbooks/host/tasks/identity.yml"
 
 - name: Seed replicated storage
-  ansible.builtin.import_playbook: playbooks/longhorn/020-bootstrap.yml
+  ansible.builtin.import_playbook: 020-bootstrap.yml

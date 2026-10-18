@@ -1,3 +1,11 @@
 ---
-- name: Restore scoped application data through its owner
-  ansible.builtin.import_playbook: data/restore.yml
+- name: Require an explicit recovery owner and operation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Refuse unspecified recovery before mutation
+      ansible.builtin.fail:
+        msg: >-
+          Select a named component recovery playbook or recovery-* operation with its
+          required inputs and independent access. No mutation performed.

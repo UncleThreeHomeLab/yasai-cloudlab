@@ -6,4 +6,8 @@
   tasks:
     - name: Refuse unspecified maintenance before mutation
       ansible.builtin.fail:
-        msg: "Maintenance requires explicit node/resource scope, independent access, readiness and recovery gates; no mutation performed."
+        msg: >-
+          Select a named component operation for the exact resource scope.
+          Host packages remain on configured Debian repositories; distribution upgrades,
+          reboots and arbitrary package updates are unsupported. Preserve independent
+          access, readiness and recovery gates. No mutation performed.

@@ -1,3 +1,0 @@
----
-- name: Run argocd/operate.yml
-  ansible.builtin.import_playbook: playbooks/gitops.yml

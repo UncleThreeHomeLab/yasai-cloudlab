@@ -1,0 +1,11 @@
+---
+- name: Accept the Longhorn owner after disposable restore checks
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [vars.yml]
+  tasks:
+    - name: Accept the Longhorn owner after disposable restore checks
+      ansible.builtin.import_tasks: tasks/controller-verify.yml
+      when: longhorn_gitops_enabled | bool

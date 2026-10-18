@@ -1,0 +1,10 @@
+---
+- name: Verify ambient identity and gateway isolation
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Verify ambient identity and gateway isolation
+      ansible.builtin.import_tasks: tasks/verify.yml
+      when: mesh_enabled | bool
