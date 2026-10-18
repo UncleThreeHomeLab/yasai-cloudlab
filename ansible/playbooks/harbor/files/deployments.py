@@ -70,7 +70,8 @@ while True:time.sleep(3600)
                 'resources': {'requests': {'cpu': '50m', 'memory': '32Mi'},
                               'limits': {'cpu': '100m', 'memory': '64Mi'}},
                 'readinessProbe': {'exec': {'command': ['python', '-c',
-                    "import pathlib;assert pathlib.Path('/tmp/ready').is_file()"]}, 'periodSeconds': 5},
+                    "import pathlib;assert pathlib.Path('/tmp/ready').is_file()"]},
+                    'periodSeconds': 10, 'timeoutSeconds': 5},
                 'volumeMounts': [{'name': 'temporary', 'mountPath': '/tmp'}]}],
             'volumes': [{'name': 'temporary', 'emptyDir': {'medium': 'Memory', 'sizeLimit': '1Mi'}}]}}}}
 
