@@ -28,10 +28,9 @@ def converged(payload):
             and not any(c.get('type', '').endswith('Error') for c in status.get('conditions', [])))
 
 
-def configure(payload):
-    if set(payload) != {'repository', 'revision', 'private_repository', 'private_revision', 'telemetry', 'values'}:
-        raise ValueError('Catalog configuration requires its complete committed source')
-    desired = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+def application(payload):
+    """Complete declaration shared by bootstrap and scoped source operations."""
+    return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
                'metadata': {'name': APP, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
                'spec': {'project': APP, 'sources': [
                    {'repoURL': payload['repository'], 'targetRevision': payload['revision'],
@@ -42,6 +41,12 @@ def configure(payload):
                         'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
                         'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                                        'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true']}}}
+
+
+def configure(payload):
+    if set(payload) != {'repository', 'revision', 'private_repository', 'private_revision', 'telemetry', 'values'}:
+        raise ValueError('Catalog configuration requires its complete committed source')
+    desired = application(payload)
     with Path('/run/lock/cloudlab-services.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         for row in payload['values']['catalog']:

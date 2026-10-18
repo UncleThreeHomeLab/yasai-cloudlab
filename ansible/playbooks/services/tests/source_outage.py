@@ -1,9 +1,11 @@
 """Bounded Git read failure proof; no workload or credential writer."""
 import hashlib
 import json
+import re
+import time
 import uuid
 from playbooks.istio.files.kube import get, kube, wait
-from playbooks.services.files.bootstrap import APP, OWNER, converged
+from playbooks.services.files.bootstrap import APP, OWNER, application, converged
 
 
 def snapshot():
@@ -21,39 +23,54 @@ def snapshot():
     return result
 
 
-def source_managers(app):
-    return {row.get('manager') for row in app['metadata'].get('managedFields', [])
-            if 'f:sources' in row.get('fieldsV1', {}).get('f:spec', {})}
+def owned_sources(app):
+    entries = [row for row in app['metadata'].get('managedFields', [])
+               if 'f:sources' in row.get('fieldsV1', {}).get('f:spec', {})]
+    return (len(entries) == 1 and entries[0].get('manager') == OWNER
+            and entries[0].get('operation') == 'Apply')
 
 
-def run(payload, *, recovery=None):
+def run(payload, *, next_revision):
+    if not re.fullmatch(r'[0-9a-f]{40}', next_revision) or next_revision == payload['revision']:
+        raise ValueError('Future source proof requires another approved immutable public revision')
     app = get('application.argoproj.io', APP, 'argocd')
     if (not converged(payload) or app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
-            or app['metadata'].get('ownerReferences') or app['metadata'].get('finalizers')):
+            or app['metadata'].get('ownerReferences') or app['metadata'].get('finalizers')
+            or app['metadata'].get('deletionTimestamp') or not owned_sources(app)
+            or app['spec'] != application(payload)['spec']):
         raise RuntimeError('Git outage proof requires the exact converged catalog owner')
     sources = app['spec']['sources']
     uid = app['metadata']['uid']
-    if recovery is not None:
-        if (not isinstance(recovery, dict) or not isinstance(recovery.get('time'), str)
-                or recovery != {'uid': uid, 'sources': sources, 'manager': 'kubectl-patch', 'time': recovery['time']}):
-            raise RuntimeError('Source ownership recovery differs from the exact known fixture')
-    legacy = [row for row in app['metadata'].get('managedFields', []) if row.get('manager') == 'kubectl-patch']
-    known_legacy = (recovery is not None and source_managers(app) == {'kubectl-patch'} and len(legacy) == 1
-                    and legacy[0].get('operation') == 'Update' and legacy[0].get('time') == recovery['time'])
-    if source_managers(app) != {OWNER} and not known_legacy:
-        raise RuntimeError('Catalog source has a foreign or ambiguous field manager')
     before = snapshot()
     branch = 'cloudlab-unavailable-' + uuid.uuid4().hex
     replacement = json.loads(json.dumps(sources))
     replacement[1]['targetRevision'] = branch
-    def patch(expected, desired):
-        kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=json',
-             '--field-manager=' + OWNER, '-p', json.dumps([
-            {'op': 'test', 'path': '/metadata/uid', 'value': uid},
-            {'op': 'test', 'path': '/spec/sources', 'value': expected},
-            {'op': 'replace', 'path': '/spec/sources', 'value': desired}]))
+    def apply(expected, desired, *, dry_run=False):
+        for _ in range(6):
+            current = get('application.argoproj.io', APP, 'argocd')
+            complete = application(payload)
+            complete['spec']['sources'] = expected
+            if (current['metadata']['uid'] != uid or current['spec'] != complete['spec']
+                    or current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
+                    or current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers')
+                    or current['metadata'].get('deletionTimestamp') or not owned_sources(current)):
+                raise RuntimeError('Catalog ownership changed; source repair refused')
+            declaration = application(payload)
+            declaration['spec']['sources'] = desired
+            declaration['metadata'].update(uid=uid, resourceVersion=current['metadata']['resourceVersion'])
+            result = kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-',
+                          *(['--dry-run=server'] if dry_run else []), document=declaration, allow_failure=True)
+            if result.returncode == 0:
+                return
+            if 'the object has been modified' not in result.stderr:
+                raise RuntimeError('Complete catalog Apply failed; diagnostics withheld')
+            time.sleep(1)
+        raise RuntimeError('Catalog changed repeatedly; source operation refused')
+    next_payload = dict(payload, revision=next_revision)
+    next_sources = application(next_payload)['spec']['sources']
+    apply(sources, next_sources, dry_run=True)
     try:
-        patch(sources, replacement)
+        apply(sources, replacement)
         wait(lambda: any(c.get('type') == 'ComparisonError' for c in
              get('application.argoproj.io', APP, 'argocd').get('status', {}).get('conditions', [])),
              'unavailable private Git revision refusal', timeout=420)
@@ -64,14 +81,16 @@ def run(payload, *, recovery=None):
         if (current['metadata']['uid'] != uid
                 or current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers')
-                or source_managers(current) != {OWNER}):
+                or not owned_sources(current)):
             raise RuntimeError('Catalog ownership changed; source repair refused')
         observed = current['spec']['sources']
         if observed == replacement:
-            patch(replacement, sources)
+            apply(replacement, sources)
         elif observed != sources:
             raise RuntimeError('Catalog source changed independently; repair refused')
         wait(lambda: converged(payload), 'private Git source recovery', timeout=600)
     if snapshot() != before:
         raise RuntimeError('Private source recovery changed retained identities or contents')
-    return {'private_source_failure_retained_resources': True, 'private_source_recovered': True}
+    apply(sources, next_sources, dry_run=True)
+    return {'private_source_failure_retained_resources': True, 'private_source_recovered': True,
+            'next_source_pin_server_dry_run': True}
