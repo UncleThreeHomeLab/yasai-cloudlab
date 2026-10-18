@@ -129,6 +129,7 @@ class DeploymentTests(unittest.TestCase):
             self.assertEqual(container['imagePullPolicy'], 'Always')
             self.assertTrue(container['image'].endswith('@' + rows[0]['digest']))
             self.assertEqual(container['resources']['limits'], {'cpu': '100m', 'memory': '64Mi'})
+            self.assertEqual(container['readinessProbe']['timeoutSeconds'], 5)
             self.assertNotIn('hostPath', json.dumps(pod))
             delivery = deployments.delivery(project, 'harbor.example.invalid')['spec']
             self.assertEqual(delivery['dataFrom'], [{'extract': {'key': 'harbor-' + project + '-pull'}}])
