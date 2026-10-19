@@ -42,6 +42,7 @@ template:
         env:
           - {name: XDG_RUNTIME_DIR, value: /run/user/1000}
           - {name: TMPDIR, value: /tmp}
+          - {name: DOCKER_CONFIG, value: /run/user/1000/docker}
         securityContext:
           allowPrivilegeEscalation: true
           readOnlyRootFilesystem: true
