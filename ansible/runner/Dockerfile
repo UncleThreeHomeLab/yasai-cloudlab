@@ -2,6 +2,8 @@ FROM docker.io/grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b62563818
 
 FROM cgr.dev/chainguard/cosign@sha256:3fad8be83b93869051c08bb98f36612afe81dabe06c288e70e41ce09a037ba18 AS cosign
 
+FROM docker.io/aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 AS trivy
+
 FROM reg.kyverno.io/kyverno/kyverno-cli:v1.19.1@sha256:ced7b2be0b04250cabfe695f15307f69eb715fe23234816388af4f3812915b2a AS kyverno
 
 FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed AS provider-build
@@ -25,6 +27,7 @@ FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a311
 
 COPY --from=k6 /usr/bin/k6 /usr/local/bin/k6
 COPY --from=cosign /usr/bin/cosign /usr/local/bin/cosign
+COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY --from=crane /out/crane /usr/local/bin/crane
 COPY --from=kyverno /ko-app/kubectl-kyverno /usr/local/bin/kyverno
 COPY debian.sources /etc/apt/sources.list.d/debian.sources
