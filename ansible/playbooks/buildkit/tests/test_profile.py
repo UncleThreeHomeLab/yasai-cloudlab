@@ -76,8 +76,14 @@ class BuilderProfileTests(unittest.TestCase):
         self.assertEqual(quota['spec']['hard']['secrets'], '0')
         self.assertEqual(quota['spec']['hard']['persistentvolumeclaims'], '0')
         self.assertEqual(ids['metadata']['name'], 'cloudlab-buildkit-ids')
-        self.assertEqual(ids['data']['subuid'], 'user:0:1000\nuser:1001:64535\n')
+        self.assertEqual(ids['data']['subuid'], 'user:1:999\nuser:1001:64535\n')
         self.assertEqual(ids['data']['subuid'], ids['data']['subgid'])
+        subordinate = {uid for row in ids['data']['subuid'].splitlines()
+                       for _, start, count in [row.split(':')]
+                       for uid in range(int(start), int(start) + int(count))}
+        self.assertFalse({0, 1000} & subordinate)
+        self.assertEqual(len(subordinate | {1000}), 65535)
+        self.assertEqual(max(subordinate), 65535)
         self.assertTrue(script['immutable'])
         self.assertIn('CLOUDLAB_ROOTLESS_BUILD_OK', script['data']['build-proof.sh'])
         self.assertNotIn('--oci-worker-no-process-sandbox', script['data']['build-proof.sh'])
