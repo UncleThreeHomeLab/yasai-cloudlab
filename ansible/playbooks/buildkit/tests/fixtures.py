@@ -38,15 +38,20 @@ def render(directory):
     return {name: json.loads((directory / (name + '.json')).read_text()) for name in ('namespace', 'resources', 'job')}
 
 
-def prove(directory, **scenario):
+def prove(directory, *, configuration=None, **scenario):
     state = directory / 'state.json'
     state.write_text(json.dumps({'calls': [], 'build_nodes': [], **scenario}))
     inventory = directory / 'inventory.json'
     inventory.write_text(json.dumps({'all': {'children': {'k3s_cluster': {'children': {
         'k3s_servers': {'hosts': {'localhost': {'ansible_connection': 'local',
                                              'ansible_python_interpreter': sys.executable}}}}}}}}))
-    result = subprocess.run(['ansible-playbook', '-i', str(inventory), str(BASE / 'verify.yml'),
-                             '--start-at-task', 'Read the existing Linux nodes'],
+    command = ['ansible-playbook', '-i', str(inventory), str(BASE / 'verify.yml'),
+               '--start-at-task', 'Require credential-free inputs before exposing fixture build errors']
+    if configuration is not None:
+        variables = directory / 'variables.json'
+        variables.write_text(json.dumps({'buildkit_values': configuration}))
+        command += ['--extra-vars', '@' + str(variables)]
+    result = subprocess.run(command,
                             env=dict(os.environ, BUILDKIT_TEST_STATE=str(state)),
                             capture_output=True, text=True, timeout=120)
     return result, json.loads(state.read_text())

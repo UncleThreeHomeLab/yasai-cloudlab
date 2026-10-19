@@ -40,6 +40,20 @@
     buildkit_values: "{{ lookup('file', '/workspace/platform/delivery/ci/runner.values.yaml') | from_yaml }}"
     buildkit_container: "{{ buildkit_values.template.spec.containers | selectattr('name', 'equalto', 'builder') | first }}"
   tasks:
+    - name: Require credential-free inputs before exposing fixture build errors
+      ansible.builtin.assert:
+        that:
+          - not buildkit_values.template.spec.automountServiceAccountToken
+          - buildkit_container.envFrom | default([]) | length == 0
+          - buildkit_container.env | default([]) | selectattr('valueFrom', 'defined') | list | length == 0
+          - buildkit_values.template.spec.imagePullSecrets | default([]) | length == 0
+          - buildkit_values.template.spec.volumes | selectattr('secret', 'defined') | list | length == 0
+          - buildkit_values.template.spec.volumes | selectattr('projected', 'defined') | list | length == 0
+          - buildkit_values.template.spec.volumes | selectattr('csi', 'defined') | list | length == 0
+          - buildkit_values.template.spec.volumes | selectattr('hostPath', 'defined') | list | length == 0
+          - buildkit_values.template.spec.volumes | selectattr('persistentVolumeClaim', 'defined') | list | length == 0
+        fail_msg: Builder qualification cannot receive credentials or existing data.
+
     - name: Read the existing Linux nodes
       ansible.builtin.command:
         argv: [/usr/local/bin/k3s, kubectl, get, nodes, -l, kubernetes.io/os=linux, -o, json]
@@ -98,6 +112,22 @@
           loop_control:
             loop_var: buildkit_node
             label: node
+      rescue:
+        - name: Read bounded errors from the credential-free fixture
+          ansible.builtin.command:
+            argv: [/usr/local/bin/k3s, kubectl, logs, job/proof, -n, '{{ buildkit_namespace }}', --tail=40]
+          register: buildkit_failure_logs
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Report credential-free fixture errors before cleanup
+          ansible.builtin.debug:
+            msg: '{{ buildkit_failure_logs.stdout[-16384:] }}'
+
+        - name: Reject the failed builder qualification
+          ansible.builtin.fail:
+            msg: Rootless build qualification failed; no runner or registry credentials were delivered.
       always:
         - name: Delete only the namespace created by this run
           ansible.builtin.command:
