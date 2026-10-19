@@ -110,7 +110,7 @@ recovery signing inputs and coordinated restore requirements.
 
 Argo reconciles [admission controllers](platform/delivery/admission/values.json)
 and [workload rules](platform/delivery/admission/policies/values.yaml) from the public root.
-Rules start in audit; application namespaces retain restricted Pod Security.
+Workload digest, resource and token rules are enforced; application namespaces retain restricted Pod Security.
 `prove` checks real admission responses without creating workloads.
 
 ## The stack
@@ -139,7 +139,7 @@ Deployment still depends on inputs and verification.
 | Registry | Harbor | Private OCI registry, separate Longhorn data and bounded OIDC sessions | In progress |
 | Builds | BuildKit | Rootless image builds | Planned |
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
-| Policy | Kyverno + Pod Security | Audit workload digest, resource and token rules; restricted application pods | Audit |
+| Policy | Kyverno + Pod Security | Enforce workload digest, resource and token rules; restricted application pods | Enforced |
 | GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Available |
 | Releases | Argo Rollouts | Canary releases and previews | Planned |
 | Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Available |

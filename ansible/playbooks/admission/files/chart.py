@@ -74,10 +74,12 @@ def check():
         if not any(version['name'] == 'v1' and version['served'] for version in crd['spec']['versions']):
             raise ValueError('Native admission API does not serve the selected policy version')
     policies = render(True)
-    if len(policies) != 2 or any(policy['spec']['validationActions'] != ['Audit', 'Warn'] for policy in policies):
-        raise ValueError('Qualify workload policy in audit before enabling enforcement')
+    actions = yaml.safe_load((BASE / 'policies/values.yaml').read_text())['validationActions']
+    if actions not in (['Audit', 'Warn'], ['Deny']) or len(policies) != 2 or any(
+            policy['spec']['validationActions'] != actions for policy in policies):
+        raise ValueError('Workload policies must use their declared audit or enforcement mode')
     return {'runtime_images': len(images), 'cpu_limit_millicores': cpu, 'memory_limit_mib': memory,
-            'retained_crds': len(crds), 'policy_mode': 'audit'}
+            'retained_crds': len(crds), 'policy_mode': 'enforce' if actions == ['Deny'] else 'audit'}
 
 
 if __name__ == '__main__':

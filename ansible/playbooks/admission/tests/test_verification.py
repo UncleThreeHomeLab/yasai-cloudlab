@@ -15,7 +15,7 @@ class VerificationTests(unittest.TestCase):
         token = subprocess.CompletedProcess([], 0, '', 'Warning: Workloads must not project Kubernetes service account tokens.')
         denied = subprocess.CompletedProcess([], 1, '', 'violates PodSecurity "restricted:v1.36"')
         with patch.object(verify, 'dry_run', side_effect=[accepted, warned, unbounded, token, denied]) as run:
-            verify.admission('cloudlab-app-proof')
+            verify.admission('cloudlab-app-proof', False)
         self.assertEqual(run.call_args_list[0].args[0]['spec']['automountServiceAccountToken'], False)
         self.assertTrue(run.call_args_list[-1].args[0]['spec']['containers'][0]['securityContext']['privileged'])
         self.assertTrue(run.call_args_list[-1].args[0]['spec']['containers'][0]['securityContext']['allowPrivilegeEscalation'])
@@ -24,7 +24,25 @@ class VerificationTests(unittest.TestCase):
                         [accepted, warned, unbounded, token, subprocess.CompletedProcess([], 1, '', 'unrelated error')]):
             with self.subTest(results=results), patch.object(verify, 'dry_run', side_effect=results):
                 with self.assertRaises(RuntimeError):
-                    verify.admission('cloudlab-app-proof')
+                    verify.admission('cloudlab-app-proof', False)
+
+    def test_enforcement_requires_policy_denials_and_never_accepts_a_warning(self):
+        accepted = subprocess.CompletedProcess([], 0, '', '')
+        messages = ('Workload images must use an immutable SHA-256 digest.',
+                    'Every workload container requires positive CPU and memory requests and limits.',
+                    'Workloads must not project Kubernetes service account tokens.',
+                    'violates PodSecurity "restricted:v1.36"')
+        denied = [subprocess.CompletedProcess([], 1, '', message) for message in messages]
+        with patch.object(verify, 'dry_run', side_effect=[accepted, *denied]):
+            verify.admission('cloudlab-app-proof', True)
+        for index in range(4):
+            for result in (subprocess.CompletedProcess([], 0, '', messages[index]),
+                           subprocess.CompletedProcess([], 1, '', 'unrelated rejection')):
+                results = [accepted, *denied]
+                results[index + 1] = result
+                with self.subTest(index=index, result=result), patch.object(verify, 'dry_run', side_effect=results):
+                    with self.assertRaises(RuntimeError):
+                        verify.admission('cloudlab-app-proof', True)
 
     def test_server_admission_probe_never_creates_a_running_workload(self):
         with patch.object(verify, 'kube') as kube:
@@ -35,8 +53,15 @@ class VerificationTests(unittest.TestCase):
         for revision in ('main', '', 'a' * 39, 'a' * 40 + '; command'):
             with self.subTest(revision=revision), patch.object(verify, 'get') as get:
                 with self.assertRaises(ValueError):
-                    verify.run(revision)
+                    verify.run(revision, ['Deny'])
                 get.assert_not_called()
+
+    def test_invalid_policy_actions_never_contact_cluster(self):
+        for actions in ([], ['Warn'], ['Deny', 'Warn'], 'Deny', None):
+            with self.subTest(actions=actions), patch.object(verify, 'wait') as wait:
+                with self.assertRaises(ValueError):
+                    verify.run('a' * 40, actions)
+                wait.assert_not_called()
 
     def test_policy_readiness_uses_native_conditions_and_rejects_stale_generation(self):
         policy = {'metadata': {'generation': 2}, 'status': {'conditionStatus': {
@@ -59,7 +84,7 @@ class VerificationTests(unittest.TestCase):
         warned = subprocess.CompletedProcess([], 0, '', 'Warning: Workload images must use an immutable SHA-256 digest.')
         with patch.object(verify, 'get', return_value={'items': [target]}), \
                 patch.object(verify, 'kube', side_effect=[accepted, warned]) as kube:
-            self.assertTrue(verify.ephemeral_admission('cloudlab-app-proof'))
+            self.assertTrue(verify.ephemeral_admission('cloudlab-app-proof', False))
         self.assertNotIn('ephemeralContainers', target['spec'])
         for call in kube.call_args_list:
             self.assertEqual(call.args[0], 'replace')
@@ -68,9 +93,25 @@ class VerificationTests(unittest.TestCase):
             self.assertEqual(call.kwargs['document']['metadata']['resourceVersion'], '17')
             self.assertNotIn('resources', call.kwargs['document']['spec']['ephemeralContainers'][-1])
 
+    def test_ephemeral_enforcement_rejects_mutable_image_with_the_exact_rule(self):
+        target = verify.probe('cloudlab-app-proof')
+        target['status'] = {'conditions': [{'type': 'Ready', 'status': 'True'}]}
+        accepted = subprocess.CompletedProcess([], 0, '', '')
+        message = 'Workload images must use an immutable SHA-256 digest.'
+        for result, passes in ((subprocess.CompletedProcess([], 1, '', message), True),
+                               (subprocess.CompletedProcess([], 0, '', message), False),
+                               (subprocess.CompletedProcess([], 1, '', 'unrelated rejection'), False)):
+            with self.subTest(result=result), patch.object(verify, 'get', return_value={'items': [target]}), \
+                    patch.object(verify, 'kube', side_effect=[accepted, result]):
+                if passes:
+                    self.assertTrue(verify.ephemeral_admission('cloudlab-app-proof', True))
+                else:
+                    with self.assertRaises(RuntimeError):
+                        verify.ephemeral_admission('cloudlab-app-proof', True)
+
     def test_retained_empty_namespace_does_not_create_a_pod_for_the_ephemeral_probe(self):
         for document in (None, {'items': []}):
             with self.subTest(document=document), patch.object(verify, 'get', return_value=document), \
                     patch.object(verify, 'kube') as kube:
-                self.assertFalse(verify.ephemeral_admission('cloudlab-app-proof'))
+                self.assertFalse(verify.ephemeral_admission('cloudlab-app-proof', True))
                 kube.assert_not_called()

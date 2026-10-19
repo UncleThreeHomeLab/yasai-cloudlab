@@ -5,11 +5,7 @@
   "required": ["validationActions"],
   "properties": {
     "validationActions": {
-      "type": "array",
-      "uniqueItems": true,
-      "minItems": 1,
-      "items": {"enum": ["Audit", "Warn", "Deny"]},
-      "not": {"allOf": [{"contains": {"const": "Warn"}}, {"contains": {"const": "Deny"}}]}
+      "enum": [["Audit", "Warn"], ["Deny"]]
     }
   }
 }

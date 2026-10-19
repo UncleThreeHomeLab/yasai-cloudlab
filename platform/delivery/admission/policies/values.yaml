@@ -1,1 +1,1 @@
-validationActions: [Audit, Warn]
+validationActions: [Deny]
