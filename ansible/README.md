@@ -83,3 +83,6 @@ The public root's `ci.enabled` installs the controller; `ci.poolEnabled` separat
 permits the runner pool. Pool inputs require `--workflow-revision` matching the
 actual private fixture's `main` workflow. Generate a new output file to review
 changed inputs; existing files and credentials are never overwritten.
+Release proposals accept only the fixed GitHub-hosted receiver on `main` and its
+designated App identity. They change one `apps/releases/*-ci.json` file through
+a PR, preserve interrupted branches and never merge or receive cluster credentials.
