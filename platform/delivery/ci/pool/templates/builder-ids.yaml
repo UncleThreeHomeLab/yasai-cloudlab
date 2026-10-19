@@ -1,3 +1,4 @@
+{{- if .Values.manageSharedResources }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,3 +12,4 @@ data:
   subgid: |
     user:1:999
     user:1001:64535
+{{- end }}
