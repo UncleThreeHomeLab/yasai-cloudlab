@@ -24,7 +24,18 @@ grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$'
 mkdir -p /workspace/context
 cat > /workspace/context/Dockerfile <<'DOCKERFILE'
 FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
-RUN python -c 'import os; assert os.getuid() == 0; open("/proof.bin", "wb").write(os.urandom(8 * 1024 * 1024)); os.chown("/proof.bin", 65534, 65534)'
+RUN python - <<'PY'
+import ctypes
+import errno
+import os
+assert os.getuid() == 0
+assert os.path.basename(os.readlink('/proc/1/exe')) in ('dash', 'python3.13')
+libc = ctypes.CDLL(None, use_errno=True)
+assert libc.syscall(250, 1, ctypes.c_char_p(b'cloudlab-proof-denied')) == -1
+assert ctypes.get_errno() in (errno.EPERM, errno.ENOSYS)
+open('/proof.bin', 'wb').write(os.urandom(8 * 1024 * 1024))
+os.chown('/proof.bin', 65534, 65534)
+PY
 DOCKERFILE
 buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
   --frontend dockerfile.v0 --local context=/workspace/context --local dockerfile=/workspace/context \

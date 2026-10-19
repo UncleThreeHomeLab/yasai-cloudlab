@@ -3,9 +3,10 @@
   "architecture": "amd64",
   "seccomp": {
     "file": "buildkit-seccomp.json",
-    "sha256": "81c24837e0bf9ea3c4ec909b5f988259f21b8f77073d3f0b0e55c79979e64336",
+    "sha256": "7614c54e5ab27a0f69fa2bf4d28a464517ef957601b13172cc4a4d5cfed599e4",
     "base": "seccomp.DefaultProfile; bounding capabilities SETUID and SETGID",
-    "added_syscalls": ["chroot", "clone", "mount", "pivot_root", "sethostname", "setns", "umount2", "unshare"]
+    "added_syscalls": ["chroot", "clone", "mount", "pivot_root", "sethostname", "setns", "umount2", "unshare"],
+    "blocked_keyctl_errno": 38
   },
   "apparmor": {
     "file": "cloudlab-buildkit",
