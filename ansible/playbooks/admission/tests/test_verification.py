@@ -18,6 +18,7 @@ class VerificationTests(unittest.TestCase):
             verify.admission('cloudlab-app-proof')
         self.assertEqual(run.call_args_list[0].args[0]['spec']['automountServiceAccountToken'], False)
         self.assertTrue(run.call_args_list[-1].args[0]['spec']['containers'][0]['securityContext']['privileged'])
+        self.assertTrue(run.call_args_list[-1].args[0]['spec']['containers'][0]['securityContext']['allowPrivilegeEscalation'])
         for results in ([accepted, accepted], [accepted, warned, accepted], [accepted, warned, unbounded, accepted],
                         [accepted, warned, unbounded, token, accepted],
                         [accepted, warned, unbounded, token, subprocess.CompletedProcess([], 1, '', 'unrelated error')]):
@@ -58,7 +59,7 @@ class VerificationTests(unittest.TestCase):
         warned = subprocess.CompletedProcess([], 0, '', 'Warning: Workload images must use an immutable SHA-256 digest.')
         with patch.object(verify, 'get', return_value={'items': [target]}), \
                 patch.object(verify, 'kube', side_effect=[accepted, warned]) as kube:
-            verify.ephemeral_admission('cloudlab-app-proof')
+            self.assertTrue(verify.ephemeral_admission('cloudlab-app-proof'))
         self.assertNotIn('ephemeralContainers', target['spec'])
         for call in kube.call_args_list:
             self.assertEqual(call.args[0], 'replace')
@@ -66,3 +67,10 @@ class VerificationTests(unittest.TestCase):
             self.assertEqual(call.kwargs['document']['metadata']['uid'], 'original-uid')
             self.assertEqual(call.kwargs['document']['metadata']['resourceVersion'], '17')
             self.assertNotIn('resources', call.kwargs['document']['spec']['ephemeralContainers'][-1])
+
+    def test_retained_empty_namespace_does_not_create_a_pod_for_the_ephemeral_probe(self):
+        for document in (None, {'items': []}):
+            with self.subTest(document=document), patch.object(verify, 'get', return_value=document), \
+                    patch.object(verify, 'kube') as kube:
+                self.assertFalse(verify.ephemeral_admission('cloudlab-app-proof'))
+                kube.assert_not_called()
