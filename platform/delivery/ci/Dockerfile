@@ -56,6 +56,25 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go mod download && go mod verify \
     && go build -mod=readonly -trimpath -ldflags '-s -w' -o /out/rootlesskit ./cmd/rootlesskit
 
+FROM compiler AS arc
+WORKDIR /source
+RUN curl -fsSL --retry 3 https://codeload.github.com/actions/actions-runner-controller/tar.gz/refs/tags/gha-runner-scale-set-0.15.0 -o /tmp/source.tgz \
+    && echo '8914e637dea6e2f2f0c2bee8261a86ca7fa8b59ac9decc2df2ba4a5514ba6aa3  /tmp/source.tgz' | sha256sum -c - \
+    && tar -xzf /tmp/source.tgz --strip-components=1
+COPY tools/arc/go.mod tools/arc/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go mod download && go mod verify \
+    && go test -mod=readonly ./apis/actions.github.com/v1alpha1 ./cmd/ghalistener/config \
+    && go build -mod=readonly -trimpath -ldflags '-s -w -X github.com/actions/actions-runner-controller/build.Version=0.15.0 -X github.com/actions/actions-runner-controller/build.CommitSHA=1945b42820760eb50893c8da77fdfc42cf8dad45' -o /out/manager . \
+    && go build -mod=readonly -trimpath -ldflags '-s -w -X github.com/actions/actions-runner-controller/build.Version=0.15.0 -X github.com/actions/actions-runner-controller/build.CommitSHA=1945b42820760eb50893c8da77fdfc42cf8dad45' -o /out/ghalistener ./cmd/ghalistener \
+    && go build -mod=readonly -trimpath -ldflags '-s -w' -o /out/github-webhook-server ./cmd/githubwebhookserver \
+    && go build -mod=readonly -trimpath -ldflags '-s -w' -o /out/actions-metrics-server ./cmd/actionsmetricsserver \
+    && go build -mod=readonly -trimpath -ldflags '-s -w' -o /out/sleep ./cmd/sleep
+
+FROM ghcr.io/actions/gha-runner-scale-set-controller:0.15.0@sha256:162dfb5bfbda9e7e49fbed67d428994c9ced55b41a37a18b75b46dab0aa98d37 AS controller
+COPY --from=arc /out/manager /out/ghalistener /out/github-webhook-server /out/actions-metrics-server /out/sleep /
+COPY --from=arc /source/LICENSE /usr/share/doc/cloudlab-arc/LICENSE
+
 FROM scratch AS tools
 COPY --from=buildkit /out/ /usr/local/bin/
 COPY --from=cosign /out/cosign /usr/local/bin/cosign
@@ -134,6 +153,7 @@ COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY --from=tools /usr/local/bin/cosign /usr/local/bin/cosign
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
 COPY --from=tools /usr/local/bin/crane /usr/local/bin/crane
+COPY --chmod=0444 runner/health.py /usr/local/libexec/cloudlab-ci-health.py
 ENV FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true
 USER runner
 WORKDIR /home/runner

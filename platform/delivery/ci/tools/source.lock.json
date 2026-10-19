@@ -50,6 +50,22 @@
         "go.mod": "5c01b599e9670802d42212fe2f7e814c7dd6ec1d8658a299382982ee8ce6bfb5",
         "go.sum": "5c7f47efc2cd20140c8663fd5a636542dcd9a4e6113dbd1225fa332823334722"
       }
+    },
+    {
+      "name": "arc",
+      "version": "gha-runner-scale-set-0.15.0",
+      "source": "https://codeload.github.com/actions/actions-runner-controller/tar.gz/refs/tags/gha-runner-scale-set-0.15.0",
+      "sha256": "8914e637dea6e2f2f0c2bee8261a86ca7fa8b59ac9decc2df2ba4a5514ba6aa3",
+      "modules": {
+        "go.mod": "597b249704818728b1bf6177e7a9eac57dd921d3f0fac62cb0dea6061fd2d3a9",
+        "go.sum": "0a66d442b030e9255664bceefb8d3fbd61df1ce6ee84a7cb0fc278b00b532e5a"
+      },
+      "replacements": [
+        "replace github.com/gregjones/httpcache => github.com/actions-runner-controller/httpcache v0.2.0"
+      ]
     }
-  ]
+  ],
+  "images": {
+    "controller": "ghcr.io/actions/gha-runner-scale-set-controller:0.15.0@sha256:162dfb5bfbda9e7e49fbed67d428994c9ced55b41a37a18b75b46dab0aa98d37"
+  }
 }

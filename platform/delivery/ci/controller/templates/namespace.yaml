@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudlab-ci-system
+  labels:
+    cloudlab.io/owner: ci-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudlab-ci-private
+  labels:
+    cloudlab.io/owner: ci-platform
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: controller-budget, namespace: cloudlab-ci-system}
+spec:
+  hard:
+    pods: '4'
+    limits.cpu: 600m
+    limits.memory: 768Mi
+    limits.ephemeral-storage: 384Mi
+    count/autoscalinglisteners.actions.github.com: '2'
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: runner-budget, namespace: cloudlab-ci-private}
+spec:
+  hard:
+    pods: '1'
+    limits.cpu: '3'
+    limits.memory: 6Gi
+    limits.ephemeral-storage: 32Gi
+    count/autoscalingrunnersets.actions.github.com: '1'
+    count/ephemeralrunnersets.actions.github.com: '2'
+    count/ephemeralrunners.actions.github.com: '2'

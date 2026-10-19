@@ -21,7 +21,8 @@ class RunnerImageTests(unittest.TestCase):
         external = [image for image in re.findall(r'^FROM (\S+)', dockerfile, re.M)
                     if image not in ('source', 'compiler', 'scratch')]
         self.assertEqual(set(external), {lock['sdk'], tools['compiler'],
-                                        lock['qualification_builder'], *lock['images'].values()})
+                                        lock['qualification_builder'], *lock['images'].values(),
+                                        *tools['images'].values()})
         self.assertTrue(all(re.fullmatch(r'.+@sha256:[a-f0-9]{64}', image) for image in external))
         self.assertIn(lock['source']['url'], dockerfile)
         self.assertIn(lock['source']['sha256'], dockerfile)
@@ -54,7 +55,7 @@ class RunnerImageTests(unittest.TestCase):
         self.assertNotIn('GONOSUMDB', dockerfile)
         self.assertNotIn('GOSUMDB=off', dockerfile)
         self.assertEqual({row['name'] for row in lock['sources']},
-                         {'buildkit', 'cosign', 'crane', 'runc', 'rootlesskit'})
+                         {'buildkit', 'cosign', 'crane', 'runc', 'rootlesskit', 'arc'})
         for source in lock['sources']:
             self.assertIn(source['source'], dockerfile)
             self.assertIn(source['sha256'], dockerfile)
@@ -62,7 +63,7 @@ class RunnerImageTests(unittest.TestCase):
                 path = tools / source['name'] / name
                 self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), source['modules'][name])
             modules = (tools / source['name'] / 'go.mod').read_text()
-            self.assertNotIn('replace ', modules)
+            self.assertEqual(re.findall(r'^replace .+$', modules, re.M), source.get('replacements', []))
             if source['name'] != 'crane':
                 self.assertRegex(modules, r'golang.org/x/net v0[.]60[.]0\b')
             if source['name'] == 'buildkit':

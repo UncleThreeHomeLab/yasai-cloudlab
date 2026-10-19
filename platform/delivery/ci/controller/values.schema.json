@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": ["arc"],
+  "properties": {
+    "arc": {
+      "type": "object",
+      "required": ["image", "flags", "replicaCount"],
+      "properties": {
+        "replicaCount": {"const": 1},
+        "image": {
+          "type": "object",
+          "required": ["repository", "tag"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/cloudlab-public/ci-controller$"},
+            "tag": {"type": "string", "pattern": "^0[.]15[.]0@sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "flags": {
+          "type": "object",
+          "required": ["watchSingleNamespace"],
+          "properties": {"watchSingleNamespace": {"const": "cloudlab-ci-private"}}
+        }
+      }
+    }
+  }
+}

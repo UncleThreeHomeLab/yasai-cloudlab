@@ -1,0 +1,6 @@
+{
+  "source": "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set",
+  "version": "0.15.0",
+  "archive": "charts/gha-runner-scale-set-0.15.0.tgz",
+  "sha256": "bab4a9ca41730b52cc4aec46dd5623b3d148ca24b4766b9bc25bf5a91f7bfdfe"
+}

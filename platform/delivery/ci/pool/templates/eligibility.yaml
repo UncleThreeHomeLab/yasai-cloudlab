@@ -1,0 +1,15 @@
+{{- $repository := trimPrefix "https://github.com/" .Values.arc.githubConfigUrl }}
+{{- range .Values.eligibility }}
+{{- if or (ne .repository $repository) (not (hasPrefix (printf "%s/.github/workflows/" $repository) .workflow_ref)) }}
+{{- fail "Runner eligibility must match its selected repository" }}
+{{- end }}
+{{- end }}
+{{- $policy := dict "workflows" .Values.eligibility | toJson }}
+{{- if gt (len $policy) 16384 }}
+{{- fail "Runner eligibility exceeds the runner's policy limit" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: cloudlab-ci-eligibility, namespace: cloudlab-ci-private}
+data:
+  eligibility.json: {{ $policy | quote }}

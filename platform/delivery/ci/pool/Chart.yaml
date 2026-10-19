@@ -1,0 +1,8 @@
+apiVersion: v2
+name: cloudlab-ci-pool
+version: 0.1.0
+dependencies:
+  - name: gha-runner-scale-set
+    alias: arc
+    version: 0.15.0
+    repository: ''
