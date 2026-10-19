@@ -34,5 +34,5 @@ harbor:
 admission:
   enabled: true
 ci:
-  enabled: false
+  enabled: true
   poolEnabled: false
