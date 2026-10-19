@@ -19,12 +19,16 @@ namespace GitHub.Runner.Common.Tests.Worker
             values["event_name"] = pullRequest ? "pull_request" : "push";
             values["ref"] = pullRequest ? "refs/pull/42/merge" : "refs/heads/main";
             values["workflow_ref"] = values["repository"] + "/.github/workflows/ci.yaml@" + values["ref"];
-            var message = TrustedWorkflowFixtures.Message("test");
+            var message = TrustedWorkflowFixtures.Message("__default", displayName: "test / test");
+            message.Variables["system.workflowFileFullPath"] = new GitHub.DistributedTask.WebApi.VariableValue {
+                Value = "example/platform/.github/workflows/application-test.yaml" };
+            message.Variables["system.workflowFileSha"] = new GitHub.DistributedTask.WebApi.VariableValue { Value = new string('c', 40) };
             TrustedWorkflowFixtures.SetGithub(message, values);
             var content = Encoding.UTF8.GetBytes("approved immutable reusable workflow wrapper\n");
             var policy = JsonSerializer.SerializeToUtf8Bytes(new { templates = new[] { new {
                 repository_id = values["repository_id"], repository = values["repository"], job = "test", visibility = "private",
                 workflow_path = ".github/workflows/ci.yaml",
+                job_workflow_ref = "example/platform/.github/workflows/application-test.yaml@" + new string('c', 40),
                 workflow_sha256 = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant()
             } } });
             var repo = new Dictionary<string, object> {
@@ -45,6 +49,23 @@ namespace GitHub.Runner.Common.Tests.Worker
                           content = Convert.ToBase64String(content) }
             };
             return (message, policy, responses, values);
+        }
+
+        [Fact]
+        public void ReusableRoleRequiresTheOriginalPinnedWorkflowIdentityBeforeApiAccess()
+        {
+            var fixture = TemplateFixture(true);
+            foreach (var key in new[] { "system.workflowFileFullPath", "system.workflowFileSha" })
+            {
+                var original = fixture.Message.Variables[key];
+                fixture.Message.Variables.Remove(key);
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
+                    path => throw new Exception("Unbound reusable workflow must not reach the API")));
+                fixture.Message.Variables[key] = new GitHub.DistributedTask.WebApi.VariableValue { Value = "unapproved" };
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
+                    path => throw new Exception("Changed reusable workflow must not reach the API")));
+                fixture.Message.Variables[key] = original;
+            }
         }
 
         [Fact]

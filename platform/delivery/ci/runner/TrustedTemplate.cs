@@ -15,7 +15,7 @@ namespace GitHub.Runner.Worker
     internal static class TrustedTemplate
     {
         private static readonly string[] Fields = {
-            "repository_id", "repository", "workflow_path", "workflow_sha256", "job", "visibility"
+            "repository_id", "repository", "workflow_path", "workflow_sha256", "job", "visibility", "job_workflow_ref"
         };
 
         internal static bool Allows(AgentJobRequestMessage message, IReadOnlyDictionary<string, string> actual,
@@ -27,6 +27,7 @@ namespace GitHub.Runner.Worker
                     actual["sha"] != actual["workflow_sha"])
                     return false;
                 JsonElement? match = null;
+                var actualWorkflow = CalledWorkflow(message);
                 var unique = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var row in templates.EnumerateArray())
                 {
@@ -38,11 +39,15 @@ namespace GitHub.Runner.Worker
                     string Value(string key) => row.GetProperty(key).GetString();
                     if (!Regex.IsMatch(Value("workflow_path"), @"\A\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml\z") ||
                         !Regex.IsMatch(Value("workflow_sha256"), @"\A[a-f0-9]{64}\z") ||
+                        Value("job") is not ("test" or "publish") ||
+                        !Regex.IsMatch(Value("job_workflow_ref"), @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/application-(test|publish)\.yaml@[a-f0-9]{40}\z") ||
+                        !Value("job_workflow_ref").Contains("/application-" + Value("job") + ".yaml@", StringComparison.Ordinal) ||
                         Value("visibility") is not ("public" or "private") ||
                         !unique.Add(string.Join("\0", Fields.Select(Value))))
                         return false;
                     if (Value("repository_id") == actual["repository_id"] && Value("repository") == actual["repository"] &&
-                        Value("job") == actual["job"] && actual["workflow_ref"] ==
+                        Value("job_workflow_ref") == actualWorkflow &&
+                        (actual["job"] == "__default" || Value("job") == actual["job"]) && actual["workflow_ref"] ==
                         Value("repository") + "/" + Value("workflow_path") + "@" + actual["ref"])
                     {
                         if (match.HasValue) return false;
@@ -51,6 +56,10 @@ namespace GitHub.Runner.Worker
                 }
                 if (!match.HasValue) return false;
                 var expected = match.Value;
+                // GitHub uses __default for reusable jobs. Bind the role to its original immutable single-job workflow.
+                var identity = actual.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                identity["job"] = expected.GetProperty("job").GetString();
+                if (!TrustedWorkflow.Valid(identity)) return false;
                 using var client = fetch == null ? Client(message) : null;
                 if (fetch == null && client == null) return false;
                 fetch ??= path => Read(client, path);
@@ -73,7 +82,7 @@ namespace GitHub.Runner.Worker
                 else
                 {
                     var number = Regex.Match(actual["ref"], @"\Arefs/pull/([1-9][0-9]*)/merge\z");
-                    if (!number.Success || actual["event_name"] != "pull_request" || actual["job"] != "test") return false;
+                    if (!number.Success || actual["event_name"] != "pull_request" || identity["job"] != "test") return false;
                     using var request = fetch(prefix + "/pulls/" + number.Groups[1].Value);
                     var pr = request.RootElement;
                     if (pr.GetProperty("state").GetString() != "open" ||
@@ -106,6 +115,15 @@ namespace GitHub.Runner.Worker
             {
                 return false;
             }
+        }
+
+        private static string CalledWorkflow(AgentJobRequestMessage message)
+        {
+            if (message.Variables == null ||
+                !message.Variables.TryGetValue("system.workflowFileFullPath", out var path) ||
+                !message.Variables.TryGetValue("system.workflowFileSha", out var revision) || path == null || revision == null)
+                return null;
+            return path.Value + "@" + revision.Value;
         }
 
         private static HttpClient Client(AgentJobRequestMessage message)

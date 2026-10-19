@@ -37,9 +37,10 @@ namespace GitHub.Runner.Common.Tests.Worker
         internal static AgentJobRequestMessage Message(string job = "publish",
             GitHub.DistributedTask.ObjectTemplating.Tokens.TemplateToken container = null,
             GitHub.DistributedTask.ObjectTemplating.Tokens.TemplateToken services = null,
-            GitHub.DistributedTask.ObjectTemplating.Tokens.TemplateToken snapshot = null)
+            GitHub.DistributedTask.ObjectTemplating.Tokens.TemplateToken snapshot = null,
+            string displayName = null)
         {
-            var message = new AgentJobRequestMessage(null, null, Guid.NewGuid(), job, job,
+            var message = new AgentJobRequestMessage(null, null, Guid.NewGuid(), displayName ?? job, job,
                 container, services, null, new Dictionary<string, GitHub.DistributedTask.WebApi.VariableValue>(),
                 new List<GitHub.DistributedTask.WebApi.MaskHint>(), new JobResources(),
                 new DictionaryContextData(), new WorkspaceOptions(), new List<JobStep>(),

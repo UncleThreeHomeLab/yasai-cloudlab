@@ -69,7 +69,7 @@ namespace GitHub.Runner.Worker
                 using var document = JsonDocument.Parse(policy, new JsonDocumentOptions { MaxDepth = 4 });
                 var root = document.RootElement;
                 if (ExactFields(root, new[] { "templates" }))
-                    return Valid(actual) && TrustedTemplate.Allows(message, actual, root.GetProperty("templates"), fetch);
+                    return TrustedTemplate.Allows(message, actual, root.GetProperty("templates"), fetch);
                 if (!ExactFields(root, new[] { "workflows" }))
                     return false;
                 var workflows = root.GetProperty("workflows");
@@ -117,7 +117,7 @@ namespace GitHub.Runner.Worker
             return names.SetEquals(expected);
         }
 
-        private static bool Valid(IReadOnlyDictionary<string, string> row)
+        internal static bool Valid(IReadOnlyDictionary<string, string> row)
         {
             bool main = row["ref"] == "refs/heads/main" &&
                 (row["event_name"] is "push" or "workflow_dispatch");

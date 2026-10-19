@@ -16,7 +16,8 @@ class ApplicationConfigurationTests(unittest.TestCase):
     def test_reviewed_template_uses_native_gate_and_rejects_foreign_or_mixed_policies(self):
         application, current = self.inputs()
         row = {'repository_id': '123', 'repository': current['full_name'], 'visibility': 'public',
-               'workflow_path': '.github/workflows/ci.yaml', 'workflow_sha256': 'a' * 64, 'job': 'test'}
+               'workflow_path': '.github/workflows/ci.yaml', 'workflow_sha256': 'a' * 64, 'job': 'test',
+               'job_workflow_ref': 'example/platform/.github/workflows/application-test.yaml@' + 'b' * 40}
         document = application_configuration(qualified_tools(), application, current, templates=[row])['runner.json']
         objects = render(document['values'], chart=POOL, namespace=document['namespace'])
         policy = next(x for x in objects if x['kind'] == 'ConfigMap' and x['metadata']['name'] == 'cloudlab-ci-eligibility')

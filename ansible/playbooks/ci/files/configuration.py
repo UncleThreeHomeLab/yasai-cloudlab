@@ -57,25 +57,54 @@ def application_workflows(api, current, revision, pull_request=None):
             for event in events for job in jobs]
 
 
-def application_templates(api, current, revision, pull_request=None):
-    """Approve workflow bytes once; the native runner verifies each later revision with GitHub."""
-    application_workflows(api, current, revision, pull_request)
-    prefix = 'repos/' + current['full_name']
-    if api.request('GET', prefix + '/branches/main').get('protected') is not True:
-        raise ValueError('Workflow templates require protected main')
-    document = api.request('GET', prefix + '/contents/.github/workflows/ci.yaml?ref=' + revision)
-    if (document.get('type') != 'file' or document.get('path') != '.github/workflows/ci.yaml' or
+def workflow_bytes(document, path):
+    if (document.get('type') != 'file' or document.get('path') != path or
             document.get('encoding') != 'base64' or type(document.get('size')) is not int or
             not 0 < document['size'] <= 65536):
         raise ValueError('Workflow template must be a bounded file at the reviewed revision')
     content = base64.b64decode(''.join(document['content'].split()), validate=True)
     if len(content) != document['size']:
         raise ValueError('Workflow template content differs from its declared size')
-    return [{'repository_id': str(current['id']), 'repository': current['full_name'],
-             'visibility': 'private' if current['private'] else 'public',
-             'workflow_path': '.github/workflows/ci.yaml',
-             'workflow_sha256': hashlib.sha256(content).hexdigest(), 'job': job}
-            for job in ('test', 'publish')]
+    return content
+
+
+def application_templates(api, current, revision, pull_request=None, *, platform_repository=None):
+    """Bind approved caller bytes and each immutable, single-job local reusable workflow."""
+    application_workflows(api, current, revision, pull_request)
+    prefix = 'repos/' + current['full_name']
+    if api.request('GET', prefix + '/branches/main').get('protected') is not True:
+        raise ValueError('Workflow templates require protected main')
+    content = workflow_bytes(api.request('GET', prefix + '/contents/.github/workflows/ci.yaml?ref=' + revision),
+                             '.github/workflows/ci.yaml')
+    workflow = yaml.safe_load(content)
+    jobs = workflow.get('jobs') if isinstance(workflow, dict) else None
+    if not isinstance(jobs, dict) or not jobs or set(jobs) - {'test', 'publish'}:
+        raise ValueError('Application CI requires the shared test/publish job interface')
+    platform = repository(platform_repository or
+                          yaml.safe_load((harbor_api.ROOT / 'gitops/roots/public/values.yaml').read_text())['repository'])
+    rows = []
+    for role, job in jobs.items():
+        path = '.github/workflows/application-' + role + '.yaml'
+        reference = job.get('uses') if isinstance(job, dict) else None
+        if (not isinstance(reference, str) or not reference.startswith(platform + '/' + path + '@') or
+                not re.fullmatch('[a-f0-9]{40}', reference.rsplit('@', 1)[-1])):
+            raise ValueError('Application jobs must pin their platform-owned reusable workflow')
+        called = yaml.safe_load(workflow_bytes(api.request('GET', 'repos/' + platform + '/contents/' + path +
+                               '?ref=' + reference.rsplit('@', 1)[-1]), path))
+        called_jobs = called.get('jobs') if isinstance(called, dict) else None
+        if not isinstance(called_jobs, dict) or set(called_jobs) != {role}:
+            raise ValueError('Each shared workflow must have exactly its one approved role')
+        target = called_jobs[role]
+        runner = "${{ format('cloudlab-{0}" + ('-publish' if role == 'publish' else '') + "', inputs.application) }}"
+        if (not isinstance(target, dict) or target.get('runs-on') != runner or not target.get('steps') or
+                any(key in target for key in ('container', 'services', 'snapshot', 'uses'))):
+            raise ValueError('Shared workflows require local runners and the qualified process profile')
+        rows.append({'repository_id': str(current['id']), 'repository': current['full_name'],
+                     'visibility': 'private' if current['private'] else 'public',
+                     'workflow_path': '.github/workflows/ci.yaml',
+                     'workflow_sha256': hashlib.sha256(content).hexdigest(), 'job': role,
+                     'job_workflow_ref': reference})
+    return rows
 
 
 def application_configuration(qualified, application, current, workflows=(), templates=()):
@@ -180,7 +209,11 @@ def main():
     if application:
         templates, workflows = [], []
         if arguments.approve_workflow_template:
-            templates = application_templates(api, fixture, arguments.workflow_revision, arguments.pull_request)
+            templates = application_templates(api, fixture, arguments.workflow_revision, arguments.pull_request,
+                                                platform_repository=source['repository'])
+            if any(not harbor_api.reviewed_ancestor(source['repository'], row['job_workflow_ref'].rsplit('@', 1)[-1],
+                                                    revision, environment) for row in templates):
+                raise ValueError('Shared workflows must originate from reviewed platform history')
         elif arguments.workflow_revision:
             workflows = application_workflows(api, fixture, arguments.workflow_revision, arguments.pull_request)
         documents = application_configuration(qualified, application, fixture, workflows, templates)
