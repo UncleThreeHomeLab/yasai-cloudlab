@@ -4,6 +4,7 @@ metadata:
   name: cloudlab-ci-system
   labels:
     cloudlab.io/owner: ci-platform
+    cloudlab.io/service-secrets: approved
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.36
     pod-security.kubernetes.io/audit: restricted
@@ -15,6 +16,7 @@ metadata:
   name: cloudlab-ci-private
   labels:
     cloudlab.io/owner: ci-platform
+    cloudlab.io/service-secrets: approved
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/enforce-version: v1.36
     pod-security.kubernetes.io/audit: restricted

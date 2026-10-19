@@ -131,7 +131,7 @@ The [controller](platform/delivery/ci/controller/values.json) watches only the p
 runner namespace. The [runner pool](platform/delivery/ci/pool/values.json) requires
 published image digests and approved workflow revisions before registration. It
 permits one build, ends the builder with its runner, and stops jobs when API or node
-health fails. Its service account can only list nodes and read API readiness.
+health fails. Its health role grants node listing and API readiness reads.
 Export these images with `docker image save --output .infra-private/ci/<kind>.tar
 yasai-cloudlab-ci-<kind>:local`, using `controller`, `runner` and `builder` for
 `<kind>`. Create the ignored archive directory first. Then run

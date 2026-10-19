@@ -16,6 +16,8 @@ FOUNDATION_ACTIONS = {
     'longhorn-backup-bootstrap', 'longhorn-backup-interruption-test', 'longhorn-backup-recover',
 }
 
+CI_COMMANDS = {'ci-bootstrap-check': 'playbooks.ci.files.qualification'}
+
 IDENTITY_COMMANDS = {'identity-owner-credentials': 'owner-credentials.yml',
  'identity-owner-stage': 'owner-stage.yml',
  'identity-owner-publish': 'owner-publish.yml',
@@ -150,6 +152,9 @@ def main():
                 raise SystemExit(native_exit())
         return
     action = sys.argv[1] if len(sys.argv) == 2 else ''
+    ci_command = CI_COMMANDS.get(action)
+    if ci_command:
+        action = 'inspect'
     if action in {'maintenance', 'upgrade', 'nuke', 'recovery'}:
         playbook('playbooks/' + action + '.yml')
         return
@@ -322,6 +327,9 @@ def main():
     if os.environ['VM_PUBLIC_IP'] == os.environ['VM2_PUBLIC_IP']:
         raise SystemExit('Both VM hosts resolve to the same IPv4 address.')
 
+    if ci_command:
+        raise SystemExit(subprocess.run([sys.executable, '-m', ci_command],
+                                       cwd='/workspace/ansible', check=False).returncode)
     if identity_phase:
         gitops_preflight()
         playbook('playbooks/keycloak/' + {'server': '010-server.yml', 'bootstrap': '020-bootstrap.yml', 'primary': '030-primary.yml', 'scoped': '040-scoped.yml', 'health': 'verify.yml', 'argo': 'argo-login.yml', 'recover-startup': 'repair-startup.yml'}[identity_phase])

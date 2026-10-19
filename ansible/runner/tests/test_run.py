@@ -312,6 +312,23 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         playbook.assert_not_called()
         self.assertEqual(run.call_args.args[0][-1], '/workspace/ansible/playbooks/access/files/preflight.py')
 
+    def test_ci_qualification_dispatch_preserves_native_exit_and_vm_input_gates(self):
+        for code in (0, 3):
+            with self.subTest(code=code), patch.dict(os.environ, {}, clear=True), \
+                    patch.object(runner.subprocess, 'run', return_value=Mock(returncode=code)) as run:
+                with self.assertRaises(SystemExit) as failure:
+                    self.invoke('ci-bootstrap-check')
+                self.assertEqual(failure.exception.code, code)
+                run.assert_called_once_with([sys.executable, '-m', 'playbooks.ci.files.qualification'],
+                                            cwd='/workspace/ansible', check=False)
+                self.assertEqual(os.environ['VM2_PASSWORD'], self.values['VM2_PASSWORD'])
+        for field in ('VM_PASSWORD', 'VM2_PASSWORD'):
+            with self.subTest(field=field), patch.dict(self.values, {field: ''}), \
+                    patch.object(runner.subprocess, 'run') as run:
+                with self.assertRaisesRegex(SystemExit, field):
+                    self.invoke('ci-bootstrap-check')
+                run.assert_not_called()
+
     def test_access_preflight_preserves_blocker_exit_without_traceback(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=2)):
             with self.assertRaises(SystemExit) as failure:
