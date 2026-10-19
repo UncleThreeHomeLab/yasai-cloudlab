@@ -50,6 +50,9 @@ def check():
             not container.get('livenessProbe') or not container.get('readinessProbe')):
         raise ValueError('CI controller escaped its namespace, resources or security profile')
     namespaces = {'cloudlab-ci-system', 'cloudlab-ci-private'}
+    if {row['metadata']['name'] for row in objects if row['kind'] == 'Namespace' and
+            row['metadata'].get('labels', {}).get('cloudlab.io/service-secrets') == 'approved'} != namespaces:
+        raise ValueError('CI namespaces require explicit approval for existing read-only secret delivery')
     for row in objects:
         kind = row['kind']
         if kind in ('ClusterRole', 'ClusterRoleBinding', 'Secret', 'Job', 'PersistentVolumeClaim'):

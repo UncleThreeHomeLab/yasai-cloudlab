@@ -67,3 +67,10 @@ redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installa
 scoped registry credentials and coordinated recovery. Its host schedules use the
 same monthly export window and local-only freshness checks. Component tests own
 browser and provider fixtures.
+
+CI tools are qualified before job credentials are delivered. After independent
+bootstrap publication, run `docker compose --profile ci run --build --rm
+--entrypoint python ci-bootstrap /opt/runner/run.py ci-bootstrap-check`.
+It uses the existing approved-namespace ESO contract for the public pull robot,
+then tests the production rootless profile, quota, read-only health identity and
+bounded sidecar termination on both nodes. Only owned disposable fixtures are removed.

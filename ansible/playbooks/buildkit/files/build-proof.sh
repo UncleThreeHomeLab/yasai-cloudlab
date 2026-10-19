@@ -23,8 +23,9 @@ done
 grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$' /tmp/workers
 buildctl --addr tcp://127.0.0.1:1234 debug workers -v > /tmp/tcp-workers
 grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$' /tmp/tcp-workers
-mkdir -p /workspace/context
-cat > /workspace/context/Dockerfile <<'DOCKERFILE'
+workspace=${BUILD_PROOF_WORKSPACE:-/workspace}
+mkdir -p "$workspace/context"
+cat > "$workspace/context/Dockerfile" <<'DOCKERFILE'
 FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
 RUN python - <<'PY'
 import ctypes
@@ -40,7 +41,7 @@ os.chown('/proof.bin', 65534, 65534)
 PY
 DOCKERFILE
 buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
-  --frontend dockerfile.v0 --local context=/workspace/context --local dockerfile=/workspace/context \
-  --output type=oci,dest=/workspace/proof.tar,compression=uncompressed
-test "$(wc -c < /workspace/proof.tar)" -gt 8388608
+  --frontend dockerfile.v0 --local "context=$workspace/context" --local "dockerfile=$workspace/context" \
+  --output "type=oci,dest=$workspace/proof.tar,compression=uncompressed"
+test "$(wc -c < "$workspace/proof.tar")" -gt 8388608
 echo CLOUDLAB_ROOTLESS_BUILD_OK

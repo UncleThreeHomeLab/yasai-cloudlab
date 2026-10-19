@@ -1,0 +1,32 @@
+---
+- name: Verify builder host profiles
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Read installed seccomp profile
+      ansible.builtin.slurp:
+        src: /var/lib/kubelet/seccomp/cloudlab/buildkit.json
+      register: buildkit_seccomp_installed
+
+    - name: Read enforced AppArmor profiles
+      ansible.builtin.slurp:
+        src: /sys/kernel/security/apparmor/profiles
+      register: buildkit_apparmor_loaded
+
+    - name: Read the installed AppArmor profile
+      ansible.builtin.slurp:
+        src: /etc/apparmor.d/cloudlab-buildkit
+      register: buildkit_apparmor_installed
+
+    - name: Require the declared builder profiles
+      ansible.builtin.assert:
+        that:
+          - >-
+            (buildkit_seccomp_installed.content | b64decode | hash('sha256')) ==
+            (lookup('file', 'files/buildkit-seccomp.json', rstrip=false) | hash('sha256'))
+          - "'cloudlab-buildkit (enforce)' in (buildkit_apparmor_loaded.content | b64decode).splitlines()"
+          - >-
+            (buildkit_apparmor_installed.content | b64decode | hash('sha256')) ==
+            (lookup('file', 'files/cloudlab-buildkit', rstrip=false) | hash('sha256'))

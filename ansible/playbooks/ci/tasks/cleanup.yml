@@ -1,0 +1,44 @@
+---
+- name: Wait for interrupted fixture pods to terminate before retiring their identities
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['get', 'pods', '-A', '-l', 'cloudlab.io/fixture=ci-bootstrap,cloudlab.io/owner=ci-platform', '-o', 'json'] }}"
+  register: ci_prior_pods
+  until: >-
+    ((ci_prior_pods.stdout | from_json)['items'] | rejectattr('status.phase', 'in', ['Succeeded', 'Failed']) |
+    list | length) == 0
+  retries: 372
+  delay: 5
+  changed_when: false
+  no_log: true
+  when: ci_cleanup_wait
+
+- name: Read only the owned fixture namespaces and global health bindings
+  ansible.builtin.command:
+    argv: >-
+      {{ ci_kubectl + ['get', 'namespaces,clusterrolebindings,clusterroles', '-l',
+      'cloudlab.io/fixture=ci-bootstrap,cloudlab.io/owner=ci-platform', '-o', 'json'] +
+      (['--field-selector', 'metadata.name=' + ci_cleanup_name] if ci_cleanup_name is defined else []) }}
+  register: ci_cleanup_objects
+  changed_when: false
+  no_log: true
+
+- name: Reject unexpected identities before any fixture deletion
+  ansible.builtin.assert:
+    that:
+      - item.kind in ['Namespace', 'ClusterRoleBinding', 'ClusterRole']
+      - item.metadata.name is match('^cloudlab-ci-proof-[a-f0-9]{12}$')
+      - item.metadata.labels['cloudlab.io/owner'] == 'ci-platform'
+      - item.metadata.labels['cloudlab.io/fixture'] == 'ci-bootstrap'
+      - >-
+        ci_cleanup_expected_uid is not defined or item.kind != 'Namespace' or
+        item.metadata.uid == ci_cleanup_expected_uid
+    fail_msg: Fixture identity changed; preserve it for inspection.
+  loop: "{{ (ci_cleanup_objects.stdout | from_json)['items'] }}"
+  no_log: true
+
+- name: Delete only the checked disposable identities
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['delete', item.kind, item.metadata.name, '--wait=true', '--timeout=90s'] }}"
+  loop: "{{ (ci_cleanup_objects.stdout | from_json)['items'] }}"
+  changed_when: false
+  no_log: true

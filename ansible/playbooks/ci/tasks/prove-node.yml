@@ -1,0 +1,162 @@
+---
+- name: Clear results from the previous node
+  ansible.builtin.set_fact:
+    ci_build_proof: {}
+    ci_api_denial: {}
+    ci_tcp_workers: {}
+  no_log: true
+
+- name: Bind the fixture health identity before starting a pod
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['create', '-f', '-'] }}"
+    stdin: '{{ ci_fixture.binding | to_json }}'
+  changed_when: false
+  no_log: true
+
+- name: Create the bounded runner and restartable builder on this node
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['create', '-f', '-', '-o', 'json'] }}"
+    stdin: >-
+      {{ {'apiVersion': 'batch/v1', 'kind': 'Job',
+      'metadata': {'name': 'proof', 'namespace': ci_namespace, 'labels': ci_labels},
+      'spec': {'activeDeadlineSeconds': 1800, 'backoffLimit': 0, 'ttlSecondsAfterFinished': 600,
+      'template': {'metadata': {'labels': ci_labels},
+      'spec': ci_fixture.pod | combine({'nodeName': ci_node.metadata.name})}}} | to_json }}
+  register: ci_job_created
+  changed_when: false
+  no_log: true
+
+- name: Wait for both freshly pulled containers and projected health access
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['get', 'pods', '-n', ci_namespace, '-l', 'job-name=proof', '-o', 'json'] }}"
+  register: ci_pods
+  until: >-
+    (ci_pods.stdout | from_json)['items'] | length == 1 and
+    ((ci_pods.stdout | from_json)['items'][0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length) == 1
+  retries: 180
+  delay: 5
+  changed_when: false
+  no_log: true
+
+- name: Retain the exact pod identity for this qualification
+  ansible.builtin.set_fact:
+    ci_pod: "{{ (ci_pods.stdout | from_json)['items'][0] }}"
+  no_log: true
+
+- name: Require digest pulls and the reviewed separation of workspace and health token
+  ansible.builtin.assert:
+    that:
+      - ci_pod.spec.nodeName == ci_node.metadata.name
+      - ci_pod.spec.initContainers[0].imagePullPolicy == 'Always'
+      - ci_pod.spec.containers[0].imagePullPolicy == 'Always'
+      - ci_pod.status.initContainerStatuses[0].imageID.endswith(ci_pod.spec.initContainers[0].image.split('@')[1])
+      - ci_pod.status.containerStatuses[0].imageID.endswith(ci_pod.spec.containers[0].image.split('@')[1])
+      - ci_pod.spec.initContainers[0].volumeMounts | selectattr('name', 'in', ['workspace', 'health', 'eligibility']) | list | length == 0
+    fail_msg: CI qualification did not use the selected immutable tools and isolated builder.
+  no_log: true
+
+- name: Prove native rootless execution, process sandbox and real OCI layer export
+  ansible.builtin.command:
+    argv: >-
+      {{ ci_kubectl + ['exec', '-n', ci_namespace, ci_pod.metadata.name, '-c', 'builder', '--',
+      '/bin/sh', '/proof/build-proof.sh', '/bin/sleep', '1800'] }}
+  register: ci_build_proof
+  changed_when: false
+  no_log: true
+
+- name: Require the real build marker
+  ansible.builtin.assert:
+    that: "'CLOUDLAB_ROOTLESS_BUILD_OK' in ci_build_proof.stdout"
+    fail_msg: The rebuilt builder did not complete the native rootless proof.
+
+- name: Prove the runner reaches the same process sandbox through pod loopback
+  ansible.builtin.command:
+    argv: >-
+      {{ ci_kubectl + ['exec', '-n', ci_namespace, ci_pod.metadata.name, '-c', 'runner', '--',
+      'buildctl', '--addr', 'tcp://127.0.0.1:1234', 'debug', 'workers', '-v'] }}
+  register: ci_tcp_workers
+  changed_when: false
+  no_log: true
+
+- name: Require full worker process isolation
+  ansible.builtin.assert:
+    that: ci_tcp_workers.stdout is search('org.mobyproject.buildkit.worker.oci.process-mode:\s+sandbox')
+
+- name: Prove the health token cannot read secrets or pods or create a workload
+  ansible.builtin.command:
+    argv: >-
+      {{ ci_kubectl + ['exec', '-n', ci_namespace, ci_pod.metadata.name, '-c', 'runner', '--',
+      'python3', '-I', '-S', '/proof/api-denial.py'] }}
+  register: ci_api_denial
+  changed_when: false
+  no_log: true
+
+- name: Require actual API authorization denials
+  ansible.builtin.assert:
+    that: "'CLOUDLAB_CI_API_DENIAL_OK' in ci_api_denial.stdout"
+
+- name: Reject a second build pod using native quota admission
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['create', '--dry-run=server', '-f', '-'] }}"
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'quota-denied',
+      'namespace': ci_namespace, 'labels': ci_labels}, 'spec': ci_fixture.pod} | to_json }}
+  register: ci_quota_denial
+  changed_when: false
+  failed_when: ci_quota_denial.rc == 0 or 'exceeded quota' not in ci_quota_denial.stderr
+  no_log: true
+
+- name: Start the health termination measurement
+  ansible.builtin.command:
+    argv: [python3, -c, 'import time; print(time.monotonic())']
+  register: ci_health_started
+  changed_when: false
+
+- name: Withdraw only this fixture identity's node health access
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['delete', 'clusterrolebinding', ci_namespace] }}"
+  changed_when: false
+  no_log: true
+
+- name: Require kubelet termination of both runner and restartable builder
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['get', 'pod', ci_pod.metadata.name, '-n', ci_namespace, '-o', 'json'] }}"
+  register: ci_terminated
+  until: >-
+    (ci_terminated.stdout | from_json).metadata.uid == ci_pod.metadata.uid and
+    (ci_terminated.stdout | from_json).status.phase == 'Failed' and
+    (ci_terminated.stdout | from_json).status.containerStatuses[0].state.terminated is defined and
+    (ci_terminated.stdout | from_json).status.initContainerStatuses[0].state.terminated is defined
+  retries: 90
+  delay: 1
+  changed_when: false
+  no_log: true
+
+- name: Finish the health termination measurement
+  ansible.builtin.command:
+    argv: [python3, -c, 'import time; print(time.monotonic())']
+  register: ci_health_finished
+  changed_when: false
+
+- name: Enforce the scoped health failure termination bound
+  ansible.builtin.assert:
+    that: (ci_health_finished.stdout | float) - (ci_health_started.stdout | float) <= 90
+    fail_msg: Runner and builder exceeded the 90-second health-access-loss bound.
+
+- name: Verify the original job identity before removing it
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['get', 'job', 'proof', '-n', ci_namespace, '-o', 'jsonpath={.metadata.uid}'] }}"
+  register: ci_job_current_uid
+  changed_when: false
+  no_log: true
+
+- name: Preserve any replaced job
+  ansible.builtin.assert:
+    that: ci_job_current_uid.stdout == (ci_job_created.stdout | from_json).metadata.uid
+
+- name: Remove this completed job before qualifying the other node
+  ansible.builtin.command:
+    argv: "{{ ci_kubectl + ['delete', 'job', 'proof', '-n', ci_namespace, '--wait=true', '--timeout=90s'] }}"
+  changed_when: false
+  no_log: true

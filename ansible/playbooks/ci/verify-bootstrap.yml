@@ -1,0 +1,136 @@
+---
+- name: Verify the declared host profiles before exposing any pull credentials
+  ansible.builtin.import_playbook: ../buildkit/verify-host.yml
+
+- name: Qualify published CI tools without GitHub or signing credentials
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    ci_kubectl: [/usr/local/bin/k3s, kubectl, '--request-timeout=15s']
+    ci_labels: {cloudlab.io/fixture: ci-bootstrap, cloudlab.io/owner: ci-platform}
+    ci_namespace: '{{ ci_fixture.namespace.metadata.name }}'
+  tasks:
+    - name: Require the bounded disposable fixture scope
+      ansible.builtin.assert:
+        that:
+          - ci_namespace is match('^cloudlab-ci-proof-[a-f0-9]{12}$')
+          - ci_fixture.pod.automountServiceAccountToken == false
+          - ci_fixture.pod.hostUsers == false
+          - ci_fixture.pod.volumes | selectattr('hostPath', 'defined') | list | length == 0
+          - ci_fixture.pod.volumes | selectattr('persistentVolumeClaim', 'defined') | list | length == 0
+          - ci_fixture.pod.initContainers | length == 1
+          - ci_fixture.pod.containers | length == 1
+          - ci_fixture.pod.initContainers[0].restartPolicy == 'Always'
+        fail_msg: CI qualification requires disposable storage and the reviewed rootless sidecar.
+      no_log: true
+
+    - name: Read the existing secret consumer boundary
+      ansible.builtin.command:
+        argv: "{{ ci_kubectl + ['get', 'clustersecretstore', 'cloudlab', '-o', 'json'] }}"
+      register: ci_secret_store
+      changed_when: false
+      no_log: true
+
+    - name: Require the accepted approved-namespace secret delivery contract
+      ansible.builtin.assert:
+        that: >-
+          {'cloudlab.io/service-secrets': 'approved'} in
+          ((ci_secret_store.stdout | from_json).spec.conditions |
+          selectattr('namespaceSelector', 'defined') | map(attribute='namespaceSelector.matchLabels') | list)
+        fail_msg: CI qualification requires the approved service-secret namespace boundary from the existing platform.
+
+    - name: Remove terminal fixtures retained by an interrupted check
+      ansible.builtin.include_tasks: tasks/cleanup.yml
+      vars:
+        ci_cleanup_wait: true
+
+    - name: Read the two Linux nodes
+      ansible.builtin.command:
+        argv: "{{ ci_kubectl + ['get', 'nodes', '-l', 'kubernetes.io/os=linux', '-o', 'json'] }}"
+      register: ci_nodes
+      changed_when: false
+      no_log: true
+
+    - name: Require exactly two nodes
+      ansible.builtin.assert:
+        that: (ci_nodes.stdout | from_json)['items'] | length == 2
+
+    - name: Exercise only the fresh fixture namespace
+      block:
+        - name: Create the disposable baseline namespace
+          ansible.builtin.command:
+            argv: "{{ ci_kubectl + ['create', '-f', '-', '-o', 'json'] }}"
+            stdin: '{{ ci_fixture.namespace | to_json }}'
+          register: ci_namespace_created
+          changed_when: false
+          no_log: true
+
+        - name: Create quota, read-only health identity and public robot delivery
+          ansible.builtin.command:
+            argv: "{{ ci_kubectl + ['create', '-f', '-', '-o', 'json'] }}"
+            stdin: '{{ ci_fixture.resources_b64 | b64decode }}'
+          changed_when: false
+          no_log: true
+
+        - name: Wait for the existing ESO reader to deliver only the public pull robot
+          ansible.builtin.command:
+            argv: "{{ ci_kubectl + ['get', 'externalsecret', 'harbor-tools-pull', '-n', ci_namespace, '-o', 'json'] }}"
+          register: ci_pull_secret
+          until: >-
+            ((ci_pull_secret.stdout | from_json).status.conditions | default([]) |
+            selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length) == 1
+          retries: 60
+          delay: 5
+          changed_when: false
+          no_log: true
+
+        - name: Wait for aggregate quota accounting
+          ansible.builtin.command:
+            argv: "{{ ci_kubectl + ['get', 'resourcequota', 'build-budget', '-n', ci_namespace, '-o', 'json'] }}"
+          register: ci_quota
+          until: ((ci_quota.stdout | from_json).status.hard | default({})) | length > 0
+          retries: 30
+          delay: 1
+          changed_when: false
+          no_log: true
+
+        - name: Qualify one production profile at a time on each node
+          ansible.builtin.include_tasks: tasks/prove-node.yml
+          loop: "{{ (ci_nodes.stdout | from_json)['items'] }}"
+          loop_control:
+            loop_var: ci_node
+            label: node
+      rescue:
+        - name: Read only fixture Pod diagnostics before cleanup
+          ansible.builtin.command:
+            argv: "{{ ci_kubectl + ['get', 'pods', '-n', ci_namespace, '-o', 'json'] }}"
+          register: ci_failure_pods
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Retain protected Pod diagnostics on the independent client
+          ansible.builtin.copy:
+            content: >-
+              {{ {'pods': ci_failure_pods.stdout, 'build': ci_build_proof | default({}),
+              'api': ci_api_denial | default({}), 'workers': ci_tcp_workers | default({})} | to_json }}
+            dest: /infra-work/harbor/ci/qualification-failure.json
+            mode: '0600'
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          no_log: true
+
+        - name: Reject incomplete CI qualification
+          ansible.builtin.fail:
+            msg: CI qualification failed; protected Pod diagnostics retained and no job credentials provisioned.
+      always:
+        - name: Remove only the namespace and identities created by this check
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+          vars:
+            ci_cleanup_wait: false
+            ci_cleanup_name: '{{ ci_namespace }}'
+            ci_cleanup_expected_uid: '{{ (ci_namespace_created.stdout | from_json).metadata.uid }}'
+          when: ci_namespace_created is defined and ci_namespace_created.rc == 0
