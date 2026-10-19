@@ -14,7 +14,8 @@ class RegistrationTests(unittest.TestCase):
         sets = [row for row in objects if row['kind'] == 'ApplicationSet' and
                 row['metadata'].get('labels', {}).get('cloudlab.io/owner') == 'ci-platform']
         self.assertEqual([row['metadata']['name'] for row in sets], [
-            'cloudlab-ci-controller', 'cloudlab-ci-application-controller', 'cloudlab-ci-application-runner'])
+            'cloudlab-ci-controller', 'cloudlab-ci-application-controller', 'cloudlab-ci-application-runner',
+            'cloudlab-ci-application-publisher'])
         controller = sets[0]
         generator, = controller['spec']['generators']
         self.assertEqual(generator['git']['files'], [{'path': 'platform/ci/config.json'}])
@@ -27,7 +28,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_applications_use_one_generic_catalog_without_application_specific_installers(self):
         objects = render_root()
-        for component, chart in (('controller', 'controller'), ('runner', 'pool')):
+        for component, chart in (('controller', 'controller'), ('runner', 'pool'), ('publisher', 'pool')):
             application = next(row for row in objects if row['kind'] == 'ApplicationSet' and
                                row['metadata']['name'] == 'cloudlab-ci-application-' + component)
             self.assertEqual(application['spec']['generators'][0]['git']['files'],

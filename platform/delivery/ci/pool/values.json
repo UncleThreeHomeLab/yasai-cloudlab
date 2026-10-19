@@ -1,4 +1,6 @@
 {
+  "manageSharedResources": true,
+  "policyName": "cloudlab-ci-eligibility",
   "arc": {
     "minRunners": 0,
     "maxRunners": 1,

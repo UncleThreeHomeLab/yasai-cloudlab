@@ -3,6 +3,7 @@
   "required": ["arc"],
   "properties": {
     "manageSystemNamespace": {"type": "boolean"},
+    "runnerPools": {"type": "integer", "minimum": 1, "maximum": 2},
     "arc": {
       "type": "object",
       "required": ["image", "flags", "replicaCount"],

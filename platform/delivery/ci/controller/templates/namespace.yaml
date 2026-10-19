@@ -46,6 +46,6 @@ spec:
     limits.cpu: '3'
     limits.memory: 6Gi
     limits.ephemeral-storage: 32Gi
-    count/autoscalingrunnersets.actions.github.com: '1'
-    count/ephemeralrunnersets.actions.github.com: '2'
-    count/ephemeralrunners.actions.github.com: '2'
+    count/autoscalingrunnersets.actions.github.com: {{ .Values.runnerPools | quote }}
+    count/ephemeralrunnersets.actions.github.com: {{ mul 2 .Values.runnerPools | quote }}
+    count/ephemeralrunners.actions.github.com: {{ mul 2 .Values.runnerPools | quote }}

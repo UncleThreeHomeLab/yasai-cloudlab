@@ -1,5 +1,6 @@
 """Exercise the native ARC pool and deny unsafe registration inputs."""
 import json
+import copy
 import base64
 from pathlib import Path
 import subprocess
@@ -11,10 +12,33 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 import yaml
 
 from playbooks.ci.files.chart import POOL, check_pool, render
-from playbooks.ci.tests.fixtures import pool_values
+from playbooks.ci.tests.fixtures import pool_values, bootstrap_document
 
 
 class PoolChartTests(unittest.TestCase):
+    def test_two_roles_share_one_namespace_budget_and_one_owner_for_shared_objects(self):
+        namespace = 'cloudlab-ci-public-example'
+        values = pool_values()
+        values['arc']['githubConfigSecret'] = 'github-arc-public'
+        primary = render(values, chart=POOL, namespace=namespace)
+        publisher = copy.deepcopy(values)
+        publisher.update(manageSharedResources=False, policyName='cloudlab-ci-eligibility-publish')
+        publisher['arc']['runnerScaleSetName'] = 'cloudlab-example-publish'
+        next(v for v in publisher['arc']['template']['spec']['volumes'] if v['name'] == 'eligibility')['configMap']['name'] = publisher['policyName']
+        second = render(publisher, chart=POOL, namespace=namespace, release='publisher')
+        shared = {'ServiceAccount', 'ClusterRole', 'ClusterRoleBinding', 'ExternalSecret'}
+        self.assertFalse(any(x['kind'] in shared or x['metadata']['name'] == 'cloudlab-buildkit-ids' for x in second))
+        identities = [(x['kind'], x['metadata'].get('namespace', namespace), x['metadata']['name']) for x in primary + second]
+        self.assertEqual(len(identities), len(set(identities)))
+        repository, digest = bootstrap_document()['images']['controller'].split('@')
+        controller = render({'runnerPools': 2, 'arc': {'image': {'repository': repository, 'tag': '0.15.0@' + digest}}})
+        quota = next(x for x in controller if x['kind'] == 'ResourceQuota' and x['metadata']['namespace'] == 'cloudlab-ci-private')
+        self.assertEqual(quota['spec']['hard']['pods'], '1')
+        self.assertEqual(quota['spec']['hard']['count/autoscalingrunnersets.actions.github.com'], '2')
+        publisher['manageSharedResources'] = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            render(publisher, chart=POOL, namespace=namespace)
+
     def test_delivered_app_key_preserves_rsa_material_through_both_template_stages(self):
         secret, = [row for row in render(pool_values(), chart=POOL) if row['kind'] == 'ExternalSecret']
         template = secret['spec']['target']['template']['data']['github_app_private_key']

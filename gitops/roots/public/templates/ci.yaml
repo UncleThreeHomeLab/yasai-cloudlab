@@ -117,7 +117,7 @@ spec:
         syncOptions: [FailOnSharedResource=true, ServerSideApply=true, DisableClientSideApplyMigration=true]
 {{- end }}
 {{- end }}
-{{- range $component := list "controller" "runner" }}
+{{- range $component := list "controller" "runner" "publisher" }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -145,7 +145,7 @@ spec:
       sources:
         - repoURL: {{ $.Values.repository | quote }}
           targetRevision: {{ $.Values.revision | quote }}
-          path: platform/delivery/ci/{{ if eq $component "runner" }}pool{{ else }}controller{{ end }}
+          path: platform/delivery/ci/{{ if eq $component "controller" }}controller{{ else }}pool{{ end }}
           helm:
             releaseName: 'cloudlab-ci-{{ "{{ .name }}" }}-{{ $component }}'
             skipCrds: true

@@ -6,6 +6,7 @@
 {{- if ne .Values.arc.githubConfigSecret $item }}
 {{- fail "Runner App credentials must match the public/private namespace boundary" }}
 {{- end }}
+{{- if .Values.manageSharedResources }}
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata: {name: {{ $item }}, namespace: {{ .Release.Namespace }}}
@@ -24,3 +25,4 @@ spec:
         github_app_private_key: |-
 {{ .Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: {{ $item }}}}]
+{{- end }}

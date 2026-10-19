@@ -1,4 +1,9 @@
 {{- $repository := trimPrefix "https://github.com/" .Values.arc.githubConfigUrl }}
+{{- range .Values.arc.template.spec.volumes }}
+{{- if and (eq .name "eligibility") (ne .configMap.name $.Values.policyName) }}
+{{- fail "Runner policy volume must reference its own role policy" }}
+{{- end }}
+{{- end }}
 {{- range .Values.eligibility }}
 {{- if or (ne .repository $repository) (not (hasPrefix (printf "%s/.github/workflows/" $repository) .workflow_ref)) (not (hasSuffix (printf "@%s" .ref) .workflow_ref)) }}
 {{- fail "Runner eligibility must match its selected repository" }}
@@ -27,6 +32,6 @@
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
-metadata: {name: cloudlab-ci-eligibility, namespace: {{ .Release.Namespace }}}
+metadata: {name: {{ .Values.policyName }}, namespace: {{ .Release.Namespace }}}
 data:
   eligibility.json: {{ $policy | quote }}
