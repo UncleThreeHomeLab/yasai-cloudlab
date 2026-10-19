@@ -1,4 +1,4 @@
-"""Propose one fixture digest from a fixed GitHub-hosted receiver workflow."""
+"""Propose one fixture digest from a fixed local receiver workflow."""
 import hashlib
 import json
 import os
@@ -14,7 +14,7 @@ def request(event, environment):
     repository = environment.get('GITHUB_REPOSITORY', '')
     if (scope not in ('public', 'private') or not re.fullmatch(r'[a-z0-9-]+\[bot\]', actor) or
             not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository) or
-            environment.get('RUNNER_ENVIRONMENT') != 'github-hosted' or
+            environment.get('RUNNER_ENVIRONMENT') != 'self-hosted' or
             environment.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or
             environment.get('GITHUB_REF') != 'refs/heads/main' or
             environment.get('GITHUB_ACTOR') != actor or
@@ -22,7 +22,7 @@ def request(event, environment):
             event.get('repository', {}).get('full_name') != repository or
             event['repository'].get('private') is not (scope == 'private') or
             event['repository'].get('fork') is not False):
-        raise ValueError('Release proposals require the fixed hosted workflow and scoped App identity')
+        raise ValueError('Release proposals require the fixed local workflow and scoped App identity')
     inputs = event.get('inputs', {})
     if (set(inputs) != {'digest', 'source_revision', 'workflow_run_id'} or
             not all(isinstance(value, str) for value in inputs.values()) or

@@ -43,7 +43,7 @@ def fixture_repository():
 
 def release_request():
     environment = {'RELEASE_SCOPE': 'private', 'RELEASE_ACTOR': 'release-private[bot]',
-                   'GITHUB_REPOSITORY': 'example/gitops', 'RUNNER_ENVIRONMENT': 'github-hosted',
+                   'GITHUB_REPOSITORY': 'example/gitops', 'RUNNER_ENVIRONMENT': 'self-hosted',
                    'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
                    'GITHUB_ACTOR': 'release-private[bot]'}
     event = {'sender': {'login': environment['RELEASE_ACTOR'], 'type': 'Bot'},
