@@ -247,9 +247,9 @@ def validate(manifest):
 
 
 def signature_record(value, inventory):
-    image = json.loads((ARTIFACTS / 'cosign.lock.json').read_text())['image']
+    verifier = json.loads((ARTIFACTS / 'cosign.lock.json').read_text())
     if (not isinstance(value, dict) or set(value) != {'format', 'verifier_sha256', 'image', 'projects'} or
-            value.get('format') != 1 or value.get('image') != image or
+            value.get('format') != 1 or value.get('image') not in [verifier['image'], *verifier['compatible_images']] or
             not re.fullmatch('[a-f0-9]{64}', value.get('verifier_sha256', '')) or
             not isinstance(value.get('projects'), dict) or
             set(value['projects']) != {'cloudlab-public', 'cloudlab-private'}):
