@@ -24,7 +24,7 @@ grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$'
 mkdir -p /workspace/context
 cat > /workspace/context/Dockerfile <<'DOCKERFILE'
 FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
-RUN python -c 'import os; assert os.getuid() == 0; open("/proof.bin", "wb").write(os.urandom(8 * 1024 * 1024))'
+RUN python -c 'import os; assert os.getuid() == 0; open("/proof.bin", "wb").write(os.urandom(8 * 1024 * 1024)); os.chown("/proof.bin", 65534, 65534)'
 DOCKERFILE
 buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
   --frontend dockerfile.v0 --local context=/workspace/context --local dockerfile=/workspace/context \
