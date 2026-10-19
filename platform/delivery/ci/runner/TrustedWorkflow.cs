@@ -30,10 +30,22 @@ namespace GitHub.Runner.Worker
             {
                 // The job must not learn policy contents or filesystem diagnostics.
             }
+            // Only original metadata shape is reported; never print policy rows or credentials.
+            var missing = new List<string>();
+            var metadata = message?.ContextData != null && message.ContextData.TryGetValue("github", out var context)
+                ? context as DictionaryContextData : null;
+            foreach (var field in Fields.Where(field => field != "job"))
+                if (metadata == null || !metadata.TryGetValue(field, out var value) || value is not StringContextData)
+                    missing.Add(field);
+            var job = message?.JobName ?? "missing";
+            if (!Regex.IsMatch(job, @"\A[A-Za-z0-9_ /.-]{1,128}\z")) job = "invalid";
+            Console.Error.WriteLine("Runner eligibility rejected original job metadata: job=" + job +
+                "; missing=" + string.Join(",", missing));
             throw new InvalidOperationException("Job is not eligible for this runner.");
         }
 
-        internal static bool Allows(AgentJobRequestMessage message, byte[] policy)
+        internal static bool Allows(AgentJobRequestMessage message, byte[] policy,
+            Func<string, JsonDocument> fetch = null)
         {
             if (message == null || policy == null || policy.Length == 0 || policy.Length > MaximumBytes ||
                 !Empty(message.JobContainer) || !Empty(message.JobServiceContainers) || !Empty(message.Snapshot) ||
@@ -56,6 +68,8 @@ namespace GitHub.Runner.Worker
             {
                 using var document = JsonDocument.Parse(policy, new JsonDocumentOptions { MaxDepth = 4 });
                 var root = document.RootElement;
+                if (ExactFields(root, new[] { "templates" }))
+                    return Valid(actual) && TrustedTemplate.Allows(message, actual, root.GetProperty("templates"), fetch);
                 if (!ExactFields(root, new[] { "workflows" }))
                     return false;
                 var workflows = root.GetProperty("workflows");

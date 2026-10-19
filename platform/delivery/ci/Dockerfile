@@ -107,6 +107,7 @@ RUN curl -fsSL --retry 3 https://codeload.github.com/actions/runner/tar.gz/refs/
 COPY --chmod=0644 runner/runner.patch /tmp/runner.patch
 RUN git apply --check /tmp/runner.patch && git apply /tmp/runner.patch
 COPY --chmod=0644 runner/TrustedWorkflow.cs src/Runner.Worker/TrustedWorkflow.cs
+COPY --chmod=0644 runner/TrustedTemplate.cs src/Runner.Worker/TrustedTemplate.cs
 COPY --chmod=0644 runner/tests/Fixtures.cs src/Test/L0/Worker/CloudlabFixtures.cs
 COPY --chmod=0644 runner/tests/TrustedWorkflowL0.cs src/Test/L0/Worker/CloudlabTrustedWorkflowL0.cs
 COPY runner/nuget/ src/
@@ -126,7 +127,7 @@ RUN dotnet test Test/Test.csproj --configuration Release --runtime linux-x64 --n
     -p:Version=2.338.0 -p:RuntimeIdentifiers=linux-x64 \
     --filter 'FullyQualifiedName~TrustedWorkflow|FullyQualifiedName~JobRunnerL0' \
     --logger 'trx;LogFileName=cloudlab-gate.trx' --results-directory /test-results \
-    && grep -Eq 'total="18".*passed="18"' /test-results/cloudlab-gate.trx
+    && grep -Eq 'total="21".*passed="21"' /test-results/cloudlab-gate.trx
 
 FROM source AS build
 COPY --from=test /test-results/cloudlab-gate.trx /test-results/cloudlab-gate.trx

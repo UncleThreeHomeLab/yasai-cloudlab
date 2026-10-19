@@ -1,9 +1,26 @@
 {
   "type": "object",
   "required": ["arc", "eligibility"],
+  "anyOf": [{"properties": {"eligibility": {"minItems": 1}}},
+            {"required": ["workflowTemplates"], "properties": {"workflowTemplates": {"minItems": 1}}}],
   "properties": {
-    "eligibility": {
+    "workflowTemplates": {
       "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["repository_id", "repository", "workflow_path", "workflow_sha256", "job", "visibility"],
+        "properties": {
+          "repository_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+          "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+          "workflow_path": {"const": ".github/workflows/ci.yaml"},
+          "workflow_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "job": {"enum": ["test", "publish"]},
+          "visibility": {"enum": ["public", "private"]}
+        }
+      }
+    },
+    "eligibility": {
+      "type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["repository_id", "repository", "workflow_ref", "workflow_sha", "sha", "ref", "event_name", "job"],

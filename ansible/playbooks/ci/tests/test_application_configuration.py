@@ -13,6 +13,19 @@ from playbooks.ci.tests.fixtures import qualified_tools, pool_values
 
 
 class ApplicationConfigurationTests(unittest.TestCase):
+    def test_reviewed_template_uses_native_gate_and_rejects_foreign_or_mixed_policies(self):
+        application, current = self.inputs()
+        row = {'repository_id': '123', 'repository': current['full_name'], 'visibility': 'public',
+               'workflow_path': '.github/workflows/ci.yaml', 'workflow_sha256': 'a' * 64, 'job': 'test'}
+        document = application_configuration(qualified_tools(), application, current, templates=[row])['runner.json']
+        objects = render(document['values'], chart=POOL, namespace=document['namespace'])
+        policy = next(x for x in objects if x['kind'] == 'ConfigMap' and x['metadata']['name'] == 'cloudlab-ci-eligibility')
+        self.assertEqual(json.loads(policy['data']['eligibility.json']), {'templates': [row]})
+        with self.assertRaises(ValueError):
+            application_configuration(qualified_tools(), application, current, templates=[dict(row, repository_id='999')])
+        with self.assertRaises(ValueError):
+            application_configuration(qualified_tools(), application, current, [pool_values()['eligibility'][0]], [row])
+
     def test_local_command_reads_only_approved_metadata_and_preserves_repeated_output(self):
         application, current = self.inputs()
         api = Mock()
