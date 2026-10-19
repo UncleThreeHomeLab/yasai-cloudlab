@@ -1,6 +1,8 @@
 """Check the qualification trust boundary and preserve the real pool profile."""
 import json
+import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import unittest
@@ -13,6 +15,36 @@ from playbooks.ci.tests.fixtures import bootstrap_document, render_resources
 
 
 class QualificationTests(unittest.TestCase):
+    def test_real_ansible_reads_protected_invocation_file_and_preserves_eso_templates(self):
+        original_run = subprocess.run
+        fixture = bundle(images(bootstrap_document()), 'cloudlab-ci-proof-' + 'a' * 12)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / 'ci').mkdir()
+            (directory / 'ci/images.json').write_text(json.dumps(bootstrap_document()))
+            output = directory / 'rendered.json'
+            playbook = directory / 'native.json'
+            playbook.write_text(json.dumps([{'name': 'Read real extra-vars file', 'hosts': 'localhost',
+                'gather_facts': False, 'vars': {'ansible_python_interpreter': sys.executable}, 'tasks': [
+                    {'name': 'Preserve ESO expressions', 'ansible.builtin.copy': {
+                        'content': '{{ ci_fixture.resources_b64 | b64decode }}',
+                        'dest': str(output), 'mode': '0600'}}]}]))
+            def execute(command, **kwargs):
+                inputs = Path(command[-1][1:])
+                self.assertEqual(stat.S_IMODE(inputs.stat().st_mode), 0o600)
+                self.assertNotIn('input', kwargs)
+                return original_run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook),
+                                     '--extra-vars', command[-1]], capture_output=True, text=True, timeout=60)
+            with patch.object(qualification.api, 'WORK', directory), \
+                    patch.object(qualification.api, 'binding', return_value='c' * 40), \
+                    patch.object(qualification.api, 'reviewed_ancestor', return_value=True), \
+                    patch.object(qualification, 'bundle', return_value=fixture), \
+                    patch.object(qualification.subprocess, 'run', side_effect=execute):
+                with self.assertRaises(SystemExit) as result:
+                    qualification.main()
+                self.assertEqual(result.exception.code, 0)
+            self.assertEqual(json.loads(output.read_text()), fixture['resources'])
+
     def test_failed_qualification_preserves_prior_receipt_and_success_records_exact_images(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -30,7 +62,10 @@ class QualificationTests(unittest.TestCase):
                     with self.assertRaises(SystemExit) as failure:
                         qualification.main()
                     self.assertEqual(failure.exception.code, code)
-                    self.assertEqual(command.call_args.args[0][-1], '@/dev/stdin')
+                    argument = command.call_args.args[0][-1]
+                    self.assertTrue(argument.startswith('@/dev/shm/'))
+                    self.assertFalse(Path(argument[1:]).exists())
+                    self.assertNotIn('input', command.call_args.kwargs)
                 if code:
                     self.assertEqual(receipt.read_bytes(), original)
                 else:

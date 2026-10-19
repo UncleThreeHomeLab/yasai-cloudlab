@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import tempfile
 
 import yaml
 
@@ -108,9 +109,11 @@ def main():
         if not api.reviewed_ancestor(repository, document['revision'], revision, environment):
             raise ValueError('Bootstrap images must originate from a reviewed ancestor')
         configuration = bundle(references, 'cloudlab-ci-proof-' + secrets.token_hex(6))
-        result = subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/ci/verify-bootstrap.yml',
-                                 '--extra-vars', '@/dev/stdin'], input=json.dumps({'ci_fixture': ansible_inputs(configuration)}),
-                                text=True, cwd=ROOT / 'ansible', check=False)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', dir='/dev/shm', encoding='utf-8') as inputs:
+            json.dump({'ci_fixture': ansible_inputs(configuration)}, inputs)
+            inputs.flush()
+            result = subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/ci/verify-bootstrap.yml',
+                                     '--extra-vars', '@' + inputs.name], text=True, cwd=ROOT / 'ansible', check=False)
         if result.returncode == 0:
             profile = hashlib.sha256(b''.join(path.read_bytes() for path in (
                 POOL / 'values.json', POOL / 'templates/health.yaml', POOL / 'templates/builder-ids.yaml',
