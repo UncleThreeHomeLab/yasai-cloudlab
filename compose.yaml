@@ -26,6 +26,12 @@ services:
     working_dir: /workspace
     command: []
 
+  ci-qualify:
+    profiles: [ci]
+    extends: {service: infra-harbor}
+    entrypoint: [python, /opt/runner/run.py, ci-bootstrap-check]
+    command: []
+
   ci-runner-image:
     profiles: [ci]
     platform: linux/amd64

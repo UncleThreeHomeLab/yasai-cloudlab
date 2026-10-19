@@ -102,7 +102,9 @@ Generate controller inputs with `--application-file` (JSON fields `name`,
 `repository`, `visibility`) and an explicit `--output` directory. Review inputs in
 the private GitOps catalog at `platform/ci/pools/<name>/controller.json`; add
 `runner.json` only after exact workflow eligibility is approved. Argo continuously
-repairs each pool's namespace and security profile. Run the same Compose client with
+repairs each pool's namespace and security profile. Qualify the published tools on
+both nodes with `docker compose --profile ci run --rm ci-qualify` before enabling a pool.
+Run the same Compose client with
 `-m playbooks.harbor.files.control credentials` to create missing installation secrets locally.
 Run `gh auth token | docker compose run -T --rm --entrypoint python service -m playbooks.harbor.files.control identity-prepare`
 and merge its private client PR. Add `harbor` to `PRIVATE_ACCESS_HOSTS`, review
