@@ -41,7 +41,7 @@ elif args[0] == 'create':
 elif args[0] == 'wait':
     assert '--for=delete' in args
 elif args[0] == 'logs':
-    response = 'CLOUDLAB_ROOTLESS_BUILD_OK'
+    response = 'build-failed-fixture' if state.get('fail_build') else 'CLOUDLAB_ROOTLESS_BUILD_OK'
 elif args[:2] == ['delete', 'job/proof']:
     state.pop('job')
 elif args[0] == 'delete':

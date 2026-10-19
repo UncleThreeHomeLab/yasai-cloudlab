@@ -30,6 +30,7 @@ class NativeProofTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             result, state = fixtures.prove(Path(temporary), fail_build=True)
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn('build-failed-fixture', result.stdout)
         self.assertEqual(state['build_nodes'], ['node-a'])
         self.assertTrue(state['namespace_deleted'])
 
@@ -39,3 +40,12 @@ class NativeProofTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('namespace_deleted', state)
         self.assertIn('namespace', state)
+
+    def test_credentials_or_existing_data_fail_before_any_cluster_operation(self):
+        for field in ('secret', 'projected', 'hostPath', 'persistentVolumeClaim'):
+            configuration = fixtures.values()
+            configuration['template']['spec']['volumes'].append({'name': 'forbidden', field: {}})
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                result, state = fixtures.prove(Path(temporary), configuration=configuration)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(state['calls'], [])
