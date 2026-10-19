@@ -37,6 +37,18 @@ class BootstrapTests(unittest.TestCase):
                     bootstrap.grant_identity_source(foreign)
                 write.assert_not_called()
 
+    def test_identity_source_grant_preserves_existing_application_set_permission(self):
+        project = self.identity_project()
+        sets = {'group': 'argoproj.io', 'kind': 'ApplicationSet'}
+        project['spec']['namespaceResourceWhitelist'].append(sets)
+        with patch.object(bootstrap, 'kube') as write:
+            self.assertTrue(bootstrap.grant_identity_source(project))
+            desired = json.loads(write.call_args.args[-1])[2]['value']
+            self.assertIn(sets, desired)
+            project['spec']['namespaceResourceWhitelist'] = desired
+            self.assertFalse(bootstrap.grant_identity_source(project))
+            self.assertEqual(write.call_count, 1)
+
     def test_pending_identity_source_grant_repairs_with_controller_stopped_and_source_unchanged(self):
         import source_transition
         with tempfile.TemporaryDirectory() as folder:

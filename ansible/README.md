@@ -74,3 +74,12 @@ bootstrap publication, run `docker compose --profile ci run --build --rm
 It uses the existing approved-namespace ESO contract for the public pull robot,
 then tests the production rootless profile, quota, read-only health identity and
 bounded sidecar termination on both nodes. Only owned disposable fixtures are removed.
+Generate non-secret CI values with the local `ci-bootstrap` entry point
+`python -m playbooks.ci.files.configuration`; it accepts the existing GitHub setup
+credential through stdin. Review its output into `platform/ci/config.json` in the
+designated private configuration repository. Argo reads this file through the
+read-only `github-argocd` App (`APP_ID`, `INSTALLATION_ID`, `PRIVATE_KEY`).
+The public root's `ci.enabled` installs the controller; `ci.poolEnabled` separately
+permits the runner pool. Pool inputs require `--workflow-revision` matching the
+actual private fixture's `main` workflow. Generate a new output file to review
+changed inputs; existing files and credentials are never overwritten.

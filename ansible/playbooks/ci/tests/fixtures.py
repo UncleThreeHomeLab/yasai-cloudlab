@@ -2,9 +2,10 @@
 import json
 import subprocess
 import sys
+import yaml
 
-from playbooks.ci.files.chart import POOL
-from playbooks.ci.files.qualification import ansible_inputs
+from playbooks.ci.files.chart import POOL, ROOT
+from playbooks.ci.files.qualification import ansible_inputs, profile_fingerprint
 
 
 def pool_values():
@@ -27,6 +28,19 @@ def bootstrap_document():
         for kind in ('controller', 'runner', 'builder')}}
 
 
+def qualified_tools():
+    return {'images': bootstrap_document()['images'], 'image_revision': 'b' * 40, 'revision': 'c' * 40,
+            'nodes_verified': 2, 'max_build_pods': 1, 'workload_api_writes_denied': True,
+            'health_access_loss_shutdown_bound_seconds': 90,
+            'github_or_signing_credentials_provisioned': False, 'profile_sha256': profile_fingerprint()}
+
+
+def fixture_repository():
+    return {'id': 123, 'html_url': 'https://github.com/example/private-fixture',
+            'full_name': 'example/private-fixture', 'private': True, 'fork': False, 'archived': False,
+            'default_branch': 'main', 'description': 'Managed by CloudLab repository setup: private-fixture'}
+
+
 def render_resources(directory, configuration):
     output = directory / 'resources.json'
     playbook = directory / 'render.json'
@@ -39,3 +53,16 @@ def render_resources(directory, configuration):
     if result.returncode:
         raise AssertionError(result.stdout + result.stderr)
     return json.loads(output.read_text())
+
+
+def render_root(*, pool=False, private=True):
+    values = {'ci': {'enabled': True, 'poolEnabled': pool}}
+    if private:
+        values['identity'] = {'enabled': True, 'argo': {
+            'valuesRepository': 'https://github.com/example/private-config.git', 'valuesRevision': 'b' * 40}}
+    result = subprocess.run(['helm', 'template', 'cloudlab-root', str(ROOT / 'gitops/roots/public'),
+                             '--namespace', 'argocd', '-f', str(ROOT / 'gitops/roots/public/values.yaml'), '-f', '-'],
+                            input=yaml.safe_dump(values), capture_output=True, text=True, timeout=60)
+    if result.returncode:
+        raise AssertionError(result.stderr)
+    return [row for row in yaml.safe_load_all(result.stdout) if row]

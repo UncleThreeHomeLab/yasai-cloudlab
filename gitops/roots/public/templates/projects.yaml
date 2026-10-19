@@ -29,6 +29,7 @@ spec:
   namespaceResourceWhitelist:
     - {group: argoproj.io, kind: Application}
     - {group: argoproj.io, kind: AppProject}
+    - {group: argoproj.io, kind: ApplicationSet}
     {{- if or .Values.identity.argo .Values.services.enabled }}
     - {group: external-secrets.io, kind: ExternalSecret}
     {{- end }}
