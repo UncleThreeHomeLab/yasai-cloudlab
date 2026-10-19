@@ -6,9 +6,9 @@ from playbooks.argocd.files.github_setup import GitHub, configuration
 APPS = {
     'github-arc': (('private-fixture',), {'administration': 'write', 'metadata': 'read'}),
     'github-release-public': (('public-platform', 'public-fixture'),
-                              {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}),
+                              {'actions': 'write', 'metadata': 'read'}),
     'github-release-private': (('private-config', 'private-fixture'),
-                               {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}),
+                               {'actions': 'write', 'metadata': 'read'}),
 }
 
 

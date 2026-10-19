@@ -1,0 +1,57 @@
+name: Propose CI release
+run-name: ci-release-${{ inputs.source_revision }}-${{ inputs.workflow_run_id }}
+"on":
+  workflow_dispatch:
+    inputs:
+      digest: {description: Immutable image digest, required: true, type: string}
+      source_revision: {description: Reviewed application commit, required: true, type: string}
+      workflow_run_id: {description: Publishing workflow run, required: true, type: string}
+  workflow_call:
+    inputs:
+      digest: {required: true, type: string}
+      source_revision: {required: true, type: string}
+      workflow_run_id: {required: true, type: string}
+      scope: {required: false, type: string, default: public}
+      actor: {required: false, type: string, default: 'cloudlab-release-public[bot]'}
+permissions: {contents: read}
+concurrency:
+  group: ci-release-${{ github.repository }}-${{ inputs.scope || 'public' }}
+  cancel-in-progress: false
+jobs:
+  propose:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {contents: write, pull-requests: write}
+    steps:
+      - name: Propose the bounded artifact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SCOPE: ${{ inputs.scope || 'public' }}
+          RELEASE_ACTOR: ${{ inputs.actor || 'cloudlab-release-public[bot]' }}
+        shell: bash
+        run: |
+          python3 -I -S - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tempfile
+          import urllib.request
+
+          url = 'https://raw.githubusercontent.com/UncleThreeHomeLab/yasai-cloudlab/9bb3948e6e869f7549c0221bbfe4a31fae507576/ansible/playbooks/ci/files/release.py'
+          with urllib.request.urlopen(url, timeout=30) as response:
+              source = response.read(65537)
+          if hashlib.sha256(source).hexdigest() != '26b9363aa37d723d087fa4523baf7c579b63d4518fa58464d7ce5af56135136a':
+              raise SystemExit('Release helper checksum mismatch; no Git operation attempted')
+          environment = {key: os.environ[key] for key in (
+              'PATH', 'HOME', 'GH_TOKEN', 'GITHUB_EVENT_PATH', 'GITHUB_REPOSITORY',
+              'GITHUB_REF', 'GITHUB_ACTOR', 'GITHUB_EVENT_NAME', 'RUNNER_ENVIRONMENT',
+              'RELEASE_SCOPE', 'RELEASE_ACTOR')}
+          environment.update(GIT_TERMINAL_PROMPT='0', GIT_CONFIG_SYSTEM='/dev/null', GIT_CONFIG_GLOBAL='/dev/null')
+          with tempfile.TemporaryDirectory(prefix='cloudlab-receiver-') as directory:
+              helper = Path(directory) / 'release.py'
+              helper.write_bytes(source)
+              subprocess.run([sys.executable, '-I', '-S', str(helper)], env=environment, check=True, timeout=270)
+          PY

@@ -6,6 +6,21 @@ from playbooks.harbor.files import scopes
 
 
 class ScopeTests(unittest.TestCase):
+    def test_release_apps_can_dispatch_but_cannot_write_gitops_contents_or_pull_requests(self):
+        for title in ('github-release-public', 'github-release-private'):
+            _, permissions = scopes.APPS[title]
+            self.assertEqual(permissions, {'actions': 'write', 'metadata': 'read'})
+        legacy = {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}
+        _, app, installation, _ = self.fixture()
+        app['permissions'] = installation['permissions'] = legacy
+        api = Mock()
+        api.request.side_effect = [app, installation]
+        with patch.object(scopes, 'app_token', return_value='synthetic-jwt'), \
+                patch.object(scopes, 'GitHub', return_value=api), self.assertRaises(RuntimeError):
+            scopes.verify_app({'APP_ID': '7', 'INSTALLATION_ID': '9'}, {'fixture/private': True},
+                              {'actions': 'write', 'metadata': 'read'})
+        self.assertEqual(api.request.call_count, 2)
+
     def fixture(self):
         permissions = {'administration': 'write', 'metadata': 'read'}
         return permissions, {'id': 7, 'permissions': permissions}, {
