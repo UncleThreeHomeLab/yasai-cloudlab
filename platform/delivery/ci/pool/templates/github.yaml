@@ -21,5 +21,6 @@ spec:
       data:
         github_app_id: '{{ "{{ .APP_ID }}" }}'
         github_app_installation_id: '{{ "{{ .INSTALLATION_ID }}" }}'
-        github_app_private_key: '{{ "{{ .PRIVATE_KEY }}" }}'
+        github_app_private_key: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: {{ $item }}}}]

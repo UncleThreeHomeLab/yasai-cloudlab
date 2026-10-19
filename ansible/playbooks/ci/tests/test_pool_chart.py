@@ -1,13 +1,40 @@
 """Exercise the native ARC pool and deny unsafe registration inputs."""
 import json
+import base64
+from pathlib import Path
 import subprocess
+import tempfile
 import unittest
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+import yaml
 
 from playbooks.ci.files.chart import POOL, check_pool, render
 from playbooks.ci.tests.fixtures import pool_values
 
 
 class PoolChartTests(unittest.TestCase):
+    def test_delivered_app_key_preserves_rsa_material_through_both_template_stages(self):
+        secret, = [row for row in render(pool_values(), chart=POOL) if row['kind'] == 'ExternalSecret']
+        template = secret['spec']['target']['template']['data']['github_app_private_key']
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        for form in (serialization.PrivateFormat.TraditionalOpenSSL, serialization.PrivateFormat.PKCS8):
+            pem = key.private_bytes(serialization.Encoding.PEM, form, serialization.NoEncryption()).decode()
+            for text in (pem, ' '.join(pem.splitlines()), pem.replace('\n', '\r\n')):
+                with self.subTest(format=form), tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory)
+                    (path / 'Chart.yaml').write_text('apiVersion: v2\nname: pem\nversion: 0.1.0\n')
+                    (path / 'values.yaml').write_text(yaml.safe_dump({'PRIVATE_KEY': text}))
+                    (path / 'templates').mkdir()
+                    code = '{{ define "pem" }}' + template.replace('.PRIVATE_KEY', '.Values.PRIVATE_KEY') + '{{ end }}'
+                    code += '\napiVersion: v1\nkind: Secret\nmetadata: {name: fixture}\ndata:\n  key: {{ include "pem" . | b64enc | quote }}\n'
+                    (path / 'templates/key.yaml').write_text(code)
+                    rendered = subprocess.run(['helm', 'template', 'fixture', str(path)], capture_output=True, check=True)
+                    delivered = base64.b64decode(yaml.safe_load(rendered.stdout)['data']['key'])
+                    parsed = serialization.load_pem_private_key(delivered, password=None)
+                    self.assertEqual(parsed.private_numbers(), key.private_numbers())
+
     def test_reviewed_pull_request_policy_can_authorize_only_its_exact_merge_test(self):
         values = pool_values()
         row = values['eligibility'][0]
