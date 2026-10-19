@@ -523,6 +523,13 @@
         "unshare"
       ],
       "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "names": [
+        "keyctl"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 38
     }
   ]
 }

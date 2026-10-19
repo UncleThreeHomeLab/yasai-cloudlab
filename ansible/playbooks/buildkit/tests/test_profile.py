@@ -1,4 +1,5 @@
 import hashlib
+import errno
 import json
 from pathlib import Path
 import re
@@ -16,16 +17,17 @@ class BuilderProfileTests(unittest.TestCase):
             artifact = lock[name]
             self.assertEqual(hashlib.sha256((fixtures.BASE / 'files' / artifact['file']).read_bytes()).hexdigest(),
                              artifact['sha256'])
-        self.assertEqual(hashlib.sha256(raw).hexdigest(),
-                         '81c24837e0bf9ea3c4ec909b5f988259f21b8f77073d3f0b0e55c79979e64336')
         profile = json.loads(raw)
         self.assertEqual(profile['defaultAction'], 'SCMP_ACT_ERRNO')
         self.assertEqual(profile['architectures'], ['SCMP_ARCH_X86_64'])
-        self.assertEqual(set(profile['syscalls'][-1]['names']),
-                         {'chroot', 'clone', 'mount', 'pivot_root', 'sethostname', 'setns', 'umount2', 'unshare'})
+        namespace_calls = {'chroot', 'clone', 'mount', 'pivot_root', 'sethostname', 'setns', 'umount2', 'unshare'}
+        self.assertTrue(any(set(row['names']) == namespace_calls and row['action'] == 'SCMP_ACT_ALLOW'
+                            for row in profile['syscalls']))
         allowed = {name for row in profile['syscalls'] if row['action'] == 'SCMP_ACT_ALLOW' for name in row['names']}
-        self.assertFalse(allowed & {'bpf', 'kexec_load', 'reboot', 'perf_event_open', 'init_module', 'delete_module'})
+        self.assertFalse(allowed & {'keyctl', 'add_key', 'request_key', 'bpf', 'kexec_load', 'reboot', 'perf_event_open', 'init_module', 'delete_module'})
         self.assertTrue(any(row['names'] == ['clone3'] and row['errnoRet'] == 38 for row in profile['syscalls']))
+        self.assertEqual(lock['seccomp']['blocked_keyctl_errno'], errno.ENOSYS)
+        self.assertIn({'names': ['keyctl'], 'action': 'SCMP_ACT_ERRNO', 'errnoRet': errno.ENOSYS}, profile['syscalls'])
 
     def test_only_builder_has_the_exact_user_namespace_exceptions(self):
         configuration = fixtures.values()

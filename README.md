@@ -118,6 +118,7 @@ The [native runner values](platform/delivery/ci/runner.values.yaml) require Pod 
 namespaces and explicit builder-only AppArmor, seccomp and SETUID/GID exceptions.
 Builder verification runs sequential credential-free jobs on both nodes with a
 process sandbox, CPU/memory/storage quotas and no host mounts or Docker socket.
+`keyctl` returns ENOSYS; runc retains the Pod session keyring and process sandbox.
 
 ## The stack
 
