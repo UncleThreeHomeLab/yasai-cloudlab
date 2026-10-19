@@ -105,14 +105,17 @@ namespace GitHub.Runner.Worker
 
         private static bool Valid(IReadOnlyDictionary<string, string> row)
         {
+            bool main = row["ref"] == "refs/heads/main" &&
+                (row["event_name"] is "push" or "workflow_dispatch");
+            bool pullRequest = row["event_name"] == "pull_request" && row["job"] == "test" &&
+                Matches(row["ref"], "refs/pull/[1-9][0-9]*/merge") && row["sha"] == row["workflow_sha"];
             return Matches(row["repository_id"], "[1-9][0-9]{0,19}") &&
                 Matches(row["repository"], "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") &&
                 Matches(row["workflow_sha"], "[a-f0-9]{40}") && Matches(row["sha"], "[a-f0-9]{40}") &&
-                row["ref"] == "refs/heads/main" &&
-                (row["event_name"] is "push" or "workflow_dispatch") &&
+                (main || pullRequest) &&
                 Matches(row["job"], "[A-Za-z_][A-Za-z0-9_-]{0,63}") &&
                 Matches(row["workflow_ref"], Regex.Escape(row["repository"]) +
-                    "/\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml@refs/heads/main");
+                    "/\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml@" + Regex.Escape(row["ref"]));
         }
 
         private static bool Matches(string value, string pattern) => value != null && value.Length <= 256 &&

@@ -26,6 +26,35 @@ def qualified_images(qualified):
     return references
 
 
+def application_workflows(api, current, revision, pull_request=None):
+    if not re.fullmatch(r'[a-f0-9]{40}', revision):
+        raise ValueError('Application eligibility requires the exact reviewed commit')
+    name = current['full_name']
+    ref = 'refs/heads/main'
+    jobs, events = ('test', 'publish'), ('push', 'workflow_dispatch')
+    if pull_request is not None:
+        if type(pull_request) is not int or not 0 < pull_request < 2**31:
+            raise ValueError('Application eligibility requires a positive pull request number')
+        request = api.request('GET', 'repos/' + name + '/pulls/' + str(pull_request))
+        if (request.get('state') != 'open' or request.get('mergeable') is not True or
+                request.get('merge_commit_sha') != revision or request.get('base', {}).get('ref') != 'main'):
+            raise ValueError('Approve the current merge revision of an open mergeable pull request')
+        for side in ('head', 'base'):
+            origin = request.get(side, {}).get('repo') or {}
+            if (origin.get('id') != current['id'] or origin.get('full_name') != name or origin.get('fork') is not False):
+                raise ValueError('Fork and foreign pull requests cannot execute on lab runners')
+        ref, jobs, events = 'refs/pull/' + str(pull_request) + '/merge', ('test',), ('pull_request',)
+    elif api.request('GET', 'repos/' + name + '/git/ref/heads/main')['object']['sha'] != revision:
+        raise ValueError('Approve the actual protected main revision')
+    workflow = api.request('GET', 'repos/' + name + '/contents/.github/workflows/ci.yaml?ref=' + revision, missing=True)
+    if not workflow or workflow.get('type') != 'file':
+        raise ValueError('The exact reviewed application CI workflow must exist')
+    return [{'repository_id': str(current['id']), 'repository': name,
+             'workflow_ref': name + '/.github/workflows/ci.yaml@' + ref,
+             'workflow_sha': revision, 'sha': revision, 'ref': ref, 'event_name': event, 'job': job}
+            for event in events for job in jobs]
+
+
 def application_configuration(qualified, application, current, workflows=()):
     references = qualified_images(qualified)
     if (set(application) != {'name', 'repository', 'visibility'} or
@@ -90,8 +119,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workflow-revision')
     parser.add_argument('--application-file', type=Path)
+    parser.add_argument('--pull-request', type=int)
     parser.add_argument('--output', type=Path, default=harbor_api.WORK / 'ci/configuration.json')
     arguments = parser.parse_args()
+    if arguments.pull_request is not None and not (arguments.application_file and arguments.workflow_revision):
+        parser.error('--pull-request requires --application-file and --workflow-revision')
     os.umask(0o077)
     revision = harbor_api.binding()
     values, api = inputs()
@@ -103,7 +135,7 @@ def main():
     fixture = api.request('GET', 'repos/' + name) if application else inspect(api, 'private-fixture', name, True)
     if fixture is None:
         raise ValueError('The designated private repository must exist before registration')
-    if arguments.workflow_revision is not None:
+    if arguments.workflow_revision is not None and not application:
         current = api.request('GET', 'repos/' + name + '/git/ref/heads/main')['object']['sha']
         if current != arguments.workflow_revision or not api.request('GET', 'repos/' + name +
                 '/contents/.github/workflows/publish.yaml?ref=' + current, missing=True):
@@ -116,9 +148,8 @@ def main():
                for key in ('revision', 'image_revision')):
         raise ValueError('CI tools and qualification must originate from reviewed ancestors')
     if application:
-        if arguments.workflow_revision:
-            raise ValueError('Application runner eligibility needs a separately reviewed exact policy')
-        documents = application_configuration(qualified, application, fixture)
+        workflows = application_workflows(api, fixture, arguments.workflow_revision, arguments.pull_request) if arguments.workflow_revision else []
+        documents = application_configuration(qualified, application, fixture, workflows)
         if arguments.output.is_symlink():
             raise ValueError('Application output cannot redirect its protected directory')
         arguments.output.mkdir(mode=0o700, parents=True, exist_ok=True)

@@ -10,13 +10,16 @@
         "properties": {
           "repository_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
           "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
-          "workflow_ref": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/[A-Za-z0-9_.-]+[.]ya?ml@refs/heads/main$"},
+          "workflow_ref": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/[A-Za-z0-9_.-]+[.]ya?ml@refs/(heads/main|pull/[1-9][0-9]*/merge)$"},
           "workflow_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
           "sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
-          "ref": {"const": "refs/heads/main"},
-          "event_name": {"enum": ["push", "workflow_dispatch"]},
+          "ref": {"type": "string", "pattern": "^refs/(heads/main|pull/[1-9][0-9]*/merge)$"},
+          "event_name": {"enum": ["push", "workflow_dispatch", "pull_request"]},
           "job": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"}
-        }
+        },
+        "allOf": [{"if": {"properties": {"event_name": {"const": "pull_request"}}},
+                   "then": {"properties": {"job": {"const": "test"}, "ref": {"pattern": "^refs/pull/[1-9][0-9]*/merge$"}}},
+                   "else": {"properties": {"ref": {"const": "refs/heads/main"}}}}]
       }
     },
     "arc": {

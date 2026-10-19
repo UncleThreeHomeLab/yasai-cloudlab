@@ -8,6 +8,20 @@ from playbooks.ci.tests.fixtures import pool_values
 
 
 class PoolChartTests(unittest.TestCase):
+    def test_reviewed_pull_request_policy_can_authorize_only_its_exact_merge_test(self):
+        values = pool_values()
+        row = values['eligibility'][0]
+        row.update(event_name='pull_request', job='test', ref='refs/pull/42/merge',
+                   workflow_ref=row['repository'] + '/.github/workflows/ci.yaml@refs/pull/42/merge')
+        self.assertTrue(render(values, chart=POOL))
+        for field, bad in (('job', 'publish'), ('ref', 'refs/pull/42/head'), ('sha', 'c' * 40),
+                           ('workflow_ref', row['repository'] + '/.github/workflows/ci.yaml@refs/pull/43/merge')):
+            original = row[field]
+            row[field] = bad
+            with self.subTest(field=field), self.assertRaises(subprocess.CalledProcessError):
+                render(values, chart=POOL)
+            row[field] = original
+
     def test_public_repository_pools_share_charts_but_never_private_app_credentials(self):
         values = pool_values()
         values['arc']['githubConfigSecret'] = 'github-arc-public'
