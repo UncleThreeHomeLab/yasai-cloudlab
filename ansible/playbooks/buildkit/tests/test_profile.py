@@ -41,9 +41,9 @@ class BuilderProfileTests(unittest.TestCase):
             self.assertRegex(container['image'], r'@sha256:[a-f0-9]{64}$')
             profile = container['securityContext']
             self.assertFalse(profile.get('privileged'))
-            self.assertIs(profile['readOnlyRootFilesystem'], True)
             self.assertEqual(profile['capabilities']['drop'], ['ALL'])
             if container['name'] == 'builder':
+                self.assertIs(profile['readOnlyRootFilesystem'], True)
                 self.assertEqual(profile['capabilities']['add'], ['SETUID', 'SETGID'])
                 self.assertIs(profile['allowPrivilegeEscalation'], True)
                 self.assertEqual(profile['procMount'], 'Unmasked')
@@ -51,9 +51,13 @@ class BuilderProfileTests(unittest.TestCase):
                 self.assertEqual(profile['appArmorProfile'], {'type': 'Localhost', 'localhostProfile': 'cloudlab-buildkit'})
                 self.assertIn({'name': 'TMPDIR', 'value': '/tmp'}, container['env'])
                 self.assertIn({'name': 'DOCKER_CONFIG', 'value': '/run/user/1000/docker'}, container['env'])
+                self.assertIn('--addr tcp://127.0.0.1:1234', ' '.join(container['args']))
                 self.assertNotIn('--oci-worker-no-process-sandbox', ' '.join(container['args']))
                 self.assertEqual(container['resources']['limits'], {'cpu': '2', 'memory': '4Gi', 'ephemeral-storage': '24Gi'})
             else:
+                self.assertEqual((profile['runAsUser'], profile['runAsGroup']), (1001, 1001))
+                self.assertIs(profile['readOnlyRootFilesystem'], False)
+                self.assertIn({'name': 'BUILDKIT_HOST', 'value': 'tcp://127.0.0.1:1234'}, container['env'])
                 self.assertIs(profile['allowPrivilegeEscalation'], False)
                 self.assertNotIn('add', profile['capabilities'])
         self.assertFalse(any('hostPath' in volume or 'persistentVolumeClaim' in volume or 'secret' in volume for volume in pod['volumes']))

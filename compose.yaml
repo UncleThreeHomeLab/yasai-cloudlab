@@ -1,4 +1,24 @@
 services:
+  ci-builder-image:
+    profiles: [ci]
+    platform: linux/amd64
+    image: yasai-cloudlab-ci-builder:local
+    build:
+      context: ./platform/delivery/ci
+      target: builder
+      additional_contexts:
+        cloudlab-bootstrap: ./ansible/runner
+
+  ci-runner-image:
+    profiles: [ci]
+    platform: linux/amd64
+    image: yasai-cloudlab-ci-runner:local
+    build:
+      context: ./platform/delivery/ci
+      target: runner
+      additional_contexts:
+        cloudlab-bootstrap: ./ansible/runner
+
   lab:
     platform: linux/amd64
     build:
