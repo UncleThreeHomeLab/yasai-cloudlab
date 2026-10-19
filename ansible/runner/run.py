@@ -217,6 +217,7 @@ def main():
             raise SystemExit(result.returncode)
         return
     if action == 'charts':
+        subprocess.run([sys.executable, '-m', 'playbooks.admission.files.chart'], cwd='/workspace', check=True)
         subprocess.run([sys.executable, '/workspace/verification/integration/chart_parity.py'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/secrets/files/chart.py', 'check'], check=True)
         subprocess.run([sys.executable, '/workspace/ansible/playbooks/longhorn/files/chart.py', 'check'], check=True)

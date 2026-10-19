@@ -41,3 +41,5 @@
   ansible.builtin.import_playbook: observability/verify.yml
 - name: Verify registry behavior and host access
   ansible.builtin.import_playbook: harbor/verify.yml
+- name: Verify workload admission and restricted Pod Security
+  ansible.builtin.import_playbook: admission/verify.yml

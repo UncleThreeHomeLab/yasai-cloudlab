@@ -108,6 +108,11 @@ credentials. Retention keeps artifacts; automatic garbage collection stays off.
 The [registry contract](ansible/playbooks/harbor/files/contract.json) owns separate
 recovery signing inputs and coordinated restore requirements.
 
+Argo reconciles [admission controllers](platform/delivery/admission/values.json)
+and [workload rules](platform/delivery/admission/policies/values.yaml) from the public root.
+Rules start in audit; application namespaces retain restricted Pod Security.
+`prove` checks real admission responses without creating workloads.
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.
@@ -134,7 +139,7 @@ Deployment still depends on inputs and verification.
 | Registry | Harbor | Private OCI registry, separate Longhorn data and bounded OIDC sessions | In progress |
 | Builds | BuildKit | Rootless image builds | Planned |
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
-| Policy | Kyverno | Admission and image policies | Planned |
+| Policy | Kyverno + Pod Security | Audit workload digest, resource and token rules; restricted application pods | Audit |
 | GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Available |
 | Releases | Argo Rollouts | Canary releases and previews | Planned |
 | Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Available |

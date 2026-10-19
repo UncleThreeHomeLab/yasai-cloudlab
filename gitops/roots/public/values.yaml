@@ -31,3 +31,5 @@ observability:
   enabled: true
 harbor:
   enabled: true
+admission:
+  enabled: true

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cloudlab-admission
+version: 0.1.0
+dependencies:
+  - name: kyverno
+    version: 3.9.1
+    repository: ''

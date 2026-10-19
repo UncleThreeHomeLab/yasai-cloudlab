@@ -1,0 +1,2 @@
+---
+admission_enabled: "{{ ((lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).admission | default({})).enabled | default(false) }}"
