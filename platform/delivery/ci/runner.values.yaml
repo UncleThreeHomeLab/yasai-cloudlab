@@ -41,6 +41,7 @@ template:
               --oci-worker-snapshotter=native --oci-worker-gc-keepstorage=4096
         env:
           - {name: XDG_RUNTIME_DIR, value: /run/user/1000}
+          - {name: TMPDIR, value: /tmp}
         securityContext:
           allowPrivilegeEscalation: true
           readOnlyRootFilesystem: true

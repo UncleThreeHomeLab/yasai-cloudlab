@@ -47,6 +47,7 @@ class BuilderProfileTests(unittest.TestCase):
                 self.assertEqual(profile['procMount'], 'Unmasked')
                 self.assertEqual(profile['seccompProfile'], {'type': 'Localhost', 'localhostProfile': 'cloudlab/buildkit.json'})
                 self.assertEqual(profile['appArmorProfile'], {'type': 'Localhost', 'localhostProfile': 'cloudlab-buildkit'})
+                self.assertIn({'name': 'TMPDIR', 'value': '/tmp'}, container['env'])
                 self.assertNotIn('--oci-worker-no-process-sandbox', ' '.join(container['args']))
                 self.assertEqual(container['resources']['limits'], {'cpu': '2', 'memory': '4Gi', 'ephemeral-storage': '24Gi'})
             else:

@@ -16,6 +16,13 @@ elif args[:2] == ['get', 'jobs']:
     response = {'items': []}
 elif args[:2] == ['get', 'resourcequota']:
     response = {'status': {'hard': {'pods': '1'}}}
+elif args[:2] == ['get', 'job/proof']:
+    if state.get('pending_polls', 0):
+        state['pending_polls'] -= 1
+        response = {'status': {'active': 1}}
+    else:
+        response = {'status': {'failed': 1}} if state.get('fail_build') else {
+            'status': {'conditions': [{'type': 'Complete', 'status': 'True'}]}}
 elif args[0] == 'create' and '--dry-run=server' in args:
     assert state.get('job')
     error = 'exceeded quota: build-budget'
@@ -32,8 +39,7 @@ elif args[0] == 'create':
     else:
         assert document['kind'] == 'List'
 elif args[0] == 'wait':
-    if 'job/proof' in args and state.get('fail_build'):
-        error = 'Job failed'
+    assert '--for=delete' in args
 elif args[0] == 'logs':
     response = 'CLOUDLAB_ROOTLESS_BUILD_OK'
 elif args[:2] == ['delete', 'job/proof']:

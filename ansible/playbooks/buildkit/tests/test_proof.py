@@ -18,7 +18,7 @@ class NativeProofTests(unittest.TestCase):
 
     def test_native_playbook_builds_sequentially_and_deletes_only_its_namespace_uid(self):
         with tempfile.TemporaryDirectory() as temporary:
-            result, state = fixtures.prove(Path(temporary))
+            result, state = fixtures.prove(Path(temporary), pending_polls=1)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(state['build_nodes'], ['node-a', 'node-b'])
         self.assertTrue(state['namespace_deleted'])

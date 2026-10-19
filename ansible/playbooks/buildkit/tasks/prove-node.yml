@@ -19,7 +19,16 @@
 
 - name: Wait for a real sandboxed rootless build
   ansible.builtin.command:
-    argv: [/usr/local/bin/k3s, kubectl, wait, --for=condition=Complete, job/proof, -n, '{{ buildkit_namespace }}', --timeout=600s]
+    argv: [/usr/local/bin/k3s, kubectl, get, job/proof, -n, '{{ buildkit_namespace }}', -o, json]
+  register: buildkit_job
+  until: >-
+    ((buildkit_job.stdout | from_json).status.failed | default(0) | int) > 0 or
+    ((buildkit_job.stdout | from_json).status.conditions | default([]) |
+     selectattr('type', 'equalto', 'Complete') | selectattr('status', 'equalto', 'True') | list | length) > 0
+  failed_when: >-
+    buildkit_job.rc != 0 or ((buildkit_job.stdout | from_json).status.failed | default(0) | int) > 0
+  retries: 120
+  delay: 5
   changed_when: false
   no_log: true
 
