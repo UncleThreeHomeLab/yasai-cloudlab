@@ -70,6 +70,35 @@ class SignatureTests(unittest.TestCase):
                 recovery.signature_record(value, {'artifact_digests': digests})
         with self.assertRaises(ValueError): recovery.signature_record(proof, {'artifact_digests': digests[:-1]})
 
+    def test_verifier_update_preserves_receipt_bytes_and_rejects_changed_signer_or_images(self):
+        proof, _ = self.proof()
+        previous = json.loads((recovery.ARTIFACTS / 'cosign.lock.json').read_text())['compatible_images'][0]
+        with tempfile.TemporaryDirectory() as temporary:
+            journal = Path(temporary) / 'receipt.json'
+            self.assertEqual(signatures.preserve_receipt(journal, proof), proof)
+            recorded = dict(proof, image=previous)
+            journal.write_text(json.dumps(recorded, indent=2))
+            original = journal.read_bytes()
+            for _ in range(2):
+                self.assertEqual(signatures.preserve_receipt(journal, proof), recorded)
+                self.assertEqual(journal.read_bytes(), original)
+            with self.assertRaises(ValueError):
+                signatures.preserve_receipt(journal, dict(proof, verifier_sha256='0' * 64))
+            self.assertEqual(journal.read_bytes(), original)
+            changed = json.loads(json.dumps(proof))
+            changed['projects']['cloudlab-private'][0] = 'sha256:' + 'e' * 64
+            with self.assertRaises(ValueError):
+                signatures.preserve_receipt(journal, changed)
+            self.assertEqual(journal.read_bytes(), original)
+            with self.assertRaises(ValueError):
+                signatures.preserve_receipt(journal, dict(proof, image='unreviewed'))
+            self.assertEqual(journal.read_bytes(), original)
+            journal.write_text(json.dumps(dict(recorded, image='unreviewed')))
+            invalid = journal.read_bytes()
+            with self.assertRaises(ValueError):
+                signatures.preserve_receipt(journal, proof)
+            self.assertEqual(journal.read_bytes(), invalid)
+
     def test_remote_journal_rejects_changed_signer_and_does_not_receive_private_material(self):
         proof, digests = self.proof()
         public = signatures.public_key(signatures.private_key())
@@ -93,6 +122,8 @@ class SignatureTests(unittest.TestCase):
 
     def test_restore_probe_has_only_public_verifier_and_isolated_ephemeral_auth(self):
         proof, digests = self.proof()
+        verifier = json.loads((recovery.ARTIFACTS / 'cosign.lock.json').read_text())
+        proof['image'] = verifier['compatible_images'][0]
         pod = restore.signature_probe(proof)
         spec = pod['spec']
         self.assertFalse(spec['automountServiceAccountToken'])
@@ -102,7 +133,8 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(spec['volumes'][1]['secret']['secretName'], signatures.VERIFIER)
         self.assertNotIn(signatures.SIGNER, json.dumps(pod))
         native = spec['containers'][0]
-        self.assertEqual(native['image'], proof['image'])
+        self.assertEqual(native['image'], verifier['image'])
+        self.assertNotEqual(native['image'], proof['image'])
         self.assertEqual(native['args'].count('--allow-http-registry=true'), 1)
         self.assertEqual(len([value for value in native['args'] if '/bootstrap@sha256:' in value]), 12)
         self.assertTrue(all(value.startswith('harbor.cloudlab-harbor-restore.svc/')
@@ -199,7 +231,7 @@ class SignatureTests(unittest.TestCase):
     def test_restore_and_local_tool_use_the_same_external_digest(self):
         root = Path(__file__).resolve().parents[4]
         image = json.loads((root / 'platform/harbor/cosign.lock.json').read_text())['image']
-        self.assertRegex(image, r'^ghcr.io/sigstore/cosign/cosign:v3[.][0-9]+[.][0-9]+@sha256:[a-f0-9]{64}$')
+        self.assertRegex(image, r'^cgr[.]dev/chainguard/cosign@sha256:[a-f0-9]{64}$')
         dockerfile = (root / 'ansible/runner/Dockerfile').read_text()
         self.assertIn('FROM ' + image + ' AS cosign', dockerfile)
-        self.assertIn('COPY --from=cosign /ko-app/cosign /usr/local/bin/cosign', dockerfile)
+        self.assertIn('COPY --from=cosign /usr/bin/cosign /usr/local/bin/cosign', dockerfile)

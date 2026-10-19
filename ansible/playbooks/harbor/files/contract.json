@@ -69,6 +69,7 @@
     }
   },
   "recovery": {
+    "signature_verifier": "Use the current independent Cosign pin. Compatible receipt images are historical metadata only; preserve original receipt bytes, signing keys and artifact digests.",
     "token_key_encoding": "Canonical vault key and certificate stay unchanged. A restricted init container converts the same RSA key to PKCS#1 in memory for Harbor/libtrust; no generated or persisted replacement key.",
     "source": "Three retained Longhorn claims; independent PostgreSQL, Valkey and filesystem blobs",
     "consistency": "Argo-owned writer shutdown, database/artifact inventory, three cold snapshots and isolated restore with current vault signing inputs",

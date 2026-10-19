@@ -99,11 +99,24 @@ class Cosign:
         self.verify(reference, verifier)
 
 
+def preserve_receipt(journal, proof):
+    from playbooks.harbor.files.recovery import atomic, signature_record
+    inventory = {'artifact_digests': [digest for digests in proof['projects'].values() for digest in digests]}
+    signature_record(proof, inventory)
+    if journal.exists():
+        recorded = json.loads(journal.read_text())
+        signature_record(recorded, inventory)
+        if dict(recorded, image=proof['image']) != proof:
+            raise ValueError('Original signature inputs changed; preserve the recorded signer and artifact set')
+        return recorded
+    atomic(journal, proof)
+    return proof
+
+
 def prove(client):
     from playbooks.secrets.files.vault import fields
     from playbooks.infrastructure.files import harbor as api
     from playbooks.harbor.files import artifacts, api_policy
-    from playbooks.harbor.files.recovery import atomic
     from playbooks.harbor.files.registry import Registry
     from playbooks.access.files.preflight import ssh
     if client.plan(verify=True)['changes'] != 0:
@@ -123,9 +136,7 @@ def prove(client):
     directory = client.path / 'signatures'
     directory.mkdir(mode=0o700, exist_ok=True)
     journal = directory / 'receipt.json'
-    if journal.exists() and json.loads(journal.read_text()) != proof:
-        raise ValueError('Original signature inputs changed; preserve the recorded signer and artifact set')
-    atomic(journal, proof)
+    proof = preserve_receipt(journal, proof)
     registry = Registry(client.private['host'], client.env, directory / 'diagnostics.txt')
     signer = Cosign(registry)
     with signer.key(private, public) as (key, verifier, password), \

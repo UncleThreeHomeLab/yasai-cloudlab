@@ -105,7 +105,8 @@ with open('/auth/config.json','x',opener=lambda path,flags:os.open(path,flags,0o
                 'volumeMounts': [{'name': 'auth', 'mountPath': '/auth'}],
                 'env': [{'name': name, 'valueFrom': {'secretKeyRef': {'name': 'harbor-emergency', 'key': key}}}
                         for name, key in (('USERNAME', 'username'), ('PASSWORD', 'password'))]}],
-            'containers': [{'name': 'cosign', 'image': proof['image'],
+            'containers': [{'name': 'cosign',
+                'image': json.loads((recovery.ARTIFACTS / 'cosign.lock.json').read_text())['image'],
                 'args': ['verify', '--insecure-ignore-tlog=true', '--max-workers=2', '--check-claims=true',
                          '--allow-http-registry=true',
                          '--key', '/verifier/public_key', *references],

@@ -1,6 +1,7 @@
 import bz2
 import hashlib
 import io
+import json
 import tarfile
 import unittest
 import zipfile
@@ -12,6 +13,22 @@ from install_tools import binary
 
 
 class BootstrapToolTests(unittest.TestCase):
+    def test_bootstrap_crane_reuses_the_reviewed_source_and_module_locks(self):
+        root = Path(__file__).resolve().parents[3]
+        dockerfile = (root / 'ansible/runner/Dockerfile').read_text()
+        sources = json.loads((root / 'platform/delivery/ci/tools/source.lock.json').read_text())['sources']
+        crane = next(row for row in sources if row['name'] == 'crane')
+        self.assertIn(crane['source'], dockerfile)
+        self.assertIn(crane['sha256'], dockerfile)
+        self.assertIn('COPY --from=ci-source tools/crane/go.mod tools/crane/go.sum ./', dockerfile)
+        self.assertIn('GOTOOLCHAIN=local', dockerfile)
+        self.assertIn('-mod=readonly', dockerfile)
+        self.assertNotIn('crane', json.loads((root / 'ansible/runner/tools.lock.json').read_text()))
+        services = yaml.safe_load((root / 'compose.yaml').read_text())['services']
+        for name in ('lab', 'infra', 'infra-github', 'infra-harbor', 'service'):
+            self.assertEqual(services[name]['build']['additional_contexts'],
+                             {'ci-source': './platform/delivery/ci'})
+
     def test_compose_build_contexts_exist_for_every_packaged_fixture(self):
         root = Path(__file__).resolve().parents[3]
         files = [root / 'compose.yaml',
