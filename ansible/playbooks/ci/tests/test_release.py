@@ -12,11 +12,11 @@ from playbooks.ci.tests.fixtures import release_request
 
 
 class ReleaseRequestTests(unittest.TestCase):
-    def test_exact_hosted_main_and_bot_identity_is_required_before_any_native_command(self):
+    def test_exact_local_main_and_bot_identity_is_required_before_any_native_command(self):
         event, environment = release_request()
         self.assertEqual(release.request(event, environment),
                          ('example/gitops', 'apps/releases/private-ci.json', event['inputs']))
-        for key, value in (('RUNNER_ENVIRONMENT', 'self-hosted'), ('GITHUB_REF', 'refs/heads/unreviewed'),
+        for key, value in (('RUNNER_ENVIRONMENT', 'github-hosted'), ('GITHUB_REF', 'refs/heads/unreviewed'),
                            ('GITHUB_EVENT_NAME', 'pull_request_target'), ('GITHUB_ACTOR', 'other[bot]'),
                            ('RELEASE_SCOPE', '../identity'), ('GITHUB_REPOSITORY', '--exec=bad')):
             with self.subTest(key=key), patch.object(release, 'native') as native:
