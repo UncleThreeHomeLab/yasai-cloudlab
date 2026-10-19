@@ -1,7 +1,10 @@
 {{- $repository := trimPrefix "https://github.com/" .Values.arc.githubConfigUrl }}
 {{- range .Values.eligibility }}
-{{- if or (ne .repository $repository) (not (hasPrefix (printf "%s/.github/workflows/" $repository) .workflow_ref)) }}
+{{- if or (ne .repository $repository) (not (hasPrefix (printf "%s/.github/workflows/" $repository) .workflow_ref)) (not (hasSuffix (printf "@%s" .ref) .workflow_ref)) }}
 {{- fail "Runner eligibility must match its selected repository" }}
+{{- end }}
+{{- if and (eq .event_name "pull_request") (ne .sha .workflow_sha) }}
+{{- fail "Pull request tests require their exact reviewed merge and workflow revision" }}
 {{- end }}
 {{- end }}
 {{- $policy := dict "workflows" .Values.eligibility | toJson }}

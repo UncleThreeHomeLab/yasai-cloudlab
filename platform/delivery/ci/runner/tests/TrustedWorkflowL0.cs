@@ -10,6 +10,39 @@ namespace GitHub.Runner.Common.Tests.Worker
 {
     public sealed class TrustedWorkflowL0
     {
+        [Fact]
+        public void AcceptsOnlyTheExplicitlyApprovedPullRequestMergeForTests()
+        {
+            var values = TrustedWorkflowFixtures.Values("test");
+            values["event_name"] = "pull_request";
+            values["ref"] = "refs/pull/123/merge";
+            values["workflow_ref"] = values["repository"] + "/.github/workflows/ci.yaml@" + values["ref"];
+            var message = TrustedWorkflowFixtures.Message("test");
+            TrustedWorkflowFixtures.SetGithub(message, values);
+            Assert.True(TrustedWorkflow.Allows(message, TrustedWorkflowFixtures.Policy(values)));
+            var changed = TrustedWorkflowFixtures.Values("test");
+            foreach (var pair in values) changed[pair.Key] = pair.Value;
+            changed["sha"] = new string('b', 40);
+            TrustedWorkflowFixtures.SetGithub(message, changed);
+            Assert.False(TrustedWorkflow.Allows(message, TrustedWorkflowFixtures.Policy(values)));
+            Assert.False(TrustedWorkflow.Allows(message, TrustedWorkflowFixtures.Policy(changed)));
+        }
+
+        [Fact]
+        public void PullRequestPolicyCannotAuthorizePublishingOrOtherRefs()
+        {
+            foreach (var job in new[] { "publish", "propose", "test" })
+            {
+                var values = TrustedWorkflowFixtures.Values(job);
+                values["event_name"] = "pull_request";
+                values["ref"] = job == "test" ? "refs/pull/123/head" : "refs/pull/123/merge";
+                values["workflow_ref"] = values["repository"] + "/.github/workflows/ci.yaml@" + values["ref"];
+                var message = TrustedWorkflowFixtures.Message(job);
+                TrustedWorkflowFixtures.SetGithub(message, values);
+                Assert.False(TrustedWorkflow.Allows(message, TrustedWorkflowFixtures.Policy(values)));
+            }
+        }
+
         [Theory]
         [InlineData("push")]
         [InlineData("workflow_dispatch")]
