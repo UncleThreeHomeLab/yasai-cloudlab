@@ -15,7 +15,12 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(check()['runtime_images'], 3)
 
     def test_native_cli_rejects_tagged_unbounded_and_token_enabled_workloads(self):
-        policy = render(True)[0]
+        policies = {row['metadata']['name']: row for row in render(True)}
+        policy = policies['cloudlab-workload-contract']
+        ephemeral = policies['cloudlab-workload-ephemeral']['spec']
+        self.assertFalse(ephemeral['evaluation']['background']['enabled'])
+        self.assertEqual(ephemeral['matchConstraints']['resourceRules'][0]['resources'], ['pods/ephemeralcontainers'])
+        self.assertEqual(policy['spec']['matchConstraints']['resourceRules'][0]['resources'], ['pods'])
         # Native test uses a matching namespace; production selector remains intact.
         resources = [pod()]
         for name, field, value in (('mutable-image', 'image', 'example.invalid/public/app:latest'),
@@ -34,6 +39,11 @@ class AdmissionTests(unittest.TestCase):
         resource['spec']['initContainers'] = [copy.deepcopy(resource['spec']['containers'][0])]
         resource['spec']['initContainers'][0]['image'] = 'example.invalid/init:latest'
         resources.append(resource)
+        for name, image in (('immutable-ephemeral', 'example.invalid/debug@sha256:' + 'b' * 64),
+                            ('mutable-ephemeral', 'example.invalid/debug:latest')):
+            resource = pod(name)
+            resource['spec']['ephemeralContainers'] = [{'name': 'debug', 'image': image}]
+            resources.append(resource)
         resource = pod('unbounded-cpu')
         resource['spec']['containers'][0]['resources']['limits']['cpu'] = '0'
         resources.append(resource)
@@ -53,10 +63,10 @@ class AdmissionTests(unittest.TestCase):
                 'policies': ['policy.yaml'], 'resources': ['resources.yaml'], 'variables': 'values.yaml',
                 'results': [{'isValidatingPolicy': True, 'kind': 'Pod', 'policy': policy['metadata']['name'],
                              'resources': [resource['metadata']['name']],
-                             'result': 'pass' if resource['metadata']['name'] == 'accepted' else 'fail'} for resource in resources]}))
+                             'result': 'pass' if resource['metadata']['name'] in ('accepted', 'immutable-ephemeral') else 'fail'} for resource in resources]}))
             result = subprocess.run(['kyverno', 'test', str(directory)], capture_output=True, text=True, timeout=90)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('8 tests passed', result.stdout)
+        self.assertIn('10 tests passed', result.stdout)
 
     def test_root_restricts_policy_sources_and_does_not_grant_application_admin_access(self):
         result = subprocess.run(['helm', 'template', 'root', str(ROOT / 'gitops/roots/public')],
