@@ -19,7 +19,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('secrets', workflow['on']['workflow_call'])
         job, = workflow['jobs'].values()
         self.assertEqual(job['runs-on'], "${{ format('cloudlab-{0}', inputs.application) }}")
-        self.assertEqual(job['permissions'], {'contents': 'read'})
+        self.assertEqual(job['permissions'], {'contents': 'read', 'pull-requests': 'read'})
         self.assertNotIn('container', job)
         self.assertNotIn('services', job)
         checkout, build = job['steps']
