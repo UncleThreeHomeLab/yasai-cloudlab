@@ -120,13 +120,18 @@ Builder verification runs sequential credential-free jobs on both nodes with a
 process sandbox, CPU/memory/storage quotas and no host mounts or Docker socket.
 `keyctl` returns ENOSYS; runc retains the Pod session keyring and process sandbox.
 
-Build application runner and builder images locally with
-`docker compose --profile ci build ci-runner-image ci-builder-image`.
+Build application controller, runner and builder images locally with
+`docker compose --profile ci build ci-controller-image ci-runner-image ci-builder-image`.
 [Sources and dependencies](platform/delivery/ci/tools/source.lock.json) are locked.
 The [runner gate](platform/delivery/ci/runner/TrustedWorkflow.cs) checks original
 job metadata against a read-only policy before action setup. The runner uses UID
 1001 and writable disposable storage for native JIT configuration and logs;
 the builder uses UID 1000, a read-only filesystem and a pod-loopback API.
+The [controller](platform/delivery/ci/controller/values.json) watches only the private
+runner namespace. The [runner pool](platform/delivery/ci/pool/values.json) requires
+published image digests and approved workflow revisions before registration. It
+permits one build, ends the builder with its runner, and stops jobs when API or node
+health fails. Its service account can only list nodes and read API readiness.
 
 ## The stack
 

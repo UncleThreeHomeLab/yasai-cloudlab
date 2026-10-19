@@ -3,6 +3,7 @@
 !runner/
 !runner/*.cs
 !runner/*.patch
+!runner/health.py
 !runner/tests/
 !runner/tests/*.cs
 !runner/nuget/

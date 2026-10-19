@@ -1,0 +1,319 @@
+{
+  "arc": {
+    "minRunners": 0,
+    "maxRunners": 1,
+    "template": {
+      "spec": {
+        "hostUsers": false,
+        "automountServiceAccountToken": false,
+        "terminationGracePeriodSeconds": 30,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 1000,
+          "runAsGroup": 1000,
+          "fsGroup": 1000,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "runner",
+            "image": "",
+            "imagePullPolicy": "Always",
+            "command": [
+              "/bin/bash",
+              "-ec"
+            ],
+            "env": [
+              {
+                "name": "BUILDKIT_HOST",
+                "value": "tcp://127.0.0.1:1234"
+              }
+            ],
+            "securityContext": {
+              "runAsUser": 1001,
+              "runAsGroup": 1001,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "appArmorProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "256Mi",
+                "ephemeral-storage": "1Gi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "2Gi",
+                "ephemeral-storage": "8Gi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "workspace",
+                "mountPath": "/home/runner/_work"
+              },
+              {
+                "name": "health",
+                "mountPath": "/var/run/cloudlab-health",
+                "readOnly": true
+              },
+              {
+                "name": "eligibility",
+                "mountPath": "/etc/cloudlab-runner",
+                "readOnly": true
+              }
+            ],
+            "args": [
+              "python3 -I -S /usr/local/libexec/cloudlab-ci-health.py && exec /home/runner/run.sh"
+            ],
+            "livenessProbe": {
+              "initialDelaySeconds": 10,
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 3,
+              "exec": {
+                "command": [
+                  "python3",
+                  "-I",
+                  "-S",
+                  "/usr/local/libexec/cloudlab-ci-health.py"
+                ]
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "workspace",
+            "emptyDir": {
+              "sizeLimit": "16Gi"
+            }
+          },
+          {
+            "name": "builder-state",
+            "emptyDir": {
+              "sizeLimit": "12Gi"
+            }
+          },
+          {
+            "name": "builder-run",
+            "emptyDir": {
+              "sizeLimit": "1Gi"
+            }
+          },
+          {
+            "name": "builder-tmp",
+            "emptyDir": {
+              "sizeLimit": "3Gi"
+            }
+          },
+          {
+            "name": "builder-ids",
+            "configMap": {
+              "name": "cloudlab-buildkit-ids"
+            }
+          },
+          {
+            "name": "health",
+            "projected": {
+              "defaultMode": 288,
+              "sources": [
+                {
+                  "serviceAccountToken": {
+                    "path": "token",
+                    "expirationSeconds": 600
+                  }
+                },
+                {
+                  "configMap": {
+                    "name": "kube-root-ca.crt",
+                    "items": [
+                      {
+                        "key": "ca.crt",
+                        "path": "ca.crt"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "eligibility",
+            "configMap": {
+              "name": "cloudlab-ci-eligibility",
+              "defaultMode": 292
+            }
+          }
+        ],
+        "initContainers": [
+          {
+            "name": "builder",
+            "image": "",
+            "imagePullPolicy": "Always",
+            "command": [
+              "/bin/sh",
+              "-ec"
+            ],
+            "args": [
+              "mkdir -p /run/user/1000\nchmod 0700 /run/user/1000\nexec rootlesskit --copy-up=/etc --copy-up=/run buildkitd \\\n  --addr unix:///run/user/1000/buildkit/buildkitd.sock \\\n  --addr tcp://127.0.0.1:1234 \\\n  --root /home/user/.local/share/buildkit/state \\\n  --oci-worker-snapshotter=native --oci-worker-gc-keepstorage=4096\n"
+            ],
+            "env": [
+              {
+                "name": "XDG_RUNTIME_DIR",
+                "value": "/run/user/1000"
+              },
+              {
+                "name": "TMPDIR",
+                "value": "/tmp"
+              },
+              {
+                "name": "DOCKER_CONFIG",
+                "value": "/run/user/1000/docker"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": true,
+              "readOnlyRootFilesystem": true,
+              "procMount": "Unmasked",
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ],
+                "add": [
+                  "SETUID",
+                  "SETGID"
+                ]
+              },
+              "seccompProfile": {
+                "type": "Localhost",
+                "localhostProfile": "cloudlab/buildkit.json"
+              },
+              "appArmorProfile": {
+                "type": "Localhost",
+                "localhostProfile": "cloudlab-buildkit"
+              }
+            },
+            "resources": {
+              "requests": {
+                "cpu": "500m",
+                "memory": "512Mi",
+                "ephemeral-storage": "4Gi"
+              },
+              "limits": {
+                "cpu": "2",
+                "memory": "4Gi",
+                "ephemeral-storage": "24Gi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "builder-state",
+                "mountPath": "/home/user/.local/share/buildkit"
+              },
+              {
+                "name": "builder-run",
+                "mountPath": "/run/user"
+              },
+              {
+                "name": "builder-tmp",
+                "mountPath": "/tmp"
+              },
+              {
+                "name": "builder-ids",
+                "mountPath": "/etc/subuid",
+                "subPath": "subuid",
+                "readOnly": true
+              },
+              {
+                "name": "builder-ids",
+                "mountPath": "/etc/subgid",
+                "subPath": "subgid",
+                "readOnly": true
+              }
+            ],
+            "restartPolicy": "Always",
+            "startupProbe": {
+              "exec": {
+                "command": [
+                  "buildctl",
+                  "--addr",
+                  "tcp://127.0.0.1:1234",
+                  "debug",
+                  "workers"
+                ]
+              },
+              "periodSeconds": 2,
+              "timeoutSeconds": 2,
+              "failureThreshold": 60
+            }
+          }
+        ],
+        "restartPolicy": "Never",
+        "activeDeadlineSeconds": 1800,
+        "serviceAccountName": "cloudlab-ci-health",
+        "imagePullSecrets": [
+          {
+            "name": "harbor-tools-pull"
+          }
+        ]
+      }
+    },
+    "githubConfigUrl": "",
+    "githubConfigSecret": "github-arc",
+    "runnerScaleSetName": "cloudlab-private",
+    "controllerServiceAccount": {
+      "namespace": "cloudlab-ci-system",
+      "name": "cloudlab-arc-controller"
+    },
+    "listenerTemplate": {
+      "spec": {
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 65532,
+          "runAsGroup": 65532,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "listener",
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "resources": {
+              "requests": {
+                "cpu": "50m",
+                "memory": "64Mi",
+                "ephemeral-storage": "16Mi"
+              },
+              "limits": {
+                "cpu": "200m",
+                "memory": "256Mi",
+                "ephemeral-storage": "128Mi"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "eligibility": []
+}

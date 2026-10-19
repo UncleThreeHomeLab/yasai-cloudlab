@@ -1,0 +1,34 @@
+{
+  "arc": {
+    "fullnameOverride": "cloudlab-arc-controller",
+    "replicaCount": 1,
+    "image": {"repository": "", "tag": "", "pullPolicy": "Always"},
+    "imagePullSecrets": [{"name": "harbor-tools-pull"}],
+    "serviceAccount": {"create": true, "name": "cloudlab-arc-controller"},
+    "flags": {
+      "watchSingleNamespace": "cloudlab-ci-private",
+      "logFormat": "json",
+      "logLevel": "info",
+      "healthProbeBindAddress": ":8081",
+      "autoscalingRunnerSetMaxConcurrentReconciles": 1,
+      "autoscalingListenerMaxConcurrentReconciles": 1,
+      "ephemeralRunnerSetMaxConcurrentReconciles": 1,
+      "ephemeralRunnerMaxConcurrentReconciles": 1
+    },
+    "podSecurityContext": {
+      "runAsNonRoot": true, "runAsUser": 65532, "runAsGroup": 65532,
+      "fsGroup": 65532, "seccompProfile": {"type": "RuntimeDefault"}
+    },
+    "securityContext": {
+      "allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true,
+      "capabilities": {"drop": ["ALL"]}
+    },
+    "env": [{"name": "GOMEMLIMIT", "value": "200MiB"}],
+    "resources": {
+      "requests": {"cpu": "50m", "memory": "64Mi", "ephemeral-storage": "16Mi"},
+      "limits": {"cpu": "200m", "memory": "256Mi", "ephemeral-storage": "128Mi"}
+    },
+    "volumes": [{"name": "tmp", "emptyDir": {"sizeLimit": "32Mi"}}],
+    "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}]
+  }
+}

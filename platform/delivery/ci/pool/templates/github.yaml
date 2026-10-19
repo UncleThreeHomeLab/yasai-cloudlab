@@ -1,0 +1,17 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: github-arc, namespace: cloudlab-ci-private}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: github-arc
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      data:
+        github_app_id: '{{ "{{ .APP_ID }}" }}'
+        github_app_installation_id: '{{ "{{ .INSTALLATION_ID }}" }}'
+        github_app_private_key: '{{ "{{ .PRIVATE_KEY }}" }}'
+  dataFrom: [{extract: {key: github-arc}}]
