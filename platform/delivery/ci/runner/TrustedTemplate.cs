@@ -19,10 +19,11 @@ namespace GitHub.Runner.Worker
         };
 
         internal static bool Allows(AgentJobRequestMessage message, IReadOnlyDictionary<string, string> actual,
-            JsonElement templates, Func<string, JsonDocument> fetch)
+            JsonElement templates, Func<string, JsonDocument> fetch, Action<string> diagnostic)
         {
             try
             {
+                diagnostic?.Invoke("workflow-identity");
                 if (templates.ValueKind != JsonValueKind.Array || templates.GetArrayLength() is < 1 or > 16 ||
                     actual["sha"] != actual["workflow_sha"])
                     return false;
@@ -60,10 +61,12 @@ namespace GitHub.Runner.Worker
                 var identity = actual.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
                 identity["job"] = expected.GetProperty("job").GetString();
                 if (!TrustedWorkflow.Valid(identity)) return false;
+                diagnostic?.Invoke("job-token");
                 using var client = fetch == null ? Client(message) : null;
                 if (fetch == null && client == null) return false;
-                fetch ??= path => Read(client, path);
+                fetch ??= path => Read(client, path, diagnostic);
                 var prefix = "repos/" + actual["repository"];
+                diagnostic?.Invoke("repository");
                 using var repository = fetch(prefix);
                 var repo = repository.RootElement;
                 if (repo.GetProperty("id").GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture) != actual["repository_id"] ||
@@ -72,6 +75,7 @@ namespace GitHub.Runner.Worker
                     repo.GetProperty("fork").GetBoolean() || repo.GetProperty("archived").GetBoolean() ||
                     repo.GetProperty("disabled").GetBoolean() || repo.GetProperty("default_branch").GetString() != "main")
                     return false;
+                diagnostic?.Invoke("main-policy");
                 using var branch = fetch(prefix + "/branches/main");
                 if (!branch.RootElement.GetProperty("protected").GetBoolean()) return false;
                 if (actual["ref"] == "refs/heads/main")
@@ -81,6 +85,7 @@ namespace GitHub.Runner.Worker
                 }
                 else
                 {
+                    diagnostic?.Invoke("pull-request");
                     var number = Regex.Match(actual["ref"], @"\Arefs/pull/([1-9][0-9]*)/merge\z");
                     if (!number.Success || actual["event_name"] != "pull_request" || identity["job"] != "test") return false;
                     using var request = fetch(prefix + "/pulls/" + number.Groups[1].Value);
@@ -99,6 +104,7 @@ namespace GitHub.Runner.Worker
                             return false;
                     }
                 }
+                diagnostic?.Invoke("workflow-content");
                 var workflowPath = expected.GetProperty("workflow_path").GetString();
                 using var workflow = fetch(prefix + "/contents/" + workflowPath + "?ref=" + actual["workflow_sha"]);
                 var file = workflow.RootElement;
@@ -113,6 +119,7 @@ namespace GitHub.Runner.Worker
                 error is KeyNotFoundException || error is FormatException || error is HttpRequestException ||
                 error is IOException || error is OperationCanceledException || error is ArgumentException)
             {
+                if (error is OperationCanceledException) diagnostic?.Invoke("github-timeout");
                 return false;
             }
         }
@@ -141,11 +148,15 @@ namespace GitHub.Runner.Worker
             return client;
         }
 
-        private static JsonDocument Read(HttpClient client, string path)
+        private static JsonDocument Read(HttpClient client, string path, Action<string> diagnostic)
         {
             using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             using var response = client.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, cancellation.Token).GetAwaiter().GetResult();
-            if (!response.IsSuccessStatusCode) throw new HttpRequestException("Eligibility API unavailable.");
+            if (!response.IsSuccessStatusCode)
+            {
+                diagnostic?.Invoke("github-http-" + (int)response.StatusCode);
+                throw new HttpRequestException("Eligibility API unavailable.");
+            }
             using var input = response.Content.ReadAsStreamAsync(cancellation.Token).GetAwaiter().GetResult();
             using var output = new MemoryStream();
             var buffer = new byte[8192];

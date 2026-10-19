@@ -20,10 +20,12 @@ namespace GitHub.Runner.Worker
 
         internal static void Enforce(AgentJobRequestMessage message)
         {
+            string reason = "policy-file";
             try
             {
                 var file = new FileInfo(PolicyPath);
-                if (file.Exists && file.Length <= MaximumBytes && Allows(message, File.ReadAllBytes(PolicyPath)))
+                if (file.Exists && file.Length <= MaximumBytes && Allows(message, File.ReadAllBytes(PolicyPath),
+                    diagnostic: stage => reason = stage))
                     return;
             }
             catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
@@ -41,12 +43,13 @@ namespace GitHub.Runner.Worker
             if (!Regex.IsMatch(job, @"\A[A-Za-z0-9_ /.-]{1,128}\z")) job = "invalid";
             Console.Error.WriteLine("Runner eligibility rejected original job metadata: job=" + job +
                 "; missing=" + string.Join(",", missing));
-            throw new InvalidOperationException("Job is not eligible for this runner.");
+            throw new InvalidOperationException("Job is not eligible for this runner (" + reason + ").");
         }
 
         internal static bool Allows(AgentJobRequestMessage message, byte[] policy,
-            Func<string, JsonDocument> fetch = null)
+            Func<string, JsonDocument> fetch = null, Action<string> diagnostic = null)
         {
+            diagnostic?.Invoke("original-metadata");
             if (message == null || policy == null || policy.Length == 0 || policy.Length > MaximumBytes ||
                 !Empty(message.JobContainer) || !Empty(message.JobServiceContainers) || !Empty(message.Snapshot) ||
                 message.ContextData == null || !message.ContextData.TryGetValue("github", out var context) ||
@@ -66,10 +69,11 @@ namespace GitHub.Runner.Worker
 
             try
             {
+                diagnostic?.Invoke("policy-format");
                 using var document = JsonDocument.Parse(policy, new JsonDocumentOptions { MaxDepth = 4 });
                 var root = document.RootElement;
                 if (ExactFields(root, new[] { "templates" }))
-                    return TrustedTemplate.Allows(message, actual, root.GetProperty("templates"), fetch);
+                    return TrustedTemplate.Allows(message, actual, root.GetProperty("templates"), fetch, diagnostic);
                 if (!ExactFields(root, new[] { "workflows" }))
                     return false;
                 var workflows = root.GetProperty("workflows");
