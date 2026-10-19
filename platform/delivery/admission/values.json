@@ -1,0 +1,109 @@
+{
+  "kyverno": {
+    "fullnameOverride": "cloudlab-kyverno",
+    "kyverno-api": {
+      "annotations": {
+        "argocd.argoproj.io/sync-options": "ServerSideApply=true,Prune=false,Delete=false"
+      }
+    },
+    "crds": {
+      "annotations": {
+        "argocd.argoproj.io/sync-options": "ServerSideApply=true,Prune=false,Delete=false"
+      },
+      "migration": {
+        "enabled": false
+      }
+    },
+    "rbac": {
+      "roles": {
+        "aggregate": {
+          "admin": false,
+          "view": false
+        }
+      }
+    },
+    "config": {
+      "preserve": false,
+      "excludeGroups": []
+    },
+    "webhooksCleanup": {
+      "enabled": false
+    },
+    "backgroundController": {
+      "enabled": false
+    },
+    "cleanupController": {
+      "enabled": false
+    },
+    "features": {
+      "generateValidatingAdmissionPolicy": {
+        "enabled": false
+      },
+      "registryClient": {
+        "credentialHelpers": [
+          "default"
+        ]
+      },
+      "backgroundScan": {
+        "backgroundScanInterval": "10m"
+      }
+    },
+    "admissionController": {
+      "replicas": 2,
+      "updateStrategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {"maxSurge": 0, "maxUnavailable": 1}
+      },
+      "podAntiAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": [
+          {
+            "labelSelector": {"matchLabels": {"app.kubernetes.io/component": "admission-controller", "app.kubernetes.io/instance": "cloudlab-kyverno"}},
+            "topologyKey": "kubernetes.io/hostname"
+          }
+        ]
+      },
+      "container": {
+        "image": {
+          "registry": "reg.kyverno.io",
+          "repository": "kyverno/kyverno",
+          "tag": "v1.19.1@sha256:b31d8511ae5fd6010e2a01ea72ebae08eb82fa51d91af14a1d9fe989949b4edb"
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "128Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "384Mi"
+          }
+        }
+      },
+      "initContainer": {
+        "image": {
+          "registry": "reg.kyverno.io",
+          "repository": "kyverno/kyvernopre",
+          "tag": "v1.19.1@sha256:c25c47461f06f2845a48c319ae86fbbc1730a7b9ed5b701889c9dc1f9ee94b09"
+        }
+      }
+    },
+    "reportsController": {
+      "replicas": 1,
+      "image": {
+        "registry": "reg.kyverno.io",
+        "repository": "kyverno/reports-controller",
+        "tag": "v1.19.1@sha256:c0eee97b9b44a0dd35805d56b358fa52548480f79d4944602b9609538eccd64c"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "50m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "cpu": "200m",
+          "memory": "256Mi"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+---
+- name: Verify workload admission and restricted Pod Security
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Verify published admission controllers and native audit behavior
+      ansible.builtin.script:
+        cmd: 'files/verify.py {{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}'
+        executable: python3
+      changed_when: false
+      register: admission_verified
+      when: admission_enabled | bool
+
+    - name: Report sanitized admission evidence
+      ansible.builtin.debug:
+        msg: '{{ admission_verified.stdout | from_json }}'
+      when: admission_enabled | bool

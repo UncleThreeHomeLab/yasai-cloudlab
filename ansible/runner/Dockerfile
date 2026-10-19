@@ -2,6 +2,8 @@ FROM docker.io/grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b62563818
 
 FROM ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:6ca1127dc1e9ff19f3f2bfa214936813a86fbbf52919652eda49d393c888ad3c AS cosign
 
+FROM reg.kyverno.io/kyverno/kyverno-cli:v1.19.1@sha256:ced7b2be0b04250cabfe695f15307f69eb715fe23234816388af4f3812915b2a AS kyverno
+
 FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed AS provider-build
 COPY debian.sources /etc/apt/sources.list.d/debian.sources
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
@@ -14,6 +16,7 @@ FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a311
 
 COPY --from=k6 /usr/bin/k6 /usr/local/bin/k6
 COPY --from=cosign /ko-app/cosign /usr/local/bin/cosign
+COPY --from=kyverno /ko-app/kubectl-kyverno /usr/local/bin/kyverno
 COPY debian.sources /etc/apt/sources.list.d/debian.sources
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssh-client sshpass git \
