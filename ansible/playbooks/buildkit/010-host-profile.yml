@@ -1,0 +1,85 @@
+---
+- name: Install isolated rootless builder profiles on both nodes
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Check the declared profile artifact checksums before installation
+      ansible.builtin.assert:
+        that: >-
+          (lookup('file', 'files/' + item.file, rstrip=false) | hash('sha256')) == item.sha256
+      loop: >-
+        {{ (lookup('file', 'files/profiles.lock.json') | from_json) | dict2items |
+           selectattr('key', 'in', ['seccomp', 'apparmor']) | map(attribute='value') | list }}
+      loop_control:
+        label: '{{ item.file }}'
+
+    - name: Read the builder host architecture
+      ansible.builtin.command:
+        argv: [uname, -m]
+      register: buildkit_architecture
+      changed_when: false
+
+    - name: Require the selected AMD64 builder profile
+      ansible.builtin.assert:
+        that: buildkit_architecture.stdout | trim == 'x86_64'
+        fail_msg: The selected builder image and seccomp profile require AMD64 nodes.
+
+    - name: Require AppArmor and its selected policy ABI
+      ansible.builtin.stat:
+        path: '{{ item }}'
+      loop:
+        - /sys/kernel/security/apparmor/profiles
+        - /etc/apparmor.d/abi/4.0
+      register: buildkit_apparmor_prerequisites
+
+    - name: Refuse an unsupported builder host profile
+      ansible.builtin.assert:
+        that: buildkit_apparmor_prerequisites.results | map(attribute='stat.exists') | min
+        fail_msg: Rootless builds require enabled AppArmor and policy ABI 4.0 on both nodes.
+
+    - name: Install the builder AppArmor profile
+      ansible.builtin.copy:
+        src: cloudlab-buildkit
+        dest: /etc/apparmor.d/cloudlab-buildkit
+        owner: root
+        group: root
+        mode: '0644'
+        validate: /sbin/apparmor_parser --skip-kernel-load --skip-cache %s
+      register: buildkit_apparmor_profile
+
+    - name: Read loaded AppArmor profiles
+      ansible.builtin.slurp:
+        src: /sys/kernel/security/apparmor/profiles
+      register: buildkit_loaded_profiles
+
+    - name: Load the declared builder profile when changed or missing
+      ansible.builtin.command:
+        argv: [/sbin/apparmor_parser, --replace, --skip-cache, /etc/apparmor.d/cloudlab-buildkit]
+      when: >-
+        buildkit_apparmor_profile.changed or
+        'cloudlab-buildkit (enforce)' not in (buildkit_loaded_profiles.content | b64decode).splitlines()
+      changed_when: true
+
+    - name: Enable AppArmor profile loading on boot
+      ansible.builtin.systemd_service:
+        name: apparmor
+        enabled: true
+        state: started
+
+    - name: Create the kubelet builder profile directory
+      ansible.builtin.file:
+        path: /var/lib/kubelet/seccomp/cloudlab
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install the builder seccomp profile
+      ansible.builtin.copy:
+        src: buildkit-seccomp.json
+        dest: /var/lib/kubelet/seccomp/cloudlab/buildkit.json
+        owner: root
+        group: root
+        mode: '0644'

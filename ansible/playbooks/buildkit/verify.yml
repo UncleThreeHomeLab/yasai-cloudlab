@@ -1,0 +1,128 @@
+---
+- name: Verify builder host profiles
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Read installed seccomp profile
+      ansible.builtin.slurp:
+        src: /var/lib/kubelet/seccomp/cloudlab/buildkit.json
+      register: buildkit_seccomp_installed
+
+    - name: Read enforced AppArmor profiles
+      ansible.builtin.slurp:
+        src: /sys/kernel/security/apparmor/profiles
+      register: buildkit_apparmor_loaded
+
+    - name: Read the installed AppArmor profile
+      ansible.builtin.slurp:
+        src: /etc/apparmor.d/cloudlab-buildkit
+      register: buildkit_apparmor_installed
+
+    - name: Require the declared builder profiles
+      ansible.builtin.assert:
+        that:
+          - >-
+            (buildkit_seccomp_installed.content | b64decode | hash('sha256')) ==
+            (lookup('file', 'files/buildkit-seccomp.json', rstrip=false) | hash('sha256'))
+          - "'cloudlab-buildkit (enforce)' in (buildkit_apparmor_loaded.content | b64decode).splitlines()"
+          - >-
+            (buildkit_apparmor_installed.content | b64decode | hash('sha256')) ==
+            (lookup('file', 'files/cloudlab-buildkit', rstrip=false) | hash('sha256'))
+
+- name: Qualify isolated rootless builds without registry or runner credentials
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    buildkit_values: "{{ lookup('file', '/workspace/platform/delivery/ci/runner.values.yaml') | from_yaml }}"
+    buildkit_container: "{{ buildkit_values.template.spec.containers | selectattr('name', 'equalto', 'builder') | first }}"
+  tasks:
+    - name: Read the existing Linux nodes
+      ansible.builtin.command:
+        argv: [/usr/local/bin/k3s, kubectl, get, nodes, -l, kubernetes.io/os=linux, -o, json]
+      register: buildkit_nodes
+      changed_when: false
+      no_log: true
+
+    - name: Require exactly two nodes for builder qualification
+      ansible.builtin.assert:
+        that: (buildkit_nodes.stdout | from_json)['items'] | length == 2
+
+    - name: Wait for any interrupted proof Job to expire before starting another build
+      ansible.builtin.command:
+        argv: [/usr/local/bin/k3s, kubectl, get, jobs, --all-namespaces, -l, cloudlab.io/fixture=buildkit-proof, -o, json]
+      register: buildkit_prior_jobs
+      until: (buildkit_prior_jobs.stdout | from_json)['items'] | length == 0
+      retries: 250
+      delay: 5
+      changed_when: false
+      no_log: true
+
+    - name: Select a fresh disposable fixture namespace
+      ansible.builtin.set_fact:
+        buildkit_namespace: "cloudlab-buildkit-proof-{{ lookup('password', '/dev/null chars=ascii_lowercase,digits length=12') }}"
+
+    - name: Exercise and remove only this fixture namespace
+      block:
+        - name: Create the bounded proof namespace
+          ansible.builtin.command:
+            argv: [/usr/local/bin/k3s, kubectl, create, -f, '-', -o, json]
+            stdin: "{{ lookup('template', 'namespace.json.j2') }}"
+          register: buildkit_namespace_created
+          changed_when: false
+          no_log: true
+
+        - name: Create fixture quota, identity maps and build script
+          ansible.builtin.command:
+            argv: [/usr/local/bin/k3s, kubectl, create, -n, '{{ buildkit_namespace }}', -f, '-']
+            stdin: "{{ lookup('template', 'resources.json.j2') }}"
+          changed_when: false
+          no_log: true
+
+        - name: Wait for the native quota controller to account for this namespace
+          ansible.builtin.command:
+            argv: [/usr/local/bin/k3s, kubectl, get, resourcequota, build-budget, -n, '{{ buildkit_namespace }}', -o, json]
+          register: buildkit_quota
+          until: ((buildkit_quota.stdout | from_json).status.hard | default({})) | length > 0
+          retries: 20
+          delay: 1
+          changed_when: false
+          no_log: true
+
+        - name: Build on each node in sequence
+          ansible.builtin.include_tasks: tasks/prove-node.yml
+          loop: "{{ (buildkit_nodes.stdout | from_json)['items'] }}"
+          loop_control:
+            loop_var: buildkit_node
+            label: node
+      always:
+        - name: Delete only the namespace created by this run
+          ansible.builtin.command:
+            argv: [/usr/local/bin/k3s, kubectl, delete, '--raw=/api/v1/namespaces/{{ buildkit_namespace }}', -f, '-']
+            stdin: >-
+              {{ {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'preconditions': {
+                  'uid': (buildkit_namespace_created.stdout | from_json).metadata.uid}} | to_json }}
+          when: buildkit_namespace_created is defined and (buildkit_namespace_created.rc | default(1)) == 0
+          changed_when: false
+          no_log: true
+
+        - name: Wait for fixture namespace removal
+          ansible.builtin.command:
+            argv: [/usr/local/bin/k3s, kubectl, wait, --for=delete, 'namespace/{{ buildkit_namespace }}', --timeout=180s]
+          when: buildkit_namespace_created is defined and (buildkit_namespace_created.rc | default(1)) == 0
+          changed_when: false
+          no_log: true
+
+    - name: Report bounded rootless build qualification
+      ansible.builtin.debug:
+        msg:
+          native_builds: 2
+          build_nodes: 2
+          parallel_builds: 1
+          process_sandbox: true
+          host_user_namespace: false
+          registry_credentials_received: false
+          runner_credentials_received: false

@@ -43,3 +43,5 @@
   ansible.builtin.import_playbook: harbor/verify.yml
 - name: Verify workload admission and restricted Pod Security
   ansible.builtin.import_playbook: admission/verify.yml
+- name: Verify credential-free rootless builds on both nodes
+  ansible.builtin.import_playbook: buildkit/verify.yml

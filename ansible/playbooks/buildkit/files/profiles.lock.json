@@ -1,0 +1,15 @@
+{
+  "upstream": "https://github.com/containerd/containerd/tree/v2.3.4/contrib",
+  "architecture": "amd64",
+  "seccomp": {
+    "file": "buildkit-seccomp.json",
+    "sha256": "81c24837e0bf9ea3c4ec909b5f988259f21b8f77073d3f0b0e55c79979e64336",
+    "base": "seccomp.DefaultProfile; bounding capabilities SETUID and SETGID",
+    "added_syscalls": ["chroot", "clone", "mount", "pivot_root", "sethostname", "setns", "umount2", "unshare"]
+  },
+  "apparmor": {
+    "file": "cloudlab-buildkit",
+    "sha256": "493a09688aa64810001fd2cfb51bb0885665fd7d407c5dfb1db247602d234324",
+    "base": "apparmor/template.go; ABI 4.0 with mount, pivot_root and userns"
+  }
+}

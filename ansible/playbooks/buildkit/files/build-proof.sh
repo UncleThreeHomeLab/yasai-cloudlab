@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+test "$(id -u)" = 1000
+awk '$1 == 0 && $2 != 0 && $3 == 65536 { ok=1 } END { exit !ok }' /proc/self/uid_map
+grep -Eq '^Seccomp:[[:space:]]+2$' /proc/self/status
+grep -Eq '^CapBnd:[[:space:]]+0*c0$' /proc/self/status
+grep -qx 'cloudlab-buildkit (enforce)' /proc/self/attr/current
+test ! -S /var/run/docker.sock
+test ! -S /run/containerd/containerd.sock
+test ! -e /var/lib/rancher/k3s
+
+"$@" &
+daemon=$!
+trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" 2>/dev/null || true' EXIT
+trap 'exit 143' TERM INT
+attempt=0
+until buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock debug workers -v > /tmp/workers; do
+  kill -0 "$daemon"
+  attempt=$((attempt + 1))
+  test "$attempt" -lt 60
+  sleep 1
+done
+grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$' /tmp/workers
+mkdir -p /workspace/context
+cat > /workspace/context/Dockerfile <<'DOCKERFILE'
+FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+RUN python -c 'import os; assert os.getuid() == 0; open("/proof.bin", "wb").write(os.urandom(8 * 1024 * 1024))'
+DOCKERFILE
+buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
+  --frontend dockerfile.v0 --local context=/workspace/context --local dockerfile=/workspace/context \
+  --output type=oci,dest=/workspace/proof.tar,compression=uncompressed
+test "$(wc -c < /workspace/proof.tar)" -gt 8388608
+echo CLOUDLAB_ROOTLESS_BUILD_OK

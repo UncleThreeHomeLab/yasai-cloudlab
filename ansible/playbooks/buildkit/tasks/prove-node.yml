@@ -1,0 +1,42 @@
+---
+- name: Create one credential-free build Job on the selected node
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, create, -f, '-']
+    stdin: "{{ lookup('template', 'job.json.j2') }}"
+  changed_when: false
+  no_log: true
+
+- name: Require the single build quota to reject another Job
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, create, --dry-run=server, -f, '-']
+    stdin: "{{ lookup('template', 'job.json.j2') }}"
+  vars:
+    buildkit_job_name: overflow
+  register: buildkit_overflow
+  changed_when: false
+  failed_when: buildkit_overflow.rc == 0 or 'exceeded quota' not in buildkit_overflow.stderr
+  no_log: true
+
+- name: Wait for a real sandboxed rootless build
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, wait, --for=condition=Complete, job/proof, -n, '{{ buildkit_namespace }}', --timeout=600s]
+  changed_when: false
+  no_log: true
+
+- name: Read the bounded build result
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, logs, job/proof, -n, '{{ buildkit_namespace }}', --tail=20]
+  register: buildkit_result
+  changed_when: false
+  no_log: true
+
+- name: Require all rootless security and build assertions
+  ansible.builtin.assert:
+    that: "'CLOUDLAB_ROOTLESS_BUILD_OK' in buildkit_result.stdout.splitlines()"
+    fail_msg: Rootless user namespace, profiles, process sandbox or OCI build qualification failed.
+
+- name: Remove this Job and its Pod before the next node
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, delete, job/proof, -n, '{{ buildkit_namespace }}', --cascade=foreground, --wait=true, --timeout=180s]
+  changed_when: false
+  no_log: true

@@ -1,0 +1,9 @@
+{{ {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {
+    'name': buildkit_namespace,
+    'labels': {'cloudlab.io/fixture': 'buildkit-proof',
+               'pod-security.kubernetes.io/enforce': 'baseline',
+               'pod-security.kubernetes.io/enforce-version': 'v1.36',
+               'pod-security.kubernetes.io/audit': 'restricted',
+               'pod-security.kubernetes.io/audit-version': 'v1.36',
+               'pod-security.kubernetes.io/warn': 'restricted',
+               'pod-security.kubernetes.io/warn-version': 'v1.36'}}} | to_json }}
