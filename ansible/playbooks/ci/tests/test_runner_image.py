@@ -31,6 +31,8 @@ class RunnerImageTests(unittest.TestCase):
         self.assertIn('--locked-mode', dockerfile)
         self.assertIn('RestoreLockedMode=true', dockerfile)
         self.assertNotIn('NuGetAudit=false', dockerfile)
+        bootstrap = (ROOT / 'ansible/runner/Dockerfile').read_text()
+        self.assertIn('FROM ' + lock['images']['trivy'] + ' AS trivy', bootstrap)
         self.assertEqual((CONTEXT / '.dockerignore').read_text().splitlines()[0], '**')
         self.assertNotIn('eligibility.json', (CONTEXT / '.dockerignore').read_text())
         compose = yaml.safe_load((ROOT / 'compose.yaml').read_text())['services']['ci-runner-image']

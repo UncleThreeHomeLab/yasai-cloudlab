@@ -92,3 +92,22 @@ class RegistryTests(unittest.TestCase):
                         self.assertIsNone(client.digest(client.reference('cloudlab-public'), missing=True))
                     else:
                         with self.assertRaises(RuntimeError): client.digest(client.reference('cloudlab-public'), missing=True)
+
+    def test_tool_references_and_absence_stay_inside_public_bootstrap_repositories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            client = Registry('harbor.internal.example.invalid', {}, Path(temporary) / 'diagnostics')
+            for repository in ('ci-controller', 'ci-runner', 'ci-builder'):
+                self.assertIn('/cloudlab-public/' + repository + '@sha256:',
+                              client.reference('cloudlab-public', 'sha256:' + 'a' * 64, repository=repository))
+                with self.assertRaises(ValueError):
+                    client.reference('cloudlab-private', repository=repository)
+                message = ('HEAD https://' + client.host + '/v2/cloudlab-public/' + repository +
+                           '/manifests/release-test: NOT_FOUND: repository not found').encode()
+                with patch('playbooks.harbor.files.registry.subprocess.run',
+                           return_value=subprocess.CompletedProcess([], 1, b'', message)):
+                    self.assertIsNone(client.digest(client.reference('cloudlab-public', repository=repository), missing=True))
+            for repository in ('other', '../bootstrap', 'ci-runner/other'):
+                with self.assertRaises(ValueError):
+                    client.reference('cloudlab-public', repository=repository)
+            with self.assertRaises(ValueError):
+                client.reference('cloudlab-public', tag='release-test/other')

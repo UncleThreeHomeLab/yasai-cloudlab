@@ -132,6 +132,14 @@ runner namespace. The [runner pool](platform/delivery/ci/pool/values.json) requi
 published image digests and approved workflow revisions before registration. It
 permits one build, ends the builder with its runner, and stops jobs when API or node
 health fails. Its service account can only list nodes and read API readiness.
+Export these images with `docker image save --output .infra-private/ci/<kind>.tar
+yasai-cloudlab-ci-<kind>:local`, using `controller`, `runner` and `builder` for
+`<kind>`. Create the ignored archive directory first. Then run
+`docker compose --profile ci run --build --rm ci-bootstrap`. The local publisher
+scans each archive against the [pinned database](platform/delivery/ci/scan.lock.json),
+requires an unchanged accepted Harbor plan, and preserves immutable publications.
+It uses retained vault robots and needs no ARC runner or Docker socket mount.
+Add `--scan-only` to check archives without loading service credentials.
 
 ## The stack
 

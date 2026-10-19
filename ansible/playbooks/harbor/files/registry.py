@@ -8,6 +8,8 @@ import tempfile
 from playbooks.harbor.files.transport import hostname
 from playbooks.harbor.files.api_policy import POLICY
 
+BOOTSTRAP_REPOSITORIES = ('bootstrap', 'ci-controller', 'ci-runner', 'ci-builder')
+
 
 class Registry:
     def __init__(self, host, environment, diagnostics):
@@ -20,8 +22,9 @@ class Registry:
                                 input=input_data, capture_output=True, timeout=600)
         harbor_absent = any(re.search(
             rb'(?:GET|HEAD) https://' + re.escape(self.host.encode()) + rb'/v2/' + re.escape(project.encode()) +
-            rb'/bootstrap/manifests/[A-Za-z0-9_:.-]+:\s*NOT_FOUND\b', result.stderr)
-            for project in POLICY['projects'])
+            rb'/' + re.escape(repository.encode()) + rb'/manifests/[A-Za-z0-9_:.-]+:\s*NOT_FOUND\b', result.stderr)
+            for project in POLICY['projects'] for repository in BOOTSTRAP_REPOSITORIES
+            if repository == 'bootstrap' or project == 'cloudlab-public')
         if missing and result.returncode and (re.search(rb'MANIFEST_UNKNOWN|NAME_UNKNOWN', result.stderr) or harbor_absent):
             return None
         if immutable:
@@ -51,12 +54,16 @@ class Registry:
             finally:
                 self.environment.pop('DOCKER_CONFIG', None)
 
-    def reference(self, project, digest=None):
+    def reference(self, project, digest=None, *, repository='bootstrap', tag='deploy-bootstrap'):
         if project not in POLICY['projects']:
             raise ValueError('OCI proof escaped its designated projects')
         if digest is not None and not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
             raise ValueError('OCI proof requires an exact SHA-256 image digest')
-        return self.host + '/' + project + '/bootstrap' + ('@' + digest if digest else ':deploy-bootstrap')
+        if (repository not in BOOTSTRAP_REPOSITORIES or
+                (repository != 'bootstrap' and project != 'cloudlab-public') or
+                not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', tag)):
+            raise ValueError('OCI publication escaped its designated bootstrap repositories')
+        return self.host + '/' + project + '/' + repository + ('@' + digest if digest else ':' + tag)
 
     def digest(self, reference, missing=False):
         output = self.command('digest', reference, missing=missing)

@@ -19,6 +19,13 @@ services:
       additional_contexts:
         cloudlab-bootstrap: ./ansible/runner
 
+  ci-bootstrap:
+    profiles: [ci]
+    extends: {service: infra-harbor}
+    entrypoint: [python, -m, playbooks.ci.files.bootstrap]
+    working_dir: /workspace
+    command: []
+
   ci-runner-image:
     profiles: [ci]
     platform: linux/amd64
