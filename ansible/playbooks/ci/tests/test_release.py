@@ -1,10 +1,12 @@
 """Exercise receiver trust checks and real local Git interruption/repeat behavior."""
 import copy
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.parse
 from unittest.mock import patch
 
 from playbooks.ci.files import release
@@ -12,6 +14,26 @@ from playbooks.ci.tests.fixtures import release_request
 
 
 class ReleaseRequestTests(unittest.TestCase):
+    def test_api_authentication_is_in_headers_and_redirects_are_disabled(self):
+        class Response(io.BytesIO):
+            status = 200
+        from unittest.mock import Mock
+        opener = Mock()
+        opener.open.return_value = Response(b'{"number":1}')
+        with patch.object(release.urllib.request, 'build_opener', return_value=opener) as build:
+            self.assertEqual(release.api('POST', 'repos/example/gitops/pulls', {'head': 'release/reviewed'},
+                                         token='synthetic-token'), {'number': 1})
+        self.assertIsInstance(build.call_args.args[0], release.NoRedirect)
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_header('Authorization'), 'Bearer synthetic-token')
+        self.assertNotIn('synthetic-token', request.full_url)
+        self.assertNotIn(b'synthetic-token', request.data)
+        self.assertIsNone(release.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.invalid'))
+        with patch.object(release.urllib.request, 'build_opener') as build:
+            with self.assertRaises(ValueError):
+                release.api('GET', 'repos/example/gitops', token='invalid\nvalue')
+            build.assert_not_called()
+
     def test_exact_local_main_and_bot_identity_is_required_before_any_native_command(self):
         event, environment = release_request()
         self.assertEqual(release.request(event, environment),
@@ -76,22 +98,27 @@ class ReleaseGitTests(unittest.TestCase):
     def ref(self, branch):
         return self.original('git', '--git-dir=' + str(self.remote), 'rev-parse', 'refs/heads/' + branch)
 
-    def execute(self, *arguments, cwd=None):
-        if arguments[:2] == ('gh', 'api'):
-            self.assertEqual(arguments[2], 'repos/example/gitops/git/ref/heads/main')
-            return json.dumps({'object': {'sha': self.ref('main')}})
-        if arguments[:3] == ('gh', 'pr', 'list'):
-            branch = arguments[arguments.index('--head') + 1]
-            return json.dumps([row for row in self.pulls if row['headRefName'] == branch])
-        if arguments[:3] == ('gh', 'pr', 'create'):
-            branch = arguments[arguments.index('--head') + 1]
+    def api(self, method, path, document=None):
+        if path == 'repos/example/gitops/git/ref/heads/main':
+            self.assertEqual(method, 'GET')
+            return {'object': {'sha': self.ref('main')}}
+        if path.startswith('repos/example/gitops/pulls?'):
+            self.assertEqual(method, 'GET')
+            branch = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)['head'][0].split(':', 1)[1]
+            return [{'number': row['number'], 'state': row['state'].lower(), 'head': {'sha': row['headRefOid']}}
+                    for row in self.pulls if row['headRefName'] == branch]
+        if path == 'repos/example/gitops/pulls' and method == 'POST':
+            branch = document['head']
             self.pulls.append({'number': len(self.pulls) + 1, 'state': 'OPEN',
                                'headRefOid': self.ref(branch), 'headRefName': branch})
             self.pr_creations += 1
             if self.interruption == 'pr':
                 self.interruption = None
                 raise RuntimeError('Lost PR creation response')
-            return 'https://github.com/example/gitops/pull/1'
+            return {'number': 1}
+        raise AssertionError('Unexpected release API request')
+
+    def execute(self, *arguments, cwd=None):
         self.assertEqual(arguments[0], 'git')
         self.assertNotIn('--force', arguments)
         result = self.original(*arguments, cwd=cwd)
@@ -101,7 +128,7 @@ class ReleaseGitTests(unittest.TestCase):
         return result
 
     def propose(self):
-        with patch.object(release, 'native', side_effect=self.execute):
+        with patch.object(release, 'native', side_effect=self.execute), patch.object(release, 'api', side_effect=self.api):
             return release.propose('example/gitops', self.path, self.desired)
 
     def branches(self):

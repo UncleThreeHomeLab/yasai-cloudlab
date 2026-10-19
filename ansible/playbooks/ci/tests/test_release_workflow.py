@@ -1,5 +1,6 @@
 """Execute the pinned receiver bootstrap without network or service credentials."""
 import io
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -69,9 +70,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 patch('subprocess.run', side_effect=execute) as run:
             exec(self.code, {})
             run.assert_called_once()
-            url = download.call_args.args[0]
-            self.assertRegex(url, re.compile(r'^https://raw[.]githubusercontent[.]com/'
-                r'UncleThreeHomeLab/yasai-cloudlab/[a-f0-9]{40}/ansible/playbooks/ci/files/release[.]py$'))
+            request = download.call_args.args[0]
+            blob = hashlib.sha1(b'blob ' + str(len(source)).encode() + b'\0' + source).hexdigest()
+            self.assertEqual(request.full_url, 'https://api.github.com/repos/UncleThreeHomeLab/yasai-cloudlab/git/blobs/' + blob)
+            self.assertEqual(request.get_header('Accept'), 'application/vnd.github.raw+json')
 
     def test_changed_download_cannot_execute_or_use_gitops_token(self):
         with patch('urllib.request.urlopen', return_value=io.BytesIO(b'changed source')), \
