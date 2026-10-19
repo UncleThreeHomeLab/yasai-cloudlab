@@ -35,3 +35,4 @@ admission:
   enabled: true
 ci:
   enabled: false
+  poolEnabled: false

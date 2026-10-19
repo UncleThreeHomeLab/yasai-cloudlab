@@ -4,8 +4,13 @@ kind: AppProject
 metadata: {name: cloudlab-ci, namespace: argocd}
 spec:
   description: Trusted repository runner controllers and bounded ephemeral builds.
-  sourceRepos: [{{ .Values.repository | quote }}]
+  sourceRepos:
+    - {{ .Values.repository | quote }}
+    {{- if .Values.identity.argo }}
+    - {{ .Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: argocd}
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-ci-system}
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-ci-private}
   clusterResourceWhitelist:
@@ -22,7 +27,93 @@ spec:
     - {group: rbac.authorization.k8s.io, kind: RoleBinding}
     - {group: networking.k8s.io, kind: NetworkPolicy}
     - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: argoproj.io, kind: ApplicationSet}
     {{- range $kind := list "AutoscalingRunnerSet" "AutoscalingListener" "EphemeralRunnerSet" "EphemeralRunner" }}
     - {group: actions.github.com, kind: {{ $kind }}}
     {{- end }}
+{{- if .Values.identity.argo }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudlab-ci-source
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-ci-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository}
+      data:
+        type: git
+        url: {{ .Values.identity.argo.valuesRepository | quote }}
+        project: cloudlab-ci
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+{{- range $component := list "controller" "pool" }}
+{{- if or (eq $component "controller") $.Values.ci.poolEnabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cloudlab-ci-{{ $component }}
+  namespace: argocd
+  labels: {cloudlab.io/owner: ci-platform}
+spec:
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - git:
+        repoURL: {{ $.Values.identity.argo.valuesRepository | quote }}
+        revision: main
+        files: [{path: platform/ci/config.json}]
+  syncPolicy:
+    applicationsSync: create-update
+    preserveResourcesOnDeletion: true
+  template:
+    metadata:
+      name: cloudlab-ci-{{ $component }}
+      labels: {cloudlab.io/owner: ci-platform}
+    spec:
+      project: cloudlab-ci
+      sources:
+        - repoURL: {{ $.Values.repository | quote }}
+          targetRevision: {{ $.Values.revision | quote }}
+          path: platform/delivery/ci/{{ $component }}
+          helm:
+            releaseName: cloudlab-ci-{{ $component }}
+            valueFiles: [values.json, '$values/platform/ci/config.json']
+            parameters:
+              {{- if eq $component "controller" }}
+              - name: arc.image.repository
+                value: '{{ "{{ index (splitList \"@\" .images.controller) 0 }}" }}'
+              - name: arc.image.tag
+                value: '{{ "0.15.0@{{ index (splitList \"@\" .images.controller) 1 }}" }}'
+              {{- else }}
+              - name: arc.template.spec.containers[0].image
+                value: '{{ "{{ .images.runner }}" }}'
+              - name: arc.template.spec.initContainers[0].image
+                value: '{{ "{{ .images.builder }}" }}'
+              {{- end }}
+        - repoURL: {{ $.Values.identity.argo.valuesRepository | quote }}
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: {{ if eq $component "controller" }}cloudlab-ci-system{{ else }}cloudlab-ci-private{{ end }}
+      syncPolicy:
+        automated: {prune: false, selfHeal: true, allowEmpty: false}
+        syncOptions: [FailOnSharedResource=true, ServerSideApply=true, DisableClientSideApplyMigration=true]
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

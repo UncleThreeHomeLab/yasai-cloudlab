@@ -94,6 +94,9 @@ def wait_application(name, revision, timeout=600):
 def identity_project_rules(project):
     spec = project.get('spec', {})
     baseline = [{'group': 'argoproj.io', 'kind': kind} for kind in ('Application', 'AppProject')]
+    application_sets = {'group': 'argoproj.io', 'kind': 'ApplicationSet'}
+    if application_sets in spec.get('namespaceResourceWhitelist', []):
+        baseline.append(application_sets)
     desired = baseline + [{'group': 'external-secrets.io', 'kind': 'ExternalSecret'}]
     if (spec.get('destinations') != [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}]
             or spec.get('clusterResourceWhitelist') != [{'group': '', 'kind': 'Namespace'}]

@@ -97,6 +97,13 @@ def ansible_inputs(configuration):
             'resources_b64': base64.b64encode(json.dumps(configuration['resources']).encode()).decode()}
 
 
+def profile_fingerprint():
+    return hashlib.sha256(b''.join(path.read_bytes() for path in (
+        POOL / 'values.json', POOL / 'templates/health.yaml', POOL / 'templates/builder-ids.yaml',
+        ROOT / 'ansible/playbooks/buildkit/files/buildkit-seccomp.json',
+        ROOT / 'ansible/playbooks/buildkit/files/cloudlab-buildkit'))).hexdigest()
+
+
 def main():
     os.umask(0o077)
     with (api.WORK / 'client.lock').open('a') as lock:
@@ -115,13 +122,9 @@ def main():
             result = subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/ci/verify-bootstrap.yml',
                                      '--extra-vars', '@' + inputs.name], text=True, cwd=ROOT / 'ansible', check=False)
         if result.returncode == 0:
-            profile = hashlib.sha256(b''.join(path.read_bytes() for path in (
-                POOL / 'values.json', POOL / 'templates/health.yaml', POOL / 'templates/builder-ids.yaml',
-                ROOT / 'ansible/playbooks/buildkit/files/buildkit-seccomp.json',
-                ROOT / 'ansible/playbooks/buildkit/files/cloudlab-buildkit'))).hexdigest()
             atomic(api.WORK / 'ci/qualified.json', {
                 'revision': revision, 'image_revision': document['revision'], 'images': references,
-                'profile_sha256': profile, 'nodes_verified': 2, 'max_build_pods': 1,
+                'profile_sha256': profile_fingerprint(), 'nodes_verified': 2, 'max_build_pods': 1,
                 'health_access_loss_shutdown_bound_seconds': 90, 'workload_api_writes_denied': True,
                 'github_or_signing_credentials_provisioned': False})
         raise SystemExit(result.returncode)
