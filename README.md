@@ -101,7 +101,11 @@ share the [CI registration module](ansible/playbooks/ci/files/configuration.py).
 Generate controller inputs with `--application-file` (JSON fields `name`,
 `repository`, `visibility`) and an explicit `--output` directory. Review inputs in
 the private GitOps catalog at `platform/ci/pools/<name>/controller.json`; add
-`runner.json` only after exact workflow eligibility is approved. Argo continuously
+`runner.json` only after workflow eligibility is approved. For routine app revisions,
+add `--approve-workflow-template` with the reviewed `--workflow-revision` (and
+`--pull-request` for initial internal PR setup). This pins the workflow bytes;
+the runner checks current protected main or an internal PR merge with GitHub before
+running steps. Forks, stale commits and changed workflows fail closed. Argo continuously
 repairs each pool's namespace and security profile. Qualify the published tools on
 both nodes with `docker compose --profile ci run --rm ci-qualify` before enabling a pool.
 Run the same Compose client with

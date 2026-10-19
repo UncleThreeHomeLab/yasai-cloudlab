@@ -8,6 +8,17 @@
 {{- end }}
 {{- end }}
 {{- $policy := dict "workflows" .Values.eligibility | toJson }}
+{{- if .Values.workflowTemplates }}
+{{- if .Values.eligibility }}
+{{- fail "Choose exact revisions or reviewed workflow templates" }}
+{{- end }}
+{{- range .Values.workflowTemplates }}
+{{- if or (ne .repository $repository) (ne .workflow_path ".github/workflows/ci.yaml") }}
+{{- fail "Workflow templates must match the selected application repository" }}
+{{- end }}
+{{- end }}
+{{- $policy = dict "templates" .Values.workflowTemplates | toJson }}
+{{- end }}
 {{- if gt (len $policy) 16384 }}
 {{- fail "Runner eligibility exceeds the runner's policy limit" }}
 {{- end }}

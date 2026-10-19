@@ -1,12 +1,30 @@
 """Exact reviewed revisions and same-repository PR origins precede runner registration."""
 import copy
+import base64
+import hashlib
 import unittest
 from unittest.mock import Mock
 
-from playbooks.ci.files.configuration import application_workflows
+from playbooks.ci.files.configuration import application_workflows, application_templates
 
 
 class ApplicationEligibilityTests(unittest.TestCase):
+    def test_template_approval_pins_reviewed_bytes_and_requires_protected_main(self):
+        content = b'approved reusable workflow\n'
+        file = {'type': 'file', 'path': '.github/workflows/ci.yaml', 'encoding': 'base64',
+                'size': len(content), 'content': base64.b64encode(content).decode()}
+        current = dict(self.current, private=False)
+        self.api.request.side_effect = [self.request, {'type': 'file'}, {'protected': True}, file]
+        rows = application_templates(self.api, current, self.revision, 42)
+        self.assertEqual({row['job'] for row in rows}, {'test', 'publish'})
+        self.assertTrue(all(row['workflow_sha256'] == hashlib.sha256(content).hexdigest() and
+                            row['visibility'] == 'public' for row in rows))
+        for branch, workflow in (({'protected': False}, file), ({'protected': True}, dict(file, size=65537)),
+                                 ({'protected': True}, dict(file, size=1))):
+            self.api.request.side_effect = [self.request, {'type': 'file'}, branch, workflow]
+            with self.subTest(branch=branch), self.assertRaises(ValueError):
+                application_templates(self.api, current, self.revision, 42)
+
     def setUp(self):
         self.current = {'id': 123, 'full_name': 'example/application'}
         self.revision = 'a' * 40

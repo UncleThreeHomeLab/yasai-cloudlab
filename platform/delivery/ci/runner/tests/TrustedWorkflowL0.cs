@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using GitHub.DistributedTask.ObjectTemplating.Tokens;
@@ -10,6 +12,108 @@ namespace GitHub.Runner.Common.Tests.Worker
 {
     public sealed class TrustedWorkflowL0
     {
+        private static (GitHub.DistributedTask.Pipelines.AgentJobRequestMessage Message, byte[] Policy,
+            Dictionary<string, object> Responses, Dictionary<string, string> Values) TemplateFixture(bool pullRequest = false)
+        {
+            var values = TrustedWorkflowFixtures.Values("test");
+            values["event_name"] = pullRequest ? "pull_request" : "push";
+            values["ref"] = pullRequest ? "refs/pull/42/merge" : "refs/heads/main";
+            values["workflow_ref"] = values["repository"] + "/.github/workflows/ci.yaml@" + values["ref"];
+            var message = TrustedWorkflowFixtures.Message("test");
+            TrustedWorkflowFixtures.SetGithub(message, values);
+            var content = Encoding.UTF8.GetBytes("approved immutable reusable workflow wrapper\n");
+            var policy = JsonSerializer.SerializeToUtf8Bytes(new { templates = new[] { new {
+                repository_id = values["repository_id"], repository = values["repository"], job = "test", visibility = "private",
+                workflow_path = ".github/workflows/ci.yaml",
+                workflow_sha256 = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant()
+            } } });
+            var repo = new Dictionary<string, object> {
+                ["id"] = 42, ["full_name"] = values["repository"], ["private"] = true, ["fork"] = false,
+                ["archived"] = false, ["disabled"] = false, ["default_branch"] = "main"
+            };
+            var responses = new Dictionary<string, object> {
+                ["repos/" + values["repository"]] = repo,
+                ["repos/" + values["repository"] + "/branches/main"] = new Dictionary<string, object> {
+                    ["protected"] = true, ["commit"] = new { sha = values["sha"] }
+                },
+                ["repos/" + values["repository"] + "/pulls/42"] = new Dictionary<string, object> {
+                    ["state"] = "open", ["mergeable"] = true, ["merge_commit_sha"] = values["sha"],
+                    ["author_association"] = "MEMBER", ["base"] = new { @ref = "main", repo }, ["head"] = new { repo }
+                },
+                ["repos/" + values["repository"] + "/contents/.github/workflows/ci.yaml?ref=" + values["sha"]] =
+                    new { type = "file", path = ".github/workflows/ci.yaml", encoding = "base64", size = content.Length,
+                          content = Convert.ToBase64String(content) }
+            };
+            return (message, policy, responses, values);
+        }
+
+        [Fact]
+        public void ApprovedTemplateFollowsOnlyCurrentProtectedMainWithUnchangedWorkflow()
+        {
+            var fixture = TemplateFixture();
+            JsonDocument Fetch(string path) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]));
+            Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            var branch = (Dictionary<string, object>)fixture.Responses["repos/example/private-app/branches/main"];
+            branch["protected"] = false;
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            branch["protected"] = true;
+            branch["commit"] = new { sha = new string('b', 40) };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            var old = "repos/example/private-app/contents/.github/workflows/ci.yaml?ref=" + fixture.Values["sha"];
+            fixture.Values["sha"] = fixture.Values["workflow_sha"] = new string('b', 40);
+            TrustedWorkflowFixtures.SetGithub(fixture.Message, fixture.Values);
+            var path = "repos/example/private-app/contents/.github/workflows/ci.yaml?ref=" + fixture.Values["sha"];
+            fixture.Responses[path] = fixture.Responses[old];
+            Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            fixture.Responses[path] = new { type = "file", path = ".github/workflows/ci.yaml", encoding = "base64",
+                size = 7, content = Convert.ToBase64String(Encoding.UTF8.GetBytes("changed")) };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+        }
+
+        [Fact]
+        public void TemplatePrAdmissionRejectsForksOutsidersClosedAndStaleMerges()
+        {
+            var fixture = TemplateFixture(true);
+            JsonDocument Fetch(string path) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]));
+            Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            var request = (Dictionary<string, object>)fixture.Responses["repos/example/private-app/pulls/42"];
+            foreach (var pair in new Dictionary<string, object> {
+                ["state"] = "closed", ["mergeable"] = false, ["merge_commit_sha"] = new string('b', 40),
+                ["author_association"] = "CONTRIBUTOR", ["head"] = new { repo = new { id = 43, full_name = "foreign/fork", fork = true } }
+            })
+            {
+                var original = request[pair.Key];
+                request[pair.Key] = pair.Value;
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+                request[pair.Key] = original;
+            }
+            fixture.Values["job"] = "publish";
+            var publish = TrustedWorkflowFixtures.Message("publish");
+            TrustedWorkflowFixtures.SetGithub(publish, fixture.Values);
+            Assert.False(TrustedWorkflow.Allows(publish, fixture.Policy, Fetch));
+        }
+
+        [Fact]
+        public void TemplateApiFailureMissingOriginalTokenAndChangedIdentityFailClosed()
+        {
+            var fixture = TemplateFixture();
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy));
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
+                path => throw new System.Net.Http.HttpRequestException("unavailable")));
+            var repository = (Dictionary<string, object>)fixture.Responses["repos/example/private-app"];
+            foreach (var pair in new Dictionary<string, object> {
+                ["id"] = 43, ["private"] = false, ["fork"] = true, ["disabled"] = true, ["archived"] = true,
+                ["full_name"] = "foreign/app", ["default_branch"] = "other"
+            })
+            {
+                var original = repository[pair.Key];
+                repository[pair.Key] = pair.Value;
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
+                    path => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]))));
+                repository[pair.Key] = original;
+            }
+        }
+
         [Fact]
         public void AcceptsOnlyTheExplicitlyApprovedPullRequestMergeForTests()
         {

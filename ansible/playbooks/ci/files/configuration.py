@@ -1,5 +1,7 @@
 """Non-secret GitOps inputs derived from the qualified tools and designated repository."""
 import argparse
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -55,7 +57,28 @@ def application_workflows(api, current, revision, pull_request=None):
             for event in events for job in jobs]
 
 
-def application_configuration(qualified, application, current, workflows=()):
+def application_templates(api, current, revision, pull_request=None):
+    """Approve workflow bytes once; the native runner verifies each later revision with GitHub."""
+    application_workflows(api, current, revision, pull_request)
+    prefix = 'repos/' + current['full_name']
+    if api.request('GET', prefix + '/branches/main').get('protected') is not True:
+        raise ValueError('Workflow templates require protected main')
+    document = api.request('GET', prefix + '/contents/.github/workflows/ci.yaml?ref=' + revision)
+    if (document.get('type') != 'file' or document.get('path') != '.github/workflows/ci.yaml' or
+            document.get('encoding') != 'base64' or type(document.get('size')) is not int or
+            not 0 < document['size'] <= 65536):
+        raise ValueError('Workflow template must be a bounded file at the reviewed revision')
+    content = base64.b64decode(''.join(document['content'].split()), validate=True)
+    if len(content) != document['size']:
+        raise ValueError('Workflow template content differs from its declared size')
+    return [{'repository_id': str(current['id']), 'repository': current['full_name'],
+             'visibility': 'private' if current['private'] else 'public',
+             'workflow_path': '.github/workflows/ci.yaml',
+             'workflow_sha256': hashlib.sha256(content).hexdigest(), 'job': job}
+            for job in ('test', 'publish')]
+
+
+def application_configuration(qualified, application, current, workflows=(), templates=()):
     references = qualified_images(qualified)
     if (set(application) != {'name', 'repository', 'visibility'} or
             not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application.get('name', '')) or
@@ -77,7 +100,9 @@ def application_configuration(qualified, application, current, workflows=()):
             'fullnameOverride': controller, 'serviceAccount': {'name': controller},
             'flags': {'watchSingleNamespace': namespace},
             'image': {'repository': image_repository, 'tag': '0.15.0@' + image_digest}}}}}
-    if workflows:
+    if workflows and templates:
+        raise ValueError('Choose exact revisions or reviewed workflow templates')
+    if workflows or templates:
         values = json.loads((POOL / 'values.json').read_text())
         values['arc'].update(githubConfigUrl=current['html_url'],
                              githubConfigSecret='github-arc-public' if scope == 'public' else 'github-arc',
@@ -87,7 +112,9 @@ def application_configuration(qualified, application, current, workflows=()):
         pod['containers'][0]['image'] = references['runner']
         pod['initContainers'][0]['image'] = references['builder']
         values['eligibility'] = list(workflows)
-        if any(row.get('repository') != full_name or row.get('repository_id') != str(current['id']) for row in workflows):
+        if templates:
+            values['workflowTemplates'] = list(templates)
+        if any(row.get('repository') != full_name or row.get('repository_id') != str(current['id']) for row in (*workflows, *templates)):
             raise ValueError('Application eligibility must retain its immutable repository identity')
         documents['runner.json'] = {'name': name, 'namespace': namespace, 'values': values}
     return documents
@@ -120,10 +147,13 @@ def main():
     parser.add_argument('--workflow-revision')
     parser.add_argument('--application-file', type=Path)
     parser.add_argument('--pull-request', type=int)
+    parser.add_argument('--approve-workflow-template', action='store_true')
     parser.add_argument('--output', type=Path, default=harbor_api.WORK / 'ci/configuration.json')
     arguments = parser.parse_args()
     if arguments.pull_request is not None and not (arguments.application_file and arguments.workflow_revision):
         parser.error('--pull-request requires --application-file and --workflow-revision')
+    if arguments.approve_workflow_template and not (arguments.application_file and arguments.workflow_revision):
+        parser.error('--approve-workflow-template requires --application-file and --workflow-revision')
     os.umask(0o077)
     revision = harbor_api.binding()
     values, api = inputs()
@@ -148,8 +178,12 @@ def main():
                for key in ('revision', 'image_revision')):
         raise ValueError('CI tools and qualification must originate from reviewed ancestors')
     if application:
-        workflows = application_workflows(api, fixture, arguments.workflow_revision, arguments.pull_request) if arguments.workflow_revision else []
-        documents = application_configuration(qualified, application, fixture, workflows)
+        templates, workflows = [], []
+        if arguments.approve_workflow_template:
+            templates = application_templates(api, fixture, arguments.workflow_revision, arguments.pull_request)
+        elif arguments.workflow_revision:
+            workflows = application_workflows(api, fixture, arguments.workflow_revision, arguments.pull_request)
+        documents = application_configuration(qualified, application, fixture, workflows, templates)
         if arguments.output.is_symlink():
             raise ValueError('Application output cannot redirect its protected directory')
         arguments.output.mkdir(mode=0o700, parents=True, exist_ok=True)
