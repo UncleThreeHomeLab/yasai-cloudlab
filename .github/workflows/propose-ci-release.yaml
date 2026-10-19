@@ -40,10 +40,11 @@ jobs:
           import tempfile
           import urllib.request
 
-          url = 'https://raw.githubusercontent.com/UncleThreeHomeLab/yasai-cloudlab/f09444f443bb3a50760eb4998b3dffab843a17c3/ansible/playbooks/ci/files/release.py'
-          with urllib.request.urlopen(url, timeout=30) as response:
+          url = 'https://api.github.com/repos/UncleThreeHomeLab/yasai-cloudlab/git/blobs/bff7c9fe56e847dee28198c3c8479dd12b83d959'
+          request = urllib.request.Request(url, headers={'Accept': 'application/vnd.github.raw+json', 'User-Agent': 'cloudlab-release/1'})
+          with urllib.request.urlopen(request, timeout=30) as response:
               source = response.read(65537)
-          if hashlib.sha256(source).hexdigest() != '361552db7de8a3dbd18321cfd697e12b49c1c6ff488ec0fe1bb135b56085dd3f':
+          if hashlib.sha256(source).hexdigest() != '2a777a44bd1d77bcee5efd65f688b1ff3c6a6749a1be66708dade072d36e7283':
               raise SystemExit('Release helper checksum mismatch; no Git operation attempted')
           environment = {key: os.environ[key] for key in (
               'PATH', 'HOME', 'GH_TOKEN', 'GITHUB_EVENT_PATH', 'GITHUB_REPOSITORY',
