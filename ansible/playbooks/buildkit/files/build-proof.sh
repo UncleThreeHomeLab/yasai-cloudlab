@@ -21,6 +21,8 @@ until buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock debug worker
   sleep 1
 done
 grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$' /tmp/workers
+buildctl --addr tcp://127.0.0.1:1234 debug workers -v > /tmp/tcp-workers
+grep -Eq 'org.mobyproject.buildkit.worker.oci.process-mode:[[:space:]]+sandbox$' /tmp/tcp-workers
 mkdir -p /workspace/context
 cat > /workspace/context/Dockerfile <<'DOCKERFILE'
 FROM docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed

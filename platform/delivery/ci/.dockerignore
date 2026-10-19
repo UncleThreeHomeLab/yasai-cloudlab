@@ -1,0 +1,14 @@
+**
+!Dockerfile
+!runner/
+!runner/*.cs
+!runner/*.patch
+!runner/tests/
+!runner/tests/*.cs
+!runner/nuget/
+!runner/nuget/*/
+!runner/nuget/*/packages.lock.json
+!tools/
+!tools/*/
+!tools/*/go.mod
+!tools/*/go.sum

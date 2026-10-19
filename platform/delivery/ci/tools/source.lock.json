@@ -1,0 +1,55 @@
+{
+  "compiler": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+  "sources": [
+    {
+      "name": "buildkit",
+      "version": "v0.34.0",
+      "source": "https://codeload.github.com/moby/buildkit/tar.gz/refs/tags/v0.34.0",
+      "sha256": "b51e3a6bb7e0a0381adef47bffb8527817409f477fc5d26054517af29a11ff65",
+      "modules": {
+        "go.mod": "af3db89a52c2d35e499220b6f71e7503226c23f0cde0d6179c243822a8f43bc0",
+        "go.sum": "88059d106e53e7aa6b6f145049bd7a2b52d54ac91a3f33786279765d54d0ffd0"
+      }
+    },
+    {
+      "name": "cosign",
+      "version": "v3.1.3",
+      "source": "https://codeload.github.com/sigstore/cosign/tar.gz/refs/tags/v3.1.3",
+      "sha256": "ab8fcb8e0b4c0b8d01aefa37790cdd5ad099366b2efb8636b7a0250915b93362",
+      "modules": {
+        "go.mod": "ced0c2642c1b873e9509a74868bb1f7c546c9bf69a302169795a52ee6fa15cb3",
+        "go.sum": "a8e9508fd4ec6818f59fe21b21e3c02a8f23408f9581598f4490a4ca694047e9"
+      }
+    },
+    {
+      "name": "crane",
+      "version": "v0.22.1",
+      "source": "https://codeload.github.com/google/go-containerregistry/tar.gz/refs/tags/v0.22.1",
+      "sha256": "a52cc7d61f8b2f043b7f0be1febecead5fceb791543c4790d699440f12d6b370",
+      "modules": {
+        "go.mod": "d1e80d9033113b5877b0b48d02db0fcee02f15d13d7ad61eff1c0cda93eea367",
+        "go.sum": "fff3242a42e11522b3cbde0b5f7a543d95f3e61663429d14c4e203eccd10821f"
+      }
+    },
+    {
+      "name": "runc",
+      "version": "v1.5.2",
+      "source": "https://codeload.github.com/opencontainers/runc/tar.gz/refs/tags/v1.5.2",
+      "sha256": "b5af44864a830c7032cf4a72efa0c6d44f701873d9507b127be31ad4d1d42ff3",
+      "modules": {
+        "go.mod": "70292419f5c176b4799a69310914534623833fedcb0e71c290762dda4e236e1c",
+        "go.sum": "0abe47767437029f8cc0446d0882d64522d848297c7adbc223afb8ad1db59a1d"
+      }
+    },
+    {
+      "name": "rootlesskit",
+      "version": "v3.2.0",
+      "source": "https://codeload.github.com/rootless-containers/rootlesskit/tar.gz/refs/tags/v3.2.0",
+      "sha256": "75e990eabaa699d86557bfab635b76e430fe91f37bbbb134bc70079e53c3f88d",
+      "modules": {
+        "go.mod": "5c01b599e9670802d42212fe2f7e814c7dd6ec1d8658a299382982ee8ce6bfb5",
+        "go.sum": "5c7f47efc2cd20140c8663fd5a636542dcd9a4e6113dbd1225fa332823334722"
+      }
+    }
+  ]
+}

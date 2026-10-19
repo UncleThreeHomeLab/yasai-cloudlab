@@ -1,0 +1,94 @@
+--- a/src/Sdk/Sdk.csproj
++++ b/src/Sdk/Sdk.csproj
+@@ -23,14 +23,14 @@
+         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+         <PackageReference Include="Microsoft.AspNet.WebApi.Client" Version="6.0.0" />
+         <PackageReference Include="System.Security.Cryptography.Cng" Version="5.0.0" />
+-        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
++        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+         <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
+         <PackageReference Include="Minimatch" Version="2.0.0" />
+         <PackageReference Include="YamlDotNet.Signed" Version="5.3.0" />
+         <PackageReference Include="System.Net.Http" Version="4.3.4" />
+         <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
+         <PackageReference Include="System.Private.Uri" Version="4.3.2" />
+-        <PackageReference Include="System.Formats.Asn1" Version="10.0.12" />
++        <PackageReference Include="System.Formats.Asn1" Version="10.0.13" />
+     </ItemGroup>
+ 
+     <ItemGroup>
+--- a/src/Runner.Worker/JobRunner.cs
++++ b/src/Runner.Worker/JobRunner.cs
+@@ -182,10 +182,12 @@
+ 
+                 // Get the job extension.
+                 Trace.Info("Getting job extension.");
+-                IJobExtension jobExtension = HostContext.CreateService<IJobExtension>();
++                IJobExtension jobExtension = null;
+                 List<IStep> jobSteps = null;
+                 try
+                 {
++                    TrustedWorkflow.Enforce(message);
++                    jobExtension = HostContext.CreateService<IJobExtension>();
+                     Trace.Info("Initialize job. Getting all job steps.");
+                     jobSteps = await jobExtension.InitializeJob(jobContext, message);
+                 }
+--- a/src/Test/L0/Worker/JobRunnerL0.cs
++++ b/src/Test/L0/Worker/JobRunnerL0.cs
+@@ -11,8 +11,9 @@
+ 
+ namespace GitHub.Runner.Common.Tests.Worker
+ {
+-    public sealed class JobRunnerL0
++    public sealed class JobRunnerL0 : IDisposable
+     {
++        private bool _policyOwned;
+         private IExecutionContext _jobEc;
+         private JobRunner _jobRunner;
+         private List<IStep> _initResult = new();
+@@ -32,6 +33,8 @@
+ 
+         private TestHostContext CreateTestContext([CallerMemberName] String testName = "")
+         {
++            TrustedWorkflowFixtures.Install(testName);
++            _policyOwned = true;
+             var hc = new TestHostContext(this, testName);
+ 
+             _jobEc = new Runner.Worker.ExecutionContext();
+@@ -124,8 +127,35 @@
+                 Id = "github",
+                 Version = "sha1"
+             });
+-            message.ContextData.Add("github", new Pipelines.ContextData.DictionaryContextData());
++            TrustedWorkflowFixtures.SetGithub(message);
+             return message;
++        }
++
++        public void Dispose()
++        {
++            _tokenSource?.Dispose();
++            if (_policyOwned)
++                TrustedWorkflowFixtures.Remove();
++        }
++
++        [Fact]
++        [Trait("Level", "L0")]
++        public async Task TrustedWorkflowRejectsAlwaysBeforeSetup()
++        {
++            using (TestHostContext hc = CreateTestContext())
++            {
++                var message = GetMessage();
++                var github = (Pipelines.ContextData.DictionaryContextData)message.ContextData["github"];
++                github["sha"] = new Pipelines.ContextData.StringContextData(new string('b', 40));
++                message.Steps.Add(new Pipelines.ActionStep {
++                    Id = Guid.NewGuid(), Name = "forbidden", Condition = "always()",
++                    Reference = new Pipelines.ScriptReference()
++                });
++                await _jobRunner.RunAsync(message, _tokenSource.Token);
++                Assert.Equal(TaskResult.Failed, _jobEc.Result);
++                _jobExtension.Verify(x => x.InitializeJob(It.IsAny<IExecutionContext>(), It.IsAny<Pipelines.AgentJobRequestMessage>()), Times.Never);
++                _stepRunner.Verify(x => x.RunAsync(It.IsAny<IExecutionContext>()), Times.Never);
++            }
+         }
+ 
+         [Fact]

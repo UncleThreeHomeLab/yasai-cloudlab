@@ -17,9 +17,14 @@ template:
         image: ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807
         imagePullPolicy: Always
         command: [/home/runner/run.sh]
+        env:
+          - {name: BUILDKIT_HOST, value: 'tcp://127.0.0.1:1234'}
         securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
+          # Native JIT configuration and logs use the disposable runner filesystem.
+          readOnlyRootFilesystem: false
           capabilities: {drop: [ALL]}
           appArmorProfile: {type: RuntimeDefault}
         resources:
@@ -37,6 +42,7 @@ template:
             chmod 0700 /run/user/1000
             exec rootlesskit --copy-up=/etc --copy-up=/run buildkitd \
               --addr unix:///run/user/1000/buildkit/buildkitd.sock \
+              --addr tcp://127.0.0.1:1234 \
               --root /home/user/.local/share/buildkit/state \
               --oci-worker-snapshotter=native --oci-worker-gc-keepstorage=4096
         env:
