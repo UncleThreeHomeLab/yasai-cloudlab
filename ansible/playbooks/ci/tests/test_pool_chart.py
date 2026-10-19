@@ -8,6 +8,25 @@ from playbooks.ci.tests.fixtures import pool_values
 
 
 class PoolChartTests(unittest.TestCase):
+    def test_public_repository_pools_share_charts_but_never_private_app_credentials(self):
+        values = pool_values()
+        values['arc']['githubConfigSecret'] = 'github-arc-public'
+        namespace = 'cloudlab-ci-public-example'
+        objects = render(values, chart=POOL, namespace=namespace)
+        secret, = [row for row in objects if row['kind'] == 'ExternalSecret']
+        self.assertEqual(secret['metadata']['namespace'], namespace)
+        self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'github-arc-public'}}])
+        binding, = [row for row in objects if row['kind'] == 'ClusterRoleBinding']
+        self.assertEqual(binding['metadata']['name'], namespace + '-health')
+        self.assertEqual(binding['subjects'][0]['namespace'], namespace)
+        for bad_namespace, secret in ((namespace, 'github-arc'), ('cloudlab-ci-private', 'github-arc-public')):
+            values['arc']['githubConfigSecret'] = secret
+            with self.subTest(namespace=bad_namespace), self.assertRaises(subprocess.CalledProcessError):
+                render(values, chart=POOL, namespace=bad_namespace)
+        values['arc']['githubConfigSecret'] = 'github-arc'
+        with self.assertRaises(subprocess.CalledProcessError):
+            render(values, chart=POOL, namespace='kube-system')
+
     def test_native_pool_preserves_builder_profile_and_bounded_health_permissions(self):
         self.assertEqual(check_pool(pool_values())['runner_api_write_permissions'], 0)
         objects = render(pool_values(), chart=POOL)

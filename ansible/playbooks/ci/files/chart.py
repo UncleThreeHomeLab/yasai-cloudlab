@@ -11,11 +11,13 @@ CONTROLLER = ROOT / 'platform/delivery/ci/controller'
 POOL = ROOT / 'platform/delivery/ci/pool'
 
 
-def render(values=None, *, chart=CONTROLLER, parameters=None):
-    namespace = 'cloudlab-ci-private' if chart == POOL else 'cloudlab-ci-system'
-    command = ['helm', 'template', 'cloudlab-arc-controller', str(chart),
+def render(values=None, *, chart=CONTROLLER, parameters=None, namespace=None, release='cloudlab-arc-controller', include_crds=True):
+    namespace = namespace or ('cloudlab-ci-private' if chart == POOL else 'cloudlab-ci-system')
+    command = ['helm', 'template', release, str(chart),
                '--namespace', namespace, '--kube-version', '1.36.5',
-               '--include-crds', '--skip-tests', '-f', str(chart / 'values.json'), '-f', '-']
+               '--skip-tests', '-f', str(chart / 'values.json'), '-f', '-']
+    if include_crds:
+        command.append('--include-crds')
     for name, value in (parameters or {}).items():
         command += ['--set-string', name + '=' + value]
     outputs = [subprocess.run(command, input=yaml.safe_dump(values or {}), capture_output=True,

@@ -46,14 +46,23 @@ def bundle(references, namespace):
                                         'tag': '0.15.0@' + controller_digest}}})
     pull = next(row for row in rendered if row['kind'] == 'ExternalSecret')
     pull['metadata'] = {'name': 'harbor-tools-pull', 'namespace': namespace, 'labels': labels}
-    permissions = list(yaml.safe_load_all((POOL / 'templates/health.yaml').read_text()))
-    account, role, binding = permissions
+    pool = render({'arc': {'githubConfigUrl': 'https://github.com/example/qualification',
+                           'template': {'spec': {'containers': [{'name': 'runner', 'image': references['runner']}],
+                                                 'initContainers': [{'name': 'builder', 'image': references['builder']}]}}},
+                   'eligibility': [{'repository_id': '1', 'repository': 'example/qualification',
+                                    'workflow_ref': 'example/qualification/.github/workflows/publish.yaml@refs/heads/main',
+                                    'workflow_sha': 'a' * 40, 'sha': 'a' * 40, 'ref': 'refs/heads/main',
+                                    'event_name': 'workflow_dispatch', 'job': 'publish'}]}, chart=POOL)
+    account = next(row for row in pool if row['kind'] == 'ServiceAccount' and row['metadata']['name'] == 'cloudlab-ci-health')
+    role, = [row for row in pool if row['kind'] == 'ClusterRole']
+    binding, = [row for row in pool if row['kind'] == 'ClusterRoleBinding']
+    permissions = [account, role, binding]
     account['metadata'] = {'name': 'health', 'namespace': namespace, 'labels': labels}
     role['metadata'] = {'name': namespace, 'labels': labels}
     binding['metadata'] = {'name': namespace, 'labels': labels}
     binding['roleRef']['name'] = namespace
     binding['subjects'] = [{'kind': 'ServiceAccount', 'name': 'health', 'namespace': namespace}]
-    ids = yaml.safe_load((POOL / 'templates/builder-ids.yaml').read_text())
+    ids = next(row for row in pool if row['kind'] == 'ConfigMap' and row['metadata']['name'] == 'cloudlab-buildkit-ids')
     ids['metadata'].update(namespace=namespace, labels=labels)
     policy = {'apiVersion': 'v1', 'kind': 'ConfigMap',
               'metadata': {'name': 'cloudlab-ci-eligibility', 'namespace': namespace, 'labels': labels},

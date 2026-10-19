@@ -6,6 +6,25 @@ from playbooks.ci.files.chart import check, render
 
 
 class ControllerChartTests(unittest.TestCase):
+    def test_additional_repository_controller_preserves_shared_ownership_and_scoped_roles(self):
+        namespace = 'cloudlab-ci-public-example'
+        objects = render({'manageSystemNamespace': False, 'arc': {
+            'fullnameOverride': 'cloudlab-example-controller',
+            'serviceAccount': {'name': 'cloudlab-example-controller'},
+            'image': {'repository': 'registry.example.invalid/cloudlab-public/ci-controller',
+                      'tag': '0.15.0@sha256:' + 'a' * 64},
+            'flags': {'watchSingleNamespace': namespace}}}, include_crds=False)
+        self.assertEqual([row['metadata']['name'] for row in objects if row['kind'] == 'Namespace'], [namespace])
+        self.assertFalse(any(row['kind'] in ('ClusterRole', 'ClusterRoleBinding', 'CustomResourceDefinition') for row in objects))
+        self.assertFalse(any(row['kind'] == 'ResourceQuota' and row['metadata']['namespace'] == 'cloudlab-ci-system' for row in objects))
+        deployment, = [row for row in objects if row['kind'] == 'Deployment']
+        self.assertIn('--watch-single-namespace=' + namespace, deployment['spec']['template']['spec']['containers'][0]['args'])
+        for row in objects:
+            if row['kind'] in ('Role', 'RoleBinding'):
+                self.assertIn(row['metadata']['namespace'], (namespace, 'cloudlab-ci-system'))
+                for subject in row.get('subjects', []):
+                    self.assertEqual(subject['name'], 'cloudlab-example-controller')
+
     def test_native_controller_roles_resources_crds_and_credential_scope(self):
         self.assertEqual(check()['cluster_role_grants'], 0)
 

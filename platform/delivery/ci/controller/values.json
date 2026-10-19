@@ -1,4 +1,5 @@
 {
+  "manageSystemNamespace": true,
   "arc": {
     "fullnameOverride": "cloudlab-arc-controller",
     "replicaCount": 1,

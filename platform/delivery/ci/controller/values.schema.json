@@ -2,6 +2,7 @@
   "type": "object",
   "required": ["arc"],
   "properties": {
+    "manageSystemNamespace": {"type": "boolean"},
     "arc": {
       "type": "object",
       "required": ["image", "flags", "replicaCount"],
@@ -18,7 +19,7 @@
         "flags": {
           "type": "object",
           "required": ["watchSingleNamespace"],
-          "properties": {"watchSingleNamespace": {"const": "cloudlab-ci-private"}}
+          "properties": {"watchSingleNamespace": {"type": "string", "pattern": "^(?:cloudlab-ci-private|cloudlab-ci-(?:private|public)-[a-z0-9][a-z0-9-]{0,35})$"}}
         }
       }
     }

@@ -10,6 +10,6 @@
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
-metadata: {name: cloudlab-ci-eligibility, namespace: cloudlab-ci-private}
+metadata: {name: cloudlab-ci-eligibility, namespace: {{ .Release.Namespace }}}
 data:
   eligibility.json: {{ $policy | quote }}

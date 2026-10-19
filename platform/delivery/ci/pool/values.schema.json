@@ -24,7 +24,7 @@
       "required": ["githubConfigUrl", "githubConfigSecret", "minRunners", "maxRunners", "template"],
       "properties": {
         "githubConfigUrl": {"type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
-        "githubConfigSecret": {"const": "github-arc"},
+        "githubConfigSecret": {"enum": ["github-arc", "github-arc-public"]},
         "minRunners": {"const": 0},
         "maxRunners": {"const": 1},
         "template": {

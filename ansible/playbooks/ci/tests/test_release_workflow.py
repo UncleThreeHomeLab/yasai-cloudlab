@@ -12,6 +12,22 @@ from playbooks.ci.files.chart import ROOT
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_shared_application_tests_cannot_select_hosted_runners_or_receive_registry_secrets(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/application-test.yaml').read_text())
+        self.assertEqual(set(workflow['on']), {'workflow_call'})
+        self.assertNotIn('secrets', workflow['on']['workflow_call'])
+        job, = workflow['jobs'].values()
+        self.assertEqual(job['runs-on'], "${{ format('cloudlab-{0}', inputs.application) }}")
+        self.assertEqual(job['permissions'], {'contents': 'read'})
+        self.assertNotIn('container', job)
+        self.assertNotIn('services', job)
+        checkout, build = job['steps']
+        self.assertRegex(checkout['uses'], r'^actions/checkout@[a-f0-9]{40}$')
+        self.assertFalse(checkout['with']['persist-credentials'])
+        self.assertIn('buildctl --addr tcp://127.0.0.1:1234 build', build['run'])
+        self.assertNotIn('docker', build['run'].split('--frontend')[0])
+        self.assertNotIn('secrets.', str(workflow))
+
     def setUp(self):
         self.workflow = yaml.safe_load((ROOT / '.github/workflows/propose-ci-release.yaml').read_text())
         self.step, = self.workflow['jobs']['propose']['steps']
@@ -20,12 +36,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(rows[-1], 'PY')
         self.code = compile('\n'.join(rows[1:-1]), 'receiver-bootstrap', 'exec')
 
-    def test_only_hosted_dispatch_or_reusable_receiver_can_get_gitops_write_permission(self):
+    def test_only_local_dispatch_or_reusable_receiver_can_get_gitops_write_permission(self):
         self.assertEqual(set(self.workflow['on']), {'workflow_dispatch', 'workflow_call'})
         self.assertEqual(set(self.workflow['on']['workflow_dispatch']['inputs']),
                          {'digest', 'source_revision', 'workflow_run_id'})
         job = self.workflow['jobs']['propose']
-        self.assertEqual(job['runs-on'], 'ubuntu-24.04')
+        self.assertEqual(job['runs-on'], "${{ inputs.scope == 'private' && 'cloudlab-release-private' || 'cloudlab-release-public' }}")
         self.assertEqual(job['timeout-minutes'], 5)
         self.assertEqual(job['permissions'], {'contents': 'write', 'pull-requests': 'write'})
         self.assertEqual(self.step['env']['GH_TOKEN'], '${{ github.token }}')

@@ -1,3 +1,4 @@
+{{- if .Values.manageSystemNamespace }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -10,10 +11,11 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
+{{- end }}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: cloudlab-ci-private
+  name: {{ .Values.arc.flags.watchSingleNamespace }}
   labels:
     cloudlab.io/owner: ci-platform
     cloudlab.io/service-secrets: approved
@@ -22,20 +24,22 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
+{{- if .Values.manageSystemNamespace }}
 apiVersion: v1
 kind: ResourceQuota
 metadata: {name: controller-budget, namespace: cloudlab-ci-system}
 spec:
   hard:
-    pods: '4'
-    limits.cpu: 600m
-    limits.memory: 768Mi
-    limits.ephemeral-storage: 384Mi
-    count/autoscalinglisteners.actions.github.com: '2'
+    pods: '8'
+    limits.cpu: 1600m
+    limits.memory: 2Gi
+    limits.ephemeral-storage: 1Gi
+    count/autoscalinglisteners.actions.github.com: '4'
 ---
+{{- end }}
 apiVersion: v1
 kind: ResourceQuota
-metadata: {name: runner-budget, namespace: cloudlab-ci-private}
+metadata: {name: runner-budget, namespace: {{ .Values.arc.flags.watchSingleNamespace }}}
 spec:
   hard:
     pods: '1'

@@ -92,7 +92,17 @@ and [lifecycle operations](ansible/playbooks/keycloak/) remain explicit.
 
 Harbor prerequisites use the [registry contract](ansible/playbooks/harbor/files/contract.json).
 Inspect inputs with `docker compose run --rm --entrypoint python service -m playbooks.harbor.files.preflight`.
-Keep ARC and public/private release Apps separate. Run the same Compose client with
+Keep ARC and public/private release Apps separate. Public runners use the reusable
+`CloudLab/github-arc-public` App, with `APP_ID`, `INSTALLATION_ID` and `PRIVATE_KEY`,
+installed only on approved public repositories, with repository Administration
+write and Metadata read permissions and no organization grants. Private runners use `github-arc`.
+All Actions jobs run locally; untrusted fork jobs are ineligible. Repository pools
+share the [CI registration module](ansible/playbooks/ci/files/configuration.py).
+Generate controller inputs with `--application-file` (JSON fields `name`,
+`repository`, `visibility`) and an explicit `--output` directory. Review inputs in
+the private GitOps catalog at `platform/ci/pools/<name>/controller.json`; add
+`runner.json` only after exact workflow eligibility is approved. Argo continuously
+repairs each pool's namespace and security profile. Run the same Compose client with
 `-m playbooks.harbor.files.control credentials` to create missing installation secrets locally.
 Run `gh auth token | docker compose run -T --rm --entrypoint python service -m playbooks.harbor.files.control identity-prepare`
 and merge its private client PR. Add `harbor` to `PRIVATE_ACCESS_HOSTS`, review
@@ -127,10 +137,10 @@ The [runner gate](platform/delivery/ci/runner/TrustedWorkflow.cs) checks origina
 job metadata against a read-only policy before action setup. The runner uses UID
 1001 and writable disposable storage for native JIT configuration and logs;
 the builder uses UID 1000, a read-only filesystem and a pod-loopback API.
-The [controller](platform/delivery/ci/controller/values.json) watches only the private
-runner namespace. The [runner pool](platform/delivery/ci/pool/values.json) requires
+Each [controller](platform/delivery/ci/controller/values.json) watches only its assigned
+repository namespace. The [runner pool](platform/delivery/ci/pool/values.json) requires
 published image digests and approved workflow revisions before registration. It
-permits one build, ends the builder with its runner, and stops jobs when API or node
+permits one build per repository, ends the builder with its runner, and stops jobs when API or node
 health fails. Its health role grants node listing and API readiness reads.
 Export these images with `docker image save --output .infra-private/ci/<kind>.tar
 yasai-cloudlab-ci-<kind>:local`, using `controller`, `runner` and `builder` for
