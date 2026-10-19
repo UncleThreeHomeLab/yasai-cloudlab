@@ -5,9 +5,11 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
-    - name: Verify published admission controllers and native audit behavior
+    - name: Verify published admission controllers and declared policy behavior
       ansible.builtin.script:
-        cmd: 'files/verify.py {{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}'
+        cmd: >-
+          files/verify.py {{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}
+          {{ (lookup('file', '/workspace/platform/delivery/admission/policies/values.yaml') | from_yaml).validationActions | to_json | quote }}
         executable: python3
       changed_when: false
       no_log: true

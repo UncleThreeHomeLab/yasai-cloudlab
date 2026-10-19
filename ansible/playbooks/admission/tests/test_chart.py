@@ -14,6 +14,15 @@ class AdmissionTests(unittest.TestCase):
     def test_native_chart_retains_apis_without_hooks_secrets_or_host_privileges(self):
         self.assertEqual(check()['runtime_images'], 3)
 
+    def test_policy_modes_are_explicit_and_reject_partial_or_conflicting_actions(self):
+        for actions in (['Audit', 'Warn'], ['Deny']):
+            with self.subTest(actions=actions):
+                self.assertTrue(all(row['spec']['validationActions'] == actions for row in
+                                    render(True, {'validationActions': actions})))
+        for actions in ([], ['Warn'], ['Deny', 'Warn'], ['Audit'], ['Deny', 'Deny']):
+            with self.subTest(actions=actions), self.assertRaises(subprocess.CalledProcessError):
+                render(True, {'validationActions': actions})
+
     def test_native_cli_rejects_tagged_unbounded_and_token_enabled_workloads(self):
         policies = {row['metadata']['name']: row for row in render(True)}
         policy = policies['cloudlab-workload-contract']

@@ -31,7 +31,7 @@ def dry_run(document):
                 document=document, allow_failure=True)
 
 
-def admission(namespace):
+def admission(namespace, enforce):
     good = probe(namespace)
     if dry_run(good).returncode:
         raise RuntimeError('Restricted digest workload did not pass server admission')
@@ -48,8 +48,8 @@ def admission(namespace):
             (unbounded, 'Every workload container requires positive CPU and memory requests and limits.'),
             (token, 'Workloads must not project Kubernetes service account tokens.')):
         result = dry_run(document)
-        if result.returncode or message not in result.stderr:
-            raise RuntimeError('Audit policy must admit and warn about each workload violation')
+        if bool(result.returncode) != enforce or message not in result.stderr:
+            raise RuntimeError('Workload violation did not match the declared policy mode')
     privileged = copy.deepcopy(good)
     privileged['spec']['containers'][0]['securityContext'].update(privileged=True, allowPrivilegeEscalation=True)
     denied = dry_run(privileged)
@@ -57,7 +57,7 @@ def admission(namespace):
         raise RuntimeError('Application Pod Security must reject privileged workloads')
 
 
-def ephemeral_admission(namespace):
+def ephemeral_admission(namespace, enforce):
     pods = (get('pod', namespace=namespace) or {}).get('items', [])
     target = next((row for row in pods if condition(row, 'Ready') and
                    not row['metadata'].get('deletionTimestamp')), None)
@@ -77,8 +77,8 @@ def ephemeral_admission(namespace):
             container['image'] = 'docker.io/library/python:3.13-slim-bookworm'
         result = kube('replace', '--raw', path, '-f', '-', document=target, allow_failure=True)
         warned = 'Workload images must use an immutable SHA-256 digest.' in result.stderr
-        if result.returncode or warned != mutable:
-            raise RuntimeError('Ephemeral image admission did not preserve its audited digest rule')
+        if bool(result.returncode) != (enforce and mutable) or warned != mutable:
+            raise RuntimeError('Ephemeral image admission did not preserve its declared digest rule')
     return True
 
 
@@ -107,9 +107,12 @@ def controllers():
                   for row in pods if condition(row, 'Ready'))
 
 
-def run(revision):
+def run(revision, actions):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
+    if actions not in (['Audit', 'Warn'], ['Deny']):
+        raise ValueError('Admission verification requires the declared audit or enforcement actions')
+    enforce = actions == ['Deny']
     names = ('cloudlab-kyverno', 'cloudlab-workload-policy')
     wait(lambda: all(application_ready(name, revision) for name in names),
          'admission GitOps convergence', timeout=600)
@@ -119,13 +122,13 @@ def run(revision):
         wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
              'native workload policy readiness', timeout=180)
         policy = get('validatingpolicy.policies.kyverno.io', name)
-        if (not policy_ready(policy) or policy['spec']['validationActions'] != ['Audit', 'Warn'] or
+        if (not policy_ready(policy) or policy['spec']['validationActions'] != actions or
                 policy['spec']['failurePolicy'] != 'Fail' or
                 policy['spec']['evaluation']['background']['enabled'] is not background or
                 policy['spec']['matchConstraints']['resourceRules'][0]['resources'] != resources or
                 policy['spec']['matchConstraints']['namespaceSelector'] != {
                     'matchLabels': {'cloudlab.io/owner': 'service-platform'}}):
-            raise RuntimeError('Native workload audit policy is not ready or its scope changed')
+            raise RuntimeError('Native workload policy is not ready or its declared mode or scope changed')
     namespace = get('namespace', 'cloudlab-policy')
     if namespace['metadata'].get('labels', {}).get('pod-security.kubernetes.io/enforce') != 'restricted':
         raise RuntimeError('Admission controllers require restricted Pod Security')
@@ -136,8 +139,8 @@ def run(revision):
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
     ephemeral_checked = 0
     for row in workloads:
-        admission(row['metadata']['name'])
-        ephemeral_checked += ephemeral_admission(row['metadata']['name'])
+        admission(row['metadata']['name'], enforce)
+        ephemeral_checked += ephemeral_admission(row['metadata']['name'], enforce)
     if not ephemeral_checked:
         raise RuntimeError('Ephemeral admission requires at least one existing ready workload')
     initial = controllers()
@@ -146,9 +149,10 @@ def run(revision):
         time.sleep(5)
         if controllers() != initial or not all(application_ready(name, revision) for name in names):
             raise RuntimeError('Admission controllers changed during bounded stability verification')
-    return {'applications_converged': 2, 'admission_nodes': 2, 'policy_mode': 'audit',
-            'mutable_image_warned': True, 'zero_resources_warned': True, 'projected_token_warned': True,
-            'ephemeral_image_warned': True,
+    outcome = 'denied' if enforce else 'warned'
+    return {'applications_converged': 2, 'admission_nodes': 2, 'policy_mode': 'enforce' if enforce else 'audit',
+            **{name + '_' + outcome: True for name in (
+                'mutable_image', 'zero_resources', 'projected_token', 'ephemeral_image')},
             'ephemeral_namespaces_checked': ephemeral_checked,
             'restricted_workload_admitted': True,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
@@ -156,6 +160,6 @@ def run(revision):
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(run(sys.argv[1]), sort_keys=True))
+        print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2])), sort_keys=True))
     except Exception:
         raise SystemExit('Admission verification incomplete; existing workloads and policy mode retained') from None
