@@ -10,13 +10,22 @@ from playbooks.ci.files.configuration import application_workflows, application_
 
 class ApplicationEligibilityTests(unittest.TestCase):
     def test_template_approval_pins_reviewed_bytes_and_requires_protected_main(self):
-        content = b'approved reusable workflow\n'
+        content = b'jobs:\n  test:\n    uses: example/platform/.github/workflows/application-test.yaml@' + b'b' * 40 + b'\n'
         file = {'type': 'file', 'path': '.github/workflows/ci.yaml', 'encoding': 'base64',
                 'size': len(content), 'content': base64.b64encode(content).decode()}
         current = dict(self.current, private=False)
-        self.api.request.side_effect = [self.request, {'type': 'file'}, {'protected': True}, file]
-        rows = application_templates(self.api, current, self.revision, 42)
-        self.assertEqual({row['job'] for row in rows}, {'test', 'publish'})
+        called = b'''jobs:
+  test:
+    runs-on: "${{ format('cloudlab-{0}', inputs.application) }}"
+    steps: [{run: 'true'}]
+'''
+        called_file = {'type': 'file', 'path': '.github/workflows/application-test.yaml', 'encoding': 'base64',
+                       'size': len(called), 'content': base64.b64encode(called).decode()}
+        self.api.request.side_effect = [self.request, {'type': 'file'}, {'protected': True}, file, called_file]
+        rows = application_templates(self.api, current, self.revision, 42,
+                                     platform_repository='https://github.com/example/platform.git')
+        self.assertEqual({row['job'] for row in rows}, {'test'})
+        self.assertEqual(rows[0]['job_workflow_ref'], 'example/platform/.github/workflows/application-test.yaml@' + 'b' * 40)
         self.assertTrue(all(row['workflow_sha256'] == hashlib.sha256(content).hexdigest() and
                             row['visibility'] == 'public' for row in rows))
         for branch, workflow in (({'protected': False}, file), ({'protected': True}, dict(file, size=65537)),
@@ -24,6 +33,19 @@ class ApplicationEligibilityTests(unittest.TestCase):
             self.api.request.side_effect = [self.request, {'type': 'file'}, branch, workflow]
             with self.subTest(branch=branch), self.assertRaises(ValueError):
                 application_templates(self.api, current, self.revision, 42)
+
+        for bad in (called.replace(b"cloudlab-{0}", b"ubuntu-latest"), called + b"  extra: {steps: [{run: 'true'}]}\n"):
+            invalid = dict(called_file, size=len(bad), content=base64.b64encode(bad).decode())
+            self.api.request.side_effect = [self.request, {'type': 'file'}, {'protected': True}, file, invalid]
+            with self.assertRaises(ValueError):
+                application_templates(self.api, current, self.revision, 42,
+                                      platform_repository='https://github.com/example/platform.git')
+        for bad in (content.replace(b'example/platform', b'foreign/platform'), content.replace(b'b' * 40, b'main')):
+            invalid = dict(file, size=len(bad), content=base64.b64encode(bad).decode())
+            self.api.request.side_effect = [self.request, {'type': 'file'}, {'protected': True}, invalid]
+            with self.assertRaises(ValueError):
+                application_templates(self.api, current, self.revision, 42,
+                                      platform_repository='https://github.com/example/platform.git')
 
     def setUp(self):
         self.current = {'id': 123, 'full_name': 'example/application'}

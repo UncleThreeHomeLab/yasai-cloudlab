@@ -103,7 +103,8 @@ Generate controller inputs with `--application-file` (JSON fields `name`,
 the private GitOps catalog at `platform/ci/pools/<name>/controller.json`; add
 `runner.json` only after workflow eligibility is approved. For routine app revisions,
 add `--approve-workflow-template` with the reviewed `--workflow-revision` (and
-`--pull-request` for initial internal PR setup). This pins the workflow bytes;
+`--pull-request` for initial internal PR setup). This pins caller bytes and each
+single-job shared workflow to reviewed platform history;
 the runner uses the job token's Contents and Pull requests read permissions to check
 current protected main or an internal PR merge with GitHub before
 running steps. Forks, stale commits and changed workflows fail closed. Argo continuously
