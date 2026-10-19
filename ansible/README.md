@@ -86,3 +86,8 @@ changed inputs; existing files and credentials are never overwritten.
 Release proposals accept only the fixed GitHub-hosted receiver on `main` and its
 designated App identity. They change one `apps/releases/*-ci.json` file through
 a PR, preserve interrupted branches and never merge or receive cluster credentials.
+The local `playbooks.ci.files.workflow_permissions apply` entry point imports the
+two GitOps repositories' existing workflow settings without remote changes, then
+converges read-only defaults and PR permission through the pinned GitHub provider.
+Its separate encrypted state uses the existing GitHub GitLab backend and recovery
+key. Repository identities are retained; organization settings remain external.

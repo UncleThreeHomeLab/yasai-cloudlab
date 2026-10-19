@@ -20,7 +20,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def request(env, suffix='', method='GET', document=None):
     url = env['TF_HTTP_ADDRESS']
-    if not re.fullmatch(r'https://gitlab[.]com/api/v4/projects/[1-9][0-9]*/terraform/state/(?:managed|qualification-[a-f0-9]{32})', url):
+    if not re.fullmatch(r'https://gitlab[.]com/api/v4/projects/[1-9][0-9]*/terraform/state/(?:managed|ci-workflow-permissions|qualification-[a-f0-9]{32})', url):
         raise ValueError('Retention requires the designated managed or disposable state backend')
     if not re.fullmatch(r'(?:/lock|/versions/[1-9][0-9]*)?', suffix) or method not in ('GET', 'POST', 'DELETE'):
         raise ValueError('Retention request escaped its designated state scope')
