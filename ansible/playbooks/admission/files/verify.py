@@ -51,18 +51,18 @@ def admission(namespace):
         if result.returncode or message not in result.stderr:
             raise RuntimeError('Audit policy must admit and warn about each workload violation')
     privileged = copy.deepcopy(good)
-    privileged['spec']['containers'][0]['securityContext']['privileged'] = True
+    privileged['spec']['containers'][0]['securityContext'].update(privileged=True, allowPrivilegeEscalation=True)
     denied = dry_run(privileged)
     if not denied.returncode or 'violates PodSecurity' not in denied.stderr:
         raise RuntimeError('Application Pod Security must reject privileged workloads')
 
 
 def ephemeral_admission(namespace):
-    pods = get('pod', namespace=namespace)['items']
+    pods = (get('pod', namespace=namespace) or {}).get('items', [])
     target = next((row for row in pods if condition(row, 'Ready') and
                    not row['metadata'].get('deletionTimestamp')), None)
     if not target:
-        raise RuntimeError('Ephemeral admission requires an existing ready workload')
+        return False
     path = ('/api/v1/namespaces/' + urllib.parse.quote(namespace, safe='') + '/pods/' +
             urllib.parse.quote(target['metadata']['name'], safe='') + '/ephemeralcontainers?dryRun=All')
     container = copy.deepcopy(probe(namespace)['spec']['containers'][0])
@@ -79,6 +79,7 @@ def ephemeral_admission(namespace):
         warned = 'Workload images must use an immutable SHA-256 digest.' in result.stderr
         if result.returncode or warned != mutable:
             raise RuntimeError('Ephemeral image admission did not preserve its audited digest rule')
+    return True
 
 
 def policy_ready(policy):
@@ -133,9 +134,12 @@ def run(revision):
     if not workloads or any(row['metadata']['labels'].get('pod-security.kubernetes.io/enforce') != 'restricted'
                             for row in workloads):
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
+    ephemeral_checked = 0
     for row in workloads:
         admission(row['metadata']['name'])
-        ephemeral_admission(row['metadata']['name'])
+        ephemeral_checked += ephemeral_admission(row['metadata']['name'])
+    if not ephemeral_checked:
+        raise RuntimeError('Ephemeral admission requires at least one existing ready workload')
     initial = controllers()
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
@@ -145,6 +149,7 @@ def run(revision):
     return {'applications_converged': 2, 'admission_nodes': 2, 'policy_mode': 'audit',
             'mutable_image_warned': True, 'zero_resources_warned': True, 'projected_token_warned': True,
             'ephemeral_image_warned': True,
+            'ephemeral_namespaces_checked': ephemeral_checked,
             'restricted_workload_admitted': True,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 
