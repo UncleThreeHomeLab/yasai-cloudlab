@@ -11,6 +11,8 @@
   ansible.builtin.import_playbook: k3s/010-server.yml
 - name: Run k3s/020-agent.yml
   ansible.builtin.import_playbook: k3s/020-agent.yml
+- name: Prepare isolated rootless builder host profiles
+  ansible.builtin.import_playbook: buildkit/010-host-profile.yml
 - name: Run longhorn/010-host-storage.yml
   ansible.builtin.import_playbook: longhorn/010-host-storage.yml
 - name: Run secrets/010-bootstrap.yml

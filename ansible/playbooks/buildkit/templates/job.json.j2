@@ -1,0 +1,15 @@
+{% set builder = buildkit_container | combine({
+    'command': ['/bin/sh', '/proof/build-proof.sh'],
+    'args': buildkit_container.command + buildkit_container.args,
+    'volumeMounts': buildkit_container.volumeMounts + [
+        {'name': 'proof', 'mountPath': '/proof', 'readOnly': true}]}) %}
+{% set pod = buildkit_values.template.spec | combine({
+    'containers': [builder], 'restartPolicy': 'Never', 'nodeName': buildkit_node.metadata.name,
+    'volumes': buildkit_values.template.spec.volumes + [
+        {'name': 'proof', 'configMap': {'name': 'build-proof', 'defaultMode': 292}}]}) %}
+{{ {'apiVersion': 'batch/v1', 'kind': 'Job',
+    'metadata': {'name': buildkit_job_name | default('proof'), 'namespace': buildkit_namespace,
+                 'labels': {'cloudlab.io/fixture': 'buildkit-proof'}},
+    'spec': {'activeDeadlineSeconds': 600, 'backoffLimit': 0, 'ttlSecondsAfterFinished': 600,
+             'template': {'metadata': {'labels': {'cloudlab.io/fixture': 'buildkit-proof'}},
+                          'spec': pod}}} | to_json }}

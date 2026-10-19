@@ -1,0 +1,11 @@
+{% set ids = lookup('file', '/workspace/platform/delivery/ci/builder-ids.yaml', rstrip=false) | from_yaml %}
+{{ {'apiVersion': 'v1', 'kind': 'List', 'items': [
+    {'apiVersion': 'v1', 'kind': 'ResourceQuota', 'metadata': {'name': 'build-budget'},
+     'spec': {'hard': {'pods': '1', 'count/jobs.batch': '1', 'requests.cpu': '500m',
+                       'requests.memory': '512Mi', 'limits.cpu': '2', 'limits.memory': '4Gi',
+                       'requests.ephemeral-storage': '4Gi', 'limits.ephemeral-storage': '24Gi',
+                       'persistentvolumeclaims': '0', 'secrets': '0'}}},
+    ids,
+    {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'build-proof'},
+     'immutable': true, 'data': {'build-proof.sh': lookup('file', '/workspace/ansible/playbooks/buildkit/files/build-proof.sh', rstrip=false)}}
+]} | to_json }}

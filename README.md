@@ -113,6 +113,12 @@ and [workload rules](platform/delivery/admission/policies/values.yaml) from the 
 Workload digest, resource and token rules are enforced; application namespaces retain restricted Pod Security.
 `prove` checks real admission responses without creating workloads.
 
+Ansible installs [builder host profiles](ansible/playbooks/buildkit/010-host-profile.yml).
+The [native runner values](platform/delivery/ci/runner.values.yaml) require Pod user
+namespaces and explicit builder-only AppArmor, seccomp and SETUID/GID exceptions.
+Builder verification runs sequential credential-free jobs on both nodes with a
+process sandbox, CPU/memory/storage quotas and no host mounts or Docker socket.
+
 ## The stack
 
 **Available:** implemented here. **In progress:** open PR. **Planned:** not implemented.
