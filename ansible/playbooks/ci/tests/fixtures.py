@@ -52,6 +52,15 @@ def release_request():
     return event, environment
 
 
+def workflow_permissions():
+    desired = {'owner': 'example', 'repositories': {
+        'public_platform': {'name': 'public-gitops', 'id': 100, 'node_id': 'R_public'},
+        'private_config': {'name': 'private-gitops', 'id': 101, 'node_id': 'R_private'}}}
+    observed = {key: {'default_workflow_permissions': 'read', 'can_approve_pull_request_reviews': False}
+                for key in desired['repositories']}
+    return desired, observed
+
+
 def render_resources(directory, configuration):
     output = directory / 'resources.json'
     playbook = directory / 'render.json'
