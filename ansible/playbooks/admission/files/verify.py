@@ -4,6 +4,7 @@ import json
 import re
 import sys
 import time
+import urllib.parse
 
 sys.path.insert(0, '/opt/cloudlab')
 
@@ -56,6 +57,40 @@ def admission(namespace):
         raise RuntimeError('Application Pod Security must reject privileged workloads')
 
 
+def ephemeral_admission(namespace):
+    pods = get('pod', namespace=namespace)['items']
+    target = next((row for row in pods if condition(row, 'Ready') and
+                   not row['metadata'].get('deletionTimestamp')), None)
+    if not target:
+        raise RuntimeError('Ephemeral admission requires an existing ready workload')
+    path = ('/api/v1/namespaces/' + urllib.parse.quote(namespace, safe='') + '/pods/' +
+            urllib.parse.quote(target['metadata']['name'], safe='') + '/ephemeralcontainers?dryRun=All')
+    container = copy.deepcopy(probe(namespace)['spec']['containers'][0])
+    container.pop('resources')  # Kubernetes forbids per-container resources on this subresource.
+    container['name'] = 'cloudlab-admission-proof'
+    container['securityContext'].update(runAsNonRoot=True, runAsUser=65532,
+                                        seccompProfile={'type': 'RuntimeDefault'})
+    target = copy.deepcopy(target)
+    target['spec'].setdefault('ephemeralContainers', []).append(container)
+    for mutable in (False, True):
+        if mutable:
+            container['image'] = 'docker.io/library/python:3.13-slim-bookworm'
+        result = kube('replace', '--raw', path, '-f', '-', document=target, allow_failure=True)
+        warned = 'Workload images must use an immutable SHA-256 digest.' in result.stderr
+        if result.returncode or warned != mutable:
+            raise RuntimeError('Ephemeral image admission did not preserve its audited digest rule')
+
+
+def policy_ready(policy):
+    if not policy:
+        return False
+    ready = policy.get('status', {}).get('conditionStatus', {})
+    conditions = ready.get('conditions', [])
+    return ready.get('ready') is True and bool(conditions) and all(
+        row.get('status') == 'True' and row.get('observedGeneration', policy['metadata']['generation']) ==
+        policy['metadata']['generation'] for row in conditions)
+
+
 def controllers():
     deployments = get('deployment', namespace='cloudlab-policy')['items']
     pods = get('pod', namespace='cloudlab-policy')['items']
@@ -77,15 +112,19 @@ def run(revision):
     names = ('cloudlab-kyverno', 'cloudlab-workload-policy')
     wait(lambda: all(application_ready(name, revision) for name in names),
          'admission GitOps convergence', timeout=600)
-    policy = get('validatingpolicy.policies.kyverno.io', 'cloudlab-workload-contract')
-    ready = (policy or {}).get('status', {}).get('conditionStatus', {})
-    if (ready.get('ready') is not True or
-            not condition({'metadata': policy['metadata'], 'status': ready}, 'Ready') or
-            policy['spec']['validationActions'] != ['Audit', 'Warn'] or
-            policy['spec']['failurePolicy'] != 'Fail' or
-            policy['spec']['matchConstraints']['namespaceSelector'] != {
-                'matchLabels': {'cloudlab.io/owner': 'service-platform'}}):
-        raise RuntimeError('Native workload audit policy is not ready or its scope changed')
+    for name, background, resources in (
+            ('cloudlab-workload-contract', True, ['pods']),
+            ('cloudlab-workload-ephemeral', False, ['pods/ephemeralcontainers'])):
+        wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
+             'native workload policy readiness', timeout=180)
+        policy = get('validatingpolicy.policies.kyverno.io', name)
+        if (not policy_ready(policy) or policy['spec']['validationActions'] != ['Audit', 'Warn'] or
+                policy['spec']['failurePolicy'] != 'Fail' or
+                policy['spec']['evaluation']['background']['enabled'] is not background or
+                policy['spec']['matchConstraints']['resourceRules'][0]['resources'] != resources or
+                policy['spec']['matchConstraints']['namespaceSelector'] != {
+                    'matchLabels': {'cloudlab.io/owner': 'service-platform'}}):
+            raise RuntimeError('Native workload audit policy is not ready or its scope changed')
     namespace = get('namespace', 'cloudlab-policy')
     if namespace['metadata'].get('labels', {}).get('pod-security.kubernetes.io/enforce') != 'restricted':
         raise RuntimeError('Admission controllers require restricted Pod Security')
@@ -96,6 +135,7 @@ def run(revision):
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
     for row in workloads:
         admission(row['metadata']['name'])
+        ephemeral_admission(row['metadata']['name'])
     initial = controllers()
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
@@ -104,6 +144,7 @@ def run(revision):
             raise RuntimeError('Admission controllers changed during bounded stability verification')
     return {'applications_converged': 2, 'admission_nodes': 2, 'policy_mode': 'audit',
             'mutable_image_warned': True, 'zero_resources_warned': True, 'projected_token_warned': True,
+            'ephemeral_image_warned': True,
             'restricted_workload_admitted': True,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 

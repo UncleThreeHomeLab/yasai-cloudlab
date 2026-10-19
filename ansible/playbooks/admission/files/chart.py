@@ -74,7 +74,7 @@ def check():
         if not any(version['name'] == 'v1' and version['served'] for version in crd['spec']['versions']):
             raise ValueError('Native admission API does not serve the selected policy version')
     policies = render(True)
-    if len(policies) != 1 or policies[0]['spec']['validationActions'] != ['Audit', 'Warn']:
+    if len(policies) != 2 or any(policy['spec']['validationActions'] != ['Audit', 'Warn'] for policy in policies):
         raise ValueError('Qualify workload policy in audit before enabling enforcement')
     return {'runtime_images': len(images), 'cpu_limit_millicores': cpu, 'memory_limit_mib': memory,
             'retained_crds': len(crds), 'policy_mode': 'audit'}

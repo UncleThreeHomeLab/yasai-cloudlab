@@ -1,3 +1,4 @@
+import copy
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -35,3 +36,33 @@ class VerificationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.run(revision)
                 get.assert_not_called()
+
+    def test_policy_readiness_uses_native_conditions_and_rejects_stale_generation(self):
+        policy = {'metadata': {'generation': 2}, 'status': {'conditionStatus': {
+            'ready': True, 'conditions': [{'type': 'WebhookConfigured', 'status': 'True'},
+                                        {'type': 'RBACPermissionsGranted', 'status': 'True'}]}}}
+        self.assertTrue(verify.policy_ready(policy))
+        for value in ({'ready': False}, {'conditions': []},
+                      {'conditions': [{'type': 'RBACPermissionsGranted', 'status': 'False'}]},
+                      {'conditions': [{'type': 'WebhookConfigured', 'status': 'True', 'observedGeneration': 1}]}):
+            changed = copy.deepcopy(policy)
+            changed['status']['conditionStatus'].update(value)
+            self.assertFalse(verify.policy_ready(changed))
+        self.assertFalse(verify.policy_ready(None))
+
+    def test_ephemeral_probe_binds_existing_pod_and_always_uses_server_dry_run(self):
+        target = verify.probe('cloudlab-app-proof')
+        target['metadata'].update(uid='original-uid', resourceVersion='17', generation=1)
+        target['status'] = {'conditions': [{'type': 'Ready', 'status': 'True'}]}
+        accepted = subprocess.CompletedProcess([], 0, '', '')
+        warned = subprocess.CompletedProcess([], 0, '', 'Warning: Workload images must use an immutable SHA-256 digest.')
+        with patch.object(verify, 'get', return_value={'items': [target]}), \
+                patch.object(verify, 'kube', side_effect=[accepted, warned]) as kube:
+            verify.ephemeral_admission('cloudlab-app-proof')
+        self.assertNotIn('ephemeralContainers', target['spec'])
+        for call in kube.call_args_list:
+            self.assertEqual(call.args[0], 'replace')
+            self.assertTrue(call.args[2].endswith('/ephemeralcontainers?dryRun=All'))
+            self.assertEqual(call.kwargs['document']['metadata']['uid'], 'original-uid')
+            self.assertEqual(call.kwargs['document']['metadata']['resourceVersion'], '17')
+            self.assertNotIn('resources', call.kwargs['document']['spec']['ephemeralContainers'][-1])

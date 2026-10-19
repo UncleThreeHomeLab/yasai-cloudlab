@@ -10,6 +10,7 @@
         cmd: 'files/verify.py {{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}'
         executable: python3
       changed_when: false
+      no_log: true
       register: admission_verified
       when: admission_enabled | bool
 
