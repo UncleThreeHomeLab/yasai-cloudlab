@@ -20,7 +20,7 @@ concurrency:
 jobs:
   propose:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.scope == 'private' && 'cloudlab-release-private' || 'cloudlab-release-public' }}
     timeout-minutes: 5
     permissions: {contents: write, pull-requests: write}
     steps:
@@ -40,10 +40,10 @@ jobs:
           import tempfile
           import urllib.request
 
-          url = 'https://raw.githubusercontent.com/UncleThreeHomeLab/yasai-cloudlab/9bb3948e6e869f7549c0221bbfe4a31fae507576/ansible/playbooks/ci/files/release.py'
+          url = 'https://raw.githubusercontent.com/UncleThreeHomeLab/yasai-cloudlab/f09444f443bb3a50760eb4998b3dffab843a17c3/ansible/playbooks/ci/files/release.py'
           with urllib.request.urlopen(url, timeout=30) as response:
               source = response.read(65537)
-          if hashlib.sha256(source).hexdigest() != '26b9363aa37d723d087fa4523baf7c579b63d4518fa58464d7ce5af56135136a':
+          if hashlib.sha256(source).hexdigest() != '361552db7de8a3dbd18321cfd697e12b49c1c6ff488ec0fe1bb135b56085dd3f':
               raise SystemExit('Release helper checksum mismatch; no Git operation attempted')
           environment = {key: os.environ[key] for key in (
               'PATH', 'HOME', 'GH_TOKEN', 'GITHUB_EVENT_PATH', 'GITHUB_REPOSITORY',

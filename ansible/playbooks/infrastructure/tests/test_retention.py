@@ -9,6 +9,22 @@ from playbooks.infrastructure.files import retention
 
 
 class RetentionTests(unittest.TestCase):
+    def test_notes_repository_state_is_explicit_and_cannot_delete_current_state(self):
+        env = {'TF_HTTP_ADDRESS': 'https://gitlab.com/api/v4/projects/1/terraform/state/ci-notes-repository',
+               'TF_HTTP_USERNAME': 'fixture', 'TF_HTTP_PASSWORD': 'synthetic'}
+        response = Mock(status=200)
+        response.read.return_value = b'{"encrypted_data":"synthetic"}'
+        opener = Mock()
+        opener.open.return_value.__enter__ = Mock(return_value=response)
+        opener.open.return_value.__exit__ = Mock(return_value=False)
+        with patch.object(retention.urllib.request, 'build_opener', return_value=opener):
+            self.assertEqual(retention.ciphertext(env), response.read.return_value)
+            with self.assertRaises(ValueError):
+                retention.request(env, method='DELETE')
+            with self.assertRaises(ValueError):
+                retention.request(dict(env, TF_HTTP_ADDRESS=env['TF_HTTP_ADDRESS'] + '-other'))
+        self.assertEqual(opener.open.call_count, 1)
+
     def test_ci_workflow_state_is_explicitly_scoped_and_cannot_delete_current_state(self):
         env = {'TF_HTTP_ADDRESS': 'https://gitlab.com/api/v4/projects/1/terraform/state/ci-workflow-permissions',
                'TF_HTTP_USERNAME': 'fixture', 'TF_HTTP_PASSWORD': 'synthetic'}

@@ -13,8 +13,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('https://github.com/example/private-config.git', project['spec']['sourceRepos'])
         sets = [row for row in objects if row['kind'] == 'ApplicationSet' and
                 row['metadata'].get('labels', {}).get('cloudlab.io/owner') == 'ci-platform']
-        self.assertEqual([row['metadata']['name'] for row in sets], ['cloudlab-ci-controller'])
-        controller, = sets
+        self.assertEqual([row['metadata']['name'] for row in sets], [
+            'cloudlab-ci-controller', 'cloudlab-ci-application-controller', 'cloudlab-ci-application-runner'])
+        controller = sets[0]
         generator, = controller['spec']['generators']
         self.assertEqual(generator['git']['files'], [{'path': 'platform/ci/config.json'}])
         self.assertEqual(generator['git']['revision'], 'main')
@@ -23,6 +24,19 @@ class RegistrationTests(unittest.TestCase):
         private = next(row for row in objects if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'cloudlab-ci-source')
         self.assertEqual(private['spec']['dataFrom'], [{'extract': {'key': 'github-argocd'}}])
         self.assertEqual(private['spec']['target']['template']['data']['project'], 'cloudlab-ci')
+
+    def test_applications_use_one_generic_catalog_without_application_specific_installers(self):
+        objects = render_root()
+        for component, chart in (('controller', 'controller'), ('runner', 'pool')):
+            application = next(row for row in objects if row['kind'] == 'ApplicationSet' and
+                               row['metadata']['name'] == 'cloudlab-ci-application-' + component)
+            self.assertEqual(application['spec']['generators'][0]['git']['files'],
+                             [{'path': 'platform/ci/pools/*/' + component + '.json'}])
+            source, = application['spec']['template']['spec']['sources']
+            self.assertEqual(source['path'], 'platform/delivery/ci/' + chart)
+            self.assertTrue(source['helm']['skipCrds'])
+            self.assertEqual(source['helm']['values'], '{{ .values | toYaml }}')
+            self.assertTrue(application['spec']['syncPolicy']['preserveResourcesOnDeletion'])
 
     def test_pool_is_separate_and_uses_indexed_images_without_replacing_the_profile(self):
         objects = render_root(pool=True)

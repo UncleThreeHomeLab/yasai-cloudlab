@@ -1,11 +1,19 @@
+{{- if not (or (eq .Release.Namespace "cloudlab-ci-private") (regexMatch "^cloudlab-ci-(public|private)-[a-z0-9][a-z0-9-]{0,35}$" .Release.Namespace)) }}
+{{- fail "Runner App credentials require an approved repository namespace" }}
+{{- end }}
+{{- $public := hasPrefix "cloudlab-ci-public-" .Release.Namespace }}
+{{- $item := ternary "github-arc-public" "github-arc" $public }}
+{{- if ne .Values.arc.githubConfigSecret $item }}
+{{- fail "Runner App credentials must match the public/private namespace boundary" }}
+{{- end }}
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
-metadata: {name: github-arc, namespace: cloudlab-ci-private}
+metadata: {name: {{ $item }}, namespace: {{ .Release.Namespace }}}
 spec:
   refreshInterval: 24h
   secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
   target:
-    name: github-arc
+    name: {{ $item }}
     creationPolicy: Owner
     deletionPolicy: Retain
     template:
@@ -14,4 +22,4 @@ spec:
         github_app_id: '{{ "{{ .APP_ID }}" }}'
         github_app_installation_id: '{{ "{{ .INSTALLATION_ID }}" }}'
         github_app_private_key: '{{ "{{ .PRIVATE_KEY }}" }}'
-  dataFrom: [{extract: {key: github-arc}}]
+  dataFrom: [{extract: {key: {{ $item }}}}]
