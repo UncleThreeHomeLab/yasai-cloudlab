@@ -1,4 +1,4 @@
-{% set ids = lookup('file', '/workspace/platform/delivery/ci/pool/templates/builder-ids.yaml', rstrip=false) | from_yaml %}
+{% set ids = lookup('file', '/workspace/platform/delivery/ci/pool/builder-ids.yaml', rstrip=false) | from_yaml %}
 {{ {'apiVersion': 'v1', 'kind': 'List', 'items': [
     {'apiVersion': 'v1', 'kind': 'ResourceQuota', 'metadata': {'name': 'build-budget'},
      'spec': {'hard': {'pods': '1', 'count/jobs.batch': '1', 'requests.cpu': '500m',

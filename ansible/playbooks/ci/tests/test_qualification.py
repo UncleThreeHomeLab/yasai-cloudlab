@@ -1,5 +1,6 @@
 """Check the qualification trust boundary and preserve the real pool profile."""
 import json
+import shutil
 import stat
 import subprocess
 import sys
@@ -15,6 +16,16 @@ from playbooks.ci.tests.fixtures import bootstrap_document, render_resources
 
 
 class QualificationTests(unittest.TestCase):
+    def test_qualification_binds_the_shared_builder_identity_map(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pool = Path(temporary) / 'pool'
+            shutil.copytree(POOL, pool)
+            with patch.object(qualification, 'POOL', pool):
+                original = qualification.profile_fingerprint()
+                path = pool / 'builder-ids.yaml'
+                path.write_text(path.read_text().replace('user:1001:64535', 'user:1001:64534'))
+                self.assertNotEqual(qualification.profile_fingerprint(), original)
+
     def test_real_ansible_reads_protected_invocation_file_and_preserves_eso_templates(self):
         original_run = subprocess.run
         fixture = bundle(images(bootstrap_document()), 'cloudlab-ci-proof-' + 'a' * 12)
