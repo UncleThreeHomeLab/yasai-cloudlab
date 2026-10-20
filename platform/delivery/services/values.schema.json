@@ -192,6 +192,10 @@
           "minimum": 1,
           "maximum": 3
         },
+        "artifactPolicyHash": {
+          "type": "string",
+          "pattern": "^([a-f0-9]{64})?$"
+        },
         "command": {
           "type": "array",
           "items": {

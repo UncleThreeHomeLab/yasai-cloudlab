@@ -37,6 +37,10 @@ spec:
     matchLabels: {app.kubernetes.io/name: {{ .Values.name }}}
   template:
     metadata:
+      {{- with .Values.artifactPolicyHash }}
+      annotations:
+        cloudlab.io/artifact-policy: {{ . | quote }}
+      {{- end }}
       labels:
         app.kubernetes.io/name: {{ .Values.name }}
         cloudlab.io/owner: {{ .Values.owner | quote }}

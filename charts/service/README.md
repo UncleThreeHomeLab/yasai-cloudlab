@@ -25,6 +25,8 @@ An administrator may set `approval.artifact` with `repository`, `project`,
 `releasePath`, `sourceRepository`, retained signing `identities` and `action`
 (`Audit` before tested `Enforce`). The repository must match the application and
 visibility project; the release path is `apps/releases/<approval.name>.json`.
+The platform supplies `artifactPolicyHash` to roll workloads through admission
+when approved artifact policy changes, preserving normal rollout availability.
 ApplicationSet follows that file on GitOps `main`, publishes digest/source/run
 annotations and supplies only the project's pull credential. Public signatures
 require the exact GitHub issuer, shared workflow, source repository and main ref;

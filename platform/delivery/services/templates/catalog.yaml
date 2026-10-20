@@ -158,6 +158,7 @@ spec:
       {{- if $artifact }}
       {{- $_ := set $workload "image" (printf "%s@{{ .digest }}" $artifact.repository) }}
       {{- $_ := set $workload "imagePullSecrets" (list (dict "name" "harbor-application-pull")) }}
+      {{- $_ := set $workload "artifactPolicyHash" (printf "%s%s" (toJson $artifact) ($.Files.Get "sigstore-fulcio.crt") | sha256sum) }}
       {{- end }}
       {{- $helm := dict "valuesObject" $workload }}
       {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}

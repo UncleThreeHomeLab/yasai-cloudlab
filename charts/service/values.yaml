@@ -2,6 +2,7 @@ name: synthetic
 owner: platform
 image: python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
 replicas: 1
+artifactPolicyHash: ''
 command:
   - python
   - -c

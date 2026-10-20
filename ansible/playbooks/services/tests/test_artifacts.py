@@ -109,6 +109,17 @@ class ArtifactTests(unittest.TestCase):
         desired = template['spec']['sources'][0]['helm']['valuesObject']
         self.assertEqual(desired['image'], allowed['artifact']['repository'] + '@{{ .digest }}')
         self.assertEqual(desired['imagePullSecrets'], [{'name': 'harbor-application-pull'}])
+        policy_hash = desired['artifactPolicyHash']
+        self.assertRegex(policy_hash, '^[a-f0-9]{64}$')
+        self.assertEqual(self.render(value, allowed), objects)
+        overridden = copy.deepcopy(value)
+        overridden['artifactPolicyHash'] = '0' * 64
+        override = next(o for o in self.render(overridden, allowed) if o['kind'] == 'ApplicationSet')
+        self.assertEqual(override['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['artifactPolicyHash'], policy_hash)
+        enforced = copy.deepcopy(allowed)
+        enforced['artifact']['action'] = 'Enforce'
+        changed = next(o for o in self.render(value, enforced) if o['kind'] == 'ApplicationSet')
+        self.assertNotEqual(changed['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['artifactPolicyHash'], policy_hash)
         self.assertEqual(value, original)
         secret = next(o for o in objects if o['kind'] == 'ExternalSecret')
         self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'harbor-cloudlab-public-pull'}}])
@@ -215,6 +226,7 @@ class ArtifactTests(unittest.TestCase):
         value = definitions('example.invalid', 'https://github.com/example/platform.git', 'a' * 40,
                             'https://github.com/example/private.git', 'abcdef123456', 'notes', 'notes')['catalog'][0]['definition']
         value['image'] = 'registry.example.invalid/cloudlab-public/notes@sha256:' + 'c' * 64
+        value['artifactPolicyHash'] = 'd' * 64
         payload = {'definition': value, 'issuer': 'https://login.example.invalid/realms/applications',
                    'telemetry': True, 'packaged': True, 'imagePullSecrets': [{'name': 'harbor-application-pull'}]}
         result = subprocess.run(['helm', 'template', 'notes', str(ROOT / 'apps/notes'), '-f', '-'],
@@ -224,6 +236,7 @@ class ArtifactTests(unittest.TestCase):
         deployments = [o for o in objects if o['kind'] == 'Deployment']
         self.assertEqual(len(deployments), 2)
         for deployment in deployments:
+            self.assertEqual(deployment['spec']['template']['metadata']['annotations']['cloudlab.io/artifact-policy'], 'd' * 64)
             pod = deployment['spec']['template']['spec']
             container = pod['containers'][0]
             self.assertEqual(container['image'], value['image'])
