@@ -29,6 +29,8 @@ ApplicationSet follows that file on GitOps `main`, publishes digest/source/run
 annotations and supplies only the project's pull credential. Public signatures
 require the exact GitHub issuer, shared workflow, source repository and main ref;
 private verification receives only `ci-private-verifier/public_key`.
+Registry verification uses a pull-only credential copy in Kyverno's namespace;
+Kyverno receives no application Secret collection permissions.
 The exact declared bootstrap image remains an explicit unsigned recovery exception.
 Retain approved signing identities and registry artifacts for rollback.
 After a release converges, run `docker compose run --rm --entrypoint python

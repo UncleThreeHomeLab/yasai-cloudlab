@@ -1,3 +1,31 @@
+{{/* The pinned registry credential lister watches the Kyverno namespace. */}}
+{{- $registryCredentials := dict }}
+{{- range .Values.catalog }}
+{{- with .approval.artifact }}
+{{- $host := first (splitList "/" .repository) }}
+{{- if and (hasKey $registryCredentials .project) (ne (get $registryCredentials .project) $host) }}{{ fail "One registry host is required for each approved project" }}{{- end }}
+{{- $_ := set $registryCredentials .project $host }}
+{{- end }}
+{{- end }}
+{{- range $project, $host := $registryCredentials }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: {{ printf "harbor-%s-pull" $project }}, namespace: cloudlab-policy}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ printf "harbor-%s-pull" $project }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: {{ printf "{{ dict \"auths\" (dict %q (dict \"username\" .username \"password\" .password)) | toJson }}" $host | quote }}
+  dataFrom: [{extract: {key: {{ printf "harbor-%s-pull" $project }}}}]
+{{- end }}
 {{- range .Values.catalog }}
 {{- $a := .approval }}
 {{- $bootstrap := .definition.image }}
@@ -96,7 +124,7 @@ spec:
           verifyDigest: true
           required: true
           imageRegistryCredentials:
-            secrets: [{{ printf "%s/harbor-application-pull" $a.namespace | quote }}]
+            secrets: [{{ printf "cloudlab-policy/harbor-%s-pull" .project | quote }}]
           attestors:
             - count: 1
               entries:

@@ -13,6 +13,8 @@ from playbooks.admission.tests.fixtures import pod
 class AdmissionTests(unittest.TestCase):
     def test_native_chart_retains_apis_without_hooks_secrets_or_host_privileges(self):
         self.assertEqual(check()['runtime_images'], 3)
+        namespace = next(o for o in render() if o['kind'] == 'Namespace')
+        self.assertEqual(namespace['metadata']['labels']['cloudlab.io/service-secrets'], 'approved')
 
     def test_policy_modes_are_explicit_and_reject_partial_or_conflicting_actions(self):
         for actions in (['Audit', 'Warn'], ['Deny']):
