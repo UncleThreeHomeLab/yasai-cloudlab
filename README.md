@@ -142,7 +142,9 @@ Build application controller, runner and builder images locally with
 `docker compose --profile ci build ci-controller-image ci-runner-image ci-builder-image`.
 [Sources and dependencies](platform/delivery/ci/tools/source.lock.json) are locked.
 The [runner gate](platform/delivery/ci/runner/TrustedWorkflow.cs) checks original
-job metadata against a read-only policy before action setup. The runner uses UID
+job metadata against a read-only policy before action setup. PR jobs require current
+repository write permission for the author; private membership labels do not grant access.
+The runner uses UID
 1001 and writable disposable storage for native JIT configuration and logs;
 the builder uses UID 1000, a read-only filesystem and a pod-loopback API.
 Each [controller](platform/delivery/ci/controller/values.json) watches only its assigned

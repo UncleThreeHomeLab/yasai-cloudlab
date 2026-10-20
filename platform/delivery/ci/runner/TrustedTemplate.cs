@@ -93,8 +93,7 @@ namespace GitHub.Runner.Worker
                     if (pr.GetProperty("state").GetString() != "open" ||
                         pr.GetProperty("mergeable").ValueKind != JsonValueKind.True ||
                         pr.GetProperty("merge_commit_sha").GetString() != actual["sha"] ||
-                        pr.GetProperty("base").GetProperty("ref").GetString() != "main" ||
-                        pr.GetProperty("author_association").GetString() is not ("OWNER" or "MEMBER" or "COLLABORATOR"))
+                        pr.GetProperty("base").GetProperty("ref").GetString() != "main")
                         return false;
                     foreach (var side in new[] { "head", "base" })
                     {
@@ -103,6 +102,22 @@ namespace GitHub.Runner.Worker
                             origin.GetProperty("full_name").GetString() != actual["repository"] || origin.GetProperty("fork").GetBoolean())
                             return false;
                     }
+                    // Association hides private membership. Require the author's current repository write permission.
+                    diagnostic?.Invoke("pull-request-author");
+                    var author = pr.GetProperty("user");
+                    var login = author.GetProperty("login").GetString();
+                    var authorId = author.GetProperty("id").GetInt64();
+                    if (authorId <= 0 || login == null ||
+                        !Regex.IsMatch(login, @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?\z"))
+                        return false;
+                    diagnostic?.Invoke("pull-request-author-permission");
+                    using var permission = fetch(prefix + "/collaborators/" + Uri.EscapeDataString(login) + "/permission");
+                    var writer = permission.RootElement;
+                    if (writer.GetProperty("permission").GetString() is not ("write" or "admin") ||
+                        writer.GetProperty("user").GetProperty("id").GetInt64() != authorId ||
+                        !string.Equals(writer.GetProperty("user").GetProperty("login").GetString(), login,
+                                       StringComparison.OrdinalIgnoreCase))
+                        return false;
                 }
                 diagnostic?.Invoke("workflow-content");
                 var workflowPath = expected.GetProperty("workflow_path").GetString();
