@@ -1,0 +1,31 @@
+name: Application publishing
+"on":
+  workflow_call:
+    inputs:
+      application: {required: true, type: string}
+permissions: {contents: read, pull-requests: read, id-token: write}
+concurrency:
+  group: publish-${{ github.repository }}-${{ inputs.application }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ format('cloudlab-{0}-publish', inputs.application) }}
+    timeout-minutes: 25
+    permissions: {contents: read, pull-requests: read, id-token: write}
+    steps:
+      - name: Check out the reviewed publishing implementation
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: UncleThreeHomeLab/yasai-cloudlab
+          ref: 9a6e108b34246675210fb228129cb0652c333a08
+          path: platform
+          persist-credentials: false
+      - name: Check out the eligible application revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          path: application
+          persist-credentials: false
+      - name: Build scan sign and propose the application digest
+        shell: bash
+        run: python3 -I -S platform/ansible/playbooks/ci/files/publisher.py

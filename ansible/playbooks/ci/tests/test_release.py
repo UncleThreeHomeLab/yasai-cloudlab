@@ -1,5 +1,4 @@
-"""Exercise receiver trust checks and real local Git interruption/repeat behavior."""
-import copy
+"""Exercise bounded release input and real local Git interruption/repeat behavior."""
 import io
 import json
 import os
@@ -10,7 +9,7 @@ import urllib.parse
 from unittest.mock import patch
 
 from playbooks.ci.files import release
-from playbooks.ci.tests.fixtures import release_request
+from playbooks.ci.tests.fixtures import release_document
 
 
 class ReleaseRequestTests(unittest.TestCase):
@@ -34,34 +33,16 @@ class ReleaseRequestTests(unittest.TestCase):
                 release.api('GET', 'repos/example/gitops', token='invalid\nvalue')
             build.assert_not_called()
 
-    def test_exact_local_main_and_bot_identity_is_required_before_any_native_command(self):
-        event, environment = release_request()
-        self.assertEqual(release.request(event, environment),
-                         ('example/gitops', 'apps/releases/private-ci.json', event['inputs']))
-        for key, value in (('RUNNER_ENVIRONMENT', 'github-hosted'), ('GITHUB_REF', 'refs/heads/unreviewed'),
-                           ('GITHUB_EVENT_NAME', 'pull_request_target'), ('GITHUB_ACTOR', 'other[bot]'),
-                           ('RELEASE_SCOPE', '../identity'), ('GITHUB_REPOSITORY', '--exec=bad')):
-            with self.subTest(key=key), patch.object(release, 'native') as native:
-                with self.assertRaises(ValueError):
-                    release.request(event, dict(environment, **{key: value}))
-                native.assert_not_called()
-        for location, field, value in (('sender', 'type', 'User'), ('sender', 'login', 'other[bot]'),
-                                       ('repository', 'private', False), ('repository', 'fork', True),
-                                       ('repository', 'full_name', 'example/other')):
-            changed = copy.deepcopy(event)
-            changed[location][field] = value
-            with self.subTest(field=field), self.assertRaises(ValueError):
-                release.request(changed, environment)
-
-    def test_dispatch_inputs_cannot_choose_paths_commands_or_mutable_artifacts(self):
-        event, environment = release_request()
+    def test_release_inputs_cannot_choose_commands_or_mutable_artifacts(self):
+        desired = release_document()
         for key, value in (('digest', 'latest'), ('digest', 'sha256:' + 'a' * 64 + '\n'),
                            ('source_revision', 'main'), ('workflow_run_id', '$(command)'),
                            ('workflow_run_id', 123), ('path', 'identity/configmap.yaml')):
-            changed = copy.deepcopy(event)
-            changed['inputs'][key] = value
-            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
-                release.request(changed, environment)
+            changed = dict(desired, **{key: value})
+            with self.subTest(key=key, value=value), patch.object(release, 'native') as native:
+                with self.assertRaises(ValueError):
+                    release.propose('example/gitops', 'apps/releases/example.json', changed)
+                native.assert_not_called()
 
 
 class ReleaseGitTests(unittest.TestCase):
@@ -88,8 +69,7 @@ class ReleaseGitTests(unittest.TestCase):
         self.original('git', 'commit', '--quiet', '-m', 'Retained baseline', cwd=self.seed)
         self.original('git', 'push', '--quiet', str(self.remote), 'HEAD:refs/heads/main', cwd=self.seed)
         self.base = self.ref('main')
-        event, _ = release_request()
-        self.desired = event['inputs']
+        self.desired = release_document()
         self.path = 'apps/releases/private-ci.json'
         self.pulls = []
         self.pr_creations = 0
