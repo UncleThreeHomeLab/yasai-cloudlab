@@ -127,7 +127,7 @@ RUN dotnet test Test/Test.csproj --configuration Release --runtime linux-x64 --n
     -p:Version=2.338.0 -p:RuntimeIdentifiers=linux-x64 \
     --filter 'FullyQualifiedName~TrustedWorkflow|FullyQualifiedName~JobRunnerL0' \
     --logger 'trx;LogFileName=cloudlab-gate.trx' --results-directory /test-results \
-    && grep -Eq 'total="22".*passed="22"' /test-results/cloudlab-gate.trx
+    && grep -Eq 'total="24".*passed="24"' /test-results/cloudlab-gate.trx
 
 FROM source AS build
 COPY --from=test /test-results/cloudlab-gate.trx /test-results/cloudlab-gate.trx

@@ -42,8 +42,11 @@ namespace GitHub.Runner.Common.Tests.Worker
                 },
                 ["repos/" + values["repository"] + "/pulls/42"] = new Dictionary<string, object> {
                     ["state"] = "open", ["mergeable"] = true, ["merge_commit_sha"] = values["sha"],
-                    ["author_association"] = "MEMBER", ["base"] = new { @ref = "main", repo }, ["head"] = new { repo }
+                    ["author_association"] = "CONTRIBUTOR", ["user"] = new { login = "author", id = 7 },
+                    ["base"] = new { @ref = "main", repo }, ["head"] = new { repo }
                 },
+                ["repos/" + values["repository"] + "/collaborators/author/permission"] =
+                    new { permission = "write", user = new { login = "author", id = 7 } },
                 ["repos/" + values["repository"] + "/contents/.github/workflows/ci.yaml?ref=" + values["sha"]] =
                     new { type = "file", path = ".github/workflows/ci.yaml", encoding = "base64", size = content.Length,
                           content = Convert.ToBase64String(content) }
@@ -100,7 +103,7 @@ namespace GitHub.Runner.Common.Tests.Worker
             var request = (Dictionary<string, object>)fixture.Responses["repos/example/private-app/pulls/42"];
             foreach (var pair in new Dictionary<string, object> {
                 ["state"] = "closed", ["mergeable"] = false, ["merge_commit_sha"] = new string('b', 40),
-                ["author_association"] = "CONTRIBUTOR", ["head"] = new { repo = new { id = 43, full_name = "foreign/fork", fork = true } }
+                ["head"] = new { repo = new { id = 43, full_name = "foreign/fork", fork = true } }
             })
             {
                 var original = request[pair.Key];
@@ -112,6 +115,56 @@ namespace GitHub.Runner.Common.Tests.Worker
             var publish = TrustedWorkflowFixtures.Message("publish");
             TrustedWorkflowFixtures.SetGithub(publish, fixture.Values);
             Assert.False(TrustedWorkflow.Allows(publish, fixture.Policy, Fetch));
+        }
+
+        [Fact]
+        public void TemplatePrRequiresCurrentWritePermissionAndExactAuthorIdentity()
+        {
+            var fixture = TemplateFixture(true);
+            JsonDocument Fetch(string path) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]));
+            var request = (Dictionary<string, object>)fixture.Responses["repos/example/private-app/pulls/42"];
+            foreach (var association in new[] { "MEMBER", "CONTRIBUTOR", "NONE", "COLLABORATOR" })
+            {
+                request["author_association"] = association;
+                Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            }
+            var path = "repos/example/private-app/collaborators/author/permission";
+            foreach (var permission in new[] { "read", "none", "triage", "maintain", "unknown" })
+            {
+                fixture.Responses[path] = new { permission, user = new { login = "author", id = 7 } };
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            }
+            fixture.Responses[path] = new { permission = "admin", user = new { login = "AUTHOR", id = 7 } };
+            Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            foreach (var user in new[] { new { login = "other", id = 7 }, new { login = "author", id = 8 } })
+            {
+                fixture.Responses[path] = new { permission = "write", user };
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            }
+        }
+
+        [Fact]
+        public void TemplatePrUnknownOrMalformedAuthorAndPermissionApiFailureFailClosed()
+        {
+            var fixture = TemplateFixture(true);
+            var request = (Dictionary<string, object>)fixture.Responses["repos/example/private-app/pulls/42"];
+            JsonDocument Fetch(string path)
+            {
+                if (path.Contains("/collaborators/", StringComparison.Ordinal))
+                    throw new System.Net.Http.HttpRequestException("unavailable");
+                return JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]));
+            }
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            foreach (var user in new[] { new { login = "../foreign", id = 7 }, new { login = "author", id = 0 } })
+            {
+                request["user"] = user;
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
+                    path => path.Contains("/collaborators/", StringComparison.Ordinal)
+                        ? throw new Exception("Invalid author must not reach permission endpoint")
+                        : JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]))));
+            }
+            request.Remove("user");
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
         }
 
         [Fact]
