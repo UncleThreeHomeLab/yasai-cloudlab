@@ -21,7 +21,7 @@
 {{- if or (ne .repository $repository) (ne .workflow_path ".github/workflows/ci.yaml") }}
 {{- fail "Workflow templates must match the selected application repository" }}
 {{- end }}
-{{- if not (contains (printf "/application-%s.yaml@" .job) .job_workflow_ref) }}
+{{- if not (or (contains (printf "/application-%s.yaml@" .job) .job_workflow_ref) (eq .job_workflow_ref (printf "%s/%s@refs/heads/main" .repository .workflow_path))) }}
 {{- fail "Reusable workflow identity must match its approved role" }}
 {{- end }}
 {{- end }}

@@ -70,8 +70,8 @@ def workflow_bytes(document, path):
 
 
 def application_templates(api, current, revision, pull_request=None, *, platform_repository=None,
-                          approved_private_revision=False, application_name=None):
-    """Bind approved caller bytes and each immutable, single-job local reusable workflow."""
+                          approved_private_revision=False, application_name=None, repository_owned=False):
+    """Bind approved workflow bytes and original repository-owned or reusable job identities."""
     if approved_private_revision and (current.get('private') is not True or pull_request is not None):
         raise ValueError('Explicit private approval supports only its reviewed main revision')
     application_workflows(api, current, revision, pull_request)
@@ -88,6 +88,22 @@ def application_templates(api, current, revision, pull_request=None, *, platform
                           yaml.safe_load((harbor_api.ROOT / 'gitops/roots/public/values.yaml').read_text())['repository'])
     rows = []
     for role, job in jobs.items():
+        if repository_owned:
+            allowed = {'name', 'runs-on', 'steps', 'if', 'needs', 'permissions', 'timeout-minutes'}
+            expected = 'cloudlab-' + application_name + ('-publish' if role == 'publish' else '')
+            if (not isinstance(job, dict) or set(job) - allowed or job.get('runs-on') != expected or
+                    not isinstance(job.get('steps'), list) or not job['steps'] or
+                    type(job.get('timeout-minutes')) is not int or not 1 <= job['timeout-minutes'] <= 25):
+                raise ValueError('Repository-owned jobs require their assigned runner, steps and bounded timeout')
+            for step in job['steps']:
+                if not isinstance(step, dict) or ('uses' in step and not re.fullmatch(
+                        r'[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[a-f0-9]{40}', str(step['uses']))):
+                    raise ValueError('Repository-owned external actions require immutable source commits')
+            rows.append({'repository_id': str(current['id']), 'repository': current['full_name'],
+                         'visibility': current['visibility'], 'workflow_path': '.github/workflows/ci.yaml',
+                         'workflow_sha256': hashlib.sha256(content).hexdigest(), 'job': role,
+                         'job_workflow_ref': current['full_name'] + '/.github/workflows/ci.yaml@refs/heads/main'})
+            continue
         if application_name is not None and (not isinstance(job, dict) or
                 set(job) - {'name', 'uses', 'with', 'if', 'needs', 'permissions'} or
                 job.get('with') != {'application': application_name}):
@@ -268,19 +284,20 @@ def main():
     parser.add_argument('--pull-request', type=int)
     approval = parser.add_mutually_exclusive_group()
     approval.add_argument('--approve-workflow-template', action='store_true')
+    approval.add_argument('--approve-repository-workflow', action='store_true')
     approval.add_argument('--approve-private-revision', action='store_true')
     parser.add_argument('--publish', action='store_true')
     parser.add_argument('--output', type=Path, default=harbor_api.WORK / 'ci/configuration.json')
     arguments = parser.parse_args()
     if arguments.pull_request is not None and not (arguments.application_file and arguments.workflow_revision):
         parser.error('--pull-request requires --application-file and --workflow-revision')
-    if arguments.approve_workflow_template and not (arguments.application_file and arguments.workflow_revision):
-        parser.error('--approve-workflow-template requires --application-file and --workflow-revision')
+    if (arguments.approve_workflow_template or arguments.approve_repository_workflow) and not (arguments.application_file and arguments.workflow_revision):
+        parser.error('Workflow approval requires --application-file and --workflow-revision')
     if arguments.approve_private_revision and not (arguments.application_file and arguments.workflow_revision):
         parser.error('--approve-private-revision requires --application-file and --workflow-revision')
     if arguments.publish and not (arguments.application_file and
-                                  (arguments.approve_workflow_template or arguments.approve_private_revision)):
-        parser.error('--publish requires an application and its approved shared workflow template')
+                                  (arguments.approve_workflow_template or arguments.approve_private_revision or arguments.approve_repository_workflow)):
+        parser.error('--publish requires an application and its approved workflow')
     os.umask(0o077)
     revision = harbor_api.binding()
     values, api = inputs()
@@ -307,12 +324,15 @@ def main():
     if application:
         templates, workflows = [], []
         reviewed_templates = []
-        if arguments.approve_workflow_template or arguments.approve_private_revision:
+        if arguments.approve_workflow_template or arguments.approve_private_revision or arguments.approve_repository_workflow:
+            if arguments.approve_repository_workflow and fixture.get('private') is not False:
+                raise ValueError('Repository-owned automatic workflows require protected public main')
             templates = application_templates(api, fixture, arguments.workflow_revision, arguments.pull_request,
                                                 platform_repository=source['repository'],
                                                 approved_private_revision=arguments.approve_private_revision,
-                                                application_name=application['name'])
-            if any(not harbor_api.reviewed_ancestor(source['repository'], row['job_workflow_ref'].rsplit('@', 1)[-1],
+                                                application_name=application['name'],
+                                                repository_owned=arguments.approve_repository_workflow)
+            if not arguments.approve_repository_workflow and any(not harbor_api.reviewed_ancestor(source['repository'], row['job_workflow_ref'].rsplit('@', 1)[-1],
                                                     revision, environment) for row in templates):
                 raise ValueError('Shared workflows must originate from reviewed platform history')
             reviewed_templates = templates

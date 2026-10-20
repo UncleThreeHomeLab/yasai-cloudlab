@@ -126,7 +126,7 @@
                     "uniqueItems": true,
                     "items": {
                       "type": "string",
-                      "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/application-publish[.]yaml@[a-f0-9]{40}$"
+                      "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/(application-publish[.]yaml@[a-f0-9]{40}|ci[.]yaml@refs/heads/main)$"
                     }
                   },
                   "action": {

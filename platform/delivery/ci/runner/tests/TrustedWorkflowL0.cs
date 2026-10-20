@@ -13,22 +13,22 @@ namespace GitHub.Runner.Common.Tests.Worker
     public sealed class TrustedWorkflowL0
     {
         private static (GitHub.DistributedTask.Pipelines.AgentJobRequestMessage Message, byte[] Policy,
-            Dictionary<string, object> Responses, Dictionary<string, string> Values) TemplateFixture(bool pullRequest = false)
+            Dictionary<string, object> Responses, Dictionary<string, string> Values) TemplateFixture(bool pullRequest = false, bool owned = false)
         {
             var values = TrustedWorkflowFixtures.Values("test");
             values["event_name"] = pullRequest ? "pull_request" : "push";
             values["ref"] = pullRequest ? "refs/pull/42/merge" : "refs/heads/main";
             values["workflow_ref"] = values["repository"] + "/.github/workflows/ci.yaml@" + values["ref"];
-            var message = TrustedWorkflowFixtures.Message("__default", displayName: "test / test");
+            var message = TrustedWorkflowFixtures.Message(owned ? "test" : "__default", displayName: "test / test");
             message.Variables["system.workflowFileFullPath"] = new GitHub.DistributedTask.WebApi.VariableValue {
-                Value = "example/platform/.github/workflows/application-test.yaml" };
-            message.Variables["system.workflowFileSha"] = new GitHub.DistributedTask.WebApi.VariableValue { Value = new string('c', 40) };
+                Value = owned ? values["repository"] + "/.github/workflows/ci.yaml" : "example/platform/.github/workflows/application-test.yaml" };
+            message.Variables["system.workflowFileSha"] = new GitHub.DistributedTask.WebApi.VariableValue { Value = owned ? values["workflow_sha"] : new string('c', 40) };
             TrustedWorkflowFixtures.SetGithub(message, values);
             var content = Encoding.UTF8.GetBytes("approved immutable reusable workflow wrapper\n");
             var policy = JsonSerializer.SerializeToUtf8Bytes(new { templates = new[] { new {
                 repository_id = values["repository_id"], repository = values["repository"], job = "test", visibility = "private",
                 workflow_path = ".github/workflows/ci.yaml",
-                job_workflow_ref = "example/platform/.github/workflows/application-test.yaml@" + new string('c', 40),
+                job_workflow_ref = owned ? values["repository"] + "/.github/workflows/ci.yaml@refs/heads/main" : "example/platform/.github/workflows/application-test.yaml@" + new string('c', 40),
                 workflow_sha256 = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant()
             } } });
             var repo = new Dictionary<string, object> {
@@ -52,6 +52,49 @@ namespace GitHub.Runner.Common.Tests.Worker
                           content = Convert.ToBase64String(content) }
             };
             return (message, policy, responses, values);
+        }
+
+        [Fact]
+        public void RepositoryOwnedJobsRequireOriginalWorkflowIdentityAndCurrentTrustedSource()
+        {
+            foreach (bool pr in new[] { false, true })
+            {
+                var fixture = TemplateFixture(pr, owned: true);
+                JsonDocument Fetch(string path) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]));
+                Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+                foreach (var key in new[] { "system.workflowFileFullPath", "system.workflowFileSha" })
+                {
+                    var original = fixture.Message.Variables[key];
+                    fixture.Message.Variables[key] = new GitHub.DistributedTask.WebApi.VariableValue { Value = "foreign" };
+                    Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+                    fixture.Message.Variables[key] = original;
+                }
+                var prefix = "repos/" + fixture.Values["repository"];
+                var branch = (Dictionary<string, object>)fixture.Responses[prefix + "/branches/main"];
+                branch["protected"] = false;
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+                branch["protected"] = true;
+                var file = prefix + "/contents/.github/workflows/ci.yaml?ref=" + fixture.Values["sha"];
+                fixture.Responses[file] = new { type = "file", path = ".github/workflows/ci.yaml", encoding = "base64",
+                    size = 7, content = Convert.ToBase64String(Encoding.UTF8.GetBytes("changed")) };
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            }
+        }
+
+        [Fact]
+        public void RepositoryOwnedPrStillRejectsForkAndUntrustedAuthor()
+        {
+            var fixture = TemplateFixture(true, owned: true);
+            JsonDocument Fetch(string path) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[path]));
+            Assert.True(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            var request = (Dictionary<string, object>)fixture.Responses["repos/example/private-app/pulls/42"];
+            var original = request["head"];
+            request["head"] = new { repo = new { id = 43, full_name = "foreign/fork", fork = true } };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
+            request["head"] = original;
+            fixture.Responses["repos/example/private-app/collaborators/author/permission"] =
+                new { permission = "read", user = new { login = "author", id = 7 } };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy, Fetch));
         }
 
         [Fact]

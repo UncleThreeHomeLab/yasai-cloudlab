@@ -14,6 +14,42 @@ from playbooks.ci.tests.fixtures import qualified_tools, pool_values
 
 
 class ApplicationConfigurationTests(unittest.TestCase):
+    def test_repository_owned_workflow_binds_roles_and_rejects_shared_or_unbounded_jobs(self):
+        import base64
+        import yaml
+        application, current = self.inputs('example', 'public')
+        workflow = {'jobs': {role: {'runs-on': 'cloudlab-example' + ('-publish' if role == 'publish' else ''),
+                                   'timeout-minutes': 20, 'steps': [{'run': 'python ci/' + role + '.py'}]}
+                             for role in ('test', 'publish')}}
+        def approve(value):
+            raw = yaml.safe_dump(value).encode()
+            file = {'type': 'file', 'path': '.github/workflows/ci.yaml', 'encoding': 'base64',
+                    'size': len(raw), 'content': base64.b64encode(raw).decode()}
+            api = Mock()
+            api.request.side_effect = lambda method, path, **kwargs: (
+                {'object': {'sha': 'a' * 40}} if '/git/ref/' in path else
+                {'protected': True} if '/branches/' in path else file)
+            return command.application_templates(api, current, 'a' * 40,
+                platform_repository='https://github.com/example/platform.git',
+                application_name=application['name'], repository_owned=True)
+        rows = approve(workflow)
+        self.assertEqual({r['job'] for r in rows}, {'test', 'publish'})
+        self.assertTrue(all(r['job_workflow_ref'] == 'example/example/.github/workflows/ci.yaml@refs/heads/main'
+                            for r in rows))
+        document = application_configuration(qualified_tools(), application, current,
+            templates=[row for row in rows if row['job'] == 'test'])['runner.json']
+        objects = render(document['values'], chart=POOL, namespace=document['namespace'])
+        policy = next(o for o in objects if o['kind'] == 'ConfigMap' and 'eligibility.json' in o.get('data', {}))
+        self.assertEqual(json.loads(policy['data']['eligibility.json'])['templates'],
+                         [row for row in rows if row['job'] == 'test'])
+        for field, value in (('runs-on', 'cloudlab-foreign'), ('container', 'untrusted'),
+                             ('timeout-minutes', 0), ('timeout-minutes', True),
+                             ('steps', [{'uses': 'actions/checkout@main'}]),
+                             ('uses', 'foreign/workflow@main')):
+            changed = copy.deepcopy(workflow)
+            changed['jobs']['test'][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError): approve(changed)
+
     def test_publication_binds_the_owning_gitops_role_and_checks_existing_app_scope_read_only(self):
         application, current = self.inputs('example', 'public')
         targets = [('public-platform', 'example/gitops', False), ('private-config', 'example/private', True),

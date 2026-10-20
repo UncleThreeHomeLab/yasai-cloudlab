@@ -26,8 +26,10 @@ def artifact_approval(approval):
             not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', artifact['sourceRepository']) or
             artifact['action'] not in ('Audit', 'Enforce') or
             not 1 <= len(artifact['identities']) <= 8 or len(set(artifact['identities'])) != len(artifact['identities']) or
-            any(not re.fullmatch(r'https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/'
-                                r'\.github/workflows/application-publish\.yaml@[a-f0-9]{40}', identity)
+            any(not (re.fullmatch(r'https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/'
+                                r'\.github/workflows/application-publish\.yaml@[a-f0-9]{40}', identity) or
+                     identity == 'https://github.com/' + artifact['sourceRepository'] +
+                         '/.github/workflows/ci.yaml@refs/heads/main')
                 for identity in artifact['identities'])):
         raise ValueError('Artifact approval requires a scoped registry, release path and retained signing identities')
 
