@@ -13,6 +13,27 @@ from playbooks.services.tests.fixtures import approval, definition
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_registry_cache_delivery_is_deduplicated_and_rejects_conflicting_project_hosts(self):
+        value, allowed = self.inputs()
+        other = copy.deepcopy(allowed)
+        other.update(name='other', namespace='cloudlab-app-other')
+        other['artifact'].update(repository='registry.example.invalid/cloudlab-public/other',
+                                 releasePath='apps/releases/other.json')
+        payload = {'repository': 'https://github.com/example/platform.git', 'revision': 'b' * 40,
+                   'catalog': [{'definition': value, 'approval': allowed},
+                               {'definition': dict(value, name='other'), 'approval': other}]}
+        def render():
+            return subprocess.run(['helm', 'template', 'services', str(ROOT / 'platform/delivery/services'), '-f', '-'],
+                                  input=json.dumps(payload), capture_output=True, text=True, timeout=90)
+        result = render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        objects = [o for o in yaml.safe_load_all(result.stdout) if o]
+        copies = [o for o in objects if o['kind'] == 'ExternalSecret' and o['metadata']['namespace'] == 'cloudlab-policy']
+        self.assertEqual(len(copies), 1)
+        self.assertEqual(copies[0]['spec']['dataFrom'], [{'extract': {'key': 'harbor-cloudlab-public-pull'}}])
+        other['artifact']['repository'] = 'different.example.invalid/cloudlab-public/other'
+        self.assertNotEqual(render().returncode, 0)
+
     def test_complete_catalog_validates_artifact_against_its_configured_platform_repository(self):
         from playbooks.services.files.inputs import validate_catalog
         value, allowed = self.inputs()
@@ -102,7 +123,11 @@ class ArtifactTests(unittest.TestCase):
         signature = rules[1]['verifyImages'][0]
         self.assertEqual(signature['type'], 'Cosign')
         self.assertEqual(signature['imageRegistryCredentials'],
-                         {'secrets': ['cloudlab-app-synthetic/harbor-application-pull']})
+                         {'secrets': ['cloudlab-policy/harbor-cloudlab-public-pull']})
+        registry = next(o for o in objects if o['kind'] == 'ExternalSecret' and o['metadata']['namespace'] == 'cloudlab-policy')
+        self.assertEqual(registry['metadata']['name'], 'harbor-cloudlab-public-pull')
+        self.assertEqual(registry['spec']['dataFrom'], [{'extract': {'key': 'harbor-cloudlab-public-pull'}}])
+        self.assertNotIn('push', json.dumps(registry))
         keyless = signature['attestors'][0]['entries'][0]['keyless']
         self.assertEqual(keyless['subject'], allowed['artifact']['identities'][0])
         self.assertEqual(keyless['issuer'], 'https://token.actions.githubusercontent.com')
