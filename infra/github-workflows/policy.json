@@ -1,4 +1,4 @@
 {
-  "public_platform": {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": true},
-  "private_config": {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": true}
+  "public_platform": {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": false},
+  "private_config": {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": false}
 }

@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
@@ -13,6 +14,97 @@ from playbooks.ci.tests.fixtures import qualified_tools, pool_values
 
 
 class ApplicationConfigurationTests(unittest.TestCase):
+    def test_publication_binds_the_owning_gitops_role_and_checks_existing_app_scope_read_only(self):
+        application, current = self.inputs('example', 'public')
+        targets = [('public-platform', 'example/gitops', False), ('private-config', 'example/private', True),
+                   ('public-fixture', 'example/public-fixture', False), ('private-fixture', 'example/private-fixture', True)]
+        metadata = {'full_name': 'example/gitops', 'private': False, 'fork': False,
+                    'archived': False, 'default_branch': 'main', 'id': 456}
+        api = Mock()
+        api.request.return_value = metadata
+        row = {'job': 'publish', 'job_workflow_ref': 'example/platform/.github/workflows/application-publish.yaml@' + 'b' * 40}
+        with patch('playbooks.argocd.files.github_setup.configuration', return_value=targets), \
+                patch('playbooks.secrets.files.vault.fields', return_value={'APP_ID': '7'}) as fields, \
+                patch('playbooks.harbor.files.scopes.verify_app') as scope:
+            result = command.publication(api, {'OP_SERVICE_ACCOUNT_TOKEN': 'synthetic-read-only'}, application,
+                                         current, qualified_tools(), [row])
+            self.assertEqual(result['release_repository'], 'example/gitops')
+            self.assertEqual(result['release_repository_id'], 456)
+            self.assertEqual(result['project'], 'cloudlab-public')
+            self.assertEqual(scope.call_args.args[1], {'example/gitops': False, 'example/public-fixture': False})
+            fields.assert_called_once_with('github-release-public', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+            fields.reset_mock()
+            scope.reset_mock()
+            api.request.return_value = dict(metadata, private=True)
+            with self.assertRaises(ValueError):
+                command.publication(api, {}, application, current, qualified_tools(), [row])
+            fields.assert_not_called()
+            scope.assert_not_called()
+
+    def test_private_exact_reusable_policy_pins_source_and_caller_sha_without_automatic_templates(self):
+        application, current = self.inputs('example', 'private')
+        workflows = [{'repository': current['full_name'], 'repository_id': str(current['id']),
+                      'workflow_ref': current['full_name'] + '/.github/workflows/ci.yaml@refs/heads/main',
+                      'workflow_sha': 'a' * 40, 'sha': 'a' * 40, 'ref': 'refs/heads/main',
+                      'event_name': event, 'job': role}
+                     for event in ('push', 'workflow_dispatch') for role in ('test', 'publish')]
+        before = copy.deepcopy(workflows)
+        document = application_configuration(qualified_tools(), application, current, workflows=workflows,
+                                               exact_reusable=True)['runner.json']
+        self.assertNotIn('workflowTemplates', document['values'])
+        policies = document['values']['eligibility']
+        self.assertEqual(len(policies), 2)
+        self.assertTrue(all(row['job'] == '__default' and row['sha'] == row['workflow_sha'] == 'a' * 40 and
+                            row['ref'] == 'refs/heads/main' for row in policies))
+        self.assertEqual(workflows, before)
+        changed = copy.deepcopy(workflows)
+        changed[0]['sha'] = 'b' * 40
+        with self.assertRaises(ValueError):
+            application_configuration(qualified_tools(), application, current, workflows=changed, exact_reusable=True)
+        public, public_current = self.inputs('example', 'public')
+        with self.assertRaises(ValueError):
+            application_configuration(qualified_tools(), public, public_current, workflows=workflows, exact_reusable=True)
+
+    def test_publisher_uses_one_shared_budget_with_role_scoped_credentials_and_no_builder_secret_mounts(self):
+        for scope in ('public', 'private'):
+            application, current = self.inputs('example', scope)
+            templates = [{'repository_id': str(current['id']), 'repository': current['full_name'],
+                          'visibility': scope, 'workflow_path': '.github/workflows/ci.yaml',
+                          'workflow_sha256': 'a' * 64, 'job': job,
+                          'job_workflow_ref': 'example/platform/.github/workflows/application-' + job + '.yaml@' + 'b' * 40}
+                         for job in ('test', 'publish')]
+            publishing = {'application': 'example', 'source_repository': current['full_name'],
+                          'source_repository_id': str(current['id']), 'visibility': scope,
+                          'registry': 'registry.example.invalid', 'project': 'cloudlab-' + scope,
+                          'release_repository': 'example/gitops', 'release_repository_id': 456,
+                          'workflow_identity': 'https://github.com/' + templates[1]['job_workflow_ref']}
+            documents = application_configuration(qualified_tools(), application, current,
+                                                   templates=templates, publishing=publishing)
+            self.assertEqual(set(documents), {'controller.json', 'runner.json', 'publisher.json'})
+            self.assertEqual(documents['controller.json']['values']['runnerPools'], 2)
+            primary, publisher = (documents[key]['values'] for key in ('runner.json', 'publisher.json'))
+            self.assertEqual([row['job'] for row in primary['workflowTemplates']], ['test'])
+            self.assertEqual([row['job'] for row in publisher['workflowTemplates']], ['publish'])
+            self.assertFalse(any(row['name'].startswith('publish-') for row in primary['arc']['template']['spec']['volumes']))
+            self.assertEqual(primary['arc']['template']['spec']['initContainers'], publisher['arc']['template']['spec']['initContainers'])
+            namespace = documents['publisher.json']['namespace']
+            objects = render(publisher, chart=POOL, namespace=namespace, release='publisher')
+            secrets = [row for row in objects if row['kind'] == 'ExternalSecret']
+            items = {entry['extract']['key'] for row in secrets for entry in row['spec']['dataFrom']}
+            expected = {'github-release-' + scope, 'harbor-cloudlab-' + scope + '-pull',
+                        'harbor-cloudlab-' + scope + '-push'}
+            if scope == 'private':
+                expected |= {'ci-private-signer', 'ci-private-verifier'}
+            self.assertEqual(items, expected)
+            unsafe = copy.deepcopy(publisher)
+            unsafe['arc']['template']['spec']['initContainers'][0]['volumeMounts'].append(
+                {'name': 'publish-push', 'mountPath': '/tmp/credential'})
+            with self.assertRaises(subprocess.CalledProcessError):
+                render(unsafe, chart=POOL, namespace=namespace)
+            with self.assertRaises(ValueError):
+                application_configuration(qualified_tools(), application, current,
+                    templates=templates[:1], publishing=publishing)
+
     def test_reviewed_template_uses_native_gate_and_rejects_foreign_or_mixed_policies(self):
         application, current = self.inputs()
         row = {'repository_id': '123', 'repository': current['full_name'], 'visibility': 'public',

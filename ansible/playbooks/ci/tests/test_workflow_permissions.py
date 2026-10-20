@@ -68,7 +68,7 @@ class WorkflowPermissionsTests(unittest.TestCase):
             elif change in ('identity', 'repository'):
                 row['after']['id' if change == 'identity' else 'repository'] = 'other'
             elif change == 'permission':
-                row['after']['can_approve_pull_request_reviews'] = False
+                row['after']['can_approve_pull_request_reviews'] = not policy['public_platform']['can_approve_pull_request_reviews']
             else:
                 row['before']['foreign_field'] = 'retain'
                 row['after']['foreign_field'] = 'changed'

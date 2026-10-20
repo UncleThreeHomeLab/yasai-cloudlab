@@ -152,6 +152,20 @@ repository namespace. The [runner pool](platform/delivery/ci/pool/values.json) r
 published image digests and approved workflow revisions before registration. It
 permits one build per repository, ends the builder with its runner, and stops jobs when API or node
 health fails. Its health role grants node listing and API readiness reads.
+Application Dockerfiles expose `test` and `runtime` targets. Registration supports
+separate test and publisher pools within that one build budget. Public callers use
+approved workflow bytes and protected main; private repositories can use explicit
+main-commit approval when branch protection is unavailable. Each private source
+change requires renewed approval; private PRs receive no runner access in that mode.
+
+The [publisher](ansible/playbooks/ci/files/publisher.py) scans before pushing, signs
+exact digests and proposes one application release file in its owning GitOps repo.
+Public signing requires the exact shared workflow, GitHub issuer and source repository.
+Private signing uses CloudLab items `ci-private-signer` (`private_key`, concealed)
+and `ci-private-verifier` (`public_key`, string). Run `docker compose run --build --rm
+ci-signing` locally to create missing items through the [custody owner](ansible/playbooks/ci/files/signing.py).
+Existing keys survive repeats and interruptions. Only the private publisher receives
+that private key; the Harbor recovery signer stays local and separate.
 Export these images with `docker image save --output .infra-private/ci/<kind>.tar
 yasai-cloudlab-ci-<kind>:local`, using `controller`, `runner` and `builder` for
 `<kind>`. Create the ignored archive directory first. Then run

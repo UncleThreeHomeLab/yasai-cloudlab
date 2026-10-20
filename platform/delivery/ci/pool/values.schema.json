@@ -6,6 +6,21 @@
   "anyOf": [{"properties": {"eligibility": {"minItems": 1}}},
             {"required": ["workflowTemplates"], "properties": {"workflowTemplates": {"minItems": 1}}}],
   "properties": {
+    "publishing": {
+      "type": "object", "additionalProperties": false,
+      "required": ["application", "source_repository", "source_repository_id", "visibility", "registry", "project", "release_repository", "release_repository_id", "workflow_identity"],
+      "properties": {
+        "application": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,34}$"},
+        "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"},
+        "source_repository_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+        "visibility": {"enum": ["public", "private"]},
+        "registry": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,252}$"},
+        "project": {"enum": ["cloudlab-public", "cloudlab-private"]},
+        "release_repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"},
+        "release_repository_id": {"type": "integer", "minimum": 1},
+        "workflow_identity": {"type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/application-publish[.]yaml@[a-f0-9]{40}$"}
+      }
+    },
     "manageSharedResources": {"type": "boolean"},
     "policyName": {"type": "string", "enum": ["cloudlab-ci-eligibility", "cloudlab-ci-eligibility-publish"]},
     "workflowTemplates": {

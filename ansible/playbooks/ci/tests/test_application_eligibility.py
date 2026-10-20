@@ -9,6 +9,44 @@ from playbooks.ci.files.configuration import application_workflows, application_
 
 
 class ApplicationEligibilityTests(unittest.TestCase):
+    def test_named_callers_cannot_inherit_secrets_or_choose_another_application(self):
+        for extra in ('    secrets: inherit\n    with: {application: example}\n',
+                      '    with: {application: foreign}\n',
+                      '    with: {application: example, registry: foreign}\n'):
+            content = ('jobs:\n  test:\n    uses: example/platform/.github/workflows/application-test.yaml@' +
+                       'b' * 40 + '\n' + extra).encode()
+            file = {'type': 'file', 'path': '.github/workflows/ci.yaml', 'encoding': 'base64',
+                    'size': len(content), 'content': base64.b64encode(content).decode()}
+            self.api.request.side_effect = [self.request, {'type': 'file'}, {'protected': True}, file]
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                application_templates(self.api, dict(self.current, private=False), self.revision, 42,
+                    platform_repository='https://github.com/example/platform.git', application_name='example')
+
+    def test_private_revision_mode_requires_explicit_current_main_and_never_allows_public_or_pr_bypass(self):
+        caller = b'jobs:\n  test:\n    uses: example/platform/.github/workflows/application-test.yaml@' + b'b' * 40 + b'\n'
+        called = b'''jobs:
+  test:
+    runs-on: "${{ format('cloudlab-{0}', inputs.application) }}"
+    steps: [{run: 'true'}]
+'''
+        def file(path, content):
+            return {'type': 'file', 'path': path, 'encoding': 'base64', 'size': len(content),
+                    'content': base64.b64encode(content).decode()}
+        current = dict(self.current, private=True)
+        self.api.request.side_effect = [{'object': {'sha': self.revision}}, {'type': 'file'}, {'protected': False},
+            file('.github/workflows/ci.yaml', caller), file('.github/workflows/application-test.yaml', called)]
+        rows = application_templates(self.api, current, self.revision, platform_repository='https://github.com/example/platform.git',
+                                     approved_private_revision=True)
+        self.assertEqual([row['job'] for row in rows], ['test'])
+        for origin, number in ((dict(current, private=False), None), (current, 42)):
+            self.api.reset_mock()
+            with self.assertRaises(ValueError):
+                application_templates(self.api, origin, self.revision, number, approved_private_revision=True)
+            self.api.request.assert_not_called()
+        self.api.request.side_effect = [{'object': {'sha': 'c' * 40}}]
+        with self.assertRaises(ValueError):
+            application_templates(self.api, current, self.revision, approved_private_revision=True)
+
     def test_template_approval_pins_reviewed_bytes_and_requires_protected_main(self):
         content = b'jobs:\n  test:\n    uses: example/platform/.github/workflows/application-test.yaml@' + b'b' * 40 + b'\n'
         file = {'type': 'file', 'path': '.github/workflows/ci.yaml', 'encoding': 'base64',

@@ -1,0 +1,81 @@
+{{- with .Values.publishing }}
+{{- $scope := .visibility }}
+{{- $project := printf "cloudlab-%s" $scope }}
+{{- if or (ne $.Values.policyName "cloudlab-ci-eligibility-publish") $.Values.manageSharedResources
+    (ne $.Release.Namespace (printf "cloudlab-ci-%s-%s" $scope .application))
+    (ne $.Values.arc.runnerScaleSetName (printf "cloudlab-%s-publish" .application))
+    (ne $.Values.arc.githubConfigUrl (printf "https://github.com/%s" .source_repository))
+    (ne .project $project) }}
+{{- fail "Publishing credentials require the matching application, project and separate publisher role" }}
+{{- end }}
+{{- range $.Values.workflowTemplates }}
+{{- if or (ne .job "publish") (ne .visibility $scope) (ne .repository_id $.Values.publishing.source_repository_id)
+    (ne .job_workflow_ref (trimPrefix "https://github.com/" $.Values.publishing.workflow_identity)) }}
+{{- fail "Publisher policy must bind only its approved publishing workflow and repository identity" }}
+{{- end }}
+{{- end }}
+{{- range $.Values.eligibility }}
+{{- if or (ne .ref "refs/heads/main") (not (has .event_name (list "push" "workflow_dispatch")))
+    (not (has .job (list "publish" "__default"))) (ne .repository_id $.Values.publishing.source_repository_id) }}
+{{- fail "Exact publisher policies require explicitly approved main revisions" }}
+{{- end }}
+{{- end }}
+{{- range $.Values.arc.template.spec.initContainers }}
+{{- range .volumeMounts }}
+{{- if not (has .name (list "builder-state" "builder-run" "builder-tmp" "builder-ids")) }}
+{{- fail "The builder must not mount publishing credentials or runner state" }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: cloudlab-publishing, namespace: {{ $.Release.Namespace }}}
+data:
+  config.json: {{ toJson . | quote }}
+{{- range $role := list "pull" "push" }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: {{ printf "cloudlab-publish-%s" $role }}, namespace: {{ $.Release.Namespace }}}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ printf "cloudlab-publish-%s" $role }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  dataFrom: [{extract: {key: {{ printf "harbor-%s-%s" $project $role }}}}]
+{{- end }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: cloudlab-release, namespace: {{ $.Release.Namespace }}}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-release
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      data:
+        app_id: '{{ "{{ .APP_ID }}" }}'
+        installation_id: '{{ "{{ .INSTALLATION_ID }}" }}'
+        private_key: |-
+{{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: {{ printf "github-release-%s" $scope }}}}]
+{{- if eq $scope "private" }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: cloudlab-ci-signing, namespace: {{ $.Release.Namespace }}}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target: {name: cloudlab-ci-signing, creationPolicy: Owner, deletionPolicy: Retain}
+  dataFrom:
+    - extract: {key: ci-private-signer}
+    - extract: {key: ci-private-verifier}
+{{- end }}
+{{- end }}

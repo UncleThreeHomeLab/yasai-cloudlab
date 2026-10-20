@@ -1,4 +1,4 @@
-"""Local native ownership of release PR permissions on two GitOps repositories."""
+"""Local native ownership of read-only workflow defaults on the two GitOps repositories."""
 import argparse
 import fcntl
 import hashlib
