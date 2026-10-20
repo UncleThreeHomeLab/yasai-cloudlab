@@ -55,6 +55,27 @@ def public_pool(approval):
                 raise RuntimeError('Public runner service account secret denial was not proven')
 
 
+def keyless_denials(fixture, pod, kube, wait):
+    """Reject an otherwise valid signature solely on its issuer or subject."""
+    namespace, name = fixture['metadata']['namespace'], fixture['metadata']['name']
+    for field, wrong in (('subject', 'https://github.com/invalid/unapproved@' + '0' * 40),
+                         ('issuer', 'https://issuer.example.invalid')):
+        rules = copy.deepcopy(fixture['spec']['rules'])
+        entries = [entry['keyless'] for rule in rules for image in rule.get('verifyImages', [])
+                   for attestor in image['attestors'] for entry in attestor['entries'] if 'keyless' in entry]
+        if not entries:
+            raise RuntimeError('Keyless denial requires the actual approved keyless attestors')
+        for entry in entries:
+            entry[field] = wrong
+        kube('patch', 'policy.kyverno.io', name, '-n', namespace, '--type=merge',
+             '-p', json.dumps({'spec': {'rules': rules}}))
+        def rejected():
+            result = kube('create', '--dry-run=server', '-f', '-', document=pod, allow_failure=True)
+            return (result.returncode != 0 and 'trusted-signature' in result.stderr and
+                    field + ' mismatch:' in result.stderr)
+        wait(rejected, 'isolated keyless ' + field + ' rejection', timeout=90)
+
+
 def remote(request):
     sys.path.insert(0, '/opt/cloudlab')
     from playbooks.istio.files.kube import condition, get, kube, wait
@@ -79,6 +100,11 @@ def remote(request):
     if (pod.get('apiVersion') != 'v1' or pod.get('kind') != 'Pod' or
             pod.get('metadata', {}).get('namespace') != namespace):
         raise ValueError('Admission proof requires its approved Pod namespace')
+    images = request.get('images', [])
+    if (len(images) != 4 or any(not isinstance(row, list) or len(row) != 3 for row in images) or
+            [row[0] for row in images] != ['signed', 'unsigned', 'untrusted', 'other-project'] or
+            [row[2] for row in images] != [None, 'trusted-signature', 'trusted-signature', 'approved-repositories']):
+        raise ValueError('Admission proof requires every declared positive and negative case')
     nonce = secrets.token_hex(6)
     pod_name, name = 'artifact-proof-' + nonce, 'artifact-release-proof'
     fixture = isolated_policy(policy, pod_name, nonce)
@@ -110,8 +136,13 @@ def remote(request):
                 raise RuntimeError('Application rejection did not reach its required signature or repository rule')
             elif re.search(r'UNAUTHORIZED|status code (?:401|403)|no such host|connection refused', result.stderr):
                 raise RuntimeError('Registry transport failure cannot count as signature rejection')
+        public = approval['artifact'].get('project') == 'cloudlab-public'
+        if public:
+            pod['spec']['containers'][0]['image'] = request['images'][0][1]
+            keyless_denials(fixture, pod, kube, wait)
         return {'signed_admitted': True, 'unsigned_denied': True, 'untrusted_signer_denied': True,
-                'other_repository_denied': True, 'test_pods_created': 0}
+                'other_repository_denied': True, 'keyless_identity_denied': public,
+                'keyless_issuer_denied': public, 'test_pods_created': 0}
     finally:
         actual = get('policy.kyverno.io', name, namespace)
         if actual and (actual['metadata']['uid'] != uid or actual['metadata'].get('labels', {}).get('cloudlab.io/fixture') != nonce or

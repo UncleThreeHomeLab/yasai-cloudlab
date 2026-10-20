@@ -21,6 +21,30 @@ def policy():
 
 
 class ApplicationReleaseTests(unittest.TestCase):
+    def test_keyless_denial_changes_only_fixture_identity_and_requires_the_exact_mismatch(self):
+        fixture = proof.isolated_policy(policy(), 'artifact-proof-' + 'a' * 12, 'a' * 12)
+        fixture['spec']['rules'][1]['verifyImages'][0]['attestors'] = [{'entries': [{'keyless': {
+            'issuer': 'https://token.actions.githubusercontent.com', 'subject': 'approved',
+            'roots': 'retained', 'rekor': {'url': 'https://rekor.sigstore.dev'}}}]}]
+        original = copy.deepcopy(fixture)
+        active = {}
+        def kube(*arguments, **options):
+            if arguments[0] == 'patch':
+                import json
+                active.update(json.loads(arguments[-1]))
+                return ''
+            entry = active['spec']['rules'][1]['verifyImages'][0]['attestors'][0]['entries'][0]['keyless']
+            self.assertEqual(entry['roots'], 'retained')
+            field = 'subject' if entry['issuer'] == 'https://token.actions.githubusercontent.com' else 'issuer'
+            return subprocess.CompletedProcess(arguments, 1, '', 'trusted-signature ' + field + ' mismatch:')
+        wait = lambda predicate, *args, **kwargs: self.assertTrue(predicate())
+        proof.keyless_denials(fixture, {}, kube, wait)
+        self.assertEqual(fixture, original)
+        for diagnostic in ('trusted-signature UNAUTHORIZED', 'trusted-signature signature not found'):
+            with self.subTest(diagnostic=diagnostic), self.assertRaises(AssertionError):
+                proof.keyless_denials(fixture, {}, lambda *args, **kwargs:
+                    subprocess.CompletedProcess(args, 1, '', diagnostic), wait)
+
     def test_public_pool_rejects_private_vault_items_secret_readers_and_expanded_build_quota(self):
         externals = [{'spec': {'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
                               'dataFrom': [{'extract': {'key': key}}]}} for key in
@@ -105,7 +129,7 @@ class ApplicationReleaseTests(unittest.TestCase):
                    'pod': probe('cloudlab-app-example'),
                    'action': 'admission', 'images': [
                        ['signed', 'signed', None], ['unsigned', 'unsigned', 'trusted-signature'],
-                       ['untrusted', 'untrusted', 'trusted-signature'], ['other', 'other', 'approved-repositories']]}
+                       ['untrusted', 'untrusted', 'trusted-signature'], ['other-project', 'other', 'approved-repositories']]}
         original_import = builtins.__import__
         def host_import(name, *args, **kwargs):
             if name == 'playbooks.admission.files.verify':
@@ -156,5 +180,15 @@ class ApplicationReleaseTests(unittest.TestCase):
         with patch('playbooks.istio.files.kube.get', return_value=policy()), \
                 patch('playbooks.istio.files.kube.kube') as kube, \
                 self.assertRaisesRegex(ValueError, 'approved Pod namespace'):
+            proof.remote(request)
+        kube.assert_not_called()
+
+    def test_incomplete_cases_are_refused_before_any_enforcement_policy_write(self):
+        request = {'entry': {'approval': {'namespace': 'cloudlab-app-example', 'artifact': {'action': 'Audit'}}},
+                   'action': 'admission', 'pod': {'apiVersion': 'v1', 'kind': 'Pod',
+                       'metadata': {'namespace': 'cloudlab-app-example'}}, 'images': [['signed', 'signed', None]]}
+        with patch('playbooks.istio.files.kube.get', return_value=policy()), \
+                patch('playbooks.istio.files.kube.kube') as kube, \
+                self.assertRaisesRegex(ValueError, 'every declared positive and negative case'):
             proof.remote(request)
         kube.assert_not_called()
