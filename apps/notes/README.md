@@ -49,7 +49,9 @@ registration, run `gh auth token | docker compose run -T --rm lab observe
 baseline-cleanup`, then prepare a fresh viewer. Never reset primary passkeys.
 The redacted result remains in the recovery volume. Primary accounts stay unchanged.
 
-Python and dependency wheels are pinned. The API installs hash-checked wheels into
-a bounded ephemeral volume during startup. Regenerate first-party artifacts with
+Python and dependency wheels are pinned. Bootstrap mode installs hash-checked wheels
+into a bounded ephemeral volume. An approved artifact release runs packaged code
+and dependencies from the signed image, preserving OIDC, telemetry and data mounts.
+The bootstrap source remains retained for recovery. Regenerate first-party artifacts with
 `docker compose run --rm --volume "${PWD}:/workspace" --entrypoint python lab -m playbooks.services.files.package build`; `lab service-check` verifies source
 parity and deterministic rendering. Dependency changes require repeating these checks.

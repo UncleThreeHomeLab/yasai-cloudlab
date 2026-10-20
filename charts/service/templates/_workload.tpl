@@ -46,6 +46,9 @@ spec:
     spec:
       serviceAccountName: {{ .Values.name }}
       automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ . | toJson }}
+      {{- end }}
       {{- if gt (int .Values.replicas) 1 }}
       topologySpreadConstraints:
         - maxSkew: 1

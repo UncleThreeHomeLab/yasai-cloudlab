@@ -517,6 +517,22 @@
     },
     "renderDisabled": {
       "type": "boolean"
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "const": "harbor-application-pull"
+          }
+        }
+      }
     }
   },
   "required": [
