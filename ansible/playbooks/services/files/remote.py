@@ -97,7 +97,7 @@ def inspect(request):
             raise RuntimeError('Backend is not converged at its approved source')
         expected_image = definition['image']
         if approval.get('artifact'):
-            from playbooks.services.files.gitops import artifact_approval
+            from playbooks.services.files.contract import artifact_approval
             artifact_approval(approval)
             values = source[0].get('helm', {}).get('valuesObject', {})
             expected_image = (values.get('definition', {}) if notes else values).get('image', '')

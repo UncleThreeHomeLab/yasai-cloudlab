@@ -1,24 +1,7 @@
 """Administrator-owned namespace budgets and fixed ApplicationSet destinations."""
 import re
 
-from playbooks.services.files.contract import validate
-
-def artifact_approval(approval):
-    artifact = approval.get('artifact')
-    if artifact is None:
-        return
-    fields = {'repository', 'project', 'releasePath', 'sourceRepository', 'identities', 'action'}
-    if (set(artifact) != fields or artifact['project'] != 'cloudlab-' + approval.get('visibility', 'public') or
-            not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,252}/' + re.escape(artifact['project']) + '/' +
-                             re.escape(approval['name']), artifact['repository']) or
-            artifact['releasePath'] != 'apps/releases/' + approval['name'] + '.json' or
-            not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', artifact['sourceRepository']) or
-            artifact['action'] not in ('Audit', 'Enforce') or
-            not 1 <= len(artifact['identities']) <= 8 or len(set(artifact['identities'])) != len(artifact['identities']) or
-            any(not re.fullmatch(r'https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/'
-                                r'\.github/workflows/application-publish\.yaml@[a-f0-9]{40}', identity)
-                for identity in artifact['identities'])):
-        raise ValueError('Artifact approval requires a scoped registry, release path and retained signing identities')
+from playbooks.services.files.contract import validate, artifact_approval
 
 def resources(definition, approval, platform_repository, platform_revision):
     definition = validate(definition)
