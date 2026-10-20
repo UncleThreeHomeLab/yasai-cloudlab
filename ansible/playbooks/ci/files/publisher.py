@@ -24,6 +24,10 @@ class NativeFailure(RuntimeError):
     """Only fixed native command names may reach public workflow logs."""
 
 
+class PublicationFailure(ValueError):
+    """Fixed boundary failures contain no service addresses or credential values."""
+
+
 def publication_configuration(document):
     fields = {'application', 'source_repository', 'source_repository_id', 'visibility', 'registry',
               'project', 'release_repository', 'release_repository_id', 'workflow_identity'}
@@ -38,7 +42,7 @@ def publication_configuration(document):
             document['project'] != 'cloudlab-' + document['visibility'] or
             not re.fullmatch(r'https://github[.]com/' + REPOSITORY +
                 r'/\.github/workflows/application-publish\.yaml@' + SHA, document['workflow_identity'])):
-        raise ValueError('Publication requires matching application, project, workflow and GitOps boundaries')
+        raise PublicationFailure('Publication requires matching application, project, workflow and GitOps boundaries')
     return document
 
 
@@ -52,7 +56,7 @@ def configuration(document, environment):
             not re.fullmatch(SHA, environment.get('GITHUB_SHA', '')) or
             any(not re.fullmatch(r'[1-9][0-9]{0,19}', environment.get(key, ''))
                 for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'))):
-        raise ValueError('Publication requires its approved local main workflow and repository boundaries')
+        raise PublicationFailure('Publication requires its approved local main workflow and repository boundaries')
     return document
 
 
@@ -72,7 +76,7 @@ def execute(arguments, environment, *, data=b'', missing=False, timeout=900):
         operation = ' '.join(arguments[:2])
         raise NativeFailure('Native ' + operation + ' failed; private output withheld')
     if len(response) > 1048576:
-        raise ValueError('Native publication response exceeds its bound')
+        raise PublicationFailure('Native publication response exceeds its bound')
     return response
 
 
@@ -85,7 +89,7 @@ def registry_environment(directory, registry, project, role, environment):
     path.mkdir(mode=0o700)
     username = credential(role + '/username')
     if username != 'robot$' + project + '+' + role or credential(role + '/secret_version') != '1':
-        raise ValueError('Registry credential differs from its approved project and retained version')
+        raise PublicationFailure('Registry credential differs from its approved project and retained version')
     auth = base64.b64encode((username + ':' + credential(role + '/password')).encode()).decode()
     (path / 'config.json').write_text(json.dumps({'auths': {registry: {'auth': auth}}}))
     (path / 'config.json').chmod(0o600)
@@ -99,10 +103,11 @@ def build_and_scan(source, directory, environment):
              '--opt', 'target=runtime', '--opt', 'platform=linux/amd64',
              '--output', 'type=docker,name=application,dest=' + str(archive)], environment, timeout=1200)
     if not archive.is_file() or archive.stat().st_size > 4 * 1024 ** 3:
-        raise ValueError('Publication requires an application archive within the 4 GiB build budget')
+        raise PublicationFailure('Publication requires an application archive within the 4 GiB build budget')
+    print('Application archive built', flush=True)
     digest = execute(['crane', 'digest', '--tarball', str(archive)], environment).decode().strip()
     if not re.fullmatch(DIGEST, digest):
-        raise ValueError('Application archive has no immutable image digest')
+        raise PublicationFailure('Application archive has no immutable image digest')
     scan = json.loads(Path(__file__).resolve().parents[4].joinpath('platform/delivery/ci/scan.lock.json').read_text())
     report = directory / 'scan.json'
     scan_environment = {key: environment[key] for key in ('PATH', 'HOME') if key in environment}
@@ -116,7 +121,7 @@ def build_and_scan(source, directory, environment):
             not document.get('Results') or any(row.get('Vulnerabilities') or row.get('Secrets')
                                                for row in document['Results']) or
             execute(['crane', 'digest', '--tarball', str(archive)], environment).decode().strip() != digest):
-        raise ValueError('Application requires an unchanged archive and complete clean scan')
+        raise PublicationFailure('Application requires an unchanged archive and complete clean scan')
     return archive, digest
 
 
@@ -124,7 +129,11 @@ def sign(reference, document, directory, environment, source, identity):
     if document['visibility'] == 'public':
         signing = dict(environment, **{key: identity[key] for key in
             ('ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL')})
-        execute(['cosign', 'sign', '--yes', reference], signing, timeout=300)
+        # The pinned Kyverno bundle verifier omits source certificate extensions.
+        # Keep the supported compatibility format until that verifier checks them.
+        execute(['cosign', 'sign', '--yes', '--new-bundle-format=false',
+                 '--sign-container-identity=https://github.com/' + document['source_repository'],
+                 reference], signing, timeout=300)
         execute(['cosign', 'verify', '--certificate-identity', document['workflow_identity'],
                  '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com',
                  '--certificate-github-workflow-repository', document['source_repository'],
@@ -133,11 +142,12 @@ def sign(reference, document, directory, environment, source, identity):
     else:
         private, public = SECRETS / 'signer/private_key', SECRETS / 'signer/public_key'
         if execute(['openssl', 'pkey', '-in', str(private), '-pubout'], environment) != public.read_bytes():
-            raise ValueError('Private signer differs from its retained public verifier')
+            raise PublicationFailure('Private signer differs from its retained public verifier')
         prefix = directory / 'signing'
         signing = dict(environment, COSIGN_PASSWORD=secrets.token_urlsafe(48))
         execute(['cosign', 'import-key-pair', '--key', str(private), '--output-key-prefix', str(prefix)], signing)
-        execute(['cosign', 'sign', '--yes', '--use-signing-config=false', '--tlog-upload=false',
+        execute(['cosign', 'sign', '--yes', '--new-bundle-format=false',
+                 '--use-signing-config=false', '--tlog-upload=false',
                  '--key', str(prefix.with_suffix('.key')), reference], signing, timeout=300)
         execute(['cosign', 'verify', '--insecure-ignore-tlog=true', '--key', str(public), reference],
                 environment, timeout=300)
@@ -147,7 +157,7 @@ def sign(reference, document, directory, environment, source, identity):
 def release_token(document, environment):
     app_id, installation_id = credential('github/app_id'), credential('github/installation_id')
     if not all(re.fullmatch(r'[1-9][0-9]{0,19}', value) for value in (app_id, installation_id)):
-        raise ValueError('Release App identifiers must be numeric')
+        raise PublicationFailure('Release App identifiers must be numeric')
     def encoded(value):
         return base64.urlsafe_b64encode(json.dumps(value, separators=(',', ':')).encode()).rstrip(b'=')
     now = int(time.time())
@@ -164,7 +174,7 @@ def release_token(document, environment):
         if (target['id'] != document['release_repository_id'] or target['fork'] or target['archived'] or
                 target['private'] is not (document['visibility'] == 'private') or
                 target['full_name'] != document['release_repository'] or target['default_branch'] != 'main'):
-            raise ValueError('Release token is not bound to the approved GitOps repository')
+            raise PublicationFailure('Release token is not bound to the approved GitOps repository')
         yield token
     finally:
         release.api('DELETE', 'installation/token', token=token)
@@ -177,6 +187,7 @@ def publish(document, source, environment):
         directory = Path(temporary)
         pull = registry_environment(directory, document['registry'], document['project'], 'pull', native_environment)
         archive, digest = build_and_scan(source, directory, pull)
+        print('Application scan passed', flush=True)
         # App Dockerfiles receive only pull authentication through BuildKit's session.
         push = registry_environment(directory, document['registry'], document['project'], 'push', native_environment)
         repository = document['registry'] + '/' + document['project'] + '/' + document['application']
@@ -187,13 +198,15 @@ def publish(document, source, environment):
             rb':\s*NOT_FOUND\b')
         existing = execute(['crane', 'digest', tag], push, missing=absent)
         if existing is not None and existing.decode().strip() != digest:
-            raise ValueError('Existing release tag differs; original artifact preserved')
+            raise PublicationFailure('Existing release tag differs; original artifact preserved')
         if existing is None:
             execute(['crane', 'push', str(archive), tag], push)
         reference = repository + '@' + digest
         if execute(['crane', 'digest', reference], pull).decode().strip() != digest:
-            raise ValueError('Published digest is not obtainable through the project pull robot')
+            raise PublicationFailure('Published digest is not obtainable through the project pull robot')
+        print('Application digest published', flush=True)
         sign(reference, document, directory, push, environment['GITHUB_SHA'], environment)
+        print('Application signature verified', flush=True)
         with release_token(document, native_environment) as token:
             original = dict(os.environ)
             os.environ.clear()
@@ -219,7 +232,8 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except NativeFailure as error:
+    except (NativeFailure, PublicationFailure) as error:
         raise SystemExit(str(error)) from None
-    except Exception:
-        raise SystemExit('Application publication incomplete; existing artifacts and releases preserved') from None
+    except Exception as error:
+        raise SystemExit('Application publication incomplete (' + type(error).__name__ +
+                         '); existing artifacts and releases preserved') from None
