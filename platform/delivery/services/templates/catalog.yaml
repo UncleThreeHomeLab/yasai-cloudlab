@@ -13,7 +13,7 @@
 {{- $organization := index (splitList "/" (trimPrefix "https://github.com/" $.Values.repository)) 0 }}
 {{- if not (hasPrefix (printf "%s/" $organization) $artifact.sourceRepository) }}{{ fail "Artifact producer must belong to the designated organization" }}{{- end }}
 {{- range $artifact.identities }}
-{{- if not (hasPrefix (printf "%s/.github/workflows/application-publish.yaml@" (trimSuffix ".git" $.Values.repository)) .) }}{{ fail "Artifact signing identity must use the approved shared publishing workflow" }}{{- end }}
+{{- if not (or (hasPrefix (printf "%s/.github/workflows/application-publish.yaml@" (trimSuffix ".git" $.Values.repository)) .) (eq . (printf "https://github.com/%s/.github/workflows/ci.yaml@refs/heads/main" $artifact.sourceRepository))) }}{{ fail "Artifact signing identity must use the approved publishing workflow" }}{{- end }}
 {{- end }}
 {{- end }}
 {{- if and (eq ($a.chartPath | default "charts/service") "apps/notes") (ne $a.repository $.Values.repository) }}{{ fail "Notes composition requires the administrator-owned application source" }}{{- end }}

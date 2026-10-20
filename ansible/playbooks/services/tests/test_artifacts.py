@@ -14,6 +14,18 @@ from playbooks.services.tests.fixtures import approval, definition
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_repository_owned_signing_identity_is_exactly_bound_to_source_main(self):
+        from playbooks.services.files.contract import artifact_approval
+        value, allowed = self.inputs()
+        identity = 'https://github.com/' + allowed['artifact']['sourceRepository'] + '/.github/workflows/ci.yaml@refs/heads/main'
+        allowed['artifact']['identities'].append(identity)
+        artifact_approval(allowed)
+        self.render(value, allowed)
+        for changed in (identity.replace('/ci.yaml@', '/other.yaml@'),
+                        identity.replace('/main', '/untrusted'), identity.replace('example/producer', 'foreign/app')):
+            allowed['artifact']['identities'] = [changed]
+            with self.subTest(identity=changed), self.assertRaises(ValueError): artifact_approval(allowed)
+
     def test_registry_cache_delivery_is_deduplicated_and_rejects_conflicting_project_hosts(self):
         value, allowed = self.inputs()
         other = copy.deepcopy(allowed)

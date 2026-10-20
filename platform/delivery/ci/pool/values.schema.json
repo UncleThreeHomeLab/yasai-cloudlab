@@ -18,7 +18,7 @@
         "project": {"enum": ["cloudlab-public", "cloudlab-private"]},
         "release_repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"},
         "release_repository_id": {"type": "integer", "minimum": 1},
-        "workflow_identity": {"type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/application-publish[.]yaml@[a-f0-9]{40}$"}
+        "workflow_identity": {"type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/(application-publish[.]yaml@[a-f0-9]{40}|ci[.]yaml@refs/heads/main)$"}
       }
     },
     "manageSharedResources": {"type": "boolean"},
@@ -33,7 +33,7 @@
           "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
           "workflow_path": {"const": ".github/workflows/ci.yaml"},
           "workflow_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-          "job_workflow_ref": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/application-(test|publish)[.]yaml@[a-f0-9]{40}$"},
+          "job_workflow_ref": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/(application-(test|publish)[.]yaml@[a-f0-9]{40}|ci[.]yaml@refs/heads/main)$"},
           "job": {"enum": ["test", "publish"]},
           "visibility": {"enum": ["public", "private"]}
         }

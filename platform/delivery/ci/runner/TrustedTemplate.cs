@@ -38,17 +38,20 @@ namespace GitHub.Runner.Worker
                         Fields.Any(k => row.GetProperty(k).ValueKind != JsonValueKind.String))
                         return false;
                     string Value(string key) => row.GetProperty(key).GetString();
+                    bool owned = Value("job_workflow_ref") == Value("repository") + "/" +
+                        Value("workflow_path") + "@refs/heads/main";
                     if (!Regex.IsMatch(Value("workflow_path"), @"\A\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml\z") ||
                         !Regex.IsMatch(Value("workflow_sha256"), @"\A[a-f0-9]{64}\z") ||
                         Value("job") is not ("test" or "publish") ||
-                        !Regex.IsMatch(Value("job_workflow_ref"), @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/application-(test|publish)\.yaml@[a-f0-9]{40}\z") ||
-                        !Value("job_workflow_ref").Contains("/application-" + Value("job") + ".yaml@", StringComparison.Ordinal) ||
+                        (!owned && (!Regex.IsMatch(Value("job_workflow_ref"), @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/application-(test|publish)\.yaml@[a-f0-9]{40}\z") ||
+                        !Value("job_workflow_ref").Contains("/application-" + Value("job") + ".yaml@", StringComparison.Ordinal))) ||
                         Value("visibility") is not ("public" or "private") ||
                         !unique.Add(string.Join("\0", Fields.Select(Value))))
                         return false;
                     if (Value("repository_id") == actual["repository_id"] && Value("repository") == actual["repository"] &&
-                        Value("job_workflow_ref") == actualWorkflow &&
-                        (actual["job"] == "__default" || Value("job") == actual["job"]) && actual["workflow_ref"] ==
+                        (owned ? actualWorkflow == Value("repository") + "/" + Value("workflow_path") + "@" + actual["workflow_sha"]
+                               : Value("job_workflow_ref") == actualWorkflow) &&
+                        ((!owned && actual["job"] == "__default") || Value("job") == actual["job"]) && actual["workflow_ref"] ==
                         Value("repository") + "/" + Value("workflow_path") + "@" + actual["ref"])
                     {
                         if (match.HasValue) return false;

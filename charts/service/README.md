@@ -31,6 +31,10 @@ ApplicationSet follows that file on GitOps `main`, publishes digest/source/run
 annotations and supplies only the project's pull credential. Public signatures
 require the exact GitHub issuer, shared workflow, source repository and main ref;
 private verification receives only `ci-private-verifier/public_key`.
+Repository-owned public publication instead uses the exact source identity
+`https://github.com/<sourceRepository>/.github/workflows/ci.yaml@refs/heads/main`;
+the source repository, main ref and issuer checks still apply. Retain old identities
+while their signed rollback digests remain deployed or recoverable.
 Registry verification uses a pull-only credential copy in Kyverno's namespace;
 Kyverno receives no application Secret collection permissions.
 The exact declared bootstrap image remains an explicit unsigned recovery exception.

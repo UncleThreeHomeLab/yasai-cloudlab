@@ -102,6 +102,12 @@ Generate controller inputs with `--application-file` (JSON fields `name`,
 `repository`, `visibility`) and an explicit `--output` directory. Review inputs in
 the private GitOps catalog at `platform/ci/pools/<name>/controller.json`; add
 `runner.json` only after workflow eligibility is approved. For routine app revisions,
+use `--approve-repository-workflow --workflow-revision <reviewed-app-sha>` for
+public repository-owned `test`/`publish` jobs. Their exact workflow bytes, assigned
+runner names, protected main and current internal PR author permissions are checked
+before any step. Scripts and build/test/publication logic stay in the application
+repository. Changed workflow bytes require renewed approval.
+For the retained shared-workflow interface,
 add `--approve-workflow-template` with the reviewed `--workflow-revision` (and
 `--pull-request` for initial internal PR setup). This pins caller bytes and each
 single-job shared workflow to reviewed platform history;

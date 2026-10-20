@@ -40,8 +40,10 @@ def publication_configuration(document):
             type(document['release_repository_id']) is not int or document['release_repository_id'] <= 0 or
             not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,252}', document['registry']) or
             document['project'] != 'cloudlab-' + document['visibility'] or
-            not re.fullmatch(r'https://github[.]com/' + REPOSITORY +
-                r'/\.github/workflows/application-publish\.yaml@' + SHA, document['workflow_identity'])):
+            not (re.fullmatch(r'https://github[.]com/' + REPOSITORY +
+                r'/\.github/workflows/application-publish\.yaml@' + SHA, document['workflow_identity']) or
+                document['workflow_identity'] == 'https://github.com/' + document['source_repository'] +
+                    '/.github/workflows/ci.yaml@refs/heads/main')):
         raise PublicationFailure('Publication requires matching application, project, workflow and GitOps boundaries')
     return document
 
