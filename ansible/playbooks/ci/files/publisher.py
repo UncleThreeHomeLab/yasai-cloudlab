@@ -232,7 +232,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (NativeFailure, PublicationFailure) as error:
+    except (NativeFailure, PublicationFailure, release.ReleaseFailure) as error:
         raise SystemExit(str(error)) from None
     except Exception as error:
         raise SystemExit('Application publication incomplete (' + type(error).__name__ +

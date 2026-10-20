@@ -11,10 +11,15 @@ import urllib.parse
 import urllib.request
 
 
+class ReleaseFailure(RuntimeError):
+    """Fixed failure categories; never include private command or HTTP output."""
+
+
 def native(*arguments, cwd=None):
     result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=120)
     if result.returncode:
-        raise RuntimeError('Native release proposal failed; existing branches and PRs retained')
+        raise ReleaseFailure('Native release Git operation failed (exit ' + str(result.returncode) +
+                             '); existing branches and PRs retained')
     return result.stdout.strip()
 
 
@@ -40,8 +45,11 @@ def api(method, path, document=None, *, token=None):
         if len(raw) > 1024 * 1024:
             raise ValueError('Release response exceeds its bound')
         return json.loads(raw)
+    except urllib.error.HTTPError as error:
+        raise ReleaseFailure('Release API ' + method + ' failed (HTTP ' + str(error.code) +
+                             '); existing branches and PRs retained') from None
     except (urllib.error.URLError, TimeoutError, ValueError):
-        raise RuntimeError('Release API unavailable; existing branches and PRs retained') from None
+        raise ReleaseFailure('Release API unavailable; existing branches and PRs retained') from None
 
 
 def propose(repository, path, desired):

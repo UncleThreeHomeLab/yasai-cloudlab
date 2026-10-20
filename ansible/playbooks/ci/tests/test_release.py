@@ -13,6 +13,23 @@ from playbooks.ci.tests.fixtures import release_document
 
 
 class ReleaseRequestTests(unittest.TestCase):
+    def test_failures_expose_only_status_or_exit_code_without_private_output(self):
+        from unittest.mock import Mock
+        opener = Mock()
+        opener.open.side_effect = release.urllib.error.HTTPError(
+            'https://private.example.invalid', 403, 'synthetic-secret', {}, io.BytesIO(b'synthetic-secret'))
+        with patch.object(release.urllib.request, 'build_opener', return_value=opener):
+            with self.assertRaises(release.ReleaseFailure) as failure:
+                release.api('POST', 'repos/example/gitops/pulls', token='synthetic-token')
+        self.assertEqual(str(failure.exception),
+            'Release API POST failed (HTTP 403); existing branches and PRs retained')
+        with patch.object(release.subprocess, 'run', return_value=Mock(returncode=128,
+                stdout='synthetic-secret', stderr='https://private.example.invalid')):
+            with self.assertRaises(release.ReleaseFailure) as failure:
+                release.native('git', 'clone', 'https://private.example.invalid')
+        self.assertEqual(str(failure.exception),
+            'Native release Git operation failed (exit 128); existing branches and PRs retained')
+
     def test_api_authentication_is_in_headers_and_redirects_are_disabled(self):
         class Response(io.BytesIO):
             status = 200
