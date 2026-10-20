@@ -9,6 +9,7 @@ import secrets
 import shlex
 import sys
 import tempfile
+import traceback
 
 
 def isolated_policy(policy, pod_name, nonce):
@@ -58,7 +59,6 @@ def remote(request):
     sys.path.insert(0, '/opt/cloudlab')
     from playbooks.istio.files.kube import condition, get, kube, wait
     from playbooks.services.files.remote import inspect
-    from playbooks.admission.files.verify import probe
     entry, action = request['entry'], request['action']
     approval = entry['approval']
     namespace = approval['namespace']
@@ -75,6 +75,10 @@ def remote(request):
             ('digest', 'artifact-digest'), ('source_revision', 'source-revision'), ('workflow_run_id', 'workflow-run'))}
     if action != 'admission':
         raise ValueError('Unsupported application release proof')
+    pod = copy.deepcopy(request['pod'])
+    if (pod.get('apiVersion') != 'v1' or pod.get('kind') != 'Pod' or
+            pod.get('metadata', {}).get('namespace') != namespace):
+        raise ValueError('Admission proof requires its approved Pod namespace')
     nonce = secrets.token_hex(6)
     pod_name, name = 'artifact-proof-' + nonce, 'artifact-release-proof'
     fixture = isolated_policy(policy, pod_name, nonce)
@@ -94,7 +98,6 @@ def remote(request):
     try:
         wait(lambda: (get('policy.kyverno.io', name, namespace) or {}).get('status', {}).get('ready') is True or
              condition(get('policy.kyverno.io', name, namespace), 'Ready'), 'isolated signature policy', timeout=90)
-        pod = probe(namespace)
         pod['metadata'].update(name=pod_name, labels={'cloudlab.io/release-proof': nonce})
         pod['spec']['imagePullSecrets'] = [{'name': 'harbor-application-pull'}]
         for label, image, rule in request['images']:
@@ -170,6 +173,7 @@ def fixtures(registry, reference, directory):
 
 
 def prove(client, entry):
+    from playbooks.admission.files.verify import probe
     from playbooks.harbor.files.registry import Registry
     from playbooks.harbor.files.node_pull import verify_nodes
     artifact = entry['approval']['artifact']
@@ -198,7 +202,8 @@ def prove(client, entry):
             for image in (unsigned, untrusted):
                 if registry.command('digest', image).decode().strip() != image.split('@')[1]:
                     raise RuntimeError('Signature rejection requires an existing readable proof artifact')
-        admitted = on_node(client, {'action': 'admission', 'entry': entry, 'images': [
+        admitted = on_node(client, {'action': 'admission', 'entry': entry,
+            'pod': probe(entry['approval']['namespace']), 'images': [
             ['signed', reference, None], ['unsigned', unsigned, 'trusted-signature'],
             ['untrusted', untrusted, 'trusted-signature'], ['other-project', forbidden, 'approved-repositories']]})
     pulls = verify_nodes(client, {'projects': {project: {'repository': name, 'digest': release['digest']}}})
@@ -234,5 +239,8 @@ if __name__ == '__main__':
         else:
             raise ValueError('Unsupported application proof arguments')
     except Exception as error:
+        print(json.dumps({'exception': type(error).__name__, 'frames': [
+            {'file': Path(frame.filename).name, 'line': frame.lineno}
+            for frame in traceback.extract_tb(error.__traceback__)]}), file=sys.stderr)
         raise SystemExit('Application release proof incomplete (' + type(error).__name__ +
                          '); production policy, credentials and data preserved') from None
