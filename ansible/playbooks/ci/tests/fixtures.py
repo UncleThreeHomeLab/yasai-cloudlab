@@ -41,15 +41,8 @@ def fixture_repository():
             'default_branch': 'main', 'description': 'Managed by CloudLab repository setup: private-fixture'}
 
 
-def release_request():
-    environment = {'RELEASE_SCOPE': 'private', 'RELEASE_ACTOR': 'release-private[bot]',
-                   'GITHUB_REPOSITORY': 'example/gitops', 'RUNNER_ENVIRONMENT': 'self-hosted',
-                   'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
-                   'GITHUB_ACTOR': 'release-private[bot]'}
-    event = {'sender': {'login': environment['RELEASE_ACTOR'], 'type': 'Bot'},
-             'repository': {'full_name': environment['GITHUB_REPOSITORY'], 'private': True, 'fork': False},
-             'inputs': {'digest': 'sha256:' + 'a' * 64, 'source_revision': 'b' * 40, 'workflow_run_id': '123'}}
-    return event, environment
+def release_document():
+    return {'digest': 'sha256:' + 'a' * 64, 'source_revision': 'b' * 40, 'workflow_run_id': '123'}
 
 
 def workflow_permissions():
