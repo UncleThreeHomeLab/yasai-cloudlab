@@ -1,0 +1,5 @@
+{
+  "source": "https://tuf-repo-cdn.sigstore.dev/targets/trusted_root.json",
+  "trusted_root_sha256": "6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66",
+  "sha256": "563a7862028467d8c2190a95411d38a39cd5b97a735a2a2dc73419ab2c787d00"
+}

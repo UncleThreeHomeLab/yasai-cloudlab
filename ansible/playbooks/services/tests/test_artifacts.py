@@ -1,5 +1,6 @@
 """Release generation and registry credentials stay inside administrator boundaries."""
 import copy
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -131,6 +132,15 @@ class ArtifactTests(unittest.TestCase):
         keyless = signature['attestors'][0]['entries'][0]['keyless']
         self.assertEqual(keyless['subject'], allowed['artifact']['identities'][0])
         self.assertEqual(keyless['issuer'], 'https://token.actions.githubusercontent.com')
+        base = ROOT / 'platform/delivery/services'
+        trust = (base / 'sigstore-fulcio.crt').read_bytes().replace(b'\r\n', b'\n')
+        lock = json.loads((base / 'sigstore-fulcio.lock.json').read_text())
+        self.assertEqual(hashlib.sha256(trust).hexdigest(), lock['sha256'])
+        self.assertEqual(keyless['roots'].strip(), trust.decode().strip())
+        self.assertEqual(keyless['roots'].count('BEGIN CERTIFICATE'), 3)
+        self.assertNotIn('PRIVATE KEY', keyless['roots'])
+        self.assertNotIn('ignoreTlog', keyless['rekor'])
+        self.assertNotIn('ignoreSCT', keyless)
         self.assertEqual(keyless['additionalExtensions'], {
             'githubWorkflowRepository': 'example/producer', 'githubWorkflowRef': 'refs/heads/main'})
 

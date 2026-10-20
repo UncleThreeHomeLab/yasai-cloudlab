@@ -135,6 +135,9 @@ spec:
                 {{- else }}
                 {{- range .identities }}
                 - keyless:
+                    # ponytail: pinned Kyverno omits legacy TUF intermediates; remove when its verifier loads them.
+                    roots: |
+{{ $.Files.Get "sigstore-fulcio.crt" | indent 22 }}
                     issuer: https://token.actions.githubusercontent.com
                     subject: {{ . | quote }}
                     additionalExtensions:

@@ -99,3 +99,5 @@ credentials persist; each stage observes its owner again. Native OpenTofu state 
 the versioned catalog remain authoritative. A successful tool apply is not a
 distributed transaction; failed native state upload requires the existing protected
 state-recovery procedure before publication resumes.
+
+The pinned Kyverno legacy verifier omits Fulcio intermediate certificates. Public artifact policies therefore pin the public Fulcio roots and intermediate from Cosign-verified Sigstore TUF material; `platform/delivery/services/sigstore-fulcio.lock.json` records its source and checksums. Update these anchors with verification before upstream certificate rotation. Exact GitHub issuer, workflow identity, repository, main ref, SCT and Rekor verification remain required.
