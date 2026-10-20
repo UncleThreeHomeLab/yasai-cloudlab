@@ -39,16 +39,18 @@ def table_keys(raw, columns, limit):
 
 def token(payload):
     host, project = payload['host'], payload['project']
+    repository = payload.get('repository', 'bootstrap')
     parsed = urlsplit('https://' + host)
     if (parsed.hostname != host or parsed.netloc != host or parsed.path or parsed.query or parsed.fragment or
             not re.fullmatch(r'[a-z0-9][a-z0-9.-]*', host) or
-            not re.fullmatch(r'cloudlab-[a-z]+', project) or
+            project not in ('cloudlab-public', 'cloudlab-private') or
+            not isinstance(repository, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', repository) or
             payload['username'] != 'robot$' + project + '+pull' or len(payload['password']) < 32 or
             not re.fullmatch(r'sha256:[a-f0-9]{64}', payload['digest'])):
         raise ValueError('Node proof requires a canonical registry, pull identity and exact digest')
     connection = http.client.HTTPSConnection(host, timeout=20)
     try:
-        scope = 'repository:' + project + '/bootstrap:pull'
+        scope = 'repository:' + project + '/' + repository + ':pull'
         authorization = base64.b64encode((payload['username'] + ':' + payload['password']).encode()).decode()
         connection.request('GET', '/service/token?' + urlencode({'service': 'harbor-registry', 'scope': scope}),
                            headers={'Authorization': 'Basic ' + authorization})
@@ -63,7 +65,7 @@ def token(payload):
             raise RuntimeError('Node registry returned an invalid token')
         encoded = value.split('.')[1]
         claims = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
-        if (claims.get('access') != [{'type': 'repository', 'name': project + '/bootstrap', 'actions': ['pull']}] or
+        if (claims.get('access') != [{'type': 'repository', 'name': project + '/' + repository, 'actions': ['pull']}] or
                 claims.get('aud') not in ('harbor-registry', ['harbor-registry']) or
                 not 240 <= claims.get('exp', 0) - time.time() <= 305):
             raise RuntimeError('Node token exceeds its exact pull scope or five-minute lifetime')
@@ -75,7 +77,7 @@ def token(payload):
 def run(payload):
     bearer = token(payload)
     host = payload['host']
-    reference = host + '/' + payload['project'] + '/bootstrap@' + payload['digest']
+    reference = host + '/' + payload['project'] + '/' + payload.get('repository', 'bootstrap') + '@' + payload['digest']
     namespace = 'cloudlab-harbor-proof-' + secrets.token_hex(8)
     command = ['/usr/local/bin/k3s', 'ctr', '--namespace', namespace]
     deadline = None
@@ -148,6 +150,8 @@ def verify_nodes(client, record):
             credential = client.private['robots'][project + '-pull']
             payload = {'username': credential['username'], 'password': credential['password'],
                        'host': client.private['host'], 'project': project, 'digest': entry['digest']}
+            if 'repository' in entry:
+                payload['repository'] = entry['repository']
             result = json.loads(ssh(prefix, client.values[prefix + '_HOST'], 'python3 -c ' + shlex.quote(source),
                                     input=json.dumps(payload), timeout=420,
                                     diagnostics=client.path / 'artifacts/node-diagnostics.txt'))
