@@ -1,6 +1,7 @@
 """Non-secret GitOps inputs derived from the qualified tools and designated repository."""
 import argparse
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -68,11 +69,14 @@ def workflow_bytes(document, path):
     return content
 
 
-def application_templates(api, current, revision, pull_request=None, *, platform_repository=None):
+def application_templates(api, current, revision, pull_request=None, *, platform_repository=None,
+                          approved_private_revision=False, application_name=None):
     """Bind approved caller bytes and each immutable, single-job local reusable workflow."""
+    if approved_private_revision and (current.get('private') is not True or pull_request is not None):
+        raise ValueError('Explicit private approval supports only its reviewed main revision')
     application_workflows(api, current, revision, pull_request)
     prefix = 'repos/' + current['full_name']
-    if api.request('GET', prefix + '/branches/main').get('protected') is not True:
+    if api.request('GET', prefix + '/branches/main').get('protected') is not True and not approved_private_revision:
         raise ValueError('Workflow templates require protected main')
     content = workflow_bytes(api.request('GET', prefix + '/contents/.github/workflows/ci.yaml?ref=' + revision),
                              '.github/workflows/ci.yaml')
@@ -84,6 +88,10 @@ def application_templates(api, current, revision, pull_request=None, *, platform
                           yaml.safe_load((harbor_api.ROOT / 'gitops/roots/public/values.yaml').read_text())['repository'])
     rows = []
     for role, job in jobs.items():
+        if application_name is not None and (not isinstance(job, dict) or
+                set(job) - {'name', 'uses', 'with', 'if', 'needs', 'permissions'} or
+                job.get('with') != {'application': application_name}):
+            raise ValueError('Application callers must use their one registered application without inherited secrets')
         path = '.github/workflows/application-' + role + '.yaml'
         reference = job.get('uses') if isinstance(job, dict) else None
         if (not isinstance(reference, str) or not reference.startswith(platform + '/' + path + '@') or
@@ -107,7 +115,8 @@ def application_templates(api, current, revision, pull_request=None, *, platform
     return rows
 
 
-def application_configuration(qualified, application, current, workflows=(), templates=()):
+def application_configuration(qualified, application, current, workflows=(), templates=(), publishing=None,
+                              exact_reusable=False):
     references = qualified_images(qualified)
     if (set(application) != {'name', 'repository', 'visibility'} or
             not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application.get('name', '')) or
@@ -131,6 +140,12 @@ def application_configuration(qualified, application, current, workflows=(), tem
             'image': {'repository': image_repository, 'tag': '0.15.0@' + image_digest}}}}}
     if workflows and templates:
         raise ValueError('Choose exact revisions or reviewed workflow templates')
+    if exact_reusable and (scope != 'private' or not workflows or templates or any(
+            row['ref'] != 'refs/heads/main' or row['sha'] != row['workflow_sha'] or
+            row['job'] not in ('test', 'publish') for row in workflows)):
+        raise ValueError('Exact reusable jobs require explicitly reviewed private main revisions')
+    if publishing is not None and not (workflows or templates):
+        raise ValueError('Publishing requires separately approved test and publish jobs')
     if workflows or templates:
         values = json.loads((POOL / 'values.json').read_text())
         values['arc'].update(githubConfigUrl=current['html_url'],
@@ -140,12 +155,53 @@ def application_configuration(qualified, application, current, workflows=(), tem
         pod = values['arc']['template']['spec']
         pod['containers'][0]['image'] = references['runner']
         pod['initContainers'][0]['image'] = references['builder']
-        values['eligibility'] = list(workflows)
+        values['eligibility'] = copy.deepcopy(list(workflows))
         if templates:
             values['workflowTemplates'] = list(templates)
         if any(row.get('repository') != full_name or row.get('repository_id') != str(current['id']) for row in (*workflows, *templates)):
             raise ValueError('Application eligibility must retain its immutable repository identity')
         documents['runner.json'] = {'name': name, 'namespace': namespace, 'values': values}
+        if publishing is not None:
+            from playbooks.ci.files.publisher import publication_configuration
+            publication_configuration(publishing)
+            if (publishing['application'] != name or publishing['source_repository'] != full_name or
+                    publishing['source_repository_id'] != str(current['id']) or publishing['visibility'] != scope):
+                raise ValueError('Publishing inputs must match the registered application repository')
+            publisher = copy.deepcopy(values)
+            for key in ('eligibility', 'workflowTemplates'):
+                if key in values:
+                    values[key] = [row for row in values[key] if row['job'] == 'test']
+                    publisher[key] = [row for row in publisher[key] if row['job'] == 'publish']
+            if not (values['eligibility'] or values.get('workflowTemplates')) or not (
+                    publisher['eligibility'] or publisher.get('workflowTemplates')):
+                raise ValueError('Publishing requires separately approved test and publish jobs')
+            publisher.update(manageSharedResources=False, policyName='cloudlab-ci-eligibility-publish',
+                             publishing=publishing)
+            publisher['arc']['runnerScaleSetName'] = 'cloudlab-' + name + '-publish'
+            spec = publisher['arc']['template']['spec']
+            next(row for row in spec['volumes'] if row['name'] == 'eligibility')['configMap']['name'] = publisher['policyName']
+            mounts = [('config', {'configMap': {'name': 'cloudlab-publishing', 'defaultMode': 288}}),
+                      ('pull', {'secret': {'secretName': 'cloudlab-publish-pull', 'defaultMode': 288}}),
+                      ('push', {'secret': {'secretName': 'cloudlab-publish-push', 'defaultMode': 288}}),
+                      ('github', {'secret': {'secretName': 'cloudlab-release', 'defaultMode': 288}})]
+            if scope == 'private':
+                mounts.append(('signer', {'secret': {'secretName': 'cloudlab-ci-signing', 'defaultMode': 288}}))
+            for key, volume in mounts:
+                volume_name = 'publish-' + key
+                spec['volumes'].append(dict(volume, name=volume_name))
+                spec['containers'][0]['volumeMounts'].append({'name': volume_name,
+                    'mountPath': '/run/cloudlab-publisher/' + key, 'readOnly': True})
+            documents['controller.json']['values']['runnerPools'] = 2
+            documents['publisher.json'] = {'name': name, 'namespace': namespace, 'values': publisher}
+        if exact_reusable:
+            if publishing is None:
+                values['eligibility'] = [row for row in values['eligibility'] if row['job'] == 'test']
+                if not values['eligibility']:
+                    raise ValueError('Explicit private approval requires its test job')
+            for document in (documents[key] for key in ('runner.json', 'publisher.json') if key in documents):
+                for row in document['values']['eligibility']:
+                    # The exact caller SHA already pins both role labels and immutable single-job callees.
+                    row['job'] = '__default'
     return documents
 
 
@@ -171,18 +227,60 @@ def configuration(qualified, fixture, workflow_revision=None):
                 key: qualified[key] for key in ('revision', 'image_revision', 'profile_sha256', 'nodes_verified')}}
 
 
+def publication(api, values, application, current, qualified, templates):
+    """Bind the publisher to the accepted GitOps target and existing release App grants."""
+    from playbooks.argocd.files.github_setup import configuration as designated_repositories
+    from playbooks.harbor.files.scopes import APPS, verify_app
+    from playbooks.secrets.files.vault import fields
+    scope = application['visibility']
+    role = 'public-platform' if scope == 'public' else 'private-config'
+    designated = {key: (name, private) for key, name, private in designated_repositories(values)}
+    target, private = designated[role]
+    row, = [row for row in templates if row['job'] == 'publish']
+    metadata = api.request('GET', 'repos/' + target)
+    if (metadata.get('full_name') != target or metadata.get('private') is not private or
+            metadata.get('fork') or metadata.get('archived') or metadata.get('disabled') or
+            metadata.get('default_branch') != 'main' or type(metadata.get('id')) is not int):
+        raise ValueError('Publishing requires the accepted owning GitOps repository')
+    title = 'github-release-' + scope
+    roles, permissions = APPS[title]
+    original = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
+    os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
+    try:
+        verify_app(fields(title, ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')),
+                   dict(designated[key] for key in roles), permissions)
+    finally:
+        if original is None:
+            os.environ.pop('OP_SERVICE_ACCOUNT_TOKEN', None)
+        else:
+            os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = original
+    return {'application': application['name'], 'source_repository': current['full_name'],
+            'source_repository_id': str(current['id']), 'visibility': scope,
+            'registry': qualified_images(qualified)['runner'].split('/')[0],
+            'project': 'cloudlab-' + scope, 'release_repository': target,
+            'release_repository_id': metadata['id'], 'workflow_identity': 'https://github.com/' + row['job_workflow_ref']}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workflow-revision')
     parser.add_argument('--application-file', type=Path)
     parser.add_argument('--pull-request', type=int)
-    parser.add_argument('--approve-workflow-template', action='store_true')
+    approval = parser.add_mutually_exclusive_group()
+    approval.add_argument('--approve-workflow-template', action='store_true')
+    approval.add_argument('--approve-private-revision', action='store_true')
+    parser.add_argument('--publish', action='store_true')
     parser.add_argument('--output', type=Path, default=harbor_api.WORK / 'ci/configuration.json')
     arguments = parser.parse_args()
     if arguments.pull_request is not None and not (arguments.application_file and arguments.workflow_revision):
         parser.error('--pull-request requires --application-file and --workflow-revision')
     if arguments.approve_workflow_template and not (arguments.application_file and arguments.workflow_revision):
         parser.error('--approve-workflow-template requires --application-file and --workflow-revision')
+    if arguments.approve_private_revision and not (arguments.application_file and arguments.workflow_revision):
+        parser.error('--approve-private-revision requires --application-file and --workflow-revision')
+    if arguments.publish and not (arguments.application_file and
+                                  (arguments.approve_workflow_template or arguments.approve_private_revision)):
+        parser.error('--publish requires an application and its approved shared workflow template')
     os.umask(0o077)
     revision = harbor_api.binding()
     values, api = inputs()
@@ -208,15 +306,24 @@ def main():
         raise ValueError('CI tools and qualification must originate from reviewed ancestors')
     if application:
         templates, workflows = [], []
-        if arguments.approve_workflow_template:
+        reviewed_templates = []
+        if arguments.approve_workflow_template or arguments.approve_private_revision:
             templates = application_templates(api, fixture, arguments.workflow_revision, arguments.pull_request,
-                                                platform_repository=source['repository'])
+                                                platform_repository=source['repository'],
+                                                approved_private_revision=arguments.approve_private_revision,
+                                                application_name=application['name'])
             if any(not harbor_api.reviewed_ancestor(source['repository'], row['job_workflow_ref'].rsplit('@', 1)[-1],
                                                     revision, environment) for row in templates):
                 raise ValueError('Shared workflows must originate from reviewed platform history')
+            reviewed_templates = templates
+            if arguments.approve_private_revision:
+                workflows = application_workflows(api, fixture, arguments.workflow_revision)
+                templates = []
         elif arguments.workflow_revision:
             workflows = application_workflows(api, fixture, arguments.workflow_revision, arguments.pull_request)
-        documents = application_configuration(qualified, application, fixture, workflows, templates)
+        publishing = publication(api, values, application, fixture, qualified, reviewed_templates) if arguments.publish else None
+        documents = application_configuration(qualified, application, fixture, workflows, templates, publishing,
+                                                exact_reusable=arguments.approve_private_revision)
         if arguments.output.is_symlink():
             raise ValueError('Application output cannot redirect its protected directory')
         arguments.output.mkdir(mode=0o700, parents=True, exist_ok=True)

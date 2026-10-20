@@ -19,8 +19,8 @@
   },
   "permissions": {
     "github-arc": "Selected trusted private test repository only; Administration write and Metadata read. No organization runner registration.",
-    "github-release-public": "Separate public dispatch App; selected public platform and fixture targets only; Actions write, Metadata read; no Contents or Pull requests write.",
-    "github-release-private": "Separate private dispatch App; selected private configuration and fixture targets only; Actions write, Metadata read; no Contents or Pull requests write.",
+    "github-release-public": "Public release App; selected public platform and fixture targets only; Contents and Pull requests write, Metadata read. Mint each job token for its one owning GitOps repository; propose release PRs without merging.",
+    "github-release-private": "Private release App; selected private configuration and fixture targets only; Contents and Pull requests write, Metadata read. Mint each job token for its one owning GitOps repository; never deliver this key to public runners.",
     "gitlab-state-harbor": "Independent private HTTP state backend; state and lock access; no lab dependency."
   },
   "owners": {

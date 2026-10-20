@@ -13,9 +13,9 @@ run "scoped_release_permissions" {
   assert {
     condition = length(github_workflow_repository_permissions.release) == 2 && alltrue([
       for permissions in github_workflow_repository_permissions.release :
-      permissions.default_workflow_permissions == "read" && permissions.can_approve_pull_request_reviews
+      permissions.default_workflow_permissions == "read" && !permissions.can_approve_pull_request_reviews
     ])
-    error_message = "Only two repository receivers may open PRs; default workflow permissions remain read-only."
+    error_message = "Workflow tokens stay read-only and cannot approve PRs; scoped release Apps own proposals."
   }
 }
 

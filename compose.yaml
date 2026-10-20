@@ -32,6 +32,12 @@ services:
     entrypoint: [python, /opt/runner/run.py, ci-bootstrap-check]
     command: []
 
+  ci-signing:
+    profiles: [ci]
+    extends: {service: infra-harbor}
+    entrypoint: [python, -m, playbooks.ci.files.signing]
+    command: []
+
   ci-runner-image:
     profiles: [ci]
     platform: linux/amd64
