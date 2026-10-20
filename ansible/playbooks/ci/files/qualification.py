@@ -108,7 +108,7 @@ def ansible_inputs(configuration):
 
 def profile_fingerprint():
     return hashlib.sha256(b''.join(path.read_bytes() for path in (
-        POOL / 'values.json', POOL / 'templates/health.yaml', POOL / 'templates/builder-ids.yaml',
+        POOL / 'values.json', POOL / 'templates/health.yaml', POOL / 'templates/builder-ids.yaml', POOL / 'builder-ids.yaml',
         ROOT / 'ansible/playbooks/buildkit/files/buildkit-seccomp.json',
         ROOT / 'ansible/playbooks/buildkit/files/cloudlab-buildkit'))).hexdigest()
 
