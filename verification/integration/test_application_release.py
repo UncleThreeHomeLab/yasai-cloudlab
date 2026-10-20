@@ -1,5 +1,6 @@
 """Disposable enforcement cannot affect production names or treat auth failures as signature proof."""
 import copy
+import builtins
 import subprocess
 import unittest
 from unittest.mock import Mock, patch
@@ -99,14 +100,22 @@ class ApplicationReleaseTests(unittest.TestCase):
                 return subprocess.CompletedProcess(arguments, 0, '', '')
             rule = 'approved-repositories' if image == 'other' else 'trusted-signature'
             return subprocess.CompletedProcess(arguments, 1, '', rule + (' UNAUTHORIZED' if unauthorized else ' signature not found'))
+        from playbooks.admission.files.verify import probe
         request = {'entry': {'approval': {'namespace': 'cloudlab-app-example', 'artifact': {'action': 'Audit'}}},
+                   'pod': probe('cloudlab-app-example'),
                    'action': 'admission', 'images': [
                        ['signed', 'signed', None], ['unsigned', 'unsigned', 'trusted-signature'],
                        ['untrusted', 'untrusted', 'trusted-signature'], ['other', 'other', 'approved-repositories']]}
+        original_import = builtins.__import__
+        def host_import(name, *args, **kwargs):
+            if name == 'playbooks.admission.files.verify':
+                raise ModuleNotFoundError('Temporary Ansible script is absent on the host')
+            return original_import(name, *args, **kwargs)
         with patch('playbooks.istio.files.kube.get', side_effect=get), \
                 patch('playbooks.istio.files.kube.kube', side_effect=kube), \
                 patch('playbooks.istio.files.kube.wait', side_effect=lambda predicate, *args, **kwargs: self.assertTrue(predicate())), \
-                patch.object(proof.secrets, 'token_hex', return_value='a' * 12):
+                patch.object(proof.secrets, 'token_hex', return_value='a' * 12), \
+                patch.object(builtins, '__import__', side_effect=host_import):
             try:
                 result = proof.remote(request)
             finally:
@@ -139,3 +148,13 @@ class ApplicationReleaseTests(unittest.TestCase):
         with patch.object(proof, 'on_node') as on_node, self.assertRaises(ValueError):
             proof.prove(client, entry)
         on_node.assert_not_called()
+
+    def test_foreign_pod_namespace_is_refused_before_any_enforcement_policy_write(self):
+        request = {'entry': {'approval': {'namespace': 'cloudlab-app-example', 'artifact': {'action': 'Audit'}}},
+                   'action': 'admission', 'pod': {'apiVersion': 'v1', 'kind': 'Pod',
+                       'metadata': {'namespace': 'foreign'}}}
+        with patch('playbooks.istio.files.kube.get', return_value=policy()), \
+                patch('playbooks.istio.files.kube.kube') as kube, \
+                self.assertRaisesRegex(ValueError, 'approved Pod namespace'):
+            proof.remote(request)
+        kube.assert_not_called()
