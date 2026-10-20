@@ -67,6 +67,7 @@ class PublisherTests(unittest.TestCase):
         sign, verify = calls
         self.assertEqual(sign[0][:3], ['cosign', 'sign', '--yes'])
         self.assertIn('--new-bundle-format=false', sign[0])
+        self.assertIn('--use-signing-config=false', sign[0])
         self.assertIn('--sign-container-identity=https://github.com/example/app', sign[0])
         self.assertNotIn('registry.example.invalid', ' '.join(sign[0][:-1]))
         self.assertEqual(sign[1]['ACTIONS_ID_TOKEN_REQUEST_TOKEN'], 'synthetic-oidc-request')
