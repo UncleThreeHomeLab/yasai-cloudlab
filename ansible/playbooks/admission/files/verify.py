@@ -31,6 +31,15 @@ def dry_run(document):
                 document=document, allow_failure=True)
 
 
+def digest_result(result, enforce):
+    native = 'Workload images must use an immutable SHA-256 digest.' in result.stderr
+    # The repository webhook can reject the tag before the digest webhook runs.
+    artifact = all(message in result.stderr for message in (
+        'application-artifacts', 'approved-repositories',
+        'Images require the approved application repository or retained bootstrap digest.'))
+    return bool(result.returncode) == enforce and (native or (enforce and artifact))
+
+
 def admission(namespace, enforce):
     good = probe(namespace)
     if dry_run(good).returncode:
@@ -43,8 +52,9 @@ def admission(namespace, enforce):
     token = copy.deepcopy(good)
     token['spec']['volumes'] = [{'name': 'api', 'projected': {
         'sources': [{'serviceAccountToken': {'path': 'token'}}]}}]
+    if not digest_result(dry_run(mutable), enforce):
+        raise RuntimeError('Mutable image did not match the declared policy mode')
     for document, message in (
-            (mutable, 'Workload images must use an immutable SHA-256 digest.'),
             (unbounded, 'Every workload container requires positive CPU and memory requests and limits.'),
             (token, 'Workloads must not project Kubernetes service account tokens.')):
         result = dry_run(document)
@@ -77,7 +87,8 @@ def ephemeral_admission(namespace, enforce):
             container['image'] = 'docker.io/library/python:3.13-slim-bookworm'
         result = kube('replace', '--raw', path, '-f', '-', document=target, allow_failure=True)
         warned = 'Workload images must use an immutable SHA-256 digest.' in result.stderr
-        if bool(result.returncode) != (enforce and mutable) or warned != mutable:
+        if ((mutable and not digest_result(result, enforce)) or
+                (not mutable and (result.returncode or warned))):
             raise RuntimeError('Ephemeral image admission did not preserve its declared digest rule')
     return True
 

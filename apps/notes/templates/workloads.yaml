@@ -2,6 +2,7 @@
 {{- $values := deepCopy (index $.Values $name) }}
 {{- if $.Values.definition }}
 {{- $definition := $.Values.definition }}
+{{- $_ := set $values "artifactPolicyHash" ($definition.artifactPolicyHash | default "") }}
 {{- $private := dict }}
 {{- range $definition.additionalExposures }}
 {{- if eq .class "private" }}{{ $private = . }}{{- end }}

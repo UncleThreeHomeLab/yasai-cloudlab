@@ -7,6 +7,18 @@ from playbooks.admission.files import verify
 
 
 class VerificationTests(unittest.TestCase):
+    def test_layered_repository_denial_requires_the_exact_policy_rule_and_message(self):
+        parts = ('application-artifacts', 'approved-repositories',
+                 'Images require the approved application repository or retained bootstrap digest.')
+        message = ' '.join(parts)
+        self.assertTrue(verify.digest_result(subprocess.CompletedProcess([], 1, '', message), True))
+        for stderr in ('unrelated rejection', *(message.replace(part, '') for part in parts)):
+            with self.subTest(stderr=stderr):
+                self.assertFalse(verify.digest_result(subprocess.CompletedProcess([], 1, '', stderr), True))
+        for code, enforce in ((0, True), (1, False), (0, False)):
+            with self.subTest(code=code, enforce=enforce):
+                self.assertFalse(verify.digest_result(subprocess.CompletedProcess([], code, '', message), enforce))
+
     def test_audit_proof_requires_real_warning_and_existing_pod_security_denial(self):
         accepted = subprocess.CompletedProcess([], 0, '', '')
         warned = subprocess.CompletedProcess([], 0, '', 'Warning: Workload images must use an immutable SHA-256 digest.')
