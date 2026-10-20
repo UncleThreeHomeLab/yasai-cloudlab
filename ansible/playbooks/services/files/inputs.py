@@ -1,6 +1,7 @@
 """Load the complete private catalog before mutation; public base remains optional."""
 import json
 from pathlib import Path
+import yaml
 
 from dotenv import dotenv_values
 
@@ -38,6 +39,7 @@ def validate_catalog(value):
             not isinstance(value['dataApprovals'], dict) or len(value['dataApprovals']) > 40):
         raise ValueError('Private service catalog requires complete catalog and data approvals')
     names = set()
+    platform_repository = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
     from playbooks.data.files.requests import request
     for entry in value['catalog']:
         if set(entry) != {'definition', 'approval', 'publication'} or entry['publication'] not in ('ready', 'published', 'retired'):
@@ -47,12 +49,11 @@ def validate_catalog(value):
         if name in names: raise ValueError('Duplicate service catalog namespace')
         names.add(name)
         request(name, definition['data'], value['dataApprovals'])
-        resources(definition, entry['approval'], 'https://github.com/example/platform.git', 'a' * 40)
+        resources(definition, entry['approval'], platform_repository, 'a' * 40)
     return value
 
 
 def private_dns_names():
-    import yaml
     public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
     value = catalog(required=public.get('services', {}).get('enabled', False))
     if value is None: return []

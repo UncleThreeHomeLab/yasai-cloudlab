@@ -13,6 +13,19 @@ from playbooks.services.tests.fixtures import approval, definition
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_complete_catalog_validates_artifact_against_its_configured_platform_repository(self):
+        from playbooks.services.files.inputs import validate_catalog
+        value, allowed = self.inputs()
+        repository = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
+        organization = repository.removeprefix('https://github.com/').split('/')[0]
+        allowed['artifact']['sourceRepository'] = organization + '/producer'
+        allowed['artifact']['identities'] = [repository.removesuffix('.git') +
+            '/.github/workflows/application-publish.yaml@' + 'a' * 40]
+        catalog = {'catalog': [{'definition': value, 'approval': allowed, 'publication': 'ready'}], 'dataApprovals': {}}
+        self.assertEqual(validate_catalog(catalog), catalog)
+        allowed['artifact']['sourceRepository'] = 'foreign/producer'
+        with self.assertRaises(ValueError): validate_catalog(catalog)
+
     def test_policy_matches_pinned_api_and_native_cli_blocks_other_registries_in_all_container_types(self):
         from playbooks.admission.files.chart import render
         import jsonschema
