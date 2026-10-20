@@ -101,6 +101,8 @@ class ArtifactTests(unittest.TestCase):
         self.assertIn(value['image'], rules[0]['validate']['foreach'][0]['deny']['conditions']['all'][0]['value'])
         signature = rules[1]['verifyImages'][0]
         self.assertEqual(signature['type'], 'Cosign')
+        self.assertEqual(signature['imageRegistryCredentials'],
+                         {'secrets': ['cloudlab-app-synthetic/harbor-application-pull']})
         keyless = signature['attestors'][0]['entries'][0]['keyless']
         self.assertEqual(keyless['subject'], allowed['artifact']['identities'][0])
         self.assertEqual(keyless['issuer'], 'https://token.actions.githubusercontent.com')

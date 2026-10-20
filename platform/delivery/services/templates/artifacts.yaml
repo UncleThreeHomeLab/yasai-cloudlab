@@ -95,6 +95,8 @@ spec:
           mutateDigest: false
           verifyDigest: true
           required: true
+          imageRegistryCredentials:
+            secrets: [{{ printf "%s/harbor-application-pull" $a.namespace | quote }}]
           attestors:
             - count: 1
               entries:
