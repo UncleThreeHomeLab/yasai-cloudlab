@@ -7,6 +7,15 @@
 {{- $v := .definition }}
 {{- $a := .approval }}
 {{- $namespace := printf "cloudlab-app-%s" $a.name }}
+{{- $artifact := $a.artifact | default dict }}
+{{- if $artifact }}
+{{- if or (ne $artifact.project (printf "cloudlab-%s" ($a.visibility | default "public"))) (ne $artifact.releasePath (printf "apps/releases/%s.json" $a.name)) (not (hasSuffix (printf "/%s/%s" $artifact.project $a.name) $artifact.repository)) }}{{ fail "Artifact source must match its approved project and application" }}{{- end }}
+{{- $organization := index (splitList "/" (trimPrefix "https://github.com/" $.Values.repository)) 0 }}
+{{- if not (hasPrefix (printf "%s/" $organization) $artifact.sourceRepository) }}{{ fail "Artifact producer must belong to the designated organization" }}{{- end }}
+{{- range $artifact.identities }}
+{{- if not (hasPrefix (printf "%s/.github/workflows/application-publish.yaml@" (trimSuffix ".git" $.Values.repository)) .) }}{{ fail "Artifact signing identity must use the approved shared publishing workflow" }}{{- end }}
+{{- end }}
+{{- end }}
 {{- if and (eq ($a.chartPath | default "charts/service") "apps/notes") (ne $a.repository $.Values.repository) }}{{ fail "Notes composition requires the administrator-owned application source" }}{{- end }}
 {{- $classes := list }}
 {{- range concat (list $v.exposure) ($v.additionalExposures | default list) }}
@@ -122,19 +131,41 @@ spec:
   goTemplate: true
   goTemplateOptions: ['missingkey=error']
   generators:
+    {{- if and $artifact (ne (.publication | default "ready") "retired") }}
+    - git:
+        repoURL: {{ $a.repository | quote }}
+        revision: main
+        files: [{path: {{ $artifact.releasePath | quote }}}]
+    {{- else }}
     - list:
         elements: {{ if eq (.publication | default "ready") "retired" }}[]{{ else }}[{name: {{ $v.name }}}]{{ end }}
+    {{- end }}
   syncPolicy:
     applicationsSync: create-update
     preserveResourcesOnDeletion: true
   template:
     metadata:
-      name: {{ printf "%s-{{.name}}" $a.name | quote }}
+      name: {{ if $artifact }}{{ printf "%s-%s" $a.name $v.name | quote }}{{ else }}{{ printf "%s-{{.name}}" $a.name | quote }}{{ end }}
+      {{- if $artifact }}
+      annotations:
+        cloudlab.io/artifact-digest: '{{ "{{ .digest }}" }}'
+        cloudlab.io/source-revision: '{{ "{{ .source_revision }}" }}'
+        cloudlab.io/workflow-run: '{{ "{{ .workflow_run_id }}" }}'
+      {{- end }}
     spec:
       project: {{ $a.name }}
-      {{- $helm := dict "valuesObject" $v }}
+      {{- $workload := deepCopy $v }}
+      {{- if $artifact }}
+      {{- $_ := set $workload "image" (printf "%s@{{ .digest }}" $artifact.repository) }}
+      {{- $_ := set $workload "imagePullSecrets" (list (dict "name" "harbor-application-pull")) }}
+      {{- end }}
+      {{- $helm := dict "valuesObject" $workload }}
       {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
-      {{- $_ := set $helm "valuesObject" (dict "definition" $v "issuer" $.Values.issuer "telemetry" $.Values.telemetry) }}
+      {{- $_ := set $helm "valuesObject" (dict "definition" $workload "issuer" $.Values.issuer "telemetry" $.Values.telemetry) }}
+      {{- if $artifact }}
+      {{- $_ := set $helm.valuesObject "packaged" true }}
+      {{- $_ := set $helm.valuesObject "imagePullSecrets" $workload.imagePullSecrets }}
+      {{- end }}
       {{- end }}
       {{- $source := dict "repoURL" $.Values.repository "targetRevision" $.Values.revision "path" ($a.chartPath | default "charts/service") "helm" $helm }}
       {{- if eq $a.repository $.Values.repository }}

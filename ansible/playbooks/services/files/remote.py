@@ -1,5 +1,6 @@
 """Check actual owner convergence and retire only scoped workload children."""
 import json
+import re
 import sys
 
 from playbooks.istio.files.kube import get, condition, application_ready, kube, wait
@@ -94,6 +95,21 @@ def inspect(request):
                 application.get('status', {}).get('health', {}).get('status') != 'Healthy' or
                 application.get('status', {}).get('sync', {}).get('status') != 'Synced' or application.get('operation')):
             raise RuntimeError('Backend is not converged at its approved source')
+        expected_image = definition['image']
+        if approval.get('artifact'):
+            from playbooks.services.files.contract import artifact_approval
+            artifact_approval(approval)
+            values = source[0].get('helm', {}).get('valuesObject', {})
+            expected_image = (values.get('definition', {}) if notes else values).get('image', '')
+            annotations = application.get('metadata', {}).get('annotations', {})
+            digest = annotations.get('cloudlab.io/artifact-digest', '')
+            if (not re.fullmatch(r'sha256:[a-f0-9]{64}', digest) or
+                    expected_image != approval['artifact']['repository'] + '@' + digest or
+                    not re.fullmatch(r'[a-f0-9]{40}', annotations.get('cloudlab.io/source-revision', '')) or
+                    not re.fullmatch(r'[1-9][0-9]{0,19}', annotations.get('cloudlab.io/workflow-run', '')) or
+                    not any(owner.get('kind') == 'ApplicationSet' and owner.get('name') == approval['name'] and
+                            owner.get('controller') is True for owner in application.get('metadata', {}).get('ownerReferences', []))):
+                raise RuntimeError('Backend release differs from its approved ApplicationSet artifact')
         for workload_name in workload_names:
             deployed = get('deployment', workload_name, namespace)
             if not notes and deployed:
@@ -102,7 +118,7 @@ def inspect(request):
                     raise RuntimeError('Backend environment differs from its approved Git definition')
             if (not deployed or deployed.get('status', {}).get('observedGeneration') != deployed['metadata']['generation'] or
                     deployed.get('status', {}).get('availableReplicas') != definition['replicas'] or
-                    deployed['spec']['template']['spec']['containers'][0]['image'] != definition['image']):
+                    deployed['spec']['template']['spec']['containers'][0]['image'] != expected_image):
                 raise RuntimeError('Backend is not ready at its pinned image')
         quota = get('resourcequota', 'budget', namespace)
         if not quota or quota['spec']['hard'].get('requests.cpu') != '1':

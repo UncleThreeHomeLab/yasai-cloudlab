@@ -44,6 +44,15 @@
 {{- $hashes = printf "%s%s" $hashes ($.Files.Get . | sha256sum) }}
 {{- end }}
 {{- $_ := set $values.environment "SOURCE_SHA256" (sha256sum $hashes) }}
+{{- if $.Values.packaged }}
+{{- if not $.Values.definition }}{{ fail "Packaged Notes requires administrator-approved application values" }}{{- end }}
+{{- $_ := set $values "command" (list "python" (printf "/app/%s.py" $name)) }}
+{{- $_ := set $values "initCommand" list }}
+{{- $_ := set $values "configMaps" (without $values.configMaps (dict "name" "notes-source" "mountPath" "/config/source")) }}
+{{- $_ := set $values "imagePullSecrets" $.Values.imagePullSecrets }}
+{{- $_ := set $values.environment "PYTHONPATH" "/dependencies:/app:/app/lib.zip" }}
+{{- $_ := set $values.environment "SOURCE_SHA256" (last (splitList "sha256:" $values.image)) }}
+{{- end }}
 {{- $context := dict "Values" $values "Release" $.Release "Capabilities" $.Capabilities }}
 ---
 {{ include "cloudlab.service.workload" $context }}

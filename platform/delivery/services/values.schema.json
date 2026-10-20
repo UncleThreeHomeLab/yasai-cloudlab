@@ -88,6 +88,54 @@
                   "charts/service",
                   "apps/notes"
                 ]
+              },
+              "artifact": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "repository",
+                  "project",
+                  "releasePath",
+                  "sourceRepository",
+                  "identities",
+                  "action"
+                ],
+                "properties": {
+                  "repository": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9.-]{0,252}/cloudlab-(public|private)/[a-z][a-z0-9-]{0,30}$"
+                  },
+                  "project": {
+                    "enum": [
+                      "cloudlab-public",
+                      "cloudlab-private"
+                    ]
+                  },
+                  "releasePath": {
+                    "type": "string",
+                    "pattern": "^apps/releases/[a-z][a-z0-9-]{0,30}[.]json$"
+                  },
+                  "sourceRepository": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"
+                  },
+                  "identities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/application-publish[.]yaml@[a-f0-9]{40}$"
+                    }
+                  },
+                  "action": {
+                    "enum": [
+                      "Audit",
+                      "Enforce"
+                    ]
+                  }
+                }
               }
             }
           },
@@ -639,6 +687,22 @@
         },
         "renderDisabled": {
           "type": "boolean"
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "const": "harbor-application-pull"
+              }
+            }
+          }
         }
       },
       "required": [

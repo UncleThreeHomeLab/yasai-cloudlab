@@ -1,15 +1,16 @@
 """Administrator-owned namespace budgets and fixed ApplicationSet destinations."""
 import re
 
-from playbooks.services.files.contract import validate
+from playbooks.services.files.contract import validate, artifact_approval
 
 def resources(definition, approval, platform_repository, platform_revision):
     definition = validate(definition)
     required = {'name', 'repository', 'revision', 'valuesPath', 'namespace', 'secretReferences', 'configMaps'}
-    if not required <= set(approval) <= required | {'visibility', 'chartPath'} or approval.get('visibility', 'public') not in ('public', 'private'):
+    if not required <= set(approval) <= required | {'visibility', 'chartPath', 'artifact'} or approval.get('visibility', 'public') not in ('public', 'private'):
         raise ValueError('Administrator approval requires an exact source and namespace')
     if approval.get('chartPath', 'charts/service') not in ('charts/service', 'apps/notes'):
         raise ValueError('Service chart source is not approved')
+    artifact_approval(approval)
     name, namespace = approval['name'], approval['namespace']
     if (not re.fullmatch(r'[a-z][a-z0-9-]{0,30}', name) or
             namespace != 'cloudlab-app-' + name or

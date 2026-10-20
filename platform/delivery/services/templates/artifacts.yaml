@@ -1,0 +1,117 @@
+{{- range .Values.catalog }}
+{{- $a := .approval }}
+{{- $bootstrap := .definition.image }}
+{{- $bootstrapReferences := list $bootstrap }}
+{{- if not (contains "/" $bootstrap) }}{{ $bootstrapReferences = append $bootstrapReferences (printf "docker.io/library/%s" $bootstrap) }}{{- end }}
+{{- with $a.artifact }}
+{{- $private := eq ($a.visibility | default "public") "private" }}
+{{- $host := first (splitList "/" .repository) }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: harbor-application-pull, namespace: {{ $a.namespace }}}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: harbor-application-pull
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: {{ printf "{{ dict \"auths\" (dict %q (dict \"username\" .username \"password\" .password)) | toJson }}" $host | quote }}
+  dataFrom: [{extract: {key: {{ printf "harbor-%s-pull" .project }}}}]
+{{- if $private }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: ci-private-verifier, namespace: {{ $a.namespace }}}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: ci-private-verifier
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      data:
+        cosign.pub: '{{ "{{ .public_key }}" }}'
+  dataFrom: [{extract: {key: ci-private-verifier}}]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: artifact-verifier, namespace: {{ $a.namespace }}}
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [harbor-application-pull{{ if $private }}, ci-private-verifier{{ end }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: artifact-verifier, namespace: {{ $a.namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: artifact-verifier}
+subjects:
+  - {kind: ServiceAccount, name: kyverno-admission-controller, namespace: cloudlab-policy}
+---
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: application-artifacts
+  namespace: {{ $a.namespace }}
+  annotations:
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  background: false
+  validationFailureAction: {{ .action }}
+  webhookConfiguration: {failurePolicy: Fail, timeoutSeconds: 30}
+  rules:
+    - name: approved-repositories
+      match:
+        any: [{resources: {kinds: [Pod]}}]
+      validate:
+        message: Images require the approved application repository or retained bootstrap digest.
+        foreach:
+          - list: 'request.object.spec.[initContainers, ephemeralContainers, containers][]'
+            deny:
+              conditions:
+                all:
+                  - key: '{{ "{{ element.image }}" }}'
+                    operator: NotIn
+                    value: {{ $bootstrapReferences | toJson }}
+                  - key: '{{ "{{ element.image }}" }}'
+                    operator: NotEquals
+                    value: {{ printf "%s@sha256:*" .repository | quote }}
+    - name: trusted-signature
+      match:
+        any: [{resources: {kinds: [Pod]}}]
+      verifyImages:
+        - imageReferences: [{{ printf "%s@sha256:*" .repository | quote }}]
+          type: Cosign
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                {{- if $private }}
+                - keys:
+                    publicKeys: {{ printf "k8s://%s/ci-private-verifier" $a.namespace | quote }}
+                    rekor: {ignoreTlog: true}
+                {{- else }}
+                {{- range .identities }}
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subject: {{ . | quote }}
+                    additionalExtensions:
+                      githubWorkflowRepository: {{ $a.artifact.sourceRepository | quote }}
+                      githubWorkflowRef: refs/heads/main
+                    rekor: {url: 'https://rekor.sigstore.dev'}
+                {{- end }}
+                {{- end }}
+{{- end }}
+{{- end }}

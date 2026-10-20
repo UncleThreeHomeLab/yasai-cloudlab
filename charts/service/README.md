@@ -21,6 +21,16 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `monitoring`, `rollouts` | Disabled until their separately verified integrations exist |
 
 Source visibility (`approval.visibility`) is independent of network exposure.
+An administrator may set `approval.artifact` with `repository`, `project`,
+`releasePath`, `sourceRepository`, retained signing `identities` and `action`
+(`Audit` before tested `Enforce`). The repository must match the application and
+visibility project; the release path is `apps/releases/<approval.name>.json`.
+ApplicationSet follows that file on GitOps `main`, publishes digest/source/run
+annotations and supplies only the project's pull credential. Public signatures
+require the exact GitHub issuer, shared workflow, source repository and main ref;
+private verification receives only `ci-private-verifier/public_key`.
+The exact declared bootstrap image remains an explicit unsigned recovery exception.
+Retain approved signing identities and registry artifacts for rollback.
 The complete reviewed definition supplies Helm values. When the chart and definition
 share the platform repository, one pinned source uses those values directly. A separate
 repository uses its approved immutable values source; the complete definition still
