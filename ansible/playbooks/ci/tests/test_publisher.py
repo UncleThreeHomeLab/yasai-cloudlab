@@ -161,13 +161,15 @@ class PublisherTests(unittest.TestCase):
             events.append('proposal')
             return {'release_changed': True, 'pull_request_only': True}
         original = dict(os.environ)
-        with patch.object(publisher, 'registry_environment', side_effect=credentials), \
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(publisher, 'registry_environment', side_effect=credentials), \
                 patch.object(publisher, 'build_and_scan', side_effect=scan), \
                 patch.object(publisher, 'execute', side_effect=native), \
                 patch.object(publisher, 'sign', side_effect=lambda *args: events.append('sign')), \
                 patch.object(publisher, 'release_token', side_effect=token), \
                 patch.object(publisher.release, 'propose', side_effect=propose):
-            result = publisher.publish(document, Path('/application'), environment)
+            result = publisher.publish(document, Path('/application'), os.environ)
+            self.assertEqual(dict(os.environ), environment)
         self.assertEqual(events, ['pull', 'scan', 'push', 'push-image', 'sign', 'token', 'proposal', 'revoke'])
         self.assertEqual(result['digest'], digest)
         self.assertEqual(dict(os.environ), original)

@@ -181,6 +181,7 @@ def release_token(document, environment):
 
 
 def publish(document, source, environment):
+    environment = dict(environment)
     document = configuration(document, environment)
     native_environment = {key: environment[key] for key in ('PATH', 'HOME') if key in environment}
     with tempfile.TemporaryDirectory(prefix='cloudlab-publish-') as temporary:
