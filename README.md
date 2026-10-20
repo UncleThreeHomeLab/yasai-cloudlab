@@ -161,6 +161,9 @@ change requires renewed approval; private PRs receive no runner access in that m
 The [publisher](ansible/playbooks/ci/files/publisher.py) scans before pushing, signs
 exact digests and proposes one application release file in its owning GitOps repo.
 Public signing requires the exact shared workflow, GitHub issuer and source repository.
+Signatures retain Cosign's supported compatibility format because the pinned Kyverno
+bundle verifier omits certificate extension checks. The signed image identity uses
+the public source repository; private registry addresses never enter transparency logs.
 Private signing uses CloudLab items `ci-private-signer` (`private_key`, concealed)
 and `ci-private-verifier` (`public_key`, string). Run `docker compose run --build --rm
 ci-signing` locally to create missing items through the [custody owner](ansible/playbooks/ci/files/signing.py).
