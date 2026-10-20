@@ -49,9 +49,8 @@ namespace GitHub.Runner.Worker
                         !unique.Add(string.Join("\0", Fields.Select(Value))))
                         return false;
                     if (Value("repository_id") == actual["repository_id"] && Value("repository") == actual["repository"] &&
-                        (owned ? actualWorkflow == Value("repository") + "/" + Value("workflow_path") + "@" + actual["workflow_sha"]
-                               : Value("job_workflow_ref") == actualWorkflow) &&
-                        ((!owned && actual["job"] == "__default") || Value("job") == actual["job"]) && actual["workflow_ref"] ==
+                        (owned ? DirectJob(message, Value("job")) : Value("job_workflow_ref") == actualWorkflow) &&
+                        (owned || actual["job"] == "__default" || Value("job") == actual["job"]) && actual["workflow_ref"] ==
                         Value("repository") + "/" + Value("workflow_path") + "@" + actual["ref"])
                     {
                         if (match.HasValue) return false;
@@ -60,7 +59,7 @@ namespace GitHub.Runner.Worker
                 }
                 if (!match.HasValue) return false;
                 var expected = match.Value;
-                // GitHub uses __default for reusable jobs. Bind the role to its original immutable single-job workflow.
+                // Bind direct roles to original server variables and reusable roles to their pinned called workflow.
                 var identity = actual.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
                 identity["job"] = expected.GetProperty("job").GetString();
                 if (!TrustedWorkflow.Valid(identity)) return false;
@@ -140,6 +139,15 @@ namespace GitHub.Runner.Worker
                 if (error is OperationCanceledException) diagnostic?.Invoke("github-timeout");
                 return false;
             }
+        }
+
+        private static bool DirectJob(AgentJobRequestMessage message, string expected)
+        {
+            // Direct jobs omit called-workflow metadata; the server supplies their actual job ID separately.
+            return message.JobName == "__default" && message.Variables != null &&
+                message.Variables.TryGetValue("system.github.job", out var job) && job != null && job.Value == expected &&
+                !message.Variables.ContainsKey("system.workflowFileFullPath") &&
+                !message.Variables.ContainsKey("system.workflowFileSha");
         }
 
         private static string CalledWorkflow(AgentJobRequestMessage message)
