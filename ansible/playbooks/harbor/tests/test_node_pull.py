@@ -80,10 +80,28 @@ class NodePullTests(unittest.TestCase):
 
     def test_node_accepts_only_scoped_pull_credentials_and_digest_references(self):
         for changes in ({'username': 'robot$cloudlab-public+push'}, {'digest': 'latest'},
-                        {'host': 'harbor.internal.example.invalid/other'}, {'project': 'other/project'}):
+                        {'host': 'harbor.internal.example.invalid/other'}, {'project': 'other/project'},
+                        {'project': 'cloudlab-unapproved'}, {'repository': '../other'}, {'repository': 'other/nested'}):
             with self.subTest(changes=changes), patch.object(node_pull.http.client, 'HTTPSConnection') as connect:
                 with self.assertRaises(ValueError): node_pull.token(dict(self.payload(), **changes))
                 connect.assert_not_called()
+
+    def test_application_pull_token_cannot_expand_to_another_repository(self):
+        payload = dict(self.payload(), repository='notes')
+        for repository, accepted in (('notes', True), ('bootstrap', False)):
+            claims = {'access': [{'type': 'repository', 'name': 'cloudlab-public/' + repository, 'actions': ['pull']}],
+                      'aud': 'harbor-registry', 'exp': 1300}
+            encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+            connection = Mock()
+            response = connection.getresponse.return_value
+            response.status, response.read.return_value = 200, json.dumps({'token': 'e30.' + encoded + '.c2ln'}).encode()
+            with patch.object(node_pull.time, 'time', return_value=1000), \
+                    patch.object(node_pull.http.client, 'HTTPSConnection', return_value=connection):
+                if accepted:
+                    self.assertEqual(node_pull.token(payload), 'e30.' + encoded + '.c2ln')
+                else:
+                    with self.assertRaises(RuntimeError): node_pull.token(payload)
+                self.assertIn('scope=repository%3Acloudlab-public%2Fnotes%3Apull', connection.request.call_args.args[1])
 
     def test_success_and_timeout_clean_only_owned_containerd_namespace_and_credentials(self):
         for interrupted in (False, True):
