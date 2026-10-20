@@ -131,7 +131,7 @@ def sign(reference, document, directory, environment, source, identity):
             ('ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL')})
         # The pinned Kyverno bundle verifier omits source certificate extensions.
         # Keep the supported compatibility format until that verifier checks them.
-        execute(['cosign', 'sign', '--yes', '--new-bundle-format=false',
+        execute(['cosign', 'sign', '--yes', '--new-bundle-format=false', '--use-signing-config=false',
                  '--sign-container-identity=https://github.com/' + document['source_repository'],
                  reference], signing, timeout=300)
         execute(['cosign', 'verify', '--certificate-identity', document['workflow_identity'],
