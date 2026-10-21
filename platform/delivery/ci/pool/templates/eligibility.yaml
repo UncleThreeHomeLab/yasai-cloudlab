@@ -12,6 +12,19 @@
 {{- fail "Pull request tests require their exact reviewed merge and workflow revision" }}
 {{- end }}
 {{- end }}
+{{- $profile := deepCopy .Values.arc.template.spec }}
+{{- range $profile.volumes }}
+{{- if and .configMap (not (hasKey .configMap "defaultMode")) }}
+{{- $_ := set .configMap "defaultMode" 420 }}
+{{- end }}
+{{- end }}
+{{- range $container := concat $profile.containers $profile.initContainers }}
+{{- range $key := list "livenessProbe" "startupProbe" }}
+{{- if hasKey $container $key }}
+{{- $_ := set (index $container $key) "successThreshold" 1 }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- $policy := dict "workflows" .Values.eligibility | toJson }}
 {{- if .Values.workflowTemplates }}
 {{- if .Values.eligibility }}
@@ -35,3 +48,4 @@ kind: ConfigMap
 metadata: {name: {{ .Values.policyName }}, namespace: {{ .Release.Namespace }}}
 data:
   eligibility.json: {{ $policy | quote }}
+  admission.json: {{ dict "spec" $profile "controller" (printf "system:serviceaccount:%s:%s" .Values.arc.controllerServiceAccount.namespace .Values.arc.controllerServiceAccount.name) | toJson | quote }}

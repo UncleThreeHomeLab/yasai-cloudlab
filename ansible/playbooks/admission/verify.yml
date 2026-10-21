@@ -20,3 +20,19 @@
       ansible.builtin.debug:
         msg: '{{ admission_verified.stdout | from_json }}'
       when: admission_enabled | bool
+
+    - name: Verify shared CI admission and runner API permissions
+      ansible.builtin.script:
+        cmd: >-
+          files/ci_verify.py
+          {{ (lookup('file', '/workspace/platform/delivery/admission/policies/values.yaml') | from_yaml).runnerValidationActions | to_json | quote }}
+        executable: python3
+      changed_when: false
+      no_log: true
+      register: ci_admission_verified
+      when: admission_enabled | bool and ((lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).ci.enabled | default(false) | bool)
+
+    - name: Report sanitized CI admission evidence
+      ansible.builtin.debug:
+        msg: '{{ ci_admission_verified.stdout | from_json }}'
+      when: ci_admission_verified is not skipped

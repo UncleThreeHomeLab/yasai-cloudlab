@@ -1,1 +1,2 @@
 validationActions: [Deny]
+runnerValidationActions: [Audit, Warn]

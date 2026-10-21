@@ -40,7 +40,8 @@ def images(document):
 def bundle(references, namespace):
     if not re.fullmatch(r'cloudlab-ci-proof-[a-f0-9]{12}', namespace):
         raise ValueError('Qualification must use a fresh disposable namespace')
-    labels = {'cloudlab.io/fixture': 'ci-bootstrap', 'cloudlab.io/owner': 'ci-platform'}
+    labels = {'cloudlab.io/fixture': 'ci-bootstrap', 'cloudlab.io/owner': 'ci-platform',
+              'cloudlab.io/ci-role': 'qualification'}
     controller_repository, controller_digest = references['controller'].split('@')
     rendered = render({'arc': {'image': {'repository': controller_repository,
                                         'tag': '0.15.0@' + controller_digest}}})

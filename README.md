@@ -135,6 +135,10 @@ recovery signing inputs and coordinated restore requirements.
 Argo reconciles [admission controllers](platform/delivery/admission/values.json)
 and [workload rules](platform/delivery/admission/policies/values.yaml) from the public root.
 Workload digest, resource and token rules are enforced; application namespaces retain restricted Pod Security.
+Shared CI rules select platform-owned namespaces automatically. Runner rules use each
+pool's generated role profile to constrain images, permissions, credentials and budgets;
+only the assigned controller creates runner pods. CI namespace labels cannot bypass
+policy selection. Rootless BuildKit retains only its qualified exceptions.
 `prove` checks real admission responses without creating workloads.
 
 Ansible installs [builder host profiles](ansible/playbooks/buildkit/010-host-profile.yml).
