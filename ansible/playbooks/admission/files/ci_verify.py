@@ -23,6 +23,15 @@ def outcome(result, enforce, policy):
         raise RuntimeError('CI admission did not match its declared scope and policy mode')
 
 
+def namespace_scope():
+    document = {'apiVersion': 'v1', 'kind': 'Namespace',
+                'metadata': {'generateName': 'cloudlab-admission-proof-'}}
+    result = kube('create', '--dry-run=server', '-f', '-', '-o', 'json',
+                  document=document, allow_failure=True)
+    if result.returncode or 'cloudlab-ci-namespace' in result.stderr:
+        raise RuntimeError('CI namespace protection must allow unrelated generated namespaces')
+
+
 def runner_pod(namespace, profile):
     document = {'apiVersion': 'v1', 'kind': 'Pod',
                 'metadata': {'name': 'cloudlab-admission-proof', 'namespace': namespace},
@@ -104,6 +113,7 @@ def run(actions):
             status = row.get('status', {}).get('conditionStatus', {})
             return row.get('spec', {}).get('validationActions') == actions and status.get('ready') is True
         wait(ready, 'shared CI admission readiness', timeout=180)
+    namespace_scope()
     namespaces = [n for n in get('namespace')['items'] if n['metadata']['name'].startswith('cloudlab-ci-')]
     pools, checks, existing = 0, 0, 0
     for namespace in namespaces:
@@ -159,7 +169,8 @@ def run(actions):
             'runner_mode': 'enforce' if enforce else 'audit', 'approved_profiles_admitted': pools > 0,
             'namespace_selection_protected': bool(namespaces), 'api_writes_and_credentials_denied': pools > 0,
             'controller_profile_write_denied': pools > 0, 'debug_admission_checked': controller_present,
-            'host_access_denied': pools > 0, 'existing_pods_checked': existing, 'workloads_created': 0}
+            'host_access_denied': pools > 0, 'existing_pods_checked': existing,
+            'unrelated_namespace_admitted': True, 'workloads_created': 0}
 
 
 if __name__ == '__main__':

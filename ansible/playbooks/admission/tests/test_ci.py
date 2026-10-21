@@ -142,3 +142,12 @@ class RunnerPolicyTests(unittest.TestCase):
             documents.append(resource)
             results.append(dict(results[0], resources=[resource['metadata']['name']], result='fail'))
         self.evaluate(documents, ['cloudlab-ci-namespace'], results=results)
+
+    def test_unrelated_namespace_creation_with_an_empty_previous_object_is_allowed(self):
+        documents = [{'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'unrelated'}},
+                     {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {
+                         'name': 'application', 'labels': {'cloudlab.io/owner': 'service-platform'}}}]
+        results = [{'isValidatingPolicy': True, 'kind': 'Namespace', 'policy': 'cloudlab-ci-namespace',
+                    'resources': [r['metadata']['name']], 'result': 'pass'} for r in documents]
+        # Native CREATE evaluation supplies the same empty previous-object shape as the webhook.
+        self.evaluate(documents, ['cloudlab-ci-namespace'], results=results)

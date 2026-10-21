@@ -169,7 +169,7 @@ spec:
         !(object.metadata.name.startsWith('cloudlab-ci-') ||
           (has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels &&
             object.metadata.labels['cloudlab.io/owner'] == 'ci-platform') ||
-          (oldObject != null && has(oldObject.metadata.labels) &&
+          (oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.labels) &&
             'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'ci-platform')) ||
         (has(object.metadata.labels) &&
           ['cloudlab.io/owner', 'cloudlab.io/ci-role', 'pod-security.kubernetes.io/enforce',
