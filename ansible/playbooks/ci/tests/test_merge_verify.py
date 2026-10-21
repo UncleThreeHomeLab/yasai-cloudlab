@@ -13,16 +13,42 @@ class MergeVerificationTests(unittest.TestCase):
         for method in ('POST', 'PATCH', 'DELETE'):
             for code, message, accepted in ((422, 'Repository rule violations found', True),
                     (403, 'Protected tag update not allowed', True),
+                    (422, 'Reference update failed', True),
                     (422, 'Reference already exists', False), (403, 'Bad credentials', False)):
                 api = Mock(token='synthetic')
                 api.opener.open.side_effect = urllib.error.HTTPError('https://api.github.com/fixture', code,
                     'withheld', {}, io.BytesIO(json.dumps({'message': message}).encode()))
+                reference = 'refs/tags/ci/merge-guard-proof-0123456789abcdef'
+                evidence = {'ref': reference, 'actor_id': 42, 'result': 'fail',
+                    'after_sha': '0' * 40 if method == 'DELETE' else 'a' * 40,
+                    'rule_evaluations': [{'enforcement': 'active', 'result': 'fail',
+                        'rule_type': {'POST': 'creation', 'PATCH': 'update', 'DELETE': 'deletion'}[method],
+                        'rule_source': {'type': 'ruleset', 'id': 123}}]}
+                operator = Mock()
+                operator.request.side_effect = [[], [{'id': 1}], evidence]
+                audit = {'operator_api': operator, 'actor': 42, 'ruleset': 123}
                 if accepted:
-                    self.assertEqual(merge_verify.tag_denied(api, 'example/gitops', 'ci/merge-guard-proof-0123456789abcdef', 'a' * 40, method), code)
+                    self.assertEqual(merge_verify.tag_denied(api, 'example/gitops', 'ci/merge-guard-proof-0123456789abcdef', 'a' * 40, method, **audit), code)
                 else:
                     with self.assertRaises(RuntimeError):
-                        merge_verify.tag_denied(api, 'example/gitops', 'ci/merge-guard-proof-0123456789abcdef', 'a' * 40, method)
-        with self.assertRaises(ValueError): merge_verify.tag_denied(Mock(), 'example/gitops', 'main', 'a' * 40, 'POST')
+                        merge_verify.tag_denied(api, 'example/gitops', 'ci/merge-guard-proof-0123456789abcdef', 'a' * 40, method, **audit)
+        with self.assertRaises(ValueError):
+            merge_verify.tag_denied(Mock(), 'example/gitops', 'main', 'a' * 40, 'POST', **audit)
+
+    def test_audit_evidence_cannot_come_from_another_actor_ref_rule_or_bypass(self):
+        import copy
+        evidence = {'ref': 'refs/tags/fixture', 'actor_id': 42, 'result': 'fail', 'after_sha': 'a' * 40,
+            'rule_evaluations': [{'enforcement': 'active', 'result': 'fail', 'rule_type': 'creation',
+                                 'rule_source': {'type': 'ruleset', 'id': 123}}]}
+        def valid(value): return merge_verify.tag_rule_failed(value, 'refs/tags/fixture', 42, 123, 'creation', 'a' * 40)
+        self.assertTrue(valid(evidence))
+        for field, value in (('ref', 'refs/tags/main'), ('actor_id', 43), ('result', 'bypass'), ('after_sha', 'b' * 40)):
+            self.assertFalse(valid(dict(evidence, **{field: value})))
+        for field, value in (('enforcement', 'evaluate'), ('result', 'pass'), ('rule_type', 'update'),
+                             ('rule_source', {'type': 'ruleset', 'id': 124})):
+            changed = copy.deepcopy(evidence)
+            changed['rule_evaluations'][0][field] = value
+            self.assertFalse(valid(changed))
 
     def test_only_repository_policy_denials_prove_the_merge_boundary(self):
         for status, message, accepted in ((403, 'Merge blocked by repository rules', True),
