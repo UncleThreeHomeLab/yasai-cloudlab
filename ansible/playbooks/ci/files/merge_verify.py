@@ -6,6 +6,7 @@ import secrets
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 
 from playbooks.argocd.files.github_app import app_token
 from playbooks.argocd.files.github_setup import GitHub, configuration, inputs
@@ -33,9 +34,20 @@ def denied(api, repository, number, head):
         return error.code
 
 
-def tag_denied(api, repository, tag, head, method):
+def tag_rule_failed(evidence, reference, actor, ruleset, rule_type, head):
+    return (evidence.get('ref') == reference and evidence.get('actor_id') == actor and evidence.get('result') == 'fail' and
+            evidence.get('after_sha') == head and any(row.get('enforcement') == 'active' and row.get('result') == 'fail' and
+            row.get('rule_type') == rule_type and row.get('rule_source', {}).get('type') == 'ruleset' and
+            row['rule_source'].get('id') == ruleset for row in evidence.get('rule_evaluations', [])))
+
+
+def tag_denied(api, repository, tag, head, method, *, operator_api, actor, ruleset):
     if not FIXTURE_REF.fullmatch(tag) or method not in ('POST', 'PATCH', 'DELETE'):
         raise ValueError('Tag authorization proof exceeds its fixture scope')
+    reference = 'refs/tags/' + tag
+    audits = 'repos/' + repository + '/rulesets/rule-suites'
+    query = audits + '?' + urllib.parse.urlencode({'ref': reference, 'time_period': 'hour', 'per_page': 100})
+    previous = {row['id'] for row in operator_api.request('GET', query)}
     path = '/git/refs' + ('' if method == 'POST' else '/tags/' + tag)
     body = {'ref': 'refs/tags/' + tag, 'sha': head} if method == 'POST' else (
         {'sha': head, 'force': True} if method == 'PATCH' else None)
@@ -48,9 +60,21 @@ def tag_denied(api, repository, tag, head, method):
             raise RuntimeError('Release App unexpectedly mutated a harmless proof tag')
     except urllib.error.HTTPError as error:
         message = json.loads(error.read(65536)).get('message', '').lower()
-        if error.code not in (403, 422) or not any(word in message for word in ('rule', 'protected', 'not allowed', 'blocked')):
+        if error.code not in (403, 422) or not any(word in message for word in (
+                'rule', 'protected', 'not allowed', 'blocked', 'reference update failed')):
             raise RuntimeError('Tag mutation denial was not attributable to repository policy') from None
-        return error.code
+        status = error.code
+    rule_type = {'POST': 'creation', 'PATCH': 'update', 'DELETE': 'deletion'}[method]
+    after = '0' * 40 if method == 'DELETE' else head
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        for row in operator_api.request('GET', query):
+            if row['id'] not in previous:
+                evidence = operator_api.request('GET', audits + '/' + str(row['id']))
+                if tag_rule_failed(evidence, reference, actor, ruleset, rule_type, after):
+                    return status
+        time.sleep(1)
+    raise RuntimeError('Tag denial lacks a fresh enforced rule evaluation for this App, ref and mutation')
 
 
 def cleanup(api, receipt, *, tag_api=None):
@@ -81,7 +105,7 @@ def cleanup(api, receipt, *, tag_api=None):
 
 
 def prove(api, repository, receipt_path, *, operator_api):
-    require_release_guard(operator_api, repository)
+    guards = require_release_guard(operator_api, repository)
     if receipt_path.exists():
         old = json.loads(receipt_path.read_text())
         if old['repository'] != repository:
@@ -116,10 +140,11 @@ def prove(api, repository, receipt_path, *, operator_api):
         else:
             raise RuntimeError('Merge fixture is not structurally mergeable; denial is not proven')
         status = denied(api, repository, pull['number'], head)
-        tag_denied(api, repository, branch, head, 'POST')
+        audit = {'operator_api': operator_api, 'actor': pull['user']['id'], 'ruleset': guards['tag']}
+        tag_denied(api, repository, branch, head, 'POST', **audit)
         operator_api.request('POST', prefix + '/git/refs', {'ref': 'refs/tags/' + branch, 'sha': head})
-        tag_denied(api, repository, branch, base, 'PATCH')
-        tag_denied(api, repository, branch, head, 'DELETE')
+        tag_denied(api, repository, branch, base, 'PATCH', **audit)
+        tag_denied(api, repository, branch, head, 'DELETE', **audit)
         current = api.request('GET', prefix + '/pulls/' + str(pull['number']))
         if current.get('merged') or current['state'] != 'open' or current['head']['sha'] != head:
             raise RuntimeError('Merge fixture did not remain open and unchanged')

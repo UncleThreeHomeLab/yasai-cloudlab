@@ -117,7 +117,7 @@ def require_release_guard(api, repository):
         if (other.get('target') == 'branch' and not other.get('bypass_actors') and not refs.get('exclude') and
                 any(ref in ('~DEFAULT_BRANCH', 'refs/heads/main', '~ALL') for ref in refs.get('include', [])) and
                 any(r.get('type') == 'pull_request' for r in other.get('rules', []))):
-            return
+            return {'merge': rule['id'], 'tag': tag['id']}
     raise ValueError('GitOps requires a separate non-bypassable pull request rule')
 
 
