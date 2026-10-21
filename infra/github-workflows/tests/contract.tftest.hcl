@@ -11,6 +11,13 @@ variables {
 run "scoped_release_permissions" {
   command = plan
   assert {
+    condition = (github_repository_ruleset.merge_guard[0].rules[0].update &&
+      github_repository_ruleset.merge_guard[0].bypass_actors[0].actor_id == 5 &&
+      github_repository_ruleset.merge_guard[0].bypass_actors[0].bypass_mode == "pull_request" &&
+      github_repository_ruleset.merge_guard[0].repository == "public-gitops")
+    error_message = "Release Apps cannot merge; only repository admins can update main through a PR."
+  }
+  assert {
     condition = length(github_workflow_repository_permissions.release) == 2 && alltrue([
       for permissions in github_workflow_repository_permissions.release :
       permissions.default_workflow_permissions == "read" && !permissions.can_approve_pull_request_reviews
@@ -22,6 +29,7 @@ run "scoped_release_permissions" {
 run "creation_free_import_preserves_current_fields" {
   command = plan
   variables {
+    enable_merge_guard = false
     import_permissions = {
       public_platform = { default_workflow_permissions = "read", can_approve_pull_request_reviews = false }
       private_config  = { default_workflow_permissions = "write", can_approve_pull_request_reviews = false }

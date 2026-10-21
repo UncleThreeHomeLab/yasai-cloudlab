@@ -60,6 +60,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
         api.request.return_value = metadata
         row = {'job': 'publish', 'job_workflow_ref': 'example/platform/.github/workflows/application-publish.yaml@' + 'b' * 40}
         with patch('playbooks.argocd.files.github_setup.configuration', return_value=targets), \
+                patch('playbooks.ci.files.workflow_permissions.require_release_guard') as guard, \
                 patch('playbooks.secrets.files.vault.fields', return_value={'APP_ID': '7'}) as fields, \
                 patch('playbooks.harbor.files.scopes.verify_app') as scope:
             result = command.publication(api, {'OP_SERVICE_ACCOUNT_TOKEN': 'synthetic-read-only'}, application,
@@ -67,6 +68,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
             self.assertEqual(result['release_repository'], 'example/gitops')
             self.assertEqual(result['release_repository_id'], 456)
             self.assertEqual(result['project'], 'cloudlab-public')
+            guard.assert_called_once_with(api, 'example/gitops')
             self.assertEqual(scope.call_args.args[1], {'example/gitops': False, 'example/public-fixture': False})
             fields.assert_called_once_with('github-release-public', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
             fields.reset_mock()
@@ -76,6 +78,20 @@ class ApplicationConfigurationTests(unittest.TestCase):
                 command.publication(api, {}, application, current, qualified_tools(), [row])
             fields.assert_not_called()
             scope.assert_not_called()
+
+    def test_missing_release_guard_cannot_load_or_deliver_app_credentials(self):
+        application, current = self.inputs('example', 'private')
+        targets = [('public-platform', 'example/gitops', False), ('private-config', 'example/private', True)]
+        api = Mock()
+        api.request.return_value = {'full_name': 'example/private', 'private': True, 'fork': False,
+                                    'archived': False, 'default_branch': 'main', 'id': 456}
+        with patch('playbooks.argocd.files.github_setup.configuration', return_value=targets), \
+                patch('playbooks.ci.files.workflow_permissions.require_release_guard', side_effect=ValueError('Unavailable')), \
+                patch('playbooks.secrets.files.vault.fields') as fields:
+            with self.assertRaises(ValueError):
+                command.publication(api, {}, application, current, qualified_tools(),
+                                    [{'job': 'publish', 'job_workflow_ref': 'example/workflow@' + 'a' * 40}])
+            fields.assert_not_called()
 
     def test_private_exact_reusable_policy_pins_source_and_caller_sha_without_automatic_templates(self):
         application, current = self.inputs('example', 'private')

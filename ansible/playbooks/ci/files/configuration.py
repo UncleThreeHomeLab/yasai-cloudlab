@@ -258,6 +258,8 @@ def publication(api, values, application, current, qualified, templates):
             metadata.get('fork') or metadata.get('archived') or metadata.get('disabled') or
             metadata.get('default_branch') != 'main' or type(metadata.get('id')) is not int):
         raise ValueError('Publishing requires the accepted owning GitOps repository')
+    from playbooks.ci.files.workflow_permissions import require_release_guard
+    require_release_guard(api, target)
     title = 'github-release-' + scope
     roles, permissions = APPS[title]
     original = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
