@@ -5,9 +5,15 @@ This repository defines the lab, its automation, and its checks.
 ## Delivery
 
 Complete authorized work and make routine decisions without asking again.
-After implementation changes, test, review security, fix material findings,
+After implementation changes, run tests covering the changed behavior and affected
+callers, review security, fix material findings,
 then commit and push through branch protection. Documentation-only edits do
 not need an automatic commit or push. Report results and limitations in chat.
+Use the smallest relevant checks. Do not run unrelated or redundant tests.
+Once relevant checks pass, stop testing unless new changes, failures, or unresolved
+risks justify more checks. Run the full test suite only when changes have broad
+impact or targeted checks cannot cover the affected behavior. Documentation-only
+edits need only relevant document checks.
 
 ## Code is the lab
 
@@ -34,7 +40,8 @@ Pin downloaded artifacts and images by checksum or digest, and keep runner
 package sources fixed. State the host OS and update policy in the README.
 Update pins and run verification together.
 
-For setup changes, run `prove`: apply twice, require zero changes on the second
+For setup changes, run `prove` for the affected components where supported:
+apply twice, require zero changes on the second
 apply on both nodes, then verify real behavior. Test a clean checkout when
 changing packaging or entry points. Report only what was tested; existing-VM
 checks do not prove empty-VM setup. Never wipe VMs to test reproducibility.
@@ -65,8 +72,9 @@ Configuration reproducibility does not replace backup and restore testing.
   do not combine different responsibilities merely to reduce file count.
 - Use explicit dispatch tables for repeated runner command routing. Keep component
   behavior with its owner and preserve credential validation and write gates.
-- Run local tests with `docker compose run --build --rm lab test`; they must not
-  require VM or service credentials. Keep component test processes isolated when
+- Run relevant local tests through Docker Compose; use
+  `docker compose run --build --rm lab test` when the full suite is warranted.
+  Local tests must not require VM or service credentials. Keep component test processes isolated when
   standalone VM modules use overlapping import names.
 - Update callers, deployed runtime paths, portable checks and concise documentation
   together. Keep operations repeatable and resumable; preserve recovery paths.
