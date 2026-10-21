@@ -15,6 +15,7 @@ class ControllerChartTests(unittest.TestCase):
                       'tag': '0.15.0@sha256:' + 'a' * 64},
             'flags': {'watchSingleNamespace': namespace}}}, include_crds=False)
         self.assertEqual([row['metadata']['name'] for row in objects if row['kind'] == 'Namespace'], [namespace])
+        self.assertEqual(next(row for row in objects if row['kind'] == 'Namespace')['metadata']['labels']['cloudlab.io/ci-role'], 'runner')
         self.assertFalse(any(row['kind'] in ('ClusterRole', 'ClusterRoleBinding', 'CustomResourceDefinition') for row in objects))
         self.assertFalse(any(row['kind'] == 'ResourceQuota' and row['metadata']['namespace'] == 'cloudlab-ci-system' for row in objects))
         deployment, = [row for row in objects if row['kind'] == 'Deployment']

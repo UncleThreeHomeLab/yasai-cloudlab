@@ -5,6 +5,7 @@ metadata:
   name: cloudlab-ci-system
   labels:
     cloudlab.io/owner: ci-platform
+    cloudlab.io/ci-role: controller
     cloudlab.io/service-secrets: approved
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.36
@@ -18,6 +19,7 @@ metadata:
   name: {{ .Values.arc.flags.watchSingleNamespace }}
   labels:
     cloudlab.io/owner: ci-platform
+    cloudlab.io/ci-role: runner
     cloudlab.io/service-secrets: approved
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/enforce-version: v1.36

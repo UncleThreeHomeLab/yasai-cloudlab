@@ -20,10 +20,11 @@ class AdmissionTests(unittest.TestCase):
         for actions in (['Audit', 'Warn'], ['Deny']):
             with self.subTest(actions=actions):
                 self.assertTrue(all(row['spec']['validationActions'] == actions for row in
-                                    render(True, {'validationActions': actions})))
+                                    render(True, {'validationActions': actions, 'runnerValidationActions': actions})))
         for actions in ([], ['Warn'], ['Deny', 'Warn'], ['Audit'], ['Deny', 'Deny']):
-            with self.subTest(actions=actions), self.assertRaises(subprocess.CalledProcessError):
-                render(True, {'validationActions': actions})
+            for key in ('validationActions', 'runnerValidationActions'):
+                with self.subTest(actions=actions, key=key), self.assertRaises(subprocess.CalledProcessError):
+                    render(True, {key: actions})
 
     def test_native_cli_rejects_tagged_unbounded_and_token_enabled_workloads(self):
         policies = {row['metadata']['name']: row for row in render(True)}

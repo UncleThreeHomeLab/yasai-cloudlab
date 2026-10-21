@@ -1,0 +1,186 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-ci-boundary
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: {{ toJson .Values.runnerValidationActions }}
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: true}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {cloudlab.io/owner: ci-platform}
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods, pods/ephemeralcontainers]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+  validations:
+    - expression: >-
+        (!has(object.spec.hostNetwork) || !object.spec.hostNetwork) &&
+        (!has(object.spec.hostPID) || !object.spec.hostPID) &&
+        (!has(object.spec.hostIPC) || !object.spec.hostIPC) &&
+        (!has(object.spec.shareProcessNamespace) || !object.spec.shareProcessNamespace) &&
+        (!has(object.spec.runtimeClassName)) &&
+        (!has(object.spec.volumes) || object.spec.volumes.all(v,
+          has(v.emptyDir) || has(v.configMap) || has(v.secret) || has(v.projected)))
+      message: CI pods cannot share host namespaces, override runtime isolation or mount host or persistent storage.
+    - expression: '!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0'
+      message: CI pods cannot add ephemeral debug containers.
+    - expression: >-
+        has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true &&
+        object.spec.securityContext.seccompProfile == {'type': 'RuntimeDefault'} &&
+        variables.containers.all(c,
+          c.image.matches('^.+@sha256:[a-f0-9]{64}$') &&
+          has(c.resources) && has(c.resources.requests) && has(c.resources.limits) &&
+          ['cpu', 'memory', 'ephemeral-storage'].all(k,
+            k in c.resources.requests && k in c.resources.limits &&
+            quantity(c.resources.requests[k]).isGreaterThan(quantity('0')) &&
+            quantity(c.resources.limits[k]).isGreaterThan(quantity('0'))) &&
+          has(c.securityContext) && (!has(c.securityContext.privileged) || !c.securityContext.privileged) &&
+          (!has(c.securityContext.runAsUser) || c.securityContext.runAsUser != 0) &&
+          (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot) &&
+          (!has(c.ports) || c.ports.all(p, !has(p.hostPort) || p.hostPort == 0)) &&
+          c.securityContext.capabilities.drop == ['ALL'] &&
+          ((!has(c.securityContext.allowPrivilegeEscalation) || !c.securityContext.allowPrivilegeEscalation) &&
+            (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) ||
+           c.name == 'builder' && c.image.matches('^.+/cloudlab-public/ci-builder@sha256:[a-f0-9]{64}$') &&
+            object.spec.hostUsers == false && object.spec.securityContext.runAsUser == 1000 &&
+            c.securityContext.readOnlyRootFilesystem == true && c.securityContext.procMount == 'Unmasked' &&
+            c.securityContext.capabilities.add == ['SETUID', 'SETGID'] &&
+            c.securityContext.seccompProfile == {'type': 'Localhost', 'localhostProfile': 'cloudlab/buildkit.json'} &&
+            c.securityContext.appArmorProfile == {'type': 'Localhost', 'localhostProfile': 'cloudlab-buildkit'}))
+      message: CI containers require digest pins, bounded resources and the restricted or qualified rootless builder profile.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-ci-runner
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: {{ toJson .Values.runnerValidationActions }}
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {cloudlab.io/owner: ci-platform, cloudlab.io/ci-role: runner}
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: policyName
+      expression: object.spec.volumes.filter(v, v.name == 'eligibility')[0].configMap.name
+    - name: profile
+      expression: yaml.parse(resource.Get('v1', 'configmaps', object.metadata.namespace, variables.policyName).data['admission.json'])
+    - name: expected
+      expression: variables.profile.spec
+    - name: containers
+      expression: >-
+        object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+    - name: expectedContainers
+      expression: variables.expected.containers + variables.expected.initContainers
+  validations:
+    - expression: >-
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec) ||
+        (variables.policyName in ['cloudlab-ci-eligibility', 'cloudlab-ci-eligibility-publish'] &&
+        request.userInfo.username == variables.profile.controller)
+      message: Only the assigned ARC controller can create or update runner pods using an approved role profile.
+    - expression: >-
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec) ||
+        (object.spec.hostUsers == false && object.spec.automountServiceAccountToken == false &&
+        object.spec.serviceAccountName == 'cloudlab-ci-health' &&
+        object.spec.securityContext == variables.expected.securityContext &&
+        object.spec.restartPolicy == 'Never' && object.spec.activeDeadlineSeconds == 1800 &&
+        object.spec.terminationGracePeriodSeconds == 30 &&
+        object.spec.imagePullSecrets == variables.expected.imagePullSecrets &&
+        size(object.spec.containers) == 1 && size(object.spec.initContainers) == 1 &&
+        object.spec.containers[0].name == 'runner' && object.spec.initContainers[0].name == 'builder')
+      message: Runner pods require their bounded lifecycle, user namespace and read-only health identity.
+    - expression: >-
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec) ||
+        (size(object.spec.volumes) == size(variables.expected.volumes) &&
+        object.spec.volumes.all(v, variables.expected.volumes.exists(p,
+          p.name == v.name && p.all(k, k in v && p[k] == v[k]) &&
+          v.all(k, k in p))))
+      message: Runner volumes must match their approved role; host, extra token and foreign credentials are forbidden.
+    - expression: >-
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec) ||
+        variables.containers.all(c, variables.expectedContainers.exists(p,
+          c.name == p.name && c.image == p.image && c.imagePullPolicy == 'Always' &&
+          c.command == p.command && c.args == p.args && c.securityContext == p.securityContext &&
+          c.volumeMounts == p.volumeMounts &&
+          (!has(c.volumeDevices) || size(c.volumeDevices) == 0) &&
+          (!has(c.envFrom) || size(c.envFrom) == 0) &&
+          ['requests', 'limits'].all(t, c.resources[t].all(k, k in p.resources[t]) &&
+            p.resources[t].all(k, k in c.resources[t] &&
+              quantity(c.resources[t][k]).compareTo(quantity(p.resources[t][k])) == 0)) &&
+          (!has(c.lifecycle)) &&
+          (c.name != 'builder' || c.restartPolicy == 'Always') &&
+          (c.name != 'runner' || has(c.livenessProbe) &&
+            c.livenessProbe == p.livenessProbe) &&
+          (c.name != 'builder' || has(c.startupProbe) &&
+            c.startupProbe == p.startupProbe) &&
+          p.env.all(e, c.env.exists(a, a == e)) &&
+          c.env.all(e, e in p.env || c.name == 'runner' &&
+            ((e.name == 'ACTIONS_RUNNER_INPUT_JITCONFIG' && has(e.valueFrom.secretKeyRef) &&
+              e.valueFrom.secretKeyRef.name == object.metadata.name && e.valueFrom.secretKeyRef.key == 'jitToken') ||
+             (e.name == 'GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT' && e.value == 'actions-runner-controller/0.15.0') ||
+             (e.name == 'ACTIONS_RUNNER_RETURN_VERSION_DEPRECATED_EXIT_CODE' && e.value == '1')))))
+      message: Runner and builder images, commands, permissions, mounts, environment and budgets must match their approved role.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-ci-namespace
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: {{ toJson .Values.runnerValidationActions }}
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: true}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+  validations:
+    - expression: >-
+        !(object.metadata.name.startsWith('cloudlab-ci-') ||
+          (has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels &&
+            object.metadata.labels['cloudlab.io/owner'] == 'ci-platform') ||
+          (oldObject != null && has(oldObject.metadata.labels) &&
+            'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'ci-platform')) ||
+        (has(object.metadata.labels) &&
+          ['cloudlab.io/owner', 'cloudlab.io/ci-role', 'pod-security.kubernetes.io/enforce',
+           'pod-security.kubernetes.io/enforce-version', 'pod-security.kubernetes.io/audit',
+           'pod-security.kubernetes.io/warn'].all(k, k in object.metadata.labels) &&
+          object.metadata.labels['cloudlab.io/owner'] == 'ci-platform' &&
+          object.metadata.labels['cloudlab.io/ci-role'] == (object.metadata.name == 'cloudlab-ci-system' ? 'controller' :
+            object.metadata.name.startsWith('cloudlab-ci-proof-') ? 'qualification' : 'runner') &&
+          object.metadata.labels['pod-security.kubernetes.io/enforce'] ==
+            (object.metadata.name == 'cloudlab-ci-system' ? 'restricted' : 'baseline') &&
+          object.metadata.labels['pod-security.kubernetes.io/enforce-version'] == 'v1.36' &&
+          object.metadata.labels['pod-security.kubernetes.io/audit'] == 'restricted' &&
+          object.metadata.labels['pod-security.kubernetes.io/warn'] == 'restricted')
+      message: CI namespaces must retain automatic guardrail selection and their declared Pod Security labels.
