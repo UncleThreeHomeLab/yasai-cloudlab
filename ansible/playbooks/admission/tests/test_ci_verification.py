@@ -46,6 +46,7 @@ class RunnerVerificationTests(unittest.TestCase):
     def test_bootstrap_without_arc_does_not_require_a_runner_or_claim_a_profile_proof(self):
         with patch.object(ci_verify, 'wait'), \
                 patch.object(ci_verify, 'get', return_value={'items': []}), \
+                patch.object(ci_verify, 'namespace_scope'), \
                 patch.object(ci_verify, 'debug_boundary') as debug:
             result = ci_verify.run(['Deny'])
         self.assertEqual(result['runner_pools'], 0)
@@ -89,6 +90,7 @@ class RunnerVerificationTests(unittest.TestCase):
                 return subprocess.CompletedProcess([], 1, '', 'violates PodSecurity')
             return subprocess.CompletedProcess([], 0, '', '')
         with patch.object(ci_verify, 'wait'), patch.object(ci_verify, 'get', side_effect=get), \
+                patch.object(ci_verify, 'namespace_scope'), \
                 patch.object(ci_verify, 'kube', return_value=subprocess.CompletedProcess([], 1, '',
                     'CI namespaces must retain automatic guardrail selection')), \
                 patch.object(ci_verify, 'dry_run', side_effect=dry_run), \
@@ -100,6 +102,18 @@ class RunnerVerificationTests(unittest.TestCase):
         self.assertEqual(result['runner_pools'], 2)
         self.assertEqual(api.call_count, 2)
         self.assertTrue(all(call.args[0] == namespace for call in api.call_args_list))
+
+    def test_unrelated_namespace_probe_is_generated_dry_run_and_requires_clean_admission(self):
+        accepted = subprocess.CompletedProcess([], 0, '', '')
+        with patch.object(ci_verify, 'kube', return_value=accepted) as kube:
+            ci_verify.namespace_scope()
+        self.assertEqual(kube.call_args.args, ('create', '--dry-run=server', '-f', '-', '-o', 'json'))
+        self.assertEqual(kube.call_args.kwargs['document']['metadata'], {'generateName': 'cloudlab-admission-proof-'})
+        for result in (subprocess.CompletedProcess([], 1, '', 'unrelated error'),
+                       subprocess.CompletedProcess([], 0, '', 'cloudlab-ci-namespace warning')):
+            with self.subTest(result=result), patch.object(ci_verify, 'kube', return_value=result):
+                with self.assertRaises(RuntimeError):
+                    ci_verify.namespace_scope()
 
     def test_probe_preserves_profile_and_does_not_supply_a_real_registration_token(self):
         _, config = runner()
