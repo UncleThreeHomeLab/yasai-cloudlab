@@ -31,6 +31,13 @@ class WorkflowPermissionsTests(unittest.TestCase):
             rows.append({'address': 'github_workflow_repository_permissions.release[' + json.dumps(key) + ']',
                          'type': 'github_workflow_repository_permissions', 'change': change})
         if not importing:
+            tag = {'id': '125', 'repository': desired['repositories']['public_platform']['name'],
+                   'name': permissions.TAG_NAME, 'target': 'tag', 'enforcement': 'active',
+                   'conditions': [{'ref_name': [{'include': ['~ALL'], 'exclude': []}]}],
+                   'bypass_actors': [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'always'}],
+                   'rules': [{'creation': True, 'update': True, 'deletion': True}]}
+            rows.append({'address': permissions.TAG_GUARD, 'type': 'github_repository_ruleset',
+                         'change': {'actions': ['no-op'], 'before': copy.deepcopy(tag), 'after': tag}})
             value = {'id': '123', 'repository': desired['repositories']['public_platform']['name'],
                      'name': permissions.MERGE_NAME, 'target': 'branch', 'enforcement': 'active',
                      'conditions': [{'ref_name': [{'include': ['~DEFAULT_BRANCH'], 'exclude': []}]}],
@@ -87,14 +94,21 @@ class WorkflowPermissionsTests(unittest.TestCase):
         pull = {'id': 124, 'name': 'main', 'target': 'branch', 'enforcement': 'active',
                 'conditions': {'ref_name': {'include': ['refs/heads/main'], 'exclude': []}},
                 'bypass_actors': [], 'rules': [{'type': 'pull_request'}]}
-        for defect in (None, 'missing', 'app', 'direct', 'inactive', 'no_pr', 'pr_bypass'):
-            rows = copy.deepcopy([merge, pull])
+        tag = {'id': 125, 'name': permissions.TAG_NAME, 'target': 'tag', 'enforcement': 'active',
+               'conditions': {'ref_name': {'include': ['~ALL'], 'exclude': []}},
+               'bypass_actors': [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'always'}],
+               'rules': [{'type': key} for key in ('creation', 'update', 'deletion')]}
+        for defect in (None, 'missing', 'app', 'direct', 'inactive', 'no_pr', 'pr_bypass', 'tag_missing', 'tag_app', 'tag_update'):
+            rows = copy.deepcopy([merge, pull, tag])
             if defect == 'missing': rows.pop(0)
             elif defect == 'app': rows[0]['bypass_actors'][0]['actor_type'] = 'Integration'
             elif defect == 'direct': rows[0]['bypass_actors'][0]['bypass_mode'] = 'always'
             elif defect == 'inactive': rows[0]['enforcement'] = 'disabled'
             elif defect == 'no_pr': rows[1]['rules'] = []
             elif defect == 'pr_bypass': rows[1]['bypass_actors'] = [{'actor_type': 'Integration'}]
+            elif defect == 'tag_missing': rows.pop()
+            elif defect == 'tag_app': rows[2]['bypass_actors'][0]['actor_type'] = 'Integration'
+            elif defect == 'tag_update': rows[2]['rules'].pop(1)
             api = Mock()
             api.request.side_effect = lambda method, path: (rows if '?includes_parents' in path else
                                                             next(row for row in rows if path.endswith('/' + str(row['id']))))
@@ -103,6 +117,18 @@ class WorkflowPermissionsTests(unittest.TestCase):
             else:
                 with self.subTest(defect=defect), self.assertRaises(ValueError):
                     permissions.require_release_guard(api, 'example/public-gitops')
+
+    def test_tag_guard_cannot_exclude_refs_expand_bypass_or_drop_any_mutation_rule(self):
+        for defect in ('exclude', 'app', 'scope', 'creation', 'update', 'deletion', 'remove'):
+            plan, desired, _, policy = self.plan()
+            change = next(row['change'] for row in plan['resource_changes'] if row['address'] == permissions.TAG_GUARD)
+            value = change['after']
+            if defect == 'exclude': value['conditions'][0]['ref_name'][0]['exclude'] = ['refs/tags/main']
+            elif defect == 'app': value['bypass_actors'][0]['actor_type'] = 'Integration'
+            elif defect == 'scope': value['conditions'][0]['ref_name'][0]['include'] = ['refs/tags/release-*']
+            elif defect == 'remove': change['actions'] = ['delete']
+            else: value['rules'][0][defect] = False
+            with self.subTest(defect=defect), self.assertRaises(ValueError): permissions.guard(plan, desired, policy)
 
     def test_existing_merge_guard_cannot_be_duplicated_or_adopted_from_another_state(self):
         desired, _ = workflow_permissions()

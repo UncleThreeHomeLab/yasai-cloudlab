@@ -1,6 +1,7 @@
 """Prove the release App cannot merge a bounded, non-deploying GitOps fixture."""
 import json
 import os
+import re
 import secrets
 import time
 import urllib.error
@@ -14,6 +15,7 @@ from playbooks.harbor.files.recovery import atomic
 from playbooks.secrets.files.vault import fields
 
 FILE = 'verification/integration/fixtures/merge-guard-probe.json'
+FIXTURE_REF = re.compile(r'ci/merge-guard-proof-[a-f0-9]{16}')
 
 
 def denied(api, repository, number, head):
@@ -31,14 +33,43 @@ def denied(api, repository, number, head):
         return error.code
 
 
-def cleanup(api, receipt):
+def tag_denied(api, repository, tag, head, method):
+    if not FIXTURE_REF.fullmatch(tag) or method not in ('POST', 'PATCH', 'DELETE'):
+        raise ValueError('Tag authorization proof exceeds its fixture scope')
+    path = '/git/refs' + ('' if method == 'POST' else '/tags/' + tag)
+    body = {'ref': 'refs/tags/' + tag, 'sha': head} if method == 'POST' else (
+        {'sha': head, 'force': True} if method == 'PATCH' else None)
+    request = urllib.request.Request('https://api.github.com/repos/' + repository + path,
+        data=json.dumps(body).encode() if body is not None else None, method=method,
+        headers={'Authorization': 'Bearer ' + api.token, 'Accept': 'application/vnd.github+json',
+                 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'})
+    try:
+        with api.opener.open(request, timeout=30):
+            raise RuntimeError('Release App unexpectedly mutated a harmless proof tag')
+    except urllib.error.HTTPError as error:
+        message = json.loads(error.read(65536)).get('message', '').lower()
+        if error.code not in (403, 422) or not any(word in message for word in ('rule', 'protected', 'not allowed', 'blocked')):
+            raise RuntimeError('Tag mutation denial was not attributable to repository policy') from None
+        return error.code
+
+
+def cleanup(api, receipt, *, tag_api=None):
     repository, branch, head = receipt['repository'], receipt['branch'], receipt.get('head')
-    if not branch.startswith('ci/merge-guard-proof-') or not head:
+    if not FIXTURE_REF.fullmatch(branch) or not head:
         raise ValueError('Merge fixture cleanup scope is incomplete; receipt retained')
     prefix = 'repos/' + repository
     reference = api.request('GET', prefix + '/git/ref/heads/' + branch, missing=True)
     if reference is not None and reference['object']['sha'] != head:
         raise ValueError('Merge fixture branch changed; cleanup refused')
+    if receipt.get('tag'):
+        if receipt['tag'] != branch:
+            raise ValueError('Tag cleanup exceeds its original fixture')
+        operator = tag_api or api
+        tag = operator.request('GET', prefix + '/git/ref/tags/' + branch, missing=True)
+        if tag is not None:
+            if tag['object']['sha'] != head:
+                raise ValueError('Proof tag changed; preserve it for inspection')
+            operator.request('DELETE', prefix + '/git/refs/tags/' + branch)
     pulls = api.request('GET', prefix + '/pulls?state=all&head=' + repository.split('/')[0] + ':' + branch)
     for pull in pulls:
         if pull['head']['sha'] != head or pull.get('merged_at'):
@@ -49,13 +80,13 @@ def cleanup(api, receipt):
         api.request('DELETE', prefix + '/git/refs/heads/' + branch)
 
 
-def prove(api, repository, receipt_path, *, policy_api=None):
-    require_release_guard(policy_api or api, repository)
+def prove(api, repository, receipt_path, *, operator_api):
+    require_release_guard(operator_api, repository)
     if receipt_path.exists():
         old = json.loads(receipt_path.read_text())
         if old['repository'] != repository:
             raise ValueError('Merge fixture recovery requires its original repository')
-        cleanup(api, old)
+        cleanup(api, old, tag_api=operator_api)
         receipt_path.unlink()
     prefix = 'repos/' + repository
     base = api.request('GET', prefix + '/git/ref/heads/main')['object']['sha']
@@ -66,7 +97,7 @@ def prove(api, repository, receipt_path, *, policy_api=None):
         'tree': [{'path': FILE, 'mode': '100644', 'type': 'blob', 'content': content}]})['sha']
     head = api.request('POST', prefix + '/git/commits', {
         'message': 'Verify release App merge denial', 'tree': tree, 'parents': [base]})['sha']
-    receipt = {'repository': repository, 'branch': branch, 'head': head}
+    receipt = {'repository': repository, 'branch': branch, 'head': head, 'tag': branch}
     atomic(receipt_path, receipt)
     try:
         api.request('POST', prefix + '/git/refs', {'ref': 'refs/heads/' + branch, 'sha': head})
@@ -85,13 +116,17 @@ def prove(api, repository, receipt_path, *, policy_api=None):
         else:
             raise RuntimeError('Merge fixture is not structurally mergeable; denial is not proven')
         status = denied(api, repository, pull['number'], head)
+        tag_denied(api, repository, branch, head, 'POST')
+        operator_api.request('POST', prefix + '/git/refs', {'ref': 'refs/tags/' + branch, 'sha': head})
+        tag_denied(api, repository, branch, base, 'PATCH')
+        tag_denied(api, repository, branch, head, 'DELETE')
         current = api.request('GET', prefix + '/pulls/' + str(pull['number']))
         if current.get('merged') or current['state'] != 'open' or current['head']['sha'] != head:
             raise RuntimeError('Merge fixture did not remain open and unchanged')
         return {'release_app_proposed_pr': True, 'release_app_merge_denied': True,
-                'denial_status': status, 'non_deploying_files': 1}
+                'denial_status': status, 'non_deploying_files': 1, 'tag_mutations_denied': 3}
     finally:
-        cleanup(api, receipt)
+        cleanup(api, receipt, tag_api=operator_api)
         receipt_path.unlink()
 
 
@@ -109,7 +144,7 @@ def main():
         {'repository_ids': [target['id']], 'permissions': {'contents': 'write', 'pull_requests': 'write'}})['token']
     client = GitHub(token)
     try:
-        print(json.dumps(prove(client, repository, harbor.WORK / 'ci/merge-proof.json', policy_api=reader)))
+        print(json.dumps(prove(client, repository, harbor.WORK / 'ci/merge-proof.json', operator_api=reader)))
     finally:
         client.request('DELETE', 'installation/token')
 

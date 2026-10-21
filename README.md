@@ -155,7 +155,8 @@ Publishing requires a server-enforced GitOps merge gate: only repository admins
 may merge through PRs; release Apps cannot merge. Existing PR/check rules remain
 independent. Private publishing stays blocked when the repository plan cannot
 enforce this boundary. The local [workflow policy owner](infra/github-workflows)
-keeps workflow tokens read-only and owns the public merge gate.
+keeps workflow tokens read-only and owns the public merge gate. Public GitOps
+tags require repository admin access, preventing tag names from shadowing branches.
 
 The [runner gate](platform/delivery/ci/runner/TrustedWorkflow.cs) checks original
 job metadata against a read-only policy before action setup. PR jobs require current
