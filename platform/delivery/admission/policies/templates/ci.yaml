@@ -9,7 +9,7 @@ spec:
   failurePolicy: Fail
   evaluation:
     admission: {enabled: true}
-    background: {enabled: true}
+    background: {enabled: false}
   autogen:
     validatingAdmissionPolicy: {enabled: false}
   matchConstraints:

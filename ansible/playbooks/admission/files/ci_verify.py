@@ -135,23 +135,27 @@ def run(actions):
             for _, bad in violations(document):
                 outcome(dry_run(bad, controller), enforce, 'cloudlab-ci-runner')
                 checks += 1
-            for field, value in (('hostNetwork', True), ('volumes', [{'name': 'host', 'hostPath': {'path': '/'}}])):
+            for host_network in (False, True):
                 bad = copy.deepcopy(document)
-                bad['spec'][field] = value
+                if host_network:
+                    bad['spec'].update(hostNetwork=True, hostUsers=True)
+                    bad['spec']['initContainers'][0]['securityContext']['procMount'] = 'Default'
+                else:
+                    bad['spec']['volumes'].append({'name': 'host', 'hostPath': {'path': '/'}})
                 rejected = dry_run(bad, controller)
                 if not rejected.returncode or not any(x in rejected.stderr for x in ('violates PodSecurity', 'cloudlab-ci-boundary')):
                     raise RuntimeError('CI host access was not rejected by its admission boundary')
             api_boundary(name, controller)
             pools += 1
-    if not pools:
-        raise RuntimeError('CI admission requires at least one registered runner pool')
-    debug_boundary(enforce)
+    controller_present = any(n['metadata']['name'] == 'cloudlab-ci-system' for n in namespaces)
+    if controller_present:
+        debug_boundary(enforce)
     return {'runner_namespaces': sum(n['metadata']['labels']['cloudlab.io/ci-role'] == 'runner' for n in namespaces),
             'runner_pools': pools, 'profile_violations_checked': checks,
-            'runner_mode': 'enforce' if enforce else 'audit', 'approved_profiles_admitted': True,
-            'namespace_selection_protected': True, 'api_writes_and_credentials_denied': True,
-            'controller_profile_write_denied': True, 'debug_admission_checked': True,
-            'host_access_denied': True, 'existing_pods_checked': existing, 'workloads_created': 0}
+            'runner_mode': 'enforce' if enforce else 'audit', 'approved_profiles_admitted': pools > 0,
+            'namespace_selection_protected': bool(namespaces), 'api_writes_and_credentials_denied': pools > 0,
+            'controller_profile_write_denied': pools > 0, 'debug_admission_checked': controller_present,
+            'host_access_denied': pools > 0, 'existing_pods_checked': existing, 'workloads_created': 0}
 
 
 if __name__ == '__main__':

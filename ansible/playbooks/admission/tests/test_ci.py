@@ -45,6 +45,8 @@ class RunnerPolicyTests(unittest.TestCase):
         self.assertNotIn('error)', result.stdout)
 
     def test_qualified_runner_passes_both_policies_without_a_builder_exemption(self):
+        boundary = next(p for p in render(True) if p['metadata']['name'] == 'cloudlab-ci-boundary')
+        self.assertFalse(boundary['spec']['evaluation']['background']['enabled'])
         good, _ = runner()
         self.evaluate([good], ['cloudlab-ci-boundary', 'cloudlab-ci-runner'])
 

@@ -34,6 +34,17 @@ class RunnerVerificationTests(unittest.TestCase):
                     ci_verify.run(actions)
                 get.assert_not_called()
 
+    def test_bootstrap_without_arc_does_not_require_a_runner_or_claim_a_profile_proof(self):
+        with patch.object(ci_verify, 'wait'), \
+                patch.object(ci_verify, 'get', return_value={'items': []}), \
+                patch.object(ci_verify, 'debug_boundary') as debug:
+            result = ci_verify.run(['Deny'])
+        self.assertEqual(result['runner_pools'], 0)
+        self.assertEqual(result['workloads_created'], 0)
+        self.assertFalse(result['approved_profiles_admitted'])
+        self.assertFalse(result['debug_admission_checked'])
+        debug.assert_not_called()
+
     def test_api_permission_proof_rejects_unexpected_grants_and_transport_errors(self):
         for result in (subprocess.CompletedProcess([], 0, 'yes\n', ''),
                        subprocess.CompletedProcess([], 1, '', 'connection failed')):
