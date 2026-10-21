@@ -41,8 +41,8 @@ def get(kind, *arguments):
 
 def validate(policy):
     spec = policy['spec']
-    if (set(spec) != {'podSelector', 'policyTypes', 'ingress', 'egress'} or spec.get('podSelector') != {} or
-            set(spec.get('policyTypes', [])) != {'Ingress', 'Egress'} or spec.get('ingress') != []):
+    if (set(spec) not in ({'podSelector', 'policyTypes', 'ingress', 'egress'}, {'podSelector', 'policyTypes', 'egress'}) or
+            spec.get('podSelector') != {} or set(spec.get('policyTypes', [])) != {'Ingress', 'Egress'} or spec.get('ingress', []) != []):
         raise ValueError('CI networking must isolate every pod in both directions')
     rules = spec.get('egress', [])
     if len(rules) not in (4, 6):
