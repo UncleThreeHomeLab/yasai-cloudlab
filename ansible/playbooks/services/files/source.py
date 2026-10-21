@@ -39,8 +39,6 @@ def publish(value, *, expected=None):
     if expected is not None and before != expected:
         raise RuntimeError('Private catalog advanced; reread its complete input before changing publication intent')
     if before:
-        if before.get('retainedDataRequests', []) != value.get('retainedDataRequests', []):
-            raise ValueError('Existing retained data scope requires separately reviewed maintenance')
         old = {row['approval']['name']: row for row in before['catalog']}
         new = {row['approval']['name']: row for row in value['catalog']}
         if set(old) - set(new):

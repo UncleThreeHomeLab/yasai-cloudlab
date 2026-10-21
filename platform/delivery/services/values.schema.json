@@ -164,27 +164,6 @@
     },
     "argo-cd": {
       "type": "object"
-    },
-    "retainedDataRequests": {
-      "type": "array",
-      "maxItems": 20,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "service",
-          "data"
-        ],
-        "properties": {
-          "service": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9-]{0,30}$"
-          },
-          "data": {
-            "$ref": "#/definitions/service/properties/data"
-          }
-        }
-      }
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#",

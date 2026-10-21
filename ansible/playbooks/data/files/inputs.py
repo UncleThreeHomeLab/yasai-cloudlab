@@ -37,11 +37,10 @@ def payload():
         result['values']['identity'] = {'enabled': True, 'database': keycloak['database'], 'role': keycloak['username']}
     if public.get('services', {}).get('enabled'):
         from playbooks.services.files.inputs import catalog
-        from playbooks.data.files.requests import request, resolve, protect, retained_requests
+        from playbooks.data.files.requests import request, resolve, protect
         service_catalog = catalog(required=True)
         requests = [request(entry['approval']['name'], entry['definition']['data'], service_catalog['dataApprovals'])
                     for entry in service_catalog['catalog'] if entry['definition']['data']]
-        requests += retained_requests(service_catalog)
         result['values']['serviceConsumers'] = sorted({row['namespace'] for row in requests if 'database' in row})
         resolved = resolve(requests, fields)
         protect(resolved, result['values'])

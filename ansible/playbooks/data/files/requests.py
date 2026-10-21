@@ -32,24 +32,6 @@ def request(service, data, approved):
     return result
 
 
-def retained_requests(catalog):
-    """Retain declared data independently of a retired application's Git source."""
-    entries = catalog.get('retainedDataRequests', [])
-    if not isinstance(entries, list) or len(entries) > 20:
-        raise ValueError('Retained data requests must be a bounded list')
-    names, result = {row['approval']['name'] for row in catalog['catalog']}, []
-    for entry in entries:
-        if (not isinstance(entry, dict) or set(entry) != {'service', 'data'} or
-                not isinstance(entry['service'], str) or not isinstance(entry['data'], dict) or not entry['data']):
-            raise ValueError('Retained data requires an explicit service and data scope')
-        row = request(entry['service'], entry['data'], catalog['dataApprovals'])
-        if row['service'] in names:
-            raise ValueError('Retained data overlaps another service declaration')
-        names.add(row['service'])
-        result.append(row)
-    return result
-
-
 def resolve(requests, lookup):
     result = []
     databases, roles, buckets, services = set(), set(), set(), set()
