@@ -56,10 +56,6 @@ def run(payload):
             unauthorized_destination(entry, payload, unauthorized_source=True)
             from playbooks.services.files.transport import run as transport_proof
             transport_proof(entry, payload['proof_image'])
-        if entry['definition']['name'].startswith('fixture-'):
-            from playbooks.data.files.service_proof import run as data_proof
-            data_proof(entry)
-            if entry['publication'] == 'retired': inspect(dict(request, action='fixture-volume'))
         checked += 1
     active = [entry for entry in payload['values']['catalog'] if entry['publication'] != 'retired']
     stability = {'tested': False, 'active_namespaces': 0}

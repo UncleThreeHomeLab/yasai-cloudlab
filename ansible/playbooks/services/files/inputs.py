@@ -34,14 +34,13 @@ def catalog(required=False, *, coordinates=False):
 
 
 def validate_catalog(value):
-    if (not isinstance(value, dict) or set(value) - {'catalog', 'dataApprovals', 'retainedDataRequests'} or
-            not {'catalog', 'dataApprovals'} <= set(value) or
+    if (not isinstance(value, dict) or set(value) != {'catalog', 'dataApprovals'} or
             not isinstance(value['catalog'], list) or len(value['catalog']) > 20 or
             not isinstance(value['dataApprovals'], dict) or len(value['dataApprovals']) > 40):
         raise ValueError('Private service catalog requires complete catalog and data approvals')
     names = set()
     platform_repository = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
-    from playbooks.data.files.requests import request, retained_requests
+    from playbooks.data.files.requests import request
     for entry in value['catalog']:
         if set(entry) != {'definition', 'approval', 'publication'} or entry['publication'] not in ('ready', 'published', 'retired'):
             raise ValueError('Service catalog entries require explicit ready, published or retired intent')
@@ -51,7 +50,6 @@ def validate_catalog(value):
         names.add(name)
         request(name, definition['data'], value['dataApprovals'])
         resources(definition, entry['approval'], platform_repository, 'a' * 40)
-    retained_requests(value)
     return value
 
 
