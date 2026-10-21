@@ -349,3 +349,5 @@ this public repository and `PRIVATE_CONFIG_REPOSITORY`; private credentials rema
 ESO-owned. Failure and removal scenarios run locally. Notes remains the working
 example, including its normal application-owned CI and release flow. Platform
 acceptance checks deployed integration without running Notes tests or triggering CI.
+Retired application data can remain in private `retainedDataRequests` entries
+(`service` and `data`), authorized by existing `dataApprovals`, without a Git source.
