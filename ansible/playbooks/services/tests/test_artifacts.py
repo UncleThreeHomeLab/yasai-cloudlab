@@ -236,7 +236,7 @@ class ArtifactTests(unittest.TestCase):
     def test_packaged_notes_keeps_identity_data_and_telemetry_without_runtime_dependency_install(self):
         from playbooks.services.files.examples import definitions
         value = definitions('example.invalid', 'https://github.com/example/platform.git', 'a' * 40,
-                            'https://github.com/example/private.git', 'abcdef123456', 'notes', 'notes')['catalog'][0]['definition']
+                            'notes', 'notes')['catalog'][0]['definition']
         value['image'] = 'registry.example.invalid/cloudlab-public/notes@sha256:' + 'c' * 64
         value['artifactPolicyHash'] = 'd' * 64
         payload = {'definition': value, 'issuer': 'https://login.example.invalid/realms/applications',

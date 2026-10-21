@@ -53,14 +53,12 @@ def configuration(values):
     targets = [('public-platform', repository(public), False)]
     for key, role, private in (
         ('PRIVATE_CONFIG_REPOSITORY', 'private-config', True),
-        ('PUBLIC_TEST_REPOSITORY', 'public-fixture', False),
-        ('PRIVATE_TEST_REPOSITORY', 'private-fixture', True),
     ):
         if not values.get(key):
             raise RuntimeError('Repository setup requires all designated repository inputs in .env')
         targets.append((role, repository(values[key]), private))
     if len({repo.lower() for _, repo, _ in targets}) != len(targets):
-        raise RuntimeError('Platform, configuration and fixture repositories must be distinct')
+        raise RuntimeError('Platform and configuration repositories must be distinct')
     if len({repo.split('/')[0].lower() for _, repo, _ in targets}) != 1:
         raise RuntimeError('Repository setup is restricted to the platform organization')
     return targets

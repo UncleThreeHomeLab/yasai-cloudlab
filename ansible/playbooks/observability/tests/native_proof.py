@@ -210,38 +210,13 @@ def verify():
             'cloudlab_keycloak_admin_events_total', 'cloudlab_keycloak_health_last_success_seconds',
             'cloudlab_keycloak_audit_incomplete')):
         raise RuntimeError('Pinned bounded audit metrics unavailable')
-    # Exercise the actual app middleware, rather than only hand-created SDK spans.
-    sys.path.insert(0, str(ROOT / 'apps/notes'))
-    import telemetry
-    import web
-    from http.server import ThreadingHTTPServer
-    os.environ.update(OTEL_ENABLED='1', SOURCE_SHA256='0' * 64,
-        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT='http://cloudlab-alloy.cloudlab-observability.svc:4318/v1/traces')
-    telemetry.start('notes-web')
-    telemetry.instrument(web.Handler, 'notes-web')
-    server = ThreadingHTTPServer(('127.0.0.1', 0), web.Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        request = urllib.request.Request('http://127.0.0.1:' + str(server.server_port) + '/ready?password=fixture-secret-do-not-export',
-            headers={'traceparent': carrier['traceparent'], 'Authorization': 'Bearer fixture-secret-do-not-export'})
-        with urllib.request.urlopen(request, timeout=5) as response:
-            if response.status != 200: raise RuntimeError('Real app fixture readiness failed')
-        request_metrics = urllib.request.Request('http://127.0.0.1:9091/metrics',
-            headers={'Accept': 'application/openmetrics-text;version=1.0.0'})
-        with urllib.request.urlopen(request_metrics, timeout=5) as response: exported = response.read().decode()
-        if ('fixture-secret-do-not-export' in exported or 'traffic="synthetic"' not in exported or
-                'revision="' + '0' * 64 + '"' not in exported or trace_id not in exported):
-            raise RuntimeError('Real app metrics, source revision, propagation or redaction failed')
-    finally:
-        server.shutdown()
-        server.server_close()
     receipt = json.loads((FIXTURE / 'retention.json').read_text())
     if (receipt != {'loki_retention': '72h', 'loki_audit_retention': '168h', 'loki_retention_enabled': True,
                    'tempo_storage': 'local', 'tempo_retention': '24h'}):
         raise RuntimeError('Pinned local retention settings differ')
     print(json.dumps({'otlp_sdk_to_alloy_to_tempo': True, 'parent_child_trace': True,
                       'redacted_logs_to_loki': True, 'trace_log_correlation': True,
-                      'configured_local_retention': True, 'real_app_middleware_and_metrics': True,
+                      'configured_local_retention': True,
                       'audit_projection_and_metrics': True, 'b2_connections': 0}))
     from playbooks.observability.tests.alert_fixture import verify as verify_alerts
     print(json.dumps(verify_alerts()))

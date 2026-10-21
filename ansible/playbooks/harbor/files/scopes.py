@@ -4,10 +4,9 @@ from playbooks.argocd.files.github_app import app_token
 from playbooks.argocd.files.github_setup import GitHub, configuration
 
 APPS = {
-    'github-arc': (('private-fixture',), {'administration': 'write', 'metadata': 'read'}),
-    'github-release-public': (('public-platform', 'public-fixture'),
+    'github-release-public': (('public-platform',),
                               {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}),
-    'github-release-private': (('private-config', 'private-fixture'),
+    'github-release-private': (('private-config',),
                                {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}),
 }
 
@@ -49,7 +48,7 @@ def verify(values):
     for title, (roles, permissions) in APPS.items():
         credentials = fields(title, ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
         if credentials['APP_ID'] in identities:
-            raise RuntimeError('ARC and public/private release identities must be distinct')
+            raise RuntimeError('Public/private release identities must be distinct')
         identities.add(credentials['APP_ID'])
         try:
             result[title] = verify_app(credentials, dict(targets[role] for role in roles), permissions)

@@ -3,6 +3,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import time
 import urllib.request
@@ -19,7 +20,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[4]
 ITEM = 'github-argocd'
 FIELDS = ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')
-REPOSITORIES = ('PRIVATE_CONFIG_REPOSITORY', 'PRIVATE_TEST_REPOSITORY')
+REPOSITORIES = ('PRIVATE_CONFIG_REPOSITORY',)
 
 
 def app_token(credentials):
@@ -60,7 +61,7 @@ def verify_repositories(document, targets):
 def verify(credentials, values):
     targets = {field: repository(values.get(field)) for field in REPOSITORIES}
     if len(set(value.lower() for value in targets.values())) != len(targets):
-        raise RuntimeError('Private configuration and test repositories must be distinct')
+        raise RuntimeError('Private configuration repository inputs must be distinct')
     api = GitHub(app_token(credentials))
     path = 'app/installations/' + credentials['INSTALLATION_ID']
     verify_installation(api.request('GET', path), credentials['APP_ID'])
@@ -82,6 +83,31 @@ def main():
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     from playbooks.secrets.files.vault import fields
     return verify(fields(ITEM, FIELDS), values)
+
+
+def configuration_revision(values):
+    """Read the actual configuration head with a disposable repository-scoped token."""
+    from playbooks.secrets.files.vault import fields
+    credentials = fields(ITEM, FIELDS)
+    api = GitHub(app_token(credentials))
+    path = 'app/installations/' + credentials['INSTALLATION_ID']
+    verify_installation(api.request('GET', path), credentials['APP_ID'])
+    repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
+    token = api.request('POST', path + '/access_tokens', {
+        'repositories': [repo.split('/')[1]], 'permissions': {'contents': 'read'}})['token']
+    client = GitHub(token)
+    try:
+        current = client.request('GET', 'repos/' + repo)
+        if (current.get('full_name', '').lower() != repo.lower() or current.get('private') is not True or
+                current.get('fork') or current.get('archived') or current.get('disabled') or
+                current.get('default_branch') != 'main'):
+            raise RuntimeError('Private configuration repository identity or visibility differs')
+        revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+        if not re.fullmatch('[a-f0-9]{40}', revision):
+            raise RuntimeError('Private configuration head is invalid')
+        return revision
+    finally:
+        client.request('DELETE', 'installation/token')
 
 
 if __name__ == '__main__':

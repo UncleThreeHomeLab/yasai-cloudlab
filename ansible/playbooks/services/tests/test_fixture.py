@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from playbooks.services.files import fixture
+from playbooks.services.tests import fixture
 
 
 class FixtureTests(unittest.TestCase):

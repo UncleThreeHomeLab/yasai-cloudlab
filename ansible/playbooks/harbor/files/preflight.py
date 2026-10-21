@@ -14,12 +14,8 @@ CONTRACT['projects'] = list(json.loads((Path(__file__).resolve().parents[4] / 'i
 
 
 def targets(values):
-    result = {key: repository(values.get(key)) for key in (
-        'PRIVATE_CONFIG_REPOSITORY', 'PUBLIC_TEST_REPOSITORY', 'PRIVATE_TEST_REPOSITORY')}
-    if len(set(name.lower() for name in result.values())) != 3 or len({
-            name.split('/')[0].lower() for name in result.values()}) != 1:
-        raise ValueError('Harbor requires distinct designated configuration/public/private repositories in the same owner')
-    return result
+    from playbooks.argocd.files.github_setup import configuration
+    return {role: repo for role, repo, _ in configuration(values)}
 
 
 def inspect(token):

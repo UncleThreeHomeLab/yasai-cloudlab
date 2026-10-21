@@ -228,18 +228,12 @@ def configuration(qualified, fixture, workflow_revision=None):
     if (fixture.get('private') is not True or fixture.get('fork') or fixture.get('archived') or
             type(fixture.get('id')) is not int or fixture['id'] <= 0 or
             fixture.get('full_name') != name or fixture.get('default_branch') != 'main' or
-            fixture.get('description') != MARKER + 'private-fixture'):
+            fixture.get('description') != MARKER + 'private-config'):
         raise ValueError('Lab runners require the designated private main-branch repository')
-    workflows = []
     if workflow_revision is not None:
-        if not re.fullmatch(r'[a-f0-9]{40}', workflow_revision):
-            raise ValueError('Runner registration requires the exact reviewed workflow revision')
-        workflows = [{'repository_id': str(fixture['id']), 'repository': name,
-                      'workflow_ref': name + '/.github/workflows/publish.yaml@refs/heads/main',
-                      'workflow_sha': workflow_revision, 'sha': workflow_revision, 'ref': 'refs/heads/main',
-                      'event_name': event, 'job': 'publish'} for event in ('push', 'workflow_dispatch')]
-    return {'images': references, 'arc': {'githubConfigUrl': fixture['html_url']},
-            'eligibility': workflows, 'qualification': {
+        raise ValueError('Runner eligibility requires an explicit application file and reviewed workflow')
+    return {'images': references, 'arc': {},
+            'eligibility': [], 'qualification': {
                 key: qualified[key] for key in ('revision', 'image_revision', 'profile_sha256', 'nodes_verified')}}
 
 
@@ -304,18 +298,13 @@ def main():
     revision = harbor_api.binding()
     values, api = inputs()
     application = json.loads(arguments.application_file.read_text()) if arguments.application_file else None
-    name = repository(application['repository'] if application else values.get('PRIVATE_TEST_REPOSITORY'))
+    name = repository(application['repository'] if application else values.get('PRIVATE_CONFIG_REPOSITORY'))
     owner = repository(yaml.safe_load((harbor_api.ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']).split('/')[0]
     if application and name.split('/')[0].lower() != owner.lower():
         raise ValueError('Application registration is restricted to the designated organization')
-    fixture = api.request('GET', 'repos/' + name) if application else inspect(api, 'private-fixture', name, True)
+    fixture = api.request('GET', 'repos/' + name) if application else inspect(api, 'private-config', name, True)
     if fixture is None:
         raise ValueError('The designated private repository must exist before registration')
-    if arguments.workflow_revision is not None and not application:
-        current = api.request('GET', 'repos/' + name + '/git/ref/heads/main')['object']['sha']
-        if current != arguments.workflow_revision or not api.request('GET', 'repos/' + name +
-                '/contents/.github/workflows/publish.yaml?ref=' + current, missing=True):
-            raise ValueError('Approve the actual main workflow revision before registering the pool')
     qualified = json.loads((harbor_api.WORK / 'ci/qualified.json').read_text())
     from playbooks.ci.files.network import discover
     network = discover(values, qualified_images(qualified)['runner'].split('/')[0])

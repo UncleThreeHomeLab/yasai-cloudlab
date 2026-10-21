@@ -1,4 +1,5 @@
 import copy
+import base64
 import json
 from pathlib import Path
 import sys
@@ -6,10 +7,42 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'verification/integration'))
-from private_verify import healthy, credential_failure
+from private_verify import healthy, configuration_healthy, credential_owner, run
+from private_failures import credential_failure
 
 
 class PrivateConvergenceTests(unittest.TestCase):
+    def test_main_must_resolve_to_authenticated_configuration_head(self):
+        app = {'spec': {'source': {'repoURL': 'private-source', 'targetRevision': 'main'}},
+               'status': {'sync': {'revision': 'a' * 40}}}
+        with patch('private_verify.healthy', return_value=True), patch('private_verify.get', return_value=app):
+            self.assertTrue(configuration_healthy('consumer', 'private-source', 'a' * 40))
+            self.assertFalse(configuration_healthy('consumer', 'private-source', 'b' * 40))
+            self.assertFalse(configuration_healthy('consumer', 'other-source', 'a' * 40))
+
+    def test_private_credential_requires_exact_project_and_ready_eso_owner(self):
+        app = {'spec': {'project': 'approved'}}
+        secret = {'metadata': {'name': 'source', 'labels': {'argocd.argoproj.io/secret-type': 'repository'},
+                               'ownerReferences': [{'kind': 'ExternalSecret', 'uid': 'owner'}]},
+                  'data': {key: base64.b64encode(value.encode()).decode() for key, value in {
+                      'url': 'private-source', 'project': 'approved', 'githubAppID': '1',
+                      'githubAppInstallationID': '2', 'githubAppPrivateKey': 'synthetic'}.items()}}
+        external = {'metadata': {'name': 'source', 'uid': 'owner'},
+                    'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        credential_owner(app, 'private-source', [secret], [external])
+        for changed, externals in ((dict(secret, data=dict(secret['data'], project='')), [external]),
+                                   (dict(secret, metadata=dict(secret['metadata'], ownerReferences=[])), [external]),
+                                   (secret, [dict(external, status={})])):
+            with self.subTest(changed=changed['metadata']['name']), self.assertRaises(RuntimeError):
+                credential_owner(app, 'private-source', [changed], externals)
+        with self.assertRaises(RuntimeError):
+            credential_owner(app, 'private-source', [secret, secret], [external])
+
+    def test_missing_private_capability_never_passes_as_verified(self):
+        self.assertFalse(run({'sources': []})['private_access_verified'])
+        with patch('private_verify.kube', return_value='{"items": []}'), self.assertRaises(RuntimeError):
+            run({'sources': [], 'configuration_repository': 'private-source'})
+
     def test_native_multiple_sources_require_every_pinned_values_revision(self):
         app = {'spec': {'sources': [{'targetRevision': 'main'}, {'targetRevision': 'b' * 40}]},
                'status': {'sync': {'status': 'Synced', 'revisions': ['a' * 40, 'b' * 40]},
@@ -44,10 +77,10 @@ class PrivateConvergenceTests(unittest.TestCase):
                 objects.pop((args[1], args[2]))
             elif args[0] == 'get':
                 return json.dumps({'metadata': {'uid': 'probe-uid'}, 'data': {'proof': 'private-source-converged'}})
-        with patch('private_verify.get', side_effect=lambda kind, name: objects.get((kind, name))), \
-                patch('private_verify.kube', side_effect=kube), \
-                patch('private_verify.mutate') as mutate, patch('private_verify.healthy', return_value=True), \
-                patch('private_verify.wait', side_effect=[None, failure, None]):
+        with patch('private_failures.get', side_effect=lambda kind, name: objects.get((kind, name))), \
+                patch('private_failures.kube', side_effect=kube), \
+                patch('private_failures.mutate') as mutate, patch('private_failures.healthy', return_value=True), \
+                patch('private_failures.wait', side_effect=[None, failure, None]):
             if failure or foreign:
                 with self.assertRaisesRegex(RuntimeError, 'probe failed|ownership mismatch'):
                     credential_failure('fixture', lambda: {'metadata': {'uid': 'retained-uid'}}, 'retained-uid')

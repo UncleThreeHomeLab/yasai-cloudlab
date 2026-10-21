@@ -38,7 +38,7 @@ def qualified_tools():
 def fixture_repository():
     return {'id': 123, 'html_url': 'https://github.com/example/private-fixture',
             'full_name': 'example/private-fixture', 'private': True, 'fork': False, 'archived': False,
-            'default_branch': 'main', 'description': 'Managed by CloudLab repository setup: private-fixture'}
+            'default_branch': 'main', 'description': 'Managed by CloudLab repository setup: private-config'}
 
 
 def release_document():

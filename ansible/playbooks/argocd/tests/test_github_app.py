@@ -10,6 +10,41 @@ import github_app
 
 
 class AppAccessTests(unittest.TestCase):
+    def test_configuration_head_requires_private_visibility_and_immutable_commit(self):
+        credentials = {'APP_ID': '123', 'INSTALLATION_ID': '456', 'PRIVATE_KEY': 'synthetic'}
+        current = {'full_name': 'example/config', 'private': True, 'default_branch': 'main'}
+        for metadata, revision in ((current, 'a' * 40), (dict(current, private=False), 'a' * 40),
+                                   (current, 'main')):
+            api, client = Mock(), Mock()
+            api.request.side_effect = [
+                {'app_id': 123, 'repository_selection': 'selected',
+                 'permissions': {'contents': 'read', 'metadata': 'read'}}, {'token': 'synthetic'}]
+            client.request.side_effect = [metadata, {'object': {'sha': revision}}, None]
+            with patch('playbooks.secrets.files.vault.fields', return_value=credentials), \
+                    patch.object(github_app, 'app_token', return_value='synthetic'), \
+                    patch.object(github_app, 'GitHub', side_effect=[api, client]):
+                if metadata['private'] and revision != 'main':
+                    self.assertEqual(github_app.configuration_revision(
+                        {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'}), revision)
+                else:
+                    with self.assertRaises(RuntimeError):
+                        github_app.configuration_revision({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'})
+            client.request.assert_called_with('DELETE', 'installation/token')
+
+    def test_configuration_head_read_scopes_and_revokes_token_on_failure(self):
+        credentials = {'APP_ID': '123', 'INSTALLATION_ID': '456', 'PRIVATE_KEY': 'synthetic'}
+        api, client = Mock(), Mock()
+        api.request.side_effect = [
+            {'app_id': 123, 'repository_selection': 'selected',
+             'permissions': {'contents': 'read', 'metadata': 'read'}}, {'token': 'synthetic'}]
+        client.request.side_effect = [RuntimeError('unavailable'), None]
+        with patch('playbooks.secrets.files.vault.fields', return_value=credentials), \
+                patch.object(github_app, 'app_token', return_value='synthetic'), \
+                patch.object(github_app, 'GitHub', side_effect=[api, client]), self.assertRaises(RuntimeError):
+            github_app.configuration_revision({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'})
+        self.assertEqual(api.request.call_args.args[2], {'repositories': ['config'], 'permissions': {'contents': 'read'}})
+        client.request.assert_called_with('DELETE', 'installation/token')
+
     def test_signed_jwt_has_bounded_lifetime(self):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
@@ -52,8 +87,7 @@ class AppAccessTests(unittest.TestCase):
                 patch.object(github_app, 'app_token', return_value='fixture-jwt'):
             with self.assertRaisesRegex(RuntimeError, 'lacks access'):
                 github_app.verify({'APP_ID': '123', 'INSTALLATION_ID': '456'},
-                    {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git',
-                     'PRIVATE_TEST_REPOSITORY': 'https://github.com/example/fixture.git'})
+                    {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'})
         request = installation.opener.open.call_args.args[0]
         self.assertEqual(request.method, 'DELETE')
         self.assertEqual(request.full_url, 'https://api.github.com/installation/token')

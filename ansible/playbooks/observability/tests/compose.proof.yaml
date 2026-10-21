@@ -1,6 +1,9 @@
 services:
   prepare:
-    build: ../../../runner
+    build:
+      context: ../../../runner
+      additional_contexts:
+        ci-source: ../../../../platform/delivery/ci
     entrypoint: [python, -m, playbooks.observability.tests.native_proof, prepare]
     working_dir: /workspace
     volumes: ["../../../..:/workspace:ro", "fixture:/fixture"]
@@ -55,7 +58,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   alert-fixture:
-    build: {context: ../../../../apps/notes, dockerfile: ../../ansible/playbooks/observability/tests/proof.Dockerfile}
+    build: {context: ., dockerfile: proof.Dockerfile}
     entrypoint: [python, -m, playbooks.observability.tests.alert_fixture]
     working_dir: /workspace
     volumes: ["../../../..:/workspace:ro"]
@@ -90,7 +93,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   proof:
-    build: {context: ../../../../apps/notes, dockerfile: ../../ansible/playbooks/observability/tests/proof.Dockerfile}
+    build: {context: ., dockerfile: proof.Dockerfile}
     entrypoint: [python, -m, playbooks.observability.tests.native_proof, verify]
     working_dir: /workspace
     volumes: ["../../../..:/workspace:ro", "fixture:/fixture:ro"]

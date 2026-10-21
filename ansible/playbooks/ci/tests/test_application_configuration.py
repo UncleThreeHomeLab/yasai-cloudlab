@@ -76,7 +76,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
             self.assertEqual(result['release_repository_id'], 456)
             self.assertEqual(result['project'], 'cloudlab-public')
             guard.assert_called_once_with(api, 'example/gitops')
-            self.assertEqual(scope.call_args.args[1], {'example/gitops': False, 'example/public-fixture': False})
+            self.assertEqual(scope.call_args.args[1], {'example/gitops': False})
             fields.assert_called_once_with('github-release-public', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
             fields.reset_mock()
             scope.reset_mock()
