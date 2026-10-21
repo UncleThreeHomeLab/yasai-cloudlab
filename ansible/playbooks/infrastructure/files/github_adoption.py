@@ -146,8 +146,8 @@ def prepare(destination):
     if (destination / 'handoff.json').exists():
         raise ValueError('Existing handoff must be resumed; preparation cannot replace it')
     baseline = json.loads((destination / 'inventory-api.json').read_text())
-    if set(baseline) != {'public_platform', 'private_config', 'public_fixture', 'private_fixture'}:
-        raise ValueError('All four designated repository roles must be inventoried privately')
+    if not {'public_platform', 'private_config'} <= set(baseline):
+        raise ValueError('Actual platform and configuration repository roles must be inventoried privately')
     token = os.environ['GITHUB_TOKEN']
     targets = [(key, value['repository']['full_name'], value['repository']['visibility']) for key, value in baseline.items()]
     snapshot = capture(GitHub(token), targets)

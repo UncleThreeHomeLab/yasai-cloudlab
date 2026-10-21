@@ -1,16 +1,12 @@
-"""Private GitOps convergence and retained-resource fixtures; sanitized output only."""
-import copy
+"""Observe actual private configuration reconciliation without changing sources or data."""
 import base64
 import fcntl
 import json
 import os
 import sys
 import time
-import uuid
 
 from bootstrap import BASE, get, kube, matches_revision
-from private_bootstrap import run as configure, remove
-from private_sources import resources
 from source_transition import record
 from controller_stability import fingerprint, sample as foundation_sample
 
@@ -39,162 +35,62 @@ def healthy(name):
             status.get('operationState', {}).get('phase') in (None, 'Succeeded'))
 
 
-def mutate(name, document):
-    kube('patch', 'application.argoproj.io', name, '-n', 'argocd', '--type=merge', '-p', json.dumps(document))
+def credential_owner(app, repository, secrets, externals):
+    project = app['spec']['project']
+    def decoded(secret, key):
+        return base64.b64decode(secret.get('data', {}).get(key, '')).decode()
+    credentials = [secret for secret in secrets if
+        secret['metadata'].get('labels', {}).get('argocd.argoproj.io/secret-type') == 'repository' and
+        decoded(secret, 'url') == repository and decoded(secret, 'project') == project]
+    if len(credentials) != 1:
+        raise RuntimeError('Private configuration requires one project-scoped repository credential')
+    secret = credentials[0]
+    owners = secret['metadata'].get('ownerReferences', [])
+    if not any(owner.get('kind') == 'ExternalSecret' and owner.get('uid') == external['metadata']['uid'] and
+               external['metadata']['name'] == secret['metadata']['name'] and
+               any(condition.get('type') == 'Ready' and condition.get('status') == 'True'
+                   for condition in external.get('status', {}).get('conditions', []))
+               for owner in owners for external in externals):
+        raise RuntimeError('Private repository credential lacks its ready ESO owner')
+    if not all(decoded(secret, field) for field in ('githubAppID', 'githubAppInstallationID', 'githubAppPrivateKey')):
+        raise RuntimeError('Private repository credential is incomplete')
 
 
-def credential_failure(name, workload, uid):
-    """Use an isolated project/credential; never corrupt an ESO-owned Secret."""
-    probe = 'cloudlab-private-credential-check'
-    label = {'cloudlab.io/verification': 'private-credential-check'}
-    kinds = ('application.argoproj.io', 'secret', 'appproject.argoproj.io', 'namespace')
-
-    def cleanup():
-        # Inspect all owners before deleting anything, including interrupted runs.
-        existing = [(kind, get(kind, probe)) for kind in kinds]
-        for kind, obj in existing:
-            if obj and (obj['metadata'].get('labels', {}).get('cloudlab.io/verification') !=
-                        'private-credential-check' or obj['metadata'].get('ownerReferences') or
-                        (kind != 'namespace' and obj['metadata'].get('finalizers'))):
-                raise RuntimeError('Private credential fixture cleanup ownership mismatch')
-        for kind, obj in existing:
-            if obj:
-                kube('delete', kind, probe, '-n', 'argocd', '--wait=true', '--timeout=60s')
-
-    def metadata(namespace=True):
-        return {'name': probe, 'labels': label, **({'namespace': 'argocd'} if namespace else {})}
-
-    def retained():
-        raw = kube('get', 'configmap', 'cloudlab-private-fixture', '-n', probe,
-                   '--ignore-not-found', '-o', 'json')
-        return json.loads(raw) if raw.strip() else {}
-
-    cleanup()
-    secret = get('secret', name)
+def configuration_healthy(name, repository, revision):
+    if not healthy(name):
+        return False
     app = get('application.argoproj.io', name)
-    if not secret or not healthy(name):
-        raise RuntimeError('Private credential fixture requires a healthy source')
-    original_data = copy.deepcopy(secret['data'])
-    probe_data = dict(original_data, project=base64.b64encode(probe.encode()).decode())
-    invalid = 'intentionally-invalid-private-fixture-key'
-    invalid_data = base64.b64encode(invalid.encode()).decode()
-    try:
-        namespace = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': metadata(False)}
-        namespace['metadata']['labels'] = dict(label, **{'pod-security.kubernetes.io/enforce': 'restricted'})
-        project = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'AppProject', 'metadata': metadata(),
-                   'spec': {'sourceRepos': [app['spec']['source']['repoURL']],
-                            'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': probe}],
-                            'clusterResourceWhitelist': [],
-                            'namespaceResourceWhitelist': [{'group': '', 'kind': 'ConfigMap'}]}}
-        credential = {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': metadata(),
-                      'type': 'Opaque', 'data': probe_data}
-        credential['metadata']['labels'] = dict(label, **{'argocd.argoproj.io/secret-type': 'repository'})
-        application = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': metadata(),
-                       'spec': {'project': probe, 'source': copy.deepcopy(app['spec']['source']),
-                                'destination': {'server': 'https://kubernetes.default.svc', 'namespace': probe},
-                                'syncPolicy': {'automated': {'prune': False, 'selfHeal': True}}}}
-        for obj in (namespace, project, credential, application):
-            kube('create', '-f', '-', document=obj)
-        wait(lambda: healthy(probe) and retained().get('data') == {'proof': 'private-source-converged'},
-             'isolated credential baseline')
-        probe_uid = retained()['metadata']['uid']
-        mutate(probe, {'spec': {'syncPolicy': {'automated': None}}})
-        kube('patch', 'secret', probe, '-n', 'argocd', '--type=merge',
-             '-p', json.dumps({'data': {'githubAppPrivateKey': invalid_data}}))
-        mutate(probe, {'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
-        wait(lambda: any(c['type'] == 'ComparisonError' and
-                        any(text in c.get('message', '').lower() for text in
-                            ('private key', 'pem encoded', 'invalid key')) for c in
-                        (get('application.argoproj.io', probe) or {}).get('status', {}).get('conditions', [])),
-             'credential failure detection')
-        if retained().get('metadata', {}).get('uid') != probe_uid or (workload() or {}).get('metadata', {}).get('uid') != uid:
-            raise RuntimeError('Private credential failure did not retain its workload')
-        if not all(healthy(root) for root in ('cloudlab-public-root', 'cloudlab-argocd', name)):
-            raise RuntimeError('Private credential failure disrupted public convergence')
-        kube('patch', 'secret', probe, '-n', 'argocd', '--type=merge',
-             '-p', json.dumps({'data': probe_data}))
-        mutate(probe, {'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
-        wait(lambda: healthy(probe), 'isolated credential recovery')
-        if retained().get('metadata', {}).get('uid') != probe_uid:
-            raise RuntimeError('Private credential recovery replaced its workload')
-        if (get('secret', name) or {}).get('data') != original_data:
-            raise RuntimeError('Working private credential changed during isolated proof')
-    finally:
-        cleanup()
-
-
-def fixture(entry, payload):
-    name = 'cloudlab-private-' + entry['name']
-    def configmap():
-        raw = kube('get', 'configmap', 'cloudlab-private-fixture', '-n', name, '--ignore-not-found', '-o', 'json')
-        return json.loads(raw) if raw.strip() else None
-    current = configmap()
-    if (not current or current['metadata'].get('labels', {}).get('cloudlab.io/verification') != 'gitops-private-fixture'
-            or current.get('data') != {'proof': 'private-source-converged'}):
-        raise RuntimeError('Private fixture content or ownership is invalid')
-    uid = current['metadata']['uid']
-    kube('patch', 'configmap', 'cloudlab-private-fixture', '-n', name, '--type=merge',
-         '-p', '{"data":{"proof":"drift-fixture"}}')
-    wait(lambda: (configmap() or {}).get('data') == {'proof': 'private-source-converged'}, 'drift repair')
-    try:
-        mutate(name, {'spec': {'source': {'path': 'intentionally-missing-private-fixture'}},
-                      'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
-        wait(lambda: any(c['type'] == 'ComparisonError' for c in
-                         (get('application.argoproj.io', name) or {}).get('status', {}).get('conditions', [])),
-             'source failure detection')
-        if (configmap() or {}).get('metadata', {}).get('uid') != uid:
-            raise RuntimeError('Private source failure did not retain its workload')
-    finally:
-        mutate(name, {'spec': {'source': {'path': entry['path']}},
-                      'metadata': {'annotations': {'argocd.argoproj.io/refresh': 'hard'}}})
-    wait(lambda: healthy(name), 'source recovery')
-    credential_failure(name, configmap, uid)
-    for denial in ('source', 'namespace'):
-        app = copy.deepcopy(resources(entry, payload['store'])[-1])
-        app['metadata']['name'] = 'cloudlab-private-denied-' + uuid.uuid4().hex[:8]
-        app['spec'].pop('syncPolicy')
-        if denial == 'source':
-            app['spec']['source']['repoURL'] = 'https://github.com/example/forbidden.git'
-            expected = 'is not permitted in project'
-        else:
-            app['spec']['destination']['namespace'] = 'argocd'
-            expected = 'do not match any of the allowed destinations'
-        kube('create', '-f', '-', document=app)
-        try:
-            wait(lambda: any(c['type'] == 'InvalidSpecError' and expected in c.get('message', '') for c in
-                (get('application.argoproj.io', app['metadata']['name']) or {}).get('status', {}).get('conditions', [])),
-                denial + ' denial')
-        finally:
-            kube('delete', 'application.argoproj.io', app['metadata']['name'], '-n', 'argocd', '--wait=true')
-    try:
-        configure(dict(payload, sources=[]))
-        if not get('application.argoproj.io', name):
-            raise RuntimeError('Omitting private input deleted its root')
-        remove(dict(payload, sources=[x for x in payload['sources'] if x['name'] != entry['name']], remove=entry['name']))
-        if (configmap() or {}).get('metadata', {}).get('uid') != uid:
-            raise RuntimeError('Private root removal did not retain its workload')
-    finally:
-        configure(payload)
-    wait(lambda: healthy(name), 'reattachment')
-    if (configmap() or {}).get('metadata', {}).get('uid') != uid:
-        raise RuntimeError('Private reattachment replaced its workload')
+    sources = app['spec'].get('sources', [app['spec'].get('source', {})])
+    sync = app['status']['sync']
+    revisions = sync.get('revisions', [sync.get('revision')])
+    return len(sources) == len(revisions) and any(source.get('repoURL') == repository for source in sources) and all(
+        resolved == (revision if source['targetRevision'] == 'main' else source['targetRevision'])
+        for source, resolved in zip(sources, revisions) if source.get('repoURL') == repository)
 
 
 def run(payload):
-    if not payload['sources']:
-        return {'private_sources_configured': 0, 'private_sources_required_by_base': False}
+    repository = payload.get('configuration_repository')
+    if not repository:
+        if payload['sources']:
+            raise RuntimeError('Private verification requires the actual configuration repository')
+        return {'private_sources_configured': 0, 'private_access_verified': False}
+    applications = json.loads(kube('get', 'applications.argoproj.io', '-n', 'argocd', '-o', 'json'))['items']
+    consumers = [app for app in applications if any(source.get('repoURL') == repository for source in
+                 app['spec'].get('sources', [app['spec'].get('source', {})]))]
+    if not consumers:
+        raise RuntimeError('Actual private configuration source has no reconciled consumers')
+    revision = payload.get('configuration_revision')
+    if not revision:
+        raise RuntimeError('Private verification requires an authenticated configuration revision')
+    secrets = json.loads(kube('get', 'secrets', '-n', 'argocd', '-o', 'json'))['items']
+    externals = json.loads(kube('get', 'externalsecrets.external-secrets.io', '-n', 'argocd', '-o', 'json'))['items']
+    for app in consumers:
+        wait(lambda: configuration_healthy(app['metadata']['name'], repository, revision), 'configuration convergence')
+        credential_owner(app, repository, secrets, externals)
     for entry in payload['sources']:
-        name = 'cloudlab-private-' + entry['name']
-        wait(lambda: healthy(name), 'convergence')
-        secret = get('secret', name)
-        external = get('externalsecret.external-secrets.io', name)
-        if not secret or not external or not any(
-                owner.get('kind') == 'ExternalSecret' and owner.get('uid') == external['metadata']['uid']
-                for owner in secret['metadata'].get('ownerReferences', [])):
-            raise RuntimeError('Private repository credential lacks its ESO owner')
-    fixtures = [entry for entry in payload['sources'] if entry['repository'] == payload.get('fixture_repository')]
-    for entry in fixtures:
-        fixture(entry, payload)
+        if entry['repository'] != repository:
+            raise RuntimeError('Private verification accepts only the actual configuration source')
+        wait(lambda: healthy('cloudlab-private-' + entry['name']), 'convergence')
     def controllers():
         argo = json.loads(kube('get', 'deployments,daemonsets,statefulsets,pods', '-n', 'argocd', '-o', 'json'))
         return foundation_sample(), fingerprint(argo['items'])
@@ -202,19 +98,18 @@ def run(payload):
     started = time.monotonic()
     while time.monotonic() - started < 60:
         time.sleep(10)
-        if controllers() != baseline or not all(healthy('cloudlab-private-' + entry['name']) for entry in payload['sources']):
+        if controllers() != baseline or not all(configuration_healthy(app['metadata']['name'], repository, revision) for app in consumers):
             raise RuntimeError('Controllers or private convergence changed during stability observation')
     for entry in payload['sources']:
         checkpoint = BASE / ('private-' + entry['name'] + '.json')
         state = json.loads(checkpoint.read_text())
         state['phase'] = 'accepted'
         record(checkpoint, state)
-    return {'private_roots_converged': len(payload['sources']), 'private_fixtures_verified': len(fixtures),
-            'controllers_stable_after_private_fixtures': True,
-            'stability_seconds': round(time.monotonic() - started, 1),
-            'fixture_checks': ['drift', 'source-failure-retention', 'credential-failure-retention',
-                               'public-convergence-during-credential-failure', 'source-denial', 'namespace-denial',
-                               'omission-retention', 'removal-retention', 'reattachment'] if fixtures else []}
+    return {'private_roots_converged': len(payload['sources']), 'private_configuration_consumers': len(consumers),
+            'private_access_verified': True, 'eso_credentials_verified': True,
+            'controllers_stable': True, 'stability_seconds': round(time.monotonic() - started, 1),
+            'failure_injection': False}
+
 
 
 if __name__ == '__main__':

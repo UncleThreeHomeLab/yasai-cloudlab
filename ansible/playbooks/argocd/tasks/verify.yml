@@ -25,14 +25,14 @@
 
 - name: Render optional private verification inputs
   ansible.builtin.command:
-    argv: [python, /workspace/ansible/playbooks/argocd/files/private_sources.py]
+    argv: [python, /workspace/ansible/playbooks/argocd/files/private_sources.py, verify]
   delegate_to: localhost
   become: false
   register: gitops_private_verification_payload
   changed_when: false
   no_log: true
 
-- name: Prove private convergence and fixture retention without public diagnostics
+- name: Verify actual private configuration convergence and credential ownership
   ansible.builtin.command:
     argv: [python3, /opt/cloudlab/gitops/private_verify.py]
     stdin: '{{ (gitops_private_verification_payload.stdout | from_json) | combine({"store": external_secrets_store}) | to_json }}'

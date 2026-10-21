@@ -73,12 +73,19 @@ def resources(entry, store_name):
 
 if __name__ == '__main__':
     try:
+        import os
+        import sys
         from dotenv import dotenv_values
         values = dotenv_values(Path(__file__).resolve().parents[4] / '.env', interpolate=False)
         removal = values.get('PRIVATE_GITOPS_REMOVE') or ''
         if removal and not re.fullmatch(r'[a-z][a-z0-9-]{0,28}[a-z0-9]|[a-z]', removal):
             raise RuntimeError('Invalid private source removal selector')
-        print(json.dumps({'sources': sources(values.get('PRIVATE_GITOPS_SOURCES')), 'remove': removal,
-                          'fixture_repository': values.get('PRIVATE_TEST_REPOSITORY') or ''}))
+        payload = {'sources': sources(values.get('PRIVATE_GITOPS_SOURCES')), 'remove': removal,
+                   'configuration_repository': values.get('PRIVATE_CONFIG_REPOSITORY') or ''}
+        if sys.argv[1:] == ['verify'] and payload['configuration_repository']:
+            from playbooks.argocd.files.github_app import configuration_revision
+            os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
+            payload['configuration_revision'] = configuration_revision(values)
+        print(json.dumps(payload))
     except Exception:
         raise SystemExit('Invalid private GitOps inputs; values withheld') from None

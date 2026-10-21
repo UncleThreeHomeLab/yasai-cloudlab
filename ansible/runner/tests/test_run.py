@@ -572,7 +572,7 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
 
     def test_retained_repository_content_and_access_commands_need_no_vm_credentials(self):
         self.values = {}
-        for action, module in (('publish-platform', 'publish_snapshot.py'), ('github-app-check', 'github_app.py'), ('private-fixture-prepare', 'private_fixture.py')):
+        for action, module in (('publish-platform', 'publish_snapshot.py'), ('github-app-check', 'github_app.py')):
             with self.subTest(action=action), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
                 playbook = self.invoke(action)
                 playbook.assert_not_called()

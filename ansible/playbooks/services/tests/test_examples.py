@@ -13,34 +13,27 @@ from playbooks.services.files.inputs import validate_catalog
 
 
 class ExampleTests(unittest.TestCase):
-    def test_bundle_rerun_preserves_approved_private_revision(self):
-        accepted = definitions('example.invalid','https://github.com/example/public.git','a'*40,
-                               'https://github.com/example/private.git','abcdef123456','notes','notes')
-        proposed = copy.deepcopy(accepted)
-        proposed['catalog'][1]['approval']['revision'] = 'b'*40
-        document = lambda value: {'encoding': 'base64', 'content': base64.b64encode(value.encode()).decode()}
-        api = Mock()
-        api.request.side_effect = [document(json.dumps(accepted)), document(yaml.safe_dump(accepted['catalog'][1]['definition']))]
+    def test_notes_preparation_preserves_identity_data_and_chart_without_test_sources(self):
+        value = definitions('example.invalid', 'https://github.com/example/public.git', 'a'*40, 'notes', 'notes')
+        validate_catalog(value)
+        self.assertEqual(len(value['catalog']), 1)
+        notes = value['catalog'][0]
+        self.assertEqual(notes['approval']['chartPath'], 'apps/notes')
+        self.assertEqual(notes['definition']['exposure']['class'], 'public')
+        self.assertTrue(notes['definition']['oidc']['enabled'])
+        self.assertEqual(notes['definition']['additionalExposures'][0]['class'], 'private')
+        self.assertEqual(set(value['dataApprovals']), {'notes-database', 'notes-objects'})
+        self.assertEqual(notes['definition']['data']['database']['retention'], 'retain')
+
+    def test_bundles_preserve_private_approvals_without_publishing_or_repinning(self):
+        value = {'catalog': [], 'dataApprovals': {}}
+        from playbooks.services.tests.fixtures import definition, approval
+        value['catalog'].append({'definition': definition(), 'approval': dict(approval(), visibility='private'), 'publication': 'ready'})
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
-            with patch('playbooks.argocd.files.github_setup.inputs', return_value=({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'}, api)), \
-                    patch('playbooks.argocd.files.private_fixture.prepare_service') as publish, \
-                    patch.object(examples.subprocess, 'check_output', return_value='c'*40), \
+            with patch.object(examples.subprocess, 'check_output', return_value='c'*40), \
                     patch.object(examples, 'Path', side_effect=lambda value: target if value == '/recovery/services' else Path(value)):
-                examples.bundles(proposed)
-                publish.assert_not_called()
-                bundle = json.loads((target / 'fixture-abcdef123456-bundle.json').read_text())
-                self.assertEqual(bundle['approval']['revision'], 'a'*40)
-
-    def test_approved_examples_use_distinct_sources_scopes_and_retained_data(self):
-        value = definitions('example.invalid','https://github.com/example/public.git','a'*40,
-                            'https://github.com/example/private.git','abcdef123456','notes','notes')
-        validate_catalog(value)
-        notes, fixture = value['catalog']
-        self.assertEqual(notes['approval']['visibility'],'public')
-        self.assertEqual(fixture['approval']['visibility'],'private')
-        self.assertEqual(notes['definition']['exposure']['class'],'public')
-        self.assertEqual(fixture['definition']['exposure']['class'],'private')
-        self.assertEqual(fixture['definition']['data']['database']['name'],'fixture_abcdef123456')
-        self.assertEqual(fixture['definition']['persistence']['retention'],'retain')
-        self.assertNotEqual(value['dataApprovals']['notes-database']['item'], value['dataApprovals']['fixture-database']['item'])
+                examples.bundles(value)
+                for entry in value['catalog']:
+                    bundle = json.loads((target / (entry['definition']['name'] + '-bundle.json')).read_text())
+                    self.assertEqual(bundle['approval'], entry['approval'])

@@ -116,19 +116,8 @@ def public_lifecycle(payload):
         if not initial:
             raise RuntimeError('Public fixture did not reconcile')
         uid, data = initial['metadata']['uid'], initial['data']
-        patch = [{'op': 'test', 'path': '/metadata/uid', 'value': uid},
-                 {'op': 'replace', 'path': '/data/purpose', 'value': 'intentional verification drift'}]
-        kube('patch', 'configmap', name, '-n', namespace, '--type=json', '--patch-file=/dev/stdin', document=patch)
-        wait_result(lambda: (configmap() or {}).get('data') == data, 'Public GitOps drift repair')
-        app['spec']['source']['path'] = 'gitops/fixtures/intentionally-missing'
-        kube('apply', '--server-side', '--field-manager=cloudlab-gitops-verifier', '-f', '-', document=app)
-        wait_result(lambda: any(c['type'] == 'ComparisonError' for c in get('application.argoproj.io', name).get('status', {}).get('conditions', [])),
-                    'Public source failure reporting')
-        if configmap()['metadata']['uid'] != uid or configmap()['data'] != data:
-            raise RuntimeError('Source failure changed the retained public workload')
-        kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--wait=true')
-        if configmap()['metadata']['uid'] != uid:
-            raise RuntimeError('Application removal did not retain the public workload')
+        if data.get('purpose') != 'Disposable GitOps authorization and reconciliation checks.':
+            raise RuntimeError('Public reconciliation probe differs from its committed source')
     finally:
         kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--ignore-not-found', '--wait=true')
         current = configmap()
@@ -197,8 +186,7 @@ def run(payload):
                 raise RuntimeError('Public GitOps did not remain converged')
     result = {'public_roots_converged': True, 'source_denied': True, 'namespace_denied': True,
                       'unauthenticated_api_denied': True, 'untrusted_network_denied': True,
-                      'public_drift_repaired': True, 'public_source_failure_retained': True,
-                      'public_removal_retained': True, 'controllers_stable': True,
+                      'public_source_reconciled': True, 'failure_injection': False, 'controllers_stable': True,
               'stability_seconds': round(time.monotonic() - started, 1), 'private_sources_tested': False}
     receipt = BASE / 'public-proof.tmp'
     with receipt.open('w') as stream:

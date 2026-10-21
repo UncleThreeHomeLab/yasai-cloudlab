@@ -1,11 +1,51 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from playbooks.data.files.requests import request, resolve, reconcile
+from playbooks.data.files.requests import request, resolve, reconcile, retained_requests, additions
 from playbooks.data.files.chart import render
 
 
 class DataRequestTests(unittest.TestCase):
+    def test_data_payload_keeps_retained_consumers_and_resolves_original_credentials(self):
+        from playbooks.data.files import inputs
+        data, approved = self.inputs()
+        catalog = {'catalog': [], 'dataApprovals': approved,
+                   'retainedDataRequests': [{'service': 'fixture', 'data': data}]}
+        credentials = {
+            'cnpg-notes-production': {'username': 'notes_app', 'database': 'notes'},
+            'cnpg-notes-migration': {'username': 'notes_migration', 'database': 'notes'},
+            'cnpg-backup': {'username': 'backup'},
+            'cnpg-keycloak': {'username': 'identity_app', 'database': 'identity'},
+            's3-notes-production': {'BUCKET': 'notes', 'ENDPOINT': 'https://s3.internal.example.invalid', 'REGION': 'us-east-1'},
+            'cnpg-fixture-production': {'username': 'fixture_app', 'database': 'fixture'},
+            'cnpg-fixture-migration': {'username': 'fixture_migration', 'database': 'fixture'},
+            's3-fixture-production': {'BUCKET': 'fixture'}}
+        with patch.object(inputs, 'check'), patch.object(inputs, 'render'), \
+                patch.object(inputs, 'committed_payload', return_value={'repository': 'public', 'branch': 'main', 'revision': 'a' * 40}), \
+                patch.object(inputs, 'fields', side_effect=lambda item, fields: {key: credentials[item][key] for key in fields}), \
+                patch('playbooks.services.files.inputs.catalog', return_value=catalog):
+            values = inputs.payload()['values']
+        self.assertEqual(values['serviceConsumers'], ['cloudlab-app-fixture'])
+        self.assertEqual(values['serviceRequests'][0]['database']['applicationItem'], 'cnpg-fixture-production')
+        self.assertEqual(values['serviceRequests'][0]['bucket']['item'], 's3-fixture-production')
+
+    def test_retired_source_can_be_removed_without_changing_declared_data_scope(self):
+        data, approved = self.inputs()
+        catalog = {'catalog': [], 'dataApprovals': approved,
+                   'retainedDataRequests': [{'service': 'fixture', 'data': data}]}
+        expected = request('fixture', data, approved)
+        self.assertEqual(retained_requests(catalog), [expected])
+        self.assertEqual(additions([expected], retained_requests(catalog)), [])
+        with self.assertRaises(ValueError):
+            additions([expected], [])
+        from playbooks.services.files.inputs import validate_catalog
+        validate_catalog(catalog)
+        for entries in ([{'service': 'other', 'data': data}],
+                        catalog['retainedDataRequests'] * 2, [{'service': 'fixture', 'data': {}}],
+                        [{'service': [], 'data': data}], [{'service': 'fixture', 'data': ['invalid']}]):
+            with self.subTest(entries=entries), self.assertRaises(ValueError):
+                validate_catalog(dict(catalog, retainedDataRequests=entries))
+
     def inputs(self):
         data = {'database': {'name': 'fixture', 'credentialReference': 'fixture-database', 'retention': 'retain'},
                 'bucket': {'name': 'fixture', 'credentialReference': 'fixture-objects', 'retention': 'retain'}}

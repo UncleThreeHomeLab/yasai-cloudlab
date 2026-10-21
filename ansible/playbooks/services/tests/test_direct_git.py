@@ -10,7 +10,7 @@ import yaml
 from playbooks.services.files.contract import ROOT, render
 from playbooks.services.files.examples import definitions
 from playbooks.services.files import bootstrap
-from playbooks.services.tests import direct_git, source_outage
+from playbooks.services.tests import source_outage
 from playbooks.services.tests.fixtures import catalog_payload, notes_values
 
 
@@ -135,19 +135,9 @@ class DirectGitTests(unittest.TestCase):
         self.assertEqual(actual, {kind + '/cloudlab-app-example/owned': [kind, digest]
                                  for kind in ('deployments.apps', 'services', 'secrets', 'persistentvolumeclaims')})
 
-    def test_catalog_acknowledgement_wait_uses_exact_native_gate_and_bound(self):
-        payload = {'revision': 'a' * 40, 'private_revision': 'b' * 40}
-        with patch.dict(os.environ, {'VM_HOST': 'example.invalid'}), patch.object(direct_git, 'ssh') as ssh:
-            direct_git.wait_catalog(payload)
-        args, kwargs = ssh.call_args
-        self.assertEqual(args[:2], ('VM', 'example.invalid'))
-        self.assertIn('wait(lambda:converged(p)', args[2])
-        self.assertEqual(json.loads(kwargs['input']), payload)
-        self.assertEqual(kwargs['timeout'], 660)
-
     def test_native_notes_chart_preserves_workload_contract(self):
         definition = definitions('example.invalid', 'https://github.com/example/platform.git', 'a' * 40,
-                                 'https://github.com/example/private.git', 'abcdef123456', 'notes', 'notes')['catalog'][0]['definition']
+                                 'notes', 'notes')['catalog'][0]['definition']
         issuer = 'https://login.example.invalid/realms/applications'
         for telemetry in (False, True):
             expected = notes_values(definition, issuer, '-----BEGIN CERTIFICATE-----\nfixture', telemetry)

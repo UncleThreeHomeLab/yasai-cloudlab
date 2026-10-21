@@ -342,3 +342,12 @@ bootstrap, recovery and separate GitHub governance.
 K3s recovery uses a separate monthly restic backup to B2.
 
 ![Foundation](assets/foundation.png)
+
+Local checks: `docker compose run --build --rm lab test`. They use component-owned
+fixtures without VM credentials or additional repositories. Live GitOps checks use
+this public repository and `PRIVATE_CONFIG_REPOSITORY`; private credentials remain
+ESO-owned. Failure and removal scenarios run locally. Notes remains the working
+example, including its normal application-owned CI and release flow. Platform
+acceptance checks deployed integration without running Notes tests or triggering CI.
+Retired application data can remain in private `retainedDataRequests` entries
+(`service` and `data`), authorized by existing `dataApprovals`, without a Git source.

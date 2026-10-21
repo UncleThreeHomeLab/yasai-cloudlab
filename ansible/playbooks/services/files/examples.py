@@ -1,9 +1,8 @@
-"""Prepare the approved notes and disposable private service definitions."""
+"""Prepare the working Notes definition without provisioning disposable services."""
 import copy
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 
 from dotenv import dotenv_values
@@ -14,8 +13,7 @@ from playbooks.access.files.cloudflare import API
 from playbooks.services.files.contract import ROOT, validate
 
 
-def definitions(zone, public_repository, revision, private_repository, nonce, database, bucket):
-    if not re.fullmatch('[a-f0-9]{12}', nonce): raise ValueError('Fixture requires its stable twelve-character nonce')
+def definitions(zone, public_repository, revision, database, bucket):
     base = yaml.safe_load((ROOT / 'apps/synthetic.yaml').read_text())
     notes = copy.deepcopy(base)
     notes.update(name='notes', owner='platform', replicas=2, resources={
@@ -27,44 +25,19 @@ def definitions(zone, public_repository, revision, private_repository, nonce, da
               'roleMapping':{'reader':['viewer','developer','platform-admin'], 'writer':['developer','platform-admin'], 'operator':['platform-admin']}},
         data={'database':{'name':database,'credentialReference':'notes-database','retention':'retain'},
               'bucket':{'name':bucket,'credentialReference':'notes-objects','retention':'retain'}})
-    fixture = copy.deepcopy(base)
-    name = 'fixture-' + nonce
-    fixture.update(name=name, persistence={'enabled':True,'size':'1Gi','mountPath':'/data','retention':'retain'},
-        exposure={'class':'private','hostname':name+'.internal.'+zone,'access':'tailnet','path':'/','port':8080},
-        secrets=[{'name':'fixture-database','mountPath':'/secrets/database'},{'name':'fixture-objects','mountPath':'/secrets/objects'}],
-        data={'database':{'name':'fixture_'+nonce,'credentialReference':'fixture-database','retention':'retain'},
-              'bucket':{'name':name,'credentialReference':'fixture-objects','retention':'retain'}})
-    fixture['command'] = ['python','-c', """from pathlib import Path
-from http.server import BaseHTTPRequestHandler,HTTPServer
-import hashlib,json
-path=Path('/data/sentinel')
-if not path.exists(): path.write_bytes(b'cloudlab retained service fixture\\n')
-class Health(BaseHTTPRequestHandler):
- def log_message(self,*args): pass
- def do_GET(self):
-  body=json.dumps({'ready':True,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}).encode()
-  self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
-HTTPServer(('0.0.0.0',8080),Health).serve_forever()
-"""]
     validate(notes)
-    validate(fixture)
     approval = lambda name, repo, visibility, path: {
         'name':name,'namespace':'cloudlab-app-'+name,'repository':repo,'revision':revision,
         'valuesPath':path,'secretReferences':[],'configMaps':[],'visibility':visibility}
     notes_approval = approval('notes', public_repository, 'public', 'apps/notes/values.yaml')
     notes_approval.update(chartPath='apps/notes',secretReferences=['notes-database','notes-objects'],configMaps=['notes-source','database-ca'])
-    fixture_approval = approval(name, private_repository, 'private', 'apps/'+name+'.yaml')
-    fixture_approval['secretReferences'] = ['fixture-database','fixture-objects']
     grants = {
         'notes-database':{'kind':'database','service':'notes','name':database,'item':'cnpg-notes-production','migrationItem':'cnpg-notes-migration'},
-        'notes-objects':{'kind':'bucket','service':'notes','name':bucket,'item':'s3-notes-production'},
-        'fixture-database':{'kind':'database','service':name,'name':'fixture_'+nonce,'item':'cnpg-'+name+'-production','migrationItem':'cnpg-'+name+'-migration'},
-        'fixture-objects':{'kind':'bucket','service':name,'name':name,'item':'s3-'+name+'-production'}}
-    return {'catalog':[{'definition':notes,'approval':notes_approval,'publication':'ready'},
-                       {'definition':fixture,'approval':fixture_approval,'publication':'ready'}], 'dataApprovals':grants}
+        'notes-objects':{'kind':'bucket','service':'notes','name':bucket,'item':'s3-notes-production'}}
+    return {'catalog':[{'definition':notes,'approval':notes_approval,'publication':'ready'}], 'dataApprovals':grants}
 
 
-def prepare(nonce):
+def prepare():
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = environment.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     credentials = fields('cloudlab-dns01', ('API_TOKEN','ZONE_ID'))
@@ -74,7 +47,7 @@ def prepare(nonce):
     revision = subprocess.check_output(['git','-c','safe.directory=/workspace','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     database = fields('cnpg-notes-production', ('database',))['database']
     bucket = fields('s3-notes-production', ('BUCKET',))['BUCKET']
-    value = definitions(zone['name'], public, revision, environment.get('PRIVATE_TEST_REPOSITORY'), nonce, database, bucket)
+    value = definitions(zone['name'], public, revision, database, bucket)
     base = Path('/recovery/services')
     base.mkdir(mode=0o700,parents=True,exist_ok=True)
     for entry in value['catalog']:
@@ -84,39 +57,18 @@ def prepare(nonce):
     destination = base / 'catalog-proposal.json'
     destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n')
     destination.chmod(0o600)
-    return {'prepared':True,'private_output':str(destination),'fixture_nonce':nonce,'live_mutations':0}
+    return {'prepared':True,'private_output':str(destination),'live_mutations':0}
 
 
 def bundles(value):
     from playbooks.services.files.inputs import validate_catalog
-    from playbooks.argocd.files.github_setup import inputs, repository
-    from playbooks.argocd.files.private_fixture import prepare_service
     value = validate_catalog(copy.deepcopy(value))
-    environment, api = inputs()
-    from playbooks.keycloak.files.private_source import decode_contents
-    current = api.request('GET', 'repos/' + repository(environment['PRIVATE_CONFIG_REPOSITORY']) +
-                          '/contents/services/catalog.json?ref=main', missing=True)
-    accepted = validate_catalog(json.loads(decode_contents(current)))['catalog'] if current else []
     public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
     revision = subprocess.check_output(['git','-c','safe.directory=/workspace','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     origin = json.loads((ROOT / 'platform/connectivity/access/contract.json').read_text())['cloudflareOrigin']
     target = Path('/recovery/services')
     target.mkdir(mode=0o700,parents=True,exist_ok=True)
     for entry in value['catalog']:
-        if entry['approval'].get('visibility') == 'private':
-            previous = [row for row in accepted if row['definition'] == entry['definition'] and
-                        dict(row['approval'], revision=None) == dict(entry['approval'], revision=None)]
-            if previous:
-                approved = previous[0]['approval']
-                frozen = api.request('GET', 'repos/' + repository(approved['repository']) + '/contents/' +
-                                     approved['valuesPath'] + '?ref=' + approved['revision'])
-                if yaml.safe_load(decode_contents(frozen)) != entry['definition']:
-                    raise RuntimeError('Approved fixture revision differs; implicit repinning refused')
-                entry['approval'] = copy.deepcopy(approved)
-            else:
-                published = prepare_service(api,environment,entry['definition'])
-                entry['approval']['revision'] = published['revision']
-                entry['approval']['valuesPath'] = published['values_path']
         bundle = {'definition':entry['definition'],'approval':entry['approval'],
                   'platformRepository':public,'platformRevision':revision,'origin':origin,'application':None}
         filename = target / (entry['definition']['name']+'-bundle.json')

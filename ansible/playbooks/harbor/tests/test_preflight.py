@@ -34,12 +34,13 @@ class PreflightTests(unittest.TestCase):
         self.assertFalse(result['scope_permissions_verified'])
         self.assertEqual(result['missing'] + result['invalid'], [])
 
-    def test_repositories_must_be_designated_distinct_and_same_owner(self):
-        values = dict(zip(('PRIVATE_CONFIG_REPOSITORY', 'PUBLIC_TEST_REPOSITORY', 'PRIVATE_TEST_REPOSITORY'),
-                          ('https://github.com/fixture/config.git', 'https://github.com/fixture/public.git',
-                           'https://github.com/fixture/private.git')))
-        self.assertEqual(len(preflight.targets(values)), 3)
-        values['PRIVATE_TEST_REPOSITORY'] = values['PRIVATE_CONFIG_REPOSITORY']
-        with self.assertRaises(ValueError): preflight.targets(values)
-        values['PRIVATE_TEST_REPOSITORY'] = 'https://github.com/other/private.git'
-        with self.assertRaises(ValueError): preflight.targets(values)
+    def test_actual_configuration_source_requires_no_test_repositories(self):
+        import yaml
+        public = yaml.safe_load((preflight.Path(__file__).resolve().parents[4] /
+                                 'gitops/roots/public/values.yaml').read_text())['repository']
+        owner = public.split('/')[3]
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/' + owner + '/configuration.git'}
+        self.assertEqual(len(preflight.targets(values)), 2)
+        for url in (public, 'https://github.com/other/private.git'):
+            with self.subTest(url=url), self.assertRaises(RuntimeError):
+                preflight.targets({'PRIVATE_CONFIG_REPOSITORY': url})
