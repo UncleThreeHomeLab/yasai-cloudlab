@@ -69,6 +69,9 @@ class NetworkTests(unittest.TestCase):
         policy = next(row for row in render({'network': configuration(self.inputs()), 'arc': {'image': image}})
                       if row['kind'] == 'NetworkPolicy')
         network_verify.validate(policy)
+        canonical = copy.deepcopy(policy)
+        del canonical['spec']['ingress']
+        network_verify.validate(canonical)
         for defect in ('ingress', 'selector', 'public-port', 'private-range', 'missing-exclusion'):
             changed = copy.deepcopy(policy)
             spec = changed['spec']
