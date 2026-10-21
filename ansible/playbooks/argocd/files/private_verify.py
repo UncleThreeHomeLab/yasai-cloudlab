@@ -1,8 +1,10 @@
 """Observe actual private configuration reconciliation without changing sources or data."""
 import base64
+import copy
 import fcntl
 import json
 import os
+import re
 import sys
 import time
 
@@ -21,7 +23,10 @@ def wait(check, description, timeout=240):
 
 
 def healthy(name):
-    app = get('application.argoproj.io', name) or {}
+    return application_healthy(get('application.argoproj.io', name) or {})
+
+
+def application_healthy(app):
     status = app.get('status', {})
     sync = status.get('sync', {})
     revision = sync.get('revision') or next(iter(sync.get('revisions', [])), None)
@@ -57,15 +62,24 @@ def credential_owner(app, repository, secrets, externals):
 
 
 def configuration_healthy(name, repository, revision):
-    if not healthy(name):
+    if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
         return False
-    app = get('application.argoproj.io', name)
+    app = get('application.argoproj.io', name) or {}
+    if not app:
+        return False
     sources = app['spec'].get('sources', [app['spec'].get('source', {})])
-    sync = app['status']['sync']
+    sync = app.get('status', {}).get('sync', {})
     revisions = sync.get('revisions', [sync.get('revision')])
-    return len(sources) == len(revisions) and any(source.get('repoURL') == repository for source in sources) and all(
+    if not (len(sources) == len(revisions) and any(source.get('repoURL') == repository for source in sources) and all(
         resolved == (revision if source['targetRevision'] == 'main' else source['targetRevision'])
-        for source, resolved in zip(sources, revisions) if source.get('repoURL') == repository)
+        for source, resolved in zip(sources, revisions) if source.get('repoURL') == repository)):
+        return False
+    # Compare mutable configuration references against the authenticated head, preserving other source pin checks.
+    compared = copy.deepcopy(app)
+    for source in compared['spec'].get('sources', [compared['spec'].get('source', {})]):
+        if source.get('repoURL') == repository and source.get('targetRevision') == 'main':
+            source['targetRevision'] = revision
+    return application_healthy(compared)
 
 
 def run(payload):
