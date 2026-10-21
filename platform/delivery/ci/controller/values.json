@@ -1,4 +1,5 @@
 {
+  "network": {"enforce": true, "apiServiceCIDRs": [], "apiEndpointCIDRs": [], "registryCIDRs": []},
   "manageSystemNamespace": true,
   "runnerPools": 1,
   "arc": {

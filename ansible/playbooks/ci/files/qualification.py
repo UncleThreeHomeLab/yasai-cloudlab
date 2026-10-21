@@ -43,7 +43,7 @@ def bundle(references, namespace):
     labels = {'cloudlab.io/fixture': 'ci-bootstrap', 'cloudlab.io/owner': 'ci-platform',
               'cloudlab.io/ci-role': 'qualification'}
     controller_repository, controller_digest = references['controller'].split('@')
-    rendered = render({'arc': {'image': {'repository': controller_repository,
+    rendered = render({'network': {'enforce': False}, 'arc': {'image': {'repository': controller_repository,
                                         'tag': '0.15.0@' + controller_digest}}})
     pull = next(row for row in rendered if row['kind'] == 'ExternalSecret')
     pull['metadata'] = {'name': 'harbor-tools-pull', 'namespace': namespace, 'labels': labels}

@@ -13,6 +13,13 @@ from playbooks.ci.tests.fixtures import fixture_repository, qualified_tools
 
 
 class ConfigurationTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch('playbooks.ci.files.network.discover', return_value={
+            'enforce': True, 'apiServiceCIDRs': ['10.43.0.1/32'],
+            'apiEndpointCIDRs': ['100.64.0.2/32'], 'registryCIDRs': ['100.64.0.3/32']})
+        self.network = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_command_preserves_existing_inputs_and_requires_reviewed_qualification(self):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
@@ -86,6 +93,7 @@ class ConfigurationTests(unittest.TestCase):
         values = configuration(qualified_tools(), fixture_repository())
         self.assertEqual(values['eligibility'], [])
         repository, digest = values['images']['controller'].split('@')
+        values['network'] = {'enforce': False}
         objects = render(values, parameters={'arc.image.repository': repository, 'arc.image.tag': '0.15.0@' + digest})
         deployment, = [row for row in objects if row['kind'] == 'Deployment']
         self.assertEqual(deployment['spec']['template']['spec']['containers'][0]['image'],

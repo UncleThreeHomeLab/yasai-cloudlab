@@ -31,7 +31,7 @@ class PoolChartTests(unittest.TestCase):
         identities = [(x['kind'], x['metadata'].get('namespace', namespace), x['metadata']['name']) for x in primary + second]
         self.assertEqual(len(identities), len(set(identities)))
         repository, digest = bootstrap_document()['images']['controller'].split('@')
-        controller = render({'runnerPools': 2, 'arc': {'image': {'repository': repository, 'tag': '0.15.0@' + digest}}})
+        controller = render({'network': {'enforce': False}, 'runnerPools': 2, 'arc': {'image': {'repository': repository, 'tag': '0.15.0@' + digest}}})
         quota = next(x for x in controller if x['kind'] == 'ResourceQuota' and x['metadata']['namespace'] == 'cloudlab-ci-private')
         self.assertEqual(quota['spec']['hard']['pods'], '1')
         self.assertEqual(quota['spec']['hard']['count/autoscalingrunnersets.actions.github.com'], '2')
