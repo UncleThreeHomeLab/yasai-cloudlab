@@ -14,11 +14,33 @@ from private_failures import credential_failure
 class PrivateConvergenceTests(unittest.TestCase):
     def test_main_must_resolve_to_authenticated_configuration_head(self):
         app = {'spec': {'source': {'repoURL': 'private-source', 'targetRevision': 'main'}},
-               'status': {'sync': {'revision': 'a' * 40}}}
-        with patch('private_verify.healthy', return_value=True), patch('private_verify.get', return_value=app):
+               'status': {'sync': {'revision': 'a' * 40, 'status': 'Synced'}, 'health': {'status': 'Healthy'}}}
+        with patch('private_verify.get', return_value=app):
             self.assertTrue(configuration_healthy('consumer', 'private-source', 'a' * 40))
             self.assertFalse(configuration_healthy('consumer', 'private-source', 'b' * 40))
             self.assertFalse(configuration_healthy('consumer', 'other-source', 'a' * 40))
+            self.assertFalse(configuration_healthy('consumer', 'private-source', 'main'))
+
+    def test_native_private_values_main_requires_authenticated_head_without_relaxing_other_sources(self):
+        app = {'spec': {'sources': [{'repoURL': 'public-source', 'targetRevision': 'main'},
+                                   {'repoURL': 'private-source', 'targetRevision': 'main', 'ref': 'values'}]},
+               'status': {'sync': {'status': 'Synced', 'revisions': ['a' * 40, 'b' * 40]},
+                          'health': {'status': 'Healthy'}, 'operationState': {'phase': 'Succeeded'}}}
+        original = copy.deepcopy(app)
+        with patch('private_verify.get', return_value=app):
+            self.assertTrue(configuration_healthy('consumer', 'private-source', 'b' * 40))
+            self.assertFalse(configuration_healthy('consumer', 'private-source', 'c' * 40))
+        self.assertEqual(app, original)
+        for target in ('c' * 40, 'unapproved-branch'):
+            changed = copy.deepcopy(app)
+            changed['spec']['sources'][1]['targetRevision'] = target
+            with patch('private_verify.get', return_value=changed):
+                self.assertFalse(configuration_healthy('consumer', 'private-source', 'b' * 40))
+        changed = copy.deepcopy(app)
+        changed['spec']['sources'].append({'repoURL': 'other-source', 'targetRevision': 'main'})
+        changed['status']['sync']['revisions'].append('d' * 40)
+        with patch('private_verify.get', return_value=changed):
+            self.assertFalse(configuration_healthy('consumer', 'private-source', 'b' * 40))
 
     def test_private_credential_requires_exact_project_and_ready_eso_owner(self):
         app = {'spec': {'project': 'approved'}}
