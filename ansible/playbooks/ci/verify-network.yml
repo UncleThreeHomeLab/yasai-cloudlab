@@ -1,0 +1,20 @@
+---
+- name: Verify shared CI network isolation and required service access
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Exercise cross-node network boundaries without job credentials
+      ansible.builtin.script:
+        cmd: files/network_verify.py
+        executable: python3
+      changed_when: false
+      no_log: true
+      register: ci_network_verified
+      when: (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).ci.enabled | default(false) | bool
+
+    - name: Report sanitized CI network evidence
+      ansible.builtin.debug:
+        msg: '{{ ci_network_verified.stdout | from_json }}'
+      when: ci_network_verified is not skipped

@@ -168,6 +168,10 @@ repository namespace. The [runner pool](platform/delivery/ci/pool/values.json) r
 published image digests and approved workflow revisions before registration. It
 permits one build per repository, ends the builder with its runner, and stops jobs when API or node
 health fails. Its health role grants node listing and API readiness reads.
+Shared [network policies](platform/delivery/ci/controller/templates/network-policy.yaml)
+deny inbound traffic and private egress, except discovered API and Harbor hosts.
+DNS uses CoreDNS; public HTTPS supports CI dependencies. Public HTTPS remains
+an exfiltration path, so only trusted code may use lab runners.
 Application Dockerfiles expose `test` and `runtime` targets. Registration supports
 separate test and publisher pools within that one build budget. Public callers use
 approved workflow bytes and protected main; private repositories can use explicit

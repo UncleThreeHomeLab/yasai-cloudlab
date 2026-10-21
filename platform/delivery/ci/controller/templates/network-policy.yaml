@@ -1,0 +1,67 @@
+{{- if .Values.network.enforce }}
+{{- $network := .Values.network }}
+{{- range $key := list "apiServiceCIDRs" "apiEndpointCIDRs" "registryCIDRs" }}
+{{- if not (index $network $key) }}{{ fail (printf "CI networking requires discovered %s" $key) }}{{ end }}
+{{- end }}
+{{- $namespaces := list .Values.arc.flags.watchSingleNamespace }}
+{{- if .Values.manageSystemNamespace }}
+{{- $namespaces = append $namespaces "cloudlab-ci-system" }}
+{{- end }}
+{{- range $namespace := $namespaces }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudlab-ci-boundary
+  namespace: {{ $namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports: [{protocol: TCP, port: 443}]
+    {{- range $key, $port := dict "apiServiceCIDRs" 443 "apiEndpointCIDRs" 6443 }}
+    - to:
+        {{- range index $network $key }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports: [{protocol: TCP, port: {{ $port }}}]
+    {{- end }}
+    {{- if ne $namespace "cloudlab-ci-system" }}
+    - to:
+        {{- range $network.registryCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports: [{protocol: TCP, port: 443}]
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}
+          podSelector:
+            matchLabels: {gateway.networking.k8s.io/gateway-name: cloudlab}
+      ports: [{protocol: TCP, port: 443}]
+    {{- end }}
+{{- end }}
+{{- end }}

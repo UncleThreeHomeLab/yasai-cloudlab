@@ -34,7 +34,7 @@ def check():
     # Schema validation uses an unreachable example; live inputs require accepted bootstrap digests.
     image = {'repository': 'registry.example.invalid/cloudlab-public/ci-controller',
              'tag': '0.15.0@sha256:' + 'a' * 64}
-    objects = render({'arc': {'image': image}})
+    objects = render({'network': {'enforce': False}, 'arc': {'image': image}})
     deployments = [row for row in objects if row['kind'] == 'Deployment']
     if len(deployments) != 1:
         raise ValueError('CI requires one controller Deployment')

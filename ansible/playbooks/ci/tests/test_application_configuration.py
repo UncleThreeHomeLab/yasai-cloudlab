@@ -14,6 +14,13 @@ from playbooks.ci.tests.fixtures import qualified_tools, pool_values
 
 
 class ApplicationConfigurationTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch('playbooks.ci.files.network.discover', return_value={
+            'enforce': True, 'apiServiceCIDRs': ['10.43.0.1/32'],
+            'apiEndpointCIDRs': ['100.64.0.2/32'], 'registryCIDRs': ['100.64.0.3/32']})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_repository_owned_workflow_binds_roles_and_rejects_shared_or_unbounded_jobs(self):
         import base64
         import yaml
@@ -211,6 +218,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
             controller = documents['controller.json']
             self.assertEqual(controller['namespace'], 'cloudlab-ci-' + scope + '-' + name)
             self.assertFalse(controller['values']['manageSystemNamespace'])
+            controller['values']['network'] = {'enforce': False}
             objects = render(controller['values'], include_crds=False)
             self.assertFalse(any(row['kind'] == 'ExternalSecret' and row['spec']['dataFrom'] !=
                 [{'extract': {'key': 'harbor-cloudlab-public-pull'}}] for row in objects))

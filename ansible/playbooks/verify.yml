@@ -45,3 +45,5 @@
   ansible.builtin.import_playbook: admission/verify.yml
 - name: Verify credential-free rootless builds on both nodes
   ansible.builtin.import_playbook: buildkit/verify.yml
+- name: Verify CI network isolation on both nodes
+  ansible.builtin.import_playbook: ci/verify-network.yml

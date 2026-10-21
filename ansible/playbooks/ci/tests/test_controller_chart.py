@@ -8,7 +8,7 @@ from playbooks.ci.files.chart import check, render
 class ControllerChartTests(unittest.TestCase):
     def test_additional_repository_controller_preserves_shared_ownership_and_scoped_roles(self):
         namespace = 'cloudlab-ci-public-example'
-        objects = render({'manageSystemNamespace': False, 'arc': {
+        objects = render({'network': {'enforce': False}, 'manageSystemNamespace': False, 'arc': {
             'fullnameOverride': 'cloudlab-example-controller',
             'serviceAccount': {'name': 'cloudlab-example-controller'},
             'image': {'repository': 'registry.example.invalid/cloudlab-public/ci-controller',
@@ -30,7 +30,7 @@ class ControllerChartTests(unittest.TestCase):
         self.assertEqual(check()['cluster_role_grants'], 0)
 
     def test_native_read_only_root_keeps_one_writable_tmp_without_duplicate_patch_keys(self):
-        objects = render({'arc': {'image': {
+        objects = render({'network': {'enforce': False}, 'arc': {'image': {
             'repository': 'registry.example.invalid/cloudlab-public/ci-controller',
             'tag': '0.15.0@sha256:' + 'a' * 64}}})
         deployment, = [row for row in objects if row['kind'] == 'Deployment']

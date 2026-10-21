@@ -317,7 +317,11 @@ def main():
                 '/contents/.github/workflows/publish.yaml?ref=' + current, missing=True):
             raise ValueError('Approve the actual main workflow revision before registering the pool')
     qualified = json.loads((harbor_api.WORK / 'ci/qualified.json').read_text())
+    from playbooks.ci.files.network import discover
+    network = discover(values, qualified_images(qualified)['runner'].split('/')[0])
     desired = configuration(qualified, fixture, arguments.workflow_revision) if not application else None
+    if desired is not None:
+        desired['network'] = network
     source = yaml.safe_load((harbor_api.ROOT / 'gitops/roots/public/values.yaml').read_text())
     environment = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}
     if not all(harbor_api.reviewed_ancestor(source['repository'], qualified[key], revision, environment)
@@ -346,6 +350,7 @@ def main():
         publishing = publication(api, values, application, fixture, qualified, reviewed_templates) if arguments.publish else None
         documents = application_configuration(qualified, application, fixture, workflows, templates, publishing,
                                                 exact_reusable=arguments.approve_private_revision)
+        documents['controller.json']['values']['network'] = network
         if arguments.output.is_symlink():
             raise ValueError('Application output cannot redirect its protected directory')
         arguments.output.mkdir(mode=0o700, parents=True, exist_ok=True)
