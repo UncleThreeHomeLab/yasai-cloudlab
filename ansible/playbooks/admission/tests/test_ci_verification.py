@@ -34,6 +34,15 @@ class RunnerVerificationTests(unittest.TestCase):
                     ci_verify.run(actions)
                 get.assert_not_called()
 
+    def test_layered_denials_require_an_explicitly_accepted_policy_and_matching_mode(self):
+        message = 'CI containers require digest pins, bounded resources and the restricted or qualified rootless builder profile.'
+        denied = subprocess.CompletedProcess([], 1, '', message)
+        ci_verify.outcome(denied, True, ('cloudlab-ci-runner', message))
+        with self.assertRaises(RuntimeError):
+            ci_verify.outcome(denied, True, 'cloudlab-ci-runner')
+        with self.assertRaises(RuntimeError):
+            ci_verify.outcome(denied, False, ('cloudlab-ci-runner', message))
+
     def test_bootstrap_without_arc_does_not_require_a_runner_or_claim_a_profile_proof(self):
         with patch.object(ci_verify, 'wait'), \
                 patch.object(ci_verify, 'get', return_value={'items': []}), \
@@ -55,6 +64,42 @@ class RunnerVerificationTests(unittest.TestCase):
             ci_verify.api_boundary('cloudlab-ci-public-example', 'assigned')
         self.assertEqual(kube.call_count, 9)
         self.assertTrue(all(call.args[:2] == ('auth', 'can-i') for call in kube.call_args_list))
+
+    def test_both_role_proofs_keep_configmap_and_api_checks_in_the_repository_namespace(self):
+        namespace = 'cloudlab-ci-public-example'
+        _, config = runner()
+        profile = json.loads(config['data']['admission.json'])
+        scale_set = {'spec': {'template': {'spec': profile['spec']}}}
+        def get(kind, name=None, scope=None, **kwargs):
+            if kind == 'namespace':
+                return {'items': [{'metadata': {'name': namespace, 'labels': {
+                    'cloudlab.io/owner': 'ci-platform', 'cloudlab.io/ci-role': 'runner'}}}]}
+            if kind == 'pods':
+                return {'items': []}
+            if kind == 'autoscalingrunnerset.actions.github.com':
+                return {'items': [scale_set, copy.deepcopy(scale_set)]}
+            if kind == 'configmap':
+                self.assertEqual(scope, namespace)
+                return config
+            raise AssertionError('Unexpected proof lookup')
+        def dry_run(document, controller=None):
+            if controller is None:
+                return subprocess.CompletedProcess([], 1, '', 'Only the assigned ARC controller')
+            if document['spec'].get('hostNetwork') or any('hostPath' in v for v in document['spec']['volumes']):
+                return subprocess.CompletedProcess([], 1, '', 'violates PodSecurity')
+            return subprocess.CompletedProcess([], 0, '', '')
+        with patch.object(ci_verify, 'wait'), patch.object(ci_verify, 'get', side_effect=get), \
+                patch.object(ci_verify, 'kube', return_value=subprocess.CompletedProcess([], 1, '',
+                    'CI namespaces must retain automatic guardrail selection')), \
+                patch.object(ci_verify, 'dry_run', side_effect=dry_run), \
+                patch.object(ci_verify, 'violations', return_value=[('root_user', {})]), \
+                patch.object(ci_verify, 'outcome'), patch.object(ci_verify, 'api_boundary') as api:
+            # Outcome matching has its own checks; this isolates namespace preservation across roles.
+            ci_verify.violations.return_value = [('root_user', ci_verify.runner_pod(namespace, profile))]
+            result = ci_verify.run(['Deny'])
+        self.assertEqual(result['runner_pools'], 2)
+        self.assertEqual(api.call_count, 2)
+        self.assertTrue(all(call.args[0] == namespace for call in api.call_args_list))
 
     def test_probe_preserves_profile_and_does_not_supply_a_real_registration_token(self):
         _, config = runner()
