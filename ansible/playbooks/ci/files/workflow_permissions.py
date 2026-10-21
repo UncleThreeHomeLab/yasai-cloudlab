@@ -1,4 +1,4 @@
-"""Local native ownership of read-only workflow defaults on the two GitOps repositories."""
+"""Local native ownership of GitOps workflow defaults and the public merge boundary."""
 import argparse
 import fcntl
 import hashlib
@@ -20,10 +20,12 @@ from playbooks.secrets.files.vault import fields
 
 BASE = ROOT / 'infra/github-workflows'
 ROLES = {'public_platform': 'public-platform', 'private_config': 'private-config'}
+MERGE_GUARD = 'github_repository_ruleset.merge_guard[0]'
+MERGE_NAME = 'cloudlab-human-release-merge'
 
 
 def copy_source(directory):
-    files = {name: BASE / name for name in ('main.tf', 'variables.tf', 'policy.json')}
+    files = {name: BASE / name for name in ('main.tf', 'variables.tf', 'policy.json', 'merge-guard.tf')}
     files.update({name: ROOT / 'infra/github' / name for name in ('versions.tf', '.terraform.lock.hcl')})
     allowed = set(files) | {'imports.tf.json', 'desired.tfvars.json'}
     for pattern in ('*.tf', '*.tf.json', '*.tfvars*'):
@@ -66,6 +68,57 @@ def expected_resources(desired):
             for key, repository in desired['repositories'].items()}
 
 
+def merge_policy(value, desired):
+    """Only a separate admin-through-PR update gate is an accepted merge boundary."""
+    if (value.get('repository') != desired['repositories']['public_platform']['name'] or
+            value.get('name') != MERGE_NAME or value.get('target') != 'branch' or
+            value.get('enforcement') != 'active' or
+            value.get('conditions') != [{'ref_name': [{'include': ['~DEFAULT_BRANCH'], 'exclude': []}]}] or
+            value.get('bypass_actors') != [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'pull_request'}]):
+        raise ValueError('Release merge guard identity, scope or human-only boundary differs')
+    rules, = value.get('rules', [])
+    if rules.get('update') is not True or any(v for k, v in rules.items() if k != 'update'):
+        raise ValueError('Release merge guard must preserve independent PR and status rules')
+
+
+def require_release_guard(api, repository):
+    """Reject publishing before loading App credentials if GitHub cannot enforce the boundary."""
+    prefix = 'repos/' + repository
+    rules = api.request('GET', prefix + '/rulesets?includes_parents=true&per_page=100')
+    selected = [row for row in rules if row.get('name') == MERGE_NAME and row.get('enforcement') == 'active']
+    if len(selected) != 1:
+        raise ValueError('Publishing requires an enforceable human-only GitOps merge guard')
+    rule = api.request('GET', prefix + '/rulesets/' + str(selected[0]['id']))
+    if (rule.get('target') != 'branch' or rule.get('enforcement') != 'active' or
+            rule.get('conditions') != {'ref_name': {'include': ['~DEFAULT_BRANCH'], 'exclude': []}} or
+            rule.get('bypass_actors') != [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'pull_request'}] or
+            rule.get('rules') not in ([{'type': 'update'}], [{'type': 'update',
+                'parameters': {'update_allows_fetch_and_merge': False}}])):
+        raise ValueError('GitOps merge guard differs from its reviewed human-only rule')
+    for candidate in rules:
+        if candidate.get('id') == rule.get('id') or candidate.get('enforcement') != 'active':
+            continue
+        other = api.request('GET', prefix + '/rulesets/' + str(candidate['id']))
+        refs = other.get('conditions', {}).get('ref_name', {})
+        if (other.get('target') == 'branch' and not other.get('bypass_actors') and not refs.get('exclude') and
+                any(ref in ('~DEFAULT_BRANCH', 'refs/heads/main', '~ALL') for ref in refs.get('include', [])) and
+                any(r.get('type') == 'pull_request' for r in other.get('rules', []))):
+            return
+    raise ValueError('GitOps requires a separate non-bypassable pull request rule')
+
+
+def guard_existing_merge_rule(api, desired, state):
+    repository = desired['repositories']['public_platform']['name']
+    rows = api.request('GET', 'repos/' + desired['owner'] + '/' + repository +
+                       '/rulesets?includes_parents=true&per_page=100')
+    matches = [row for row in rows if row.get('name') == MERGE_NAME]
+    owned = [row for row in state.get('values', {}).get('root_module', {}).get('resources', [])
+             if row.get('address') == MERGE_GUARD]
+    if len(matches) > 1 or matches and (not owned or str(matches[0]['id']) !=
+            str(owned[0]['values'].get('ruleset_id') or owned[0]['values']['id']).rsplit(':', 1)[-1]):
+        raise ValueError('Existing merge guard has another owner; adoption or duplicate creation refused')
+
+
 def occupied(document, desired):
     values = document.get('values', {})
     root = values.get('root_module', {})
@@ -75,10 +128,16 @@ def occupied(document, desired):
     if not rows:
         return False
     expected = expected_resources(desired)
-    if (len(rows) != 2 or {row['address'] for row in rows} != set(expected) or
+    addresses = {row['address'] for row in rows}
+    if (len(rows) != len(addresses) or addresses not in (set(expected), set(expected) | {MERGE_GUARD}) or
             values.get('outputs', {}).get('repository_identities', {}).get('value') != identities(desired)):
         raise ValueError('Workflow state differs from its original immutable repository identities')
     for row in rows:
+        if row['address'] == MERGE_GUARD:
+            if row.get('type') != 'github_repository_ruleset' or not row.get('values', {}).get('id'):
+                raise ValueError('Release merge state contains a foreign resource')
+            merge_policy(row['values'], desired)
+            continue
         _, repository = expected[row['address']]
         if (row.get('type') != 'github_workflow_repository_permissions' or
                 row.get('values', {}).get('id') != repository['name'] or
@@ -90,9 +149,22 @@ def occupied(document, desired):
 def guard(document, desired, permissions, *, importing=False):
     expected = expected_resources(desired)
     rows = document.get('resource_changes', [])
-    if len(rows) != len(expected) or {row['address'] for row in rows} != set(expected):
-        raise ValueError('Workflow plan exceeds the two approved repository resources')
+    addresses = set(expected) | (set() if importing else {MERGE_GUARD})
+    if len(rows) != len(addresses) or {row['address'] for row in rows} != addresses:
+        raise ValueError('Workflow plan exceeds approved repository security resources')
     for row in rows:
+        if row['address'] == MERGE_GUARD:
+            change = row['change']
+            if (row.get('type') != 'github_repository_ruleset' or
+                    change['actions'] not in (['create'], ['update'], ['no-op'])):
+                raise ValueError('Release merge guard cannot be removed or replaced')
+            merge_policy(change.get('after') or {}, desired)
+            if change.get('before'):
+                before, after = change['before'], change['after']
+                if (before.get('repository') != after['repository'] or before.get('name') != MERGE_NAME or
+                        before.get('id') != after.get('id')):
+                    raise ValueError('Release merge guard identity cannot change')
+            continue
         key, repository = expected[row['address']]
         change = row['change']
         after = change.get('after') or {}
@@ -152,7 +224,7 @@ def run(action):
         if not occupied(state, desired):
             if action != 'apply' or accepted.exists():
                 raise ValueError('Creation-free native import required before workflow checks')
-            atomic(path / 'desired.tfvars.json', dict(desired, import_permissions=observed))
+            atomic(path / 'desired.tfvars.json', dict(desired, import_permissions=observed, enable_merge_guard=False))
             atomic(path / 'imports.tf.json', {'import': [
                 {'to': 'github_workflow_repository_permissions.release[' + json.dumps(role) + ']',
                  'id': repository['name']} for role, repository in desired['repositories'].items()]})
@@ -164,6 +236,7 @@ def run(action):
             maintain(client)
             atomic(path / 'desired.tfvars.json', desired)
         policy = json.loads((BASE / 'policy.json').read_text())
+        guard_existing_merge_rule(api, desired, json.loads(require(client.native('show', '-json')).stdout))
         code, plan = document_plan(path, env, 'desired.tfplan')
         guard(plan, desired, policy)
         if code == 2 and action == 'check':
@@ -179,7 +252,9 @@ def run(action):
             if repeated != 0:
                 raise ValueError('Workflow permissions did not converge; no unrelated resource changed')
             atomic(accepted, dict(binding, revision=revision, independent_encrypted_state=True))
+        require_release_guard(api, desired['owner'] + '/' + desired['repositories']['public_platform']['name'])
         return {'repository_receivers': 2, 'default_workflow_permissions': 'read',
+                'public_merge_requires_repository_admin': True, 'private_merge_guard_managed': False,
                 'creation_free_import': True, 'organization_policy_changed': False,
                 'job_credentials_created': 0, 'repeat_plan_empty': code == 0 or action == 'apply'}
 

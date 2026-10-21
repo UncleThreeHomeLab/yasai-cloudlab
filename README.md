@@ -151,6 +151,12 @@ process sandbox, CPU/memory/storage quotas and no host mounts or Docker socket.
 Build application controller, runner and builder images locally with
 `docker compose --profile ci build ci-controller-image ci-runner-image ci-builder-image`.
 [Sources and dependencies](platform/delivery/ci/tools/source.lock.json) are locked.
+Publishing requires a server-enforced GitOps merge gate: only repository admins
+may merge through PRs; release Apps cannot merge. Existing PR/check rules remain
+independent. Private publishing stays blocked when the repository plan cannot
+enforce this boundary. The local [workflow policy owner](infra/github-workflows)
+keeps workflow tokens read-only and owns the public merge gate.
+
 The [runner gate](platform/delivery/ci/runner/TrustedWorkflow.cs) checks original
 job metadata against a read-only policy before action setup. PR jobs require current
 repository write permission for the author; private membership labels do not grant access.

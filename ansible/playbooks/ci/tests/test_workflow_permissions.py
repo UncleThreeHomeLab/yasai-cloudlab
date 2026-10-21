@@ -30,6 +30,14 @@ class WorkflowPermissionsTests(unittest.TestCase):
                 change['before'] = copy.deepcopy(after)
             rows.append({'address': 'github_workflow_repository_permissions.release[' + json.dumps(key) + ']',
                          'type': 'github_workflow_repository_permissions', 'change': change})
+        if not importing:
+            value = {'id': '123', 'repository': desired['repositories']['public_platform']['name'],
+                     'name': permissions.MERGE_NAME, 'target': 'branch', 'enforcement': 'active',
+                     'conditions': [{'ref_name': [{'include': ['~DEFAULT_BRANCH'], 'exclude': []}]}],
+                     'bypass_actors': [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'pull_request'}],
+                     'rules': [{'update': True}]}
+            rows.append({'address': permissions.MERGE_GUARD, 'type': 'github_repository_ruleset',
+                         'change': {'actions': ['no-op'], 'before': copy.deepcopy(value), 'after': value}})
         return {'resource_changes': rows}, desired, observed, policy
 
     def test_import_is_creation_free_and_policy_convergence_changes_only_approved_fields(self):
@@ -56,6 +64,58 @@ class WorkflowPermissionsTests(unittest.TestCase):
                 row['after']['default_workflow_permissions'] = 'write'
             with self.subTest(field=field), self.assertRaises(ValueError):
                 permissions.guard(plan, desired, observed, importing=True)
+
+    def test_merge_guard_refuses_app_bypass_direct_push_scope_changes_or_removal(self):
+        for defect in ('app', 'direct', 'branch', 'repository', 'extra_rule', 'remove', 'replace'):
+            plan, desired, _, policy = self.plan()
+            change = plan['resource_changes'][-1]['change']
+            after = change['after']
+            if defect == 'app': after['bypass_actors'][0]['actor_type'] = 'Integration'
+            elif defect == 'direct': after['bypass_actors'][0]['bypass_mode'] = 'always'
+            elif defect == 'branch': after['conditions'][0]['ref_name'][0]['include'] = ['~ALL']
+            elif defect == 'repository': after['repository'] = 'private-gitops'
+            elif defect == 'extra_rule': after['rules'][0]['pull_request'] = [{'required_approving_review_count': 0}]
+            else: change['actions'] = ['delete', 'create'] if defect == 'replace' else ['delete']
+            with self.subTest(defect=defect), self.assertRaises(ValueError):
+                permissions.guard(plan, desired, policy)
+
+    def test_publishing_requires_live_merge_gate_and_independent_pull_request_rule(self):
+        merge = {'id': 123, 'name': permissions.MERGE_NAME, 'target': 'branch', 'enforcement': 'active',
+                 'conditions': {'ref_name': {'include': ['~DEFAULT_BRANCH'], 'exclude': []}},
+                 'bypass_actors': [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'pull_request'}],
+                 'rules': [{'type': 'update'}]}
+        pull = {'id': 124, 'name': 'main', 'target': 'branch', 'enforcement': 'active',
+                'conditions': {'ref_name': {'include': ['refs/heads/main'], 'exclude': []}},
+                'bypass_actors': [], 'rules': [{'type': 'pull_request'}]}
+        for defect in (None, 'missing', 'app', 'direct', 'inactive', 'no_pr', 'pr_bypass'):
+            rows = copy.deepcopy([merge, pull])
+            if defect == 'missing': rows.pop(0)
+            elif defect == 'app': rows[0]['bypass_actors'][0]['actor_type'] = 'Integration'
+            elif defect == 'direct': rows[0]['bypass_actors'][0]['bypass_mode'] = 'always'
+            elif defect == 'inactive': rows[0]['enforcement'] = 'disabled'
+            elif defect == 'no_pr': rows[1]['rules'] = []
+            elif defect == 'pr_bypass': rows[1]['bypass_actors'] = [{'actor_type': 'Integration'}]
+            api = Mock()
+            api.request.side_effect = lambda method, path: (rows if '?includes_parents' in path else
+                                                            next(row for row in rows if path.endswith('/' + str(row['id']))))
+            if defect is None:
+                permissions.require_release_guard(api, 'example/public-gitops')
+            else:
+                with self.subTest(defect=defect), self.assertRaises(ValueError):
+                    permissions.require_release_guard(api, 'example/public-gitops')
+
+    def test_existing_merge_guard_cannot_be_duplicated_or_adopted_from_another_state(self):
+        desired, _ = workflow_permissions()
+        api = Mock()
+        api.request.return_value = [{'name': permissions.MERGE_NAME, 'id': 123}]
+        with self.assertRaises(ValueError):
+            permissions.guard_existing_merge_rule(api, desired, {})
+        state = {'values': {'root_module': {'resources': [{'address': permissions.MERGE_GUARD,
+            'values': {'ruleset_id': 123}}]}}}
+        permissions.guard_existing_merge_rule(api, desired, state)
+        api.request.return_value.append({'name': permissions.MERGE_NAME, 'id': 456})
+        with self.assertRaises(ValueError):
+            permissions.guard_existing_merge_rule(api, desired, state)
 
     def test_unapproved_resource_scope_replacement_or_unowned_fields_fail_closed(self):
         for change in ('extra', 'create', 'delete', 'replace', 'identity', 'repository', 'permission', 'foreign_field'):
