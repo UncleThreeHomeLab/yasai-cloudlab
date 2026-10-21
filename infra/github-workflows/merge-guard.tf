@@ -24,3 +24,28 @@ resource "github_repository_ruleset" "merge_guard" {
   rules { update = true }
   lifecycle { prevent_destroy = true }
 }
+
+resource "github_repository_ruleset" "tag_guard" {
+  count       = var.enable_merge_guard ? 1 : 0
+  repository  = var.repositories["public_platform"].name
+  name        = "cloudlab-human-gitops-tags"
+  target      = "tag"
+  enforcement = "active"
+  conditions {
+    ref_name {
+      include = ["~ALL"]
+      exclude = []
+    }
+  }
+  bypass_actors {
+    actor_id    = 5
+    actor_type  = "RepositoryRole"
+    bypass_mode = "always"
+  }
+  rules {
+    creation = true
+    update   = true
+    deletion = true
+  }
+  lifecycle { prevent_destroy = true }
+}

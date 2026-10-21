@@ -11,6 +11,13 @@ variables {
 run "scoped_release_permissions" {
   command = plan
   assert {
+    condition = (github_repository_ruleset.tag_guard[0].rules[0].creation &&
+      github_repository_ruleset.tag_guard[0].rules[0].update && github_repository_ruleset.tag_guard[0].rules[0].deletion &&
+      github_repository_ruleset.tag_guard[0].bypass_actors[0].actor_id == 5 &&
+    github_repository_ruleset.tag_guard[0].conditions[0].ref_name[0].include == tolist(["~ALL"]))
+    error_message = "Only repository administrators may mutate tags, including names shadowing GitOps branches."
+  }
+  assert {
     condition = (github_repository_ruleset.merge_guard[0].rules[0].update &&
       github_repository_ruleset.merge_guard[0].bypass_actors[0].actor_id == 5 &&
       github_repository_ruleset.merge_guard[0].bypass_actors[0].bypass_mode == "pull_request" &&

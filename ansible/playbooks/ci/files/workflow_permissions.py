@@ -22,6 +22,9 @@ BASE = ROOT / 'infra/github-workflows'
 ROLES = {'public_platform': 'public-platform', 'private_config': 'private-config'}
 MERGE_GUARD = 'github_repository_ruleset.merge_guard[0]'
 MERGE_NAME = 'cloudlab-human-release-merge'
+TAG_GUARD = 'github_repository_ruleset.tag_guard[0]'
+TAG_NAME = 'cloudlab-human-gitops-tags'
+REFERENCE_GUARDS = {MERGE_GUARD: MERGE_NAME, TAG_GUARD: TAG_NAME}
 
 
 def copy_source(directory):
@@ -95,6 +98,17 @@ def require_release_guard(api, repository):
             rule.get('rules') not in ([{'type': 'update'}], [{'type': 'update',
                 'parameters': {'update_allows_fetch_and_merge': False}}])):
         raise ValueError('GitOps merge guard differs from its reviewed human-only rule')
+    tags = [row for row in rules if row.get('name') == TAG_NAME and row.get('enforcement') == 'active']
+    if len(tags) != 1:
+        raise ValueError('GitOps publishing requires tag protection against branch-name shadowing')
+    tag = api.request('GET', prefix + '/rulesets/' + str(tags[0]['id']))
+    if (tag.get('target') != 'tag' or tag.get('enforcement') != 'active' or
+            tag.get('conditions') != {'ref_name': {'include': ['~ALL'], 'exclude': []}} or
+            tag.get('bypass_actors') != [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'always'}] or
+            {row.get('type') for row in tag.get('rules', [])} != {'creation', 'update', 'deletion'} or
+            len(tag['rules']) != 3 or any(set(row) - {'type', 'parameters'} or row.get('parameters') not in (
+                None, {}, {'update_allows_fetch_and_merge': False}) for row in tag['rules'])):
+        raise ValueError('GitOps tag protection differs from its reviewed admin-only rule')
     for candidate in rules:
         if candidate.get('id') == rule.get('id') or candidate.get('enforcement') != 'active':
             continue
@@ -111,12 +125,27 @@ def guard_existing_merge_rule(api, desired, state):
     repository = desired['repositories']['public_platform']['name']
     rows = api.request('GET', 'repos/' + desired['owner'] + '/' + repository +
                        '/rulesets?includes_parents=true&per_page=100')
-    matches = [row for row in rows if row.get('name') == MERGE_NAME]
-    owned = [row for row in state.get('values', {}).get('root_module', {}).get('resources', [])
-             if row.get('address') == MERGE_GUARD]
-    if len(matches) > 1 or matches and (not owned or str(matches[0]['id']) !=
-            str(owned[0]['values'].get('ruleset_id') or owned[0]['values']['id']).rsplit(':', 1)[-1]):
-        raise ValueError('Existing merge guard has another owner; adoption or duplicate creation refused')
+    for address, name in REFERENCE_GUARDS.items():
+        matches = [row for row in rows if row.get('name') == name]
+        owned = [row for row in state.get('values', {}).get('root_module', {}).get('resources', [])
+                 if row.get('address') == address]
+        if len(matches) > 1 or matches and (not owned or str(matches[0]['id']) !=
+                str(owned[0]['values'].get('ruleset_id') or owned[0]['values']['id']).rsplit(':', 1)[-1]):
+            raise ValueError('Existing reference guard has another owner; adoption or duplicate creation refused')
+
+
+def reference_policy(address, value, desired):
+    if address == MERGE_GUARD:
+        return merge_policy(value, desired)
+    if (value.get('repository') != desired['repositories']['public_platform']['name'] or
+            value.get('name') != TAG_NAME or value.get('target') != 'tag' or value.get('enforcement') != 'active' or
+            value.get('conditions') != [{'ref_name': [{'include': ['~ALL'], 'exclude': []}]}] or
+            value.get('bypass_actors') != [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'always'}]):
+        raise ValueError('GitOps tag identity or admin-only boundary differs')
+    rules, = value.get('rules', [])
+    if (any(rules.get(key) is not True for key in ('creation', 'update', 'deletion')) or
+            any(value for key, value in rules.items() if key not in ('creation', 'update', 'deletion'))):
+        raise ValueError('GitOps tags require creation, update and deletion protection')
 
 
 def occupied(document, desired):
@@ -129,14 +158,14 @@ def occupied(document, desired):
         return False
     expected = expected_resources(desired)
     addresses = {row['address'] for row in rows}
-    if (len(rows) != len(addresses) or addresses not in (set(expected), set(expected) | {MERGE_GUARD}) or
+    if (len(rows) != len(addresses) or addresses not in (set(expected), set(expected) | {MERGE_GUARD}, set(expected) | set(REFERENCE_GUARDS)) or
             values.get('outputs', {}).get('repository_identities', {}).get('value') != identities(desired)):
         raise ValueError('Workflow state differs from its original immutable repository identities')
     for row in rows:
-        if row['address'] == MERGE_GUARD:
+        if row['address'] in REFERENCE_GUARDS:
             if row.get('type') != 'github_repository_ruleset' or not row.get('values', {}).get('id'):
                 raise ValueError('Release merge state contains a foreign resource')
-            merge_policy(row['values'], desired)
+            reference_policy(row['address'], row['values'], desired)
             continue
         _, repository = expected[row['address']]
         if (row.get('type') != 'github_workflow_repository_permissions' or
@@ -149,19 +178,19 @@ def occupied(document, desired):
 def guard(document, desired, permissions, *, importing=False):
     expected = expected_resources(desired)
     rows = document.get('resource_changes', [])
-    addresses = set(expected) | (set() if importing else {MERGE_GUARD})
+    addresses = set(expected) | (set() if importing else set(REFERENCE_GUARDS))
     if len(rows) != len(addresses) or {row['address'] for row in rows} != addresses:
         raise ValueError('Workflow plan exceeds approved repository security resources')
     for row in rows:
-        if row['address'] == MERGE_GUARD:
+        if row['address'] in REFERENCE_GUARDS:
             change = row['change']
             if (row.get('type') != 'github_repository_ruleset' or
                     change['actions'] not in (['create'], ['update'], ['no-op'])):
                 raise ValueError('Release merge guard cannot be removed or replaced')
-            merge_policy(change.get('after') or {}, desired)
+            reference_policy(row['address'], change.get('after') or {}, desired)
             if change.get('before'):
                 before, after = change['before'], change['after']
-                if (before.get('repository') != after['repository'] or before.get('name') != MERGE_NAME or
+                if (before.get('repository') != after['repository'] or before.get('name') != REFERENCE_GUARDS[row['address']] or
                         before.get('id') != after.get('id')):
                     raise ValueError('Release merge guard identity cannot change')
             continue
@@ -255,6 +284,7 @@ def run(action):
         require_release_guard(api, desired['owner'] + '/' + desired['repositories']['public_platform']['name'])
         return {'repository_receivers': 2, 'default_workflow_permissions': 'read',
                 'public_merge_requires_repository_admin': True, 'private_merge_guard_managed': False,
+                'public_tags_require_repository_admin': True,
                 'creation_free_import': True, 'organization_policy_changed': False,
                 'job_credentials_created': 0, 'repeat_plan_empty': code == 0 or action == 'apply'}
 
