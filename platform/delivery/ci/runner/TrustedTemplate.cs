@@ -71,6 +71,7 @@ namespace GitHub.Runner.Worker
                 diagnostic?.Invoke("repository");
                 using var repository = fetch(prefix);
                 var repo = repository.RootElement;
+                diagnostic?.Invoke("repository-fields");
                 if (repo.GetProperty("id").GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture) != actual["repository_id"] ||
                     repo.GetProperty("full_name").GetString() != actual["repository"] ||
                     repo.GetProperty("private").GetBoolean() != (expected.GetProperty("visibility").GetString() == "private") ||
@@ -136,7 +137,17 @@ namespace GitHub.Runner.Worker
                 error is KeyNotFoundException || error is FormatException || error is HttpRequestException ||
                 error is IOException || error is OperationCanceledException || error is ArgumentException)
             {
-                if (error is OperationCanceledException) diagnostic?.Invoke("github-timeout");
+                var failure = error switch
+                {
+                    OperationCanceledException => "github-timeout",
+                    HttpRequestException request => request.StatusCode.HasValue
+                        ? "github-http-" + (int)request.StatusCode.Value
+                        : "github-transport-" + request.HttpRequestError.ToString().ToLowerInvariant(),
+                    IOException => "github-response-io",
+                    JsonException => "github-response-json",
+                    _ => null
+                };
+                if (failure != null) diagnostic?.Invoke(failure);
                 return false;
             }
         }
@@ -181,7 +192,7 @@ namespace GitHub.Runner.Worker
             if (!response.IsSuccessStatusCode)
             {
                 diagnostic?.Invoke("github-http-" + (int)response.StatusCode);
-                throw new HttpRequestException("Eligibility API unavailable.");
+                throw new HttpRequestException("Eligibility API unavailable.", null, response.StatusCode);
             }
             using var input = response.Content.ReadAsStreamAsync(cancellation.Token).GetAwaiter().GetResult();
             using var output = new MemoryStream();

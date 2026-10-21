@@ -257,6 +257,20 @@ namespace GitHub.Runner.Common.Tests.Worker
             Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy));
             Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
                 path => throw new System.Net.Http.HttpRequestException("unavailable")));
+            foreach (var failure in new Dictionary<Exception, string> {
+                [new System.Net.Http.HttpRequestException("must-not-log-credentials")] = "github-transport-unknown",
+                [new System.Net.Http.HttpRequestException("must-not-log-credentials", null,
+                    System.Net.HttpStatusCode.Forbidden)] = "github-http-403",
+                [new OperationCanceledException("must-not-log-credentials")] = "github-timeout",
+                [new System.IO.IOException("must-not-log-credentials")] = "github-response-io",
+                [new JsonException("must-not-log-credentials")] = "github-response-json"
+            })
+            {
+                string diagnostic = null;
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, fixture.Policy,
+                    path => throw failure.Key, stage => diagnostic = stage));
+                Assert.Equal(failure.Value, diagnostic);
+            }
             var repository = (Dictionary<string, object>)fixture.Responses["repos/example/private-app"];
             foreach (var pair in new Dictionary<string, object> {
                 ["id"] = 43, ["private"] = false, ["fork"] = true, ["disabled"] = true, ["archived"] = true,
