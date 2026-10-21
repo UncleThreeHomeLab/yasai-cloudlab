@@ -18,7 +18,8 @@ def dry_run(document, controller=None):
 
 
 def outcome(result, enforce, policy):
-    if bool(result.returncode) != enforce or policy not in result.stderr:
+    policies = policy if isinstance(policy, tuple) else (policy,)
+    if bool(result.returncode) != enforce or not any(p in result.stderr for p in policies):
         raise RuntimeError('CI admission did not match its declared scope and policy mode')
 
 
@@ -132,8 +133,11 @@ def run(actions):
             if result.returncode or any(p in result.stderr for p in NAMES):
                 raise RuntimeError('Approved runner profile did not pass clean admission')
             outcome(dry_run(document), enforce, 'Only the assigned ARC controller')
-            for _, bad in violations(document):
-                outcome(dry_run(bad, controller), enforce, 'cloudlab-ci-runner')
+            for violation_name, bad in violations(document):
+                policies = ('cloudlab-ci-runner',)
+                if violation_name in ('runner_escalation', 'root_user'):
+                    policies += ('CI containers require digest pins, bounded resources and the restricted or qualified rootless builder profile.',)
+                outcome(dry_run(bad, controller), enforce, policies)
                 checks += 1
             for host_network in (False, True):
                 bad = copy.deepcopy(document)
