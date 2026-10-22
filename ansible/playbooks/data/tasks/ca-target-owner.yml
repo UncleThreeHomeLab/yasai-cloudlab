@@ -9,7 +9,7 @@
     that:
       - not data_ca_current.metadata.ownerReferences | default([])
       - >-
-        data_ca_labels.get('cloudlab.io/owner') == data_ca_owner or
+        data_ca_labels.get('cloudlab.io/owner') == data_native_owner or
         ('cloudlab.io/owner' not in data_ca_labels and data_ca_tracking.startswith(data_ca_service + '-' + data_ca_service + ':'))
     fail_msg: Database CA configuration has an ambiguous owner.
     quiet: true
@@ -22,7 +22,7 @@
   ansible.builtin.assert:
     that:
       - (data_ca_current.data | default({}) | list | difference(['ca.crt'])) | length == 0
-      - not (data_ca_labels.get('cloudlab.io/owner') == data_ca_owner and data_ca_tracking)
+      - not (data_ca_labels.get('cloudlab.io/owner') == data_native_owner and data_ca_tracking)
     fail_msg: Database CA contains unrelated data or competing writers.
     quiet: true
   when: data_ca_release_ready

@@ -3,7 +3,7 @@
   ansible.builtin.import_tasks: runtime.yml
 - name: Accept scoped data ownership under its shared transaction lock
   ansible.builtin.import_tasks: configure.yml
-- name: Qualify native trust repair and retire only its recognized Python writer
-  ansible.builtin.import_tasks: ca-handoff-runtime.yml
+- name: Qualify native SQL and trust repair before switching their scheduled owner
+  ansible.builtin.import_tasks: native-converge.yml
 - name: Configure independent data repair and monthly schedules
   ansible.builtin.import_tasks: schedules.yml

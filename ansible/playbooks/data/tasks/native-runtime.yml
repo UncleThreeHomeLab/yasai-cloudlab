@@ -15,7 +15,7 @@
     that: data_ca_revision.stdout is match('^[0-9a-f]{40}$')
     quiet: true
 
-- name: Set the staged public trust runtime path
+- name: Set the staged native data runtime path
   ansible.builtin.set_fact:
     data_ca_stage: '/opt/cloudlab/playbooks/data/ca/{{ data_ca_revision.stdout }}'
 
@@ -26,14 +26,18 @@
     mode: '0700'
   loop: ['', tasks, templates, files]
 
-- name: Stage native public trust declarations and the small dispatch interface
+- name: Stage native data declarations and the small dispatch interface
   ansible.builtin.copy:
     src: '/workspace/ansible/playbooks/data/{{ item }}'
     dest: '{{ data_ca_stage }}/{{ item }}'
     mode: '0600'
   loop:
     - native-ca.yml
-    - native-ca-install.yml
+    - native-sql.yml
+    - native-install.yml
+    - tasks/native-settings.yml
+    - tasks/sql-inputs.yml
+    - tasks/sql-grants.yml
     - tasks/ca-source.yml
     - tasks/ca-consumer.yml
     - tasks/ca-existing-namespace.yml
@@ -42,9 +46,19 @@
     - tasks/ca-write.yml
     - templates/database-ca.yml.j2
     - templates/database-ca-patch.yml.j2
+    - templates/grants.sql.j2
+    - files/privilege-catalog.sql
     - files/control.py
     - files/rotation.py
     - files/verify.py
+    - files/requests.py
+    - files/service_proof.py
+
+- name: Stage the same public data contract for both native entry points
+  ansible.builtin.copy:
+    src: /workspace/platform/data/contract.json
+    dest: '{{ data_ca_stage }}/contract.json'
+    mode: '0600'
 
 - name: Inspect whether this is an initial data bootstrap
   ansible.builtin.stat:
@@ -58,5 +72,5 @@
     dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
     remote_src: true
     mode: '0600'
-  loop: [control.py, rotation.py, verify.py]
+  loop: [control.py, rotation.py, verify.py, requests.py, service_proof.py]
   when: not data_ca_installed_control.stat.exists

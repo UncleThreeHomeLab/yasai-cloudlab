@@ -98,14 +98,9 @@ def additions(before, after):
     return [row for row in after if row['service'] not in retained]
 
 
-def reconcile(values, sql, grant, admin):
+def reconcile(values, admin):
     changed = False
     for row in values.get('serviceRequests', []):
-        if 'database' in row:
-            database = row['database']
-            desired = dict(values, database=database['name'], applicationRole=database['applicationRole'],
-                           migrationRole=database['migrationRole'])
-            changed = grant(desired) or changed
         if 'bucket' in row:
             changed = admin.ensure_bucket(row['bucket']['name']) or changed
     return changed

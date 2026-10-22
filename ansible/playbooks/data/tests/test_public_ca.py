@@ -46,6 +46,7 @@ class PublicCATests(unittest.TestCase):
             lambda v: v['fixture_current']['data'].update(unrelated='preserve'),
             lambda v: v['fixture_application']['spec']['source']['helm']['valuesObject'].update(maintenance=True),
             lambda v: v['fixture_application']['spec']['source']['helm']['valuesObject'].update(serviceConsumers=['argocd']),
+            lambda v: v['fixture_application']['spec']['source']['helm']['valuesObject'].update(serviceConsumers=['cloudlab-app-notes\n']),
             lambda v: v['fixture_application']['metadata']['labels'].update({'cloudlab.io/owner': 'foreign'}),
         ]
         for alter in alterations:

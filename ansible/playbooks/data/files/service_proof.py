@@ -35,11 +35,10 @@ def run(entry):
     credentials = {key: base64.b64decode(value, validate=True).decode() for key, value in secret['data'].items()}
     if set(credentials) != {'username', 'password'} or credentials['username'] != database['applicationRole']:
         raise RuntimeError('Disposable SQL credentials exceed their application scope')
-    with control.locked():
+    with control.locked() as owner:
         control.sql('SET ROLE ' + control.identity(database['migrationRole']) +
                     '; CREATE TABLE IF NOT EXISTS public.cloudlab_service_probe(id integer PRIMARY KEY, sha256 text NOT NULL);', database['name'])
-        control.grants(dict(values, database=database['name'], applicationRole=database['applicationRole'],
-                            migrationRole=database['migrationRole']))
+        control.native_repair(owner, 'sql')
         sql_client({'database': database['name']}, credentials)
         try:
             digest = hashlib.sha256(BODY).hexdigest()

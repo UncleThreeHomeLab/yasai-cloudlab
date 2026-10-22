@@ -1,0 +1,50 @@
+---
+- name: Define the bounded pod-local native SQL invocation
+  ansible.builtin.set_fact:
+    data_sql_command:
+      - /usr/local/bin/k3s
+      - kubectl
+      - exec
+      - -i
+      - -n
+      - '{{ data_native_contract.namespace }}'
+      - '{{ data_sql_primary }}'
+      - -c
+      - postgres
+      - --
+      - env
+      - 'PGOPTIONS=-c statement_timeout=40000 -c lock_timeout=30000 -c transaction_timeout=45000'
+      - psql
+      - -X
+      - -v
+      - ON_ERROR_STOP=1
+      - -At
+      - --single-transaction
+      - --file=-
+      - -d
+      - '{{ data_sql_database.name }}'
+  no_log: true
+
+- name: Read the privilege catalog before applying native grants
+  ansible.builtin.command:
+    argv: '{{ data_sql_command }}'
+    stdin: '{{ lookup("ansible.builtin.file", "../files/privilege-catalog.sql") }}'
+  register: data_sql_before
+  changed_when: false
+  no_log: true
+
+# The immutable CNPG image lacks Python; peer administration is available only through pod-local psql.
+- name: Apply the committed SQL grants without exporting administrative credentials
+  ansible.builtin.command:
+    argv: '{{ data_sql_command }}'
+    stdin: '{{ lookup("ansible.builtin.template", "../templates/grants.sql.j2") }}'
+  changed_when: false
+  no_log: true
+
+- name: Read the resulting catalog and report actual privilege changes
+  ansible.builtin.command:
+    argv: '{{ data_sql_command }}'
+    stdin: '{{ lookup("ansible.builtin.file", "../files/privilege-catalog.sql") }}'
+  register: data_sql_after
+  changed_when: data_sql_before.stdout != data_sql_after.stdout
+  no_log: true

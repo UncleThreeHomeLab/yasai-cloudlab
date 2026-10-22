@@ -85,8 +85,6 @@
     mode: '0600'
   loop:
     - configuration.py
-    - requests.py
-    - service_proof.py
     - s3.py
     - capture.py
     - remote.py
@@ -102,5 +100,5 @@
     mode: '0600'
   loop: [maintenance.py, recovery.py, configuration.py, isolated_restore.py, tokens.py]
 
-- name: Stage independent native public trust repair without changing its current owner
-  ansible.builtin.import_tasks: ca-runtime.yml
+- name: Stage independent native data repair without changing its current owner
+  ansible.builtin.import_tasks: native-runtime.yml

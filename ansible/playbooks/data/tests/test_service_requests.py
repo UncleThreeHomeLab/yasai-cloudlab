@@ -34,11 +34,10 @@ class DataRequestTests(unittest.TestCase):
         self.assertEqual(set(scoped['spec']['target']['template']['data']), {'username', 'password'})
         s3 = next(o for o in objects if o['kind'] == 'ExternalSecret' and o['metadata']['name'] == 'cloudlab-s3-config')
         self.assertIn('Read:fixture', s3['spec']['target']['template']['data']['seaweedfs_s3_config'])
-        admin, grant = Mock(), Mock(return_value=False)
+        admin = Mock()
         admin.ensure_bucket.return_value = False
-        self.assertFalse(reconcile({'serviceRequests': rows, 'backupRole': 'backup'}, Mock(), grant, admin))
+        self.assertFalse(reconcile({'serviceRequests': rows, 'backupRole': 'backup'}, admin))
         admin.ensure_bucket.assert_called_once_with('fixture')
-        self.assertEqual(grant.call_args.args[0]['database'], 'fixture')
 
     def test_cross_service_scope_privileged_reference_and_disposal_are_rejected(self):
         data, approved = self.inputs()

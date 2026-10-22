@@ -17,5 +17,5 @@
   when:
     - data_ca_current_info.resources | length == 1
     - >-
-      data_ca_labels.get('cloudlab.io/owner') != data_ca_owner or
+      data_ca_labels.get('cloudlab.io/owner') != data_native_owner or
       data_ca_current.data | default({}) != {'ca.crt': data_ca_public}

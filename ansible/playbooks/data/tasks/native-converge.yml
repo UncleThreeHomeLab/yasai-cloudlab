@@ -1,5 +1,5 @@
 ---
-- name: Qualify native public trust and switch dispatch under the existing data lock
+- name: Qualify native SQL and public trust under the existing data lock
   ansible.builtin.command:
     argv:
       - /usr/bin/flock
@@ -8,7 +8,7 @@
       - /usr/bin/ansible-playbook
       - -i
       - localhost,
-      - '{{ data_ca_stage }}/native-ca-install.yml'
+      - '{{ data_ca_stage }}/native-install.yml'
   environment:
     ANSIBLE_CONFIG: '{{ host_ansible_config }}'
     ANSIBLE_COLLECTIONS_PATH: '{{ host_ansible_collections }}'

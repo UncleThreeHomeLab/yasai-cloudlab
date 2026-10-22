@@ -20,9 +20,10 @@ from playbooks.istio.files.kube import application_ready, condition, get, kube, 
 from playbooks.data.files.s3 import S3, S3Error
 
 BASE = Path('/var/lib/cloudlab/application-data')
-NAMESPACE = 'cloudlab-data'
-APP = 'cloudlab-data-configuration'
-OWNER = 'cloudlab-data-bootstrap'
+CONTRACT = json.loads((ROOT / 'platform/data/contract.json').read_text())
+NAMESPACE = CONTRACT['namespace']
+APP = CONTRACT['bootstrap_application']
+OWNER = CONTRACT['bootstrap_owner']
 
 
 def atomic(path, value):
@@ -71,7 +72,7 @@ def secret(name):
 
 
 def primary():
-    cluster = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', NAMESPACE)
+    cluster = get('cluster.postgresql.cnpg.io', CONTRACT['cluster'], NAMESPACE)
     if not condition(cluster, 'Ready') or cluster['spec']['instances'] != 1:
         raise RuntimeError('Single-instance PostgreSQL is not ready')
     return cluster['status']['currentPrimary']
@@ -108,32 +109,6 @@ def s3(admin=True):
         raise RuntimeError('Requested S3 identity is disabled for maintenance')
     credentials = selected['credentials'][0]
     return S3('https://' + values['s3Host'], credentials['accessKey'], credentials['secretKey'])
-
-
-def grants(values):
-    app, migration, backup, database = [identity(values[key]) for key in
-                                      ('applicationRole', 'migrationRole', 'backupRole', 'database')]
-    desired = f'''REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
-REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;
-REVOKE ALL ON DATABASE {database} FROM PUBLIC;
-GRANT CONNECT ON DATABASE {database} TO {app}, {migration}, {backup};
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO {app}, {backup};
-GRANT USAGE, CREATE ON SCHEMA public TO {migration};
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app};
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {app};
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO {backup};
-GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {backup};
-ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};
-ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {app};
-ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT ON TABLES TO {backup};
-ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT ON SEQUENCES TO {backup};
-'''
-    # GRANT/REVOKE are idempotent; catalog comparisons detect actual changes.
-    query = "SELECT json_agg(t ORDER BY t.name)::text FROM (SELECT 'db:'||datname name, datacl::text acl FROM pg_database UNION ALL SELECT 'schema:'||nspname, nspacl::text FROM pg_namespace UNION ALL SELECT 'relation:'||oid::text, relacl::text FROM pg_class UNION ALL SELECT 'default:'||oid::text, defaclacl::text FROM pg_default_acl) t;"
-    before = sql(query, values['database'])
-    sql(desired, values['database'])
-    return before != sql(query, values['database'])
 
 
 def reload_s3():
@@ -192,11 +167,14 @@ def maintenance(enabled):
     return values
 
 
-def public_ca(owner):
-    """Dispatch native trust repair while the child retains the caller's lock FD."""
+def native_repair(owner, component):
+    """Dispatch a fixed native stage while its child retains the caller's lock FD."""
+    stages = {'sql': 'native-sql.yml', 'ca': 'native-ca.yml'}
+    if component not in stages:
+        raise ValueError('Unknown native data repair stage')
     if owner.closed or Path(owner.name) != BASE / 'owner.lock':
-        raise RuntimeError('Native CA repair requires the existing data owner lock')
-    play = (ROOT / 'playbooks/data/ca/current/native-ca.yml').resolve(strict=True)
+        raise RuntimeError('Native data repair requires the existing data owner lock')
+    play = (ROOT / 'playbooks/data/ca/current' / stages[component]).resolve(strict=True)
     collections = Path('/usr/local/lib/cloudlab-ansible/current').resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='cloudlab-data-ca-') as temporary:
         result = subprocess.run(
@@ -207,7 +185,7 @@ def public_ca(owner):
                      ANSIBLE_REMOTE_TEMP=temporary + '/modules'),
             pass_fds=(owner.fileno(),), capture_output=True, text=True, check=False)
     if result.returncode:
-        raise RuntimeError('Native public CA repair failed; private diagnostics withheld')
+        raise RuntimeError('Native data repair failed; private diagnostics withheld')
     return re.search(r'changed=[1-9][0-9]*', result.stdout) is not None
 
 
@@ -215,12 +193,12 @@ def reconcile(owner):
     values = settings()
     if values['maintenance']:
         raise RuntimeError('Interrupted data maintenance requires recovery before ordinary reconciliation')
-    changed = grants(values)
+    changed = native_repair(owner, 'sql')
     changed = reload_s3() or changed
     changed = s3().ensure_bucket(values['bucket']) or changed
     from playbooks.data.files.requests import reconcile as service_requests
-    changed = service_requests(values, sql, grants, s3()) or changed
-    changed = public_ca(owner) or changed
+    changed = service_requests(values, s3()) or changed
+    changed = native_repair(owner, 'ca') or changed
     return changed
 
 

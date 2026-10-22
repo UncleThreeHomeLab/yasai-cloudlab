@@ -4,6 +4,6 @@ metadata:
   name: database-ca
   namespace: {{ data_ca_namespace | to_json }}
   labels:
-    cloudlab.io/owner: {{ data_ca_owner | to_json }}
+    cloudlab.io/owner: {{ data_native_owner | to_json }}
 data:
   ca.crt: {{ data_ca_public | to_json }}

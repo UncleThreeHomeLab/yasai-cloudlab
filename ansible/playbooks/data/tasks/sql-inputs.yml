@@ -1,0 +1,62 @@
+---
+- name: Read the current CNPG primary
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    namespace: '{{ data_native_contract.namespace }}'
+    name: '{{ data_native_contract.cluster }}'
+  register: data_sql_cluster
+  no_log: true
+
+- name: Require a ready retained single-instance primary
+  ansible.builtin.assert:
+    that:
+      - data_sql_cluster.resources | length == 1
+      - data_sql_cluster.resources[0].spec.instances == 1
+      - >-
+        data_sql_cluster.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready')
+        | selectattr('status', 'equalto', 'True') | list | length > 0
+      - data_sql_cluster.resources[0].status.currentPrimary is match('^' + data_native_contract.cluster + '-[0-9]+\Z')
+    fail_msg: Native SQL repair requires the ready single-instance CNPG primary.
+    quiet: true
+  no_log: true
+
+- name: Read the declared primary and original application database
+  ansible.builtin.set_fact:
+    data_sql_primary: '{{ data_sql_cluster.resources[0].status.currentPrimary }}'
+    data_sql_original:
+      name: '{{ data_native_values.database }}'
+      applicationRole: '{{ data_native_values.applicationRole }}'
+      migrationRole: '{{ data_native_values.migrationRole }}'
+  no_log: true
+
+- name: Include all approved service databases through the same native grant declaration
+  ansible.builtin.set_fact:
+    data_sql_databases: >-
+      {{ [data_sql_original] + (data_native_values.serviceRequests | default([])
+         | selectattr('database', 'defined') | map(attribute='database') | list) }}
+  no_log: true
+
+- name: Reject invalid or privileged identifiers across all databases before invoking SQL
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item is match('^[a-z][a-z0-9_]{0,62}\Z')
+      - not item.startswith('pg_')
+      - item not in ['postgres', 'template0', 'template1']
+    fail_msg: Invalid or reserved application database identifier.
+    quiet: true
+  loop: >-
+    {{ (data_sql_databases | map(attribute='name') | list)
+       + (data_sql_databases | map(attribute='applicationRole') | list)
+       + (data_sql_databases | map(attribute='migrationRole') | list)
+       + [data_native_values.backupRole] }}
+  no_log: true
+
+- name: Require distinct application, migration and backup identities for every database
+  ansible.builtin.assert:
+    that:
+      - '[item.applicationRole, item.migrationRole, data_native_values.backupRole] | unique | length == 3'
+    quiet: true
+  loop: '{{ data_sql_databases }}'
+  no_log: true
