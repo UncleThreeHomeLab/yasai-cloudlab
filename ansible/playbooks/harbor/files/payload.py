@@ -1,18 +1,20 @@
 """Compile public installation pins with retained private identity/gateway metadata."""
 import json
 import os
+from pathlib import Path
 
 from playbooks.argocd.files.render import committed_payload
 from playbooks.observability.files.payload import metadata
-from playbooks.harbor.files.values import values
 from playbooks.harbor.files.configuration import client
+
+BASE = Path(__file__).resolve().parents[4] / 'platform/harbor'
 
 
 def compile_payload(source, discovered):
     login = discovered['loginHost']
     host = 'harbor.internal.' + login.removeprefix('login.')
     identity_client = client('https://' + login + '/realms/platform', 'https://' + host)
-    server = values()
+    server = json.loads((BASE / 'server/values.json').read_text())['harbor']
     server['externalURL'] = 'https://' + host
     server['core']['hostAliases'] = [{'ip': discovered['gatewayIP'], 'hostnames': [login]}]
     return {'repository': source['repository'], 'revision': source['revision'],

@@ -8,9 +8,9 @@ import subprocess
 import yaml
 
 from playbooks.harbor.files.package import patched
-from playbooks.harbor.files.values import values, POLICY
 
 BASE = Path(__file__).resolve().parents[4] / 'platform/harbor'
+POLICY = json.loads((BASE / 'policy.json').read_text())
 
 
 def render(component='server', runtime=None, *, namespace='cloudlab-harbor', release='cloudlab-harbor'):
@@ -31,9 +31,8 @@ def check():
     raw = (BASE / 'server/upstream.tgz').read_bytes()
     archive = (BASE / 'server' / lock['archive']).read_bytes()
     if (hashlib.sha256(raw).hexdigest() != lock['upstream_sha256'] or
-            hashlib.sha256(archive).hexdigest() != lock['sha256'] or patched(raw) != archive or
-            json.loads((BASE / 'server/values.json').read_text()) != {'harbor': values()}):
-        raise ValueError('Harbor artifacts or compiled values changed')
+            hashlib.sha256(archive).hexdigest() != lock['sha256'] or patched(raw) != archive):
+        raise ValueError('Harbor chart artifacts changed')
     image_lock = json.loads((BASE / 'images.lock.json').read_text())
     pins = {image for name, image in image_lock.items() if name != 'browser-gate'}
     actual_images, cpu, memory = set(), 0, 0

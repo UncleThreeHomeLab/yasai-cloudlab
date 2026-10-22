@@ -16,7 +16,7 @@
     src: '/workspace/ansible/playbooks/harbor/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/harbor/files/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, values.py, deployments.py]
+  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, deployments.py]
 
 - name: Retain independent pinned artifacts for isolated Harbor restores
   ansible.builtin.copy:
@@ -31,3 +31,8 @@
     dest: '/opt/cloudlab/platform/harbor/{{ item }}'
     mode: '0600'
   loop: [policy.json, images.lock.json, cosign.lock.json]
+
+- name: Remove the replaced Harbor settings generator after installing its callers
+  ansible.builtin.file:
+    path: /opt/cloudlab/playbooks/harbor/files/values.py
+    state: absent
