@@ -3,9 +3,8 @@ kind: Application
 metadata:
   name: cloudlab-private-dns
   namespace: argocd
-{% if access_dns_application.metadata.resourceVersion is defined %}
+{% if access_dns_application.metadata.uid is defined %}
   uid: {{ access_dns_application.metadata.uid | to_json }}
-  resourceVersion: {{ access_dns_application.metadata.resourceVersion | to_json }}
 {% endif %}
   labels:
     cloudlab.io/owner: cloudlab-private-dns-bootstrap
