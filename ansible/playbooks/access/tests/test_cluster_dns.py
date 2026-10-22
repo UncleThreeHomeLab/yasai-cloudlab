@@ -49,7 +49,7 @@ class ClusterDNSTests(unittest.TestCase):
         self.assertEqual(document['kind'], 'Application')
         self.assertEqual(document['metadata']['name'], 'cloudlab-private-dns')
         self.assertEqual(document['metadata']['uid'], 'retained-app')
-        self.assertEqual(document['metadata']['resourceVersion'], '12')
+        self.assertNotIn('resourceVersion', document['metadata'])
         self.assertEqual(document['spec']['source']['path'], 'platform/connectivity/private-dns')
         self.assertEqual(document['spec']['source']['helm']['valuesObject'], {'zone': 'internal.example.invalid'})
         self.assertEqual(document['spec']['syncPolicy']['automated'], {
