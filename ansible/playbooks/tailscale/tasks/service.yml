@@ -1,0 +1,64 @@
+---
+- name: Create durable host identity and pinned binary directories
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: directory
+    mode: '{{ item.mode }}'
+  loop:
+    - {path: /var/lib/tailscale, mode: '0700'}
+    - {path: /opt/cloudlab/tailscale, mode: '0755'}
+
+- name: Install the independent compatible firewall frontend
+  ansible.builtin.apt:
+    name: iptables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install scoped Tailscale firewall preparation
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/tailscale/files/firewall.py'
+    dest: /opt/cloudlab/tailscale/firewall.py
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart host Tailscale
+
+- name: Download the checked host Tailscale artifact
+  ansible.builtin.get_url:
+    url: '{{ tailscale_release.url }}'
+    checksum: 'sha256:{{ tailscale_release.sha256 }}'
+    dest: '/opt/cloudlab/tailscale/{{ tailscale_release.version }}.tgz'
+    mode: '0644'
+
+- name: Extract the pinned Tailscale binaries
+  ansible.builtin.unarchive:
+    src: '/opt/cloudlab/tailscale/{{ tailscale_release.version }}.tgz'
+    dest: /opt/cloudlab/tailscale
+    remote_src: true
+    creates: '/opt/cloudlab/tailscale/tailscale_{{ tailscale_release.version }}_amd64/tailscaled'
+
+- name: Link the declared host binaries
+  ansible.builtin.file:
+    src: '/opt/cloudlab/tailscale/tailscale_{{ tailscale_release.version }}_amd64/{{ item }}'
+    dest: '/usr/local/bin/{{ item }}'
+    state: link
+  loop: [tailscale, tailscaled]
+  notify: Restart host Tailscale
+
+- name: Install independent host service
+  ansible.builtin.copy:
+    src: "/workspace/ansible/playbooks/tailscale/files/tailscaled.service"
+    dest: /etc/systemd/system/tailscaled.service
+    mode: '0644'
+  notify: Restart host Tailscale
+
+- name: Start host Tailscale before inspecting enrollment
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending Tailscale service changes
+  ansible.builtin.meta: flush_handlers

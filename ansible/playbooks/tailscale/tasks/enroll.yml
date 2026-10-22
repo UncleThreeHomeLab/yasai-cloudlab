@@ -1,0 +1,53 @@
+---
+- name: Inspect existing enrollment without disclosing identity
+  ansible.builtin.command: /usr/local/bin/tailscale status --json
+  register: tailscale_before
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Reject unexpected identity failure instead of silently replacing it
+  ansible.builtin.assert:
+    that:
+      - tailscale_before.rc == 0
+      - (tailscale_before.stdout | from_json).BackendState in ['Running', 'NeedsLogin']
+      - (tailscale_explicit_reauth | default(false)) or not ((tailscale_before.stdout | from_json).Self.Expired | default(false))
+      - >-
+        (tailscale_explicit_reauth | default(false)) or
+        (tailscale_before.stdout | from_json).BackendState != 'NeedsLogin' or
+        not ((tailscale_before.stdout | from_json).Self.ID | default(''))
+    fail_msg: Host Tailscale identity needs explicit recovery; existing SSH remains available.
+  no_log: true
+
+- name: Enroll only an unregistered host with a one-use durable identity
+  when: (tailscale_explicit_reauth | default(false)) or (tailscale_before.stdout | from_json).BackendState == 'NeedsLogin'
+  block:
+    - name: Request a one-use key through native Ansible HTTP operations
+      ansible.builtin.import_tasks: enrollment-key.yml
+    - name: Stage the one-use key in root-only volatile memory
+      ansible.builtin.copy:
+        content: '{{ tailscale_enrollment_key.json.key }}'
+        dest: /run/cloudlab-tailscale-key
+        mode: '0600'
+      no_log: true
+    - name: Enroll without DNS, subnet routing, exit nodes or Tailscale SSH
+      ansible.builtin.command:
+        argv: >-
+          {{ ['tailscale', 'up', '--auth-key=file:/run/cloudlab-tailscale-key',
+              '--advertise-tags=tag:cloudlab-host', '--accept-dns=false',
+              '--accept-routes=false', '--ssh=false', '--hostname=' ~ inventory_hostname,
+              '--timeout=60s'] + (['--force-reauth'] if tailscale_explicit_reauth | default(false) else []) }}
+      no_log: true
+      changed_when: true
+  always:
+    - name: Remove the consumed enrollment credential
+      ansible.builtin.file:
+        path: /run/cloudlab-tailscale-key
+        state: absent
+      no_log: true
+    - name: Clear enrollment credentials from in-memory host variables
+      ansible.builtin.set_fact:
+        tailscale_enrollment_item: {}
+        tailscale_enrollment_token: {}
+        tailscale_enrollment_key: {}
+      no_log: true
