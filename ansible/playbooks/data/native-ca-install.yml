@@ -1,0 +1,94 @@
+---
+- name: Validate executable ownership before changing scheduled dispatch
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    data_ca_retired_sha256: 7b1e86d65b25e8657777abbcfc499986739ae9e69e17b6ea4281ffe6435d792e
+    data_ca_prior_dispatch:
+      control.py: f6ee5c294764697632eee02cf9f45a145ecf578b036a382b86c62886f293c0b7
+      rotation.py: 6508a1ad38d58281f57b26e63db6e704f8f18326f016b08231ab5841482c8525
+      verify.py: 9a43d682dc273db33dcdc4e2f2d9b4877a0ee70743bae9e76dd85f53641e3978
+  tasks:
+    - name: Inspect installed dispatch and affected explicit callers
+      ansible.builtin.stat:
+        path: '/opt/cloudlab/playbooks/data/files/{{ item }}'
+        follow: false
+        checksum_algorithm: sha256
+      loop: '{{ data_ca_prior_dispatch | list }}'
+      register: data_ca_dispatch_files
+    - name: Preserve any unrecognized executable or ownership change
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+          - item.stat.mode == '0600'
+          - >-
+            item.stat.checksum in [data_ca_prior_dispatch[item.item],
+            lookup('ansible.builtin.file', playbook_dir + '/files/' + item.item, rstrip=False) | hash('sha256')]
+        fail_msg: Installed data dispatch differs from reviewed bytes; preserve it for inspection.
+        quiet: true
+      loop: '{{ data_ca_dispatch_files.results }}'
+      loop_control:
+        label: '{{ item.item }}'
+    - name: Inspect the native runtime pointer without following it
+      ansible.builtin.stat:
+        path: /opt/cloudlab/playbooks/data/ca/current
+        follow: false
+      register: data_ca_current_link
+    - name: Require any existing pointer to remain inside the owned immutable runtime
+      ansible.builtin.assert:
+        that:
+          - data_ca_current_link.stat.islnk | default(false)
+          - data_ca_current_link.stat.uid == 0
+          - data_ca_current_link.stat.lnk_source is match('^/opt/cloudlab/playbooks/data/ca/[0-9a-f]{40}$')
+        quiet: true
+      when: data_ca_current_link.stat.exists
+    - name: Inspect the superseded public trust executable
+      ansible.builtin.stat:
+        path: /opt/cloudlab/playbooks/data/files/public_ca.py
+        follow: false
+        checksum_algorithm: sha256
+      register: data_ca_old_writer
+    - name: Refuse retirement of unrecognized executable bytes
+      ansible.builtin.assert:
+        that:
+          - data_ca_old_writer.stat.isreg | default(false)
+          - not data_ca_old_writer.stat.islnk | default(false)
+          - data_ca_old_writer.stat.uid == 0
+          - data_ca_old_writer.stat.mode == '0600'
+          - data_ca_old_writer.stat.checksum == data_ca_retired_sha256
+        fail_msg: Superseded CA writer differs from reviewed bytes; preserve it for inspection.
+        quiet: true
+      when: data_ca_old_writer.stat.exists
+
+- name: Qualify the native public trust owner before switching scheduled dispatch
+  ansible.builtin.import_playbook: native-ca.yml
+
+- name: Promote qualified native repair while retaining the caller's data lock
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Publish the immutable native play path after qualification
+      ansible.builtin.file:
+        src: '{{ playbook_dir }}'
+        dest: /opt/cloudlab/playbooks/data/ca/current
+        state: link
+        owner: root
+        group: root
+    - name: Install the qualified dispatch and its affected explicit callers atomically per file
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/files/{{ item }}'
+        dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
+        mode: '0600'
+      loop: [control.py, rotation.py, verify.py]
+    - name: Retire only the recognized public trust writer after qualification and dispatch
+      ansible.builtin.file:
+        path: /opt/cloudlab/playbooks/data/files/public_ca.py
+        state: absent
+      when: data_ca_old_writer.stat.exists

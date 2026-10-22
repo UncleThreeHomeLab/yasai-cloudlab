@@ -36,3 +36,11 @@
     owner: root
     group: root
     creates: '{{ host_ansible_collections }}/ansible_collections/kubernetes/core/MANIFEST.json'
+
+- name: Publish the checked collection for independent scheduled native dispatch
+  ansible.builtin.file:
+    src: '{{ host_ansible_collections }}'
+    dest: /usr/local/lib/cloudlab-ansible/current
+    state: link
+    owner: root
+    group: root

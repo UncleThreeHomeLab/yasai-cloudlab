@@ -1,0 +1,19 @@
+---
+- name: Require an explicitly approved service namespace
+  ansible.builtin.assert:
+    that:
+      - data_ca_namespace is string
+      - data_ca_namespace is match('^cloudlab-app-[a-z][a-z0-9-]{0,30}$')
+    fail_msg: CA projection requires an approved service namespace.
+    quiet: true
+
+- name: Inspect the Git-owned namespace without creating it
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: '{{ data_ca_namespace }}'
+  register: data_ca_namespace_info
+
+- name: Project trust only after Git creates the namespace
+  ansible.builtin.import_tasks: ca-existing-namespace.yml
+  when: data_ca_namespace_info.resources | length == 1

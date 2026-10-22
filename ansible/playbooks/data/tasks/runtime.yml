@@ -85,8 +85,6 @@
     mode: '0600'
   loop:
     - configuration.py
-    - public_ca.py
-    - control.py
     - requests.py
     - service_proof.py
     - s3.py
@@ -94,8 +92,6 @@
     - remote.py
     - backup.py
     - restore.py
-    - verify.py
-    - rotation.py
     - volumes.py
     - physical.py
 
@@ -105,3 +101,6 @@
     dest: '/opt/cloudlab/playbooks/keycloak/files/{{ item }}'
     mode: '0600'
   loop: [maintenance.py, recovery.py, configuration.py, isolated_restore.py, tokens.py]
+
+- name: Stage independent native public trust repair without changing its current owner
+  ansible.builtin.import_tasks: ca-runtime.yml

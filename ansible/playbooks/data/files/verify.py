@@ -124,8 +124,8 @@ def run():
         if not application_ready(name, revision):
             raise RuntimeError('Data GitOps application is not converged at the tested revision')
     result = {'storage': storage(), 'jobs_and_limits': schedules_and_limits(), 'b2_reads': 0}
-    with control.locked():
-        control.reconcile()
+    with control.locked() as owner:
+        control.reconcile(owner)
         admin, client = control.s3(), control.s3(False)
         data = b'cloudlab committed attachment\n'
         digest = hashlib.sha256(data).hexdigest()
