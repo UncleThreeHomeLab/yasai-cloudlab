@@ -67,7 +67,7 @@ configuration. External publication, identity and retirement remain explicit.
 [Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
 redaction and bounded storage. Component `platform/observability/*/values.json` files
 own Helm settings; chart packaging does not regenerate them.
-[Harbor](playbooks/harbor/) retains Argo installation,
+[Harbor](playbooks/harbor/) reads `platform/harbor/server/values.json` directly and retains Argo installation,
 scoped registry credentials and coordinated recovery. Its host schedules use the
 same monthly export window and local-only freshness checks. Component tests own
 browser and provider fixtures.

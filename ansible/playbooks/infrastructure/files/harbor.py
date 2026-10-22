@@ -22,13 +22,13 @@ from playbooks.secrets.files.vault import fields
 from playbooks.access.files.preflight import ssh
 from playbooks.harbor.files import api_policy, credentials, transport
 from playbooks.harbor.files.configuration import client as identity_client
-from playbooks.harbor.files.values import POLICY as INSTALLATION_POLICY
 from playbooks.harbor.files.recovery import atomic
 from playbooks.infrastructure.files.backend import environment
 from playbooks.infrastructure.files.native import native, require
 from playbooks.infrastructure.files.retention import ciphertext, maintain, request
 
 ROOT = Path(__file__).resolve().parents[4]
+INSTALLATION_POLICY = json.loads((ROOT / 'platform/harbor/policy.json').read_text())
 SOURCE = ROOT / 'infra/harbor'
 WORK = Path('/infra-work/harbor')
 

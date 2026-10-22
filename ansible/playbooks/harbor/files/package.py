@@ -54,7 +54,6 @@ def patched(raw):
 
 
 def build():
-    from playbooks.harbor.files.values import values
     directory = BASE / 'server'
     lock = json.loads((directory / 'artifact.lock.json').read_text())
     raw = (directory / 'upstream.tgz').read_bytes()
@@ -64,7 +63,6 @@ def build():
     if hashlib.sha256(archive).hexdigest() != lock['sha256']:
         raise ValueError('Harbor patched chart checksum mismatch')
     (directory / lock['archive']).write_bytes(archive)
-    (directory / 'values.json').write_text(json.dumps({'harbor': values()}, indent=2) + '\n')
 
 
 if __name__ == '__main__':
