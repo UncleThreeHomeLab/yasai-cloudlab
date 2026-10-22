@@ -46,6 +46,7 @@
 - name: Initialize the retained identity comparison
   ansible.builtin.set_fact:
     access_native_identities: {}
+    access_native_record_completion: "{{ access_native_state.phase != 'configured' }}"
   no_log: true
 
 - name: Select only public Kubernetes object identities
@@ -62,7 +63,7 @@
   no_log: true
 
 - name: Record completed initial access configuration without changing retained state
-  when: access_native_state.phase != 'configured'
+  when: access_native_record_completion
   no_log: true
   block:
     - name: Select the completed retained access state

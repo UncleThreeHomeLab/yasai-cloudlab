@@ -1,5 +1,10 @@
 """Certificate proof rejects bad trust and cleans up failed delivery fixtures."""
 import base64
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -8,6 +13,17 @@ import verify
 
 
 class VerificationTests(unittest.TestCase):
+    def test_deployed_checks_import_without_the_retired_configuration_writer(self):
+        source = Path(__file__).resolve().parents[1] / 'files'
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ('kube.py', 'verify.py'):
+                shutil.copyfile(source / name, Path(folder) / name)
+            result = subprocess.run([sys.executable, '-I', '-S', '-c',
+                'import sys; sys.path.insert(0, sys.argv[1]); import verify; '
+                'assert callable(verify.certificate); assert callable(verify.fingerprint)', folder],
+                capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def fingerprint(self, responses, trusted=False):
         certificate = {'metadata': {'uid': 'certificate'},
                        'spec': {'secretName': 'tls', 'dnsNames': ['*.example.invalid']},

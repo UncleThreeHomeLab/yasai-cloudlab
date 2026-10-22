@@ -19,6 +19,8 @@ class NativeReadinessTests(unittest.TestCase):
             ('ansible/playbooks/access/tasks/native-prerequisites.yml', 'access_native_api', 'Established'),
             ('ansible/playbooks/access/tasks/native-prerequisites.yml', 'access_native_credential', 'Ready'),
             ('ansible/playbooks/access/tasks/native-identities.yml', 'access_native_proxy', 'ProxyGroupReady'),
+            ('ansible/playbooks/certificates/tasks/native-inputs.yml', 'certificates_dns_external', 'Ready'),
+            ('ansible/playbooks/certificates/tasks/native-certificate.yml', 'certificates_issued', 'Ready'),
         ]
         tasks = []
         for filename, registered, condition in sources:

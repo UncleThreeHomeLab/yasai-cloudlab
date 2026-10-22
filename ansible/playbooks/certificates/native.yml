@@ -1,0 +1,34 @@
+---
+- name: Converge native certificate declarations under the retained ownership lock
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    certificates_owner: cloudlab-certificates-bootstrap
+    certificates_state_dir: /var/lib/cloudlab/certificates
+    certificates_state_path: '{{ certificates_state_dir }}/ownership.json'
+    certificates_source:
+      repository: "{{ lookup('ansible.builtin.env', 'CERTIFICATES_SOURCE_REPOSITORY') }}"
+      branch: "{{ lookup('ansible.builtin.env', 'CERTIFICATES_SOURCE_BRANCH') }}"
+      revision: "{{ lookup('ansible.builtin.env', 'CERTIFICATES_SOURCE_REVISION') }}"
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: /etc/rancher/k3s/k3s.yaml
+  tasks:
+    - name: Read the approved DNS zone through its current ESO credential
+      ansible.builtin.import_tasks: tasks/native-inputs.yml
+    - name: Validate retained ownership before any certificate configuration
+      ansible.builtin.import_tasks: tasks/native-ownership.yml
+    - name: Initialize observed certificate identities
+      ansible.builtin.set_fact:
+        certificates_observed: {}
+    - name: Complete staging before enabling production
+      ansible.builtin.import_tasks: tasks/native-staging.yml
+      when: certificates_initial_phase == 'staging'
+    - name: Declare the production certificate configuration
+      ansible.builtin.import_tasks: tasks/native-application.yml
+      vars:
+        certificates_production: true
+    - name: Validate retained certificates and account identities
+      ansible.builtin.import_tasks: tasks/native-identities.yml

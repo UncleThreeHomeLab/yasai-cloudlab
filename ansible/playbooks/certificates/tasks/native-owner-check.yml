@@ -1,0 +1,37 @@
+---
+- name: Require the retained DNS zone, phase and Application
+  ansible.builtin.assert:
+    that:
+      - certificates_state.zone_hash == certificates_zone | hash('sha256')
+      - certificates_state.phase in ['staging', 'production', 'accepted']
+      - certificates_checkpoint.stat.exists or not certificates_current
+      - not certificates_state.application_uid | default('') or certificates_current | length > 0
+    fail_msg: Certificate checkpoint or DNS zone changed; preserve issued credentials and review recovery.
+    quiet: true
+
+- name: Require recorded staging before any production or accepted phase
+  ansible.builtin.assert:
+    that:
+      - certificates_state.application_uid | default('') | length > 0
+      - certificates_state.staging.certificate_uid | default('') | length > 0
+      - certificates_state.staging.secret_uid | default('') | length > 0
+    fail_msg: Production requires its durable staging certificate and Application identities.
+    quiet: true
+  when: certificates_state.phase != 'staging'
+
+- name: Refuse foreign or replaced certificate Application ownership
+  ansible.builtin.assert:
+    that:
+      - certificates_current.metadata.labels['cloudlab.io/owner'] | default('') == certificates_owner
+      - not certificates_current.metadata.finalizers | default([])
+      - not certificates_current.metadata.ownerReferences | default([])
+      - certificates_state.application_uid | default(certificates_current.metadata.uid) == certificates_current.metadata.uid
+      - certificates_current.spec.project == 'cloudlab-certificates'
+      - >-
+        certificates_current.spec.destination ==
+        {'server': 'https://kubernetes.default.svc', 'namespace': 'cert-manager'}
+      - certificates_current.spec.source.repoURL == certificates_source.repository
+      - certificates_current.spec.source.path == 'platform/certificates/configuration'
+    fail_msg: Certificate Application ownership or retained identity changed.
+    quiet: true
+  when: certificates_current | length > 0

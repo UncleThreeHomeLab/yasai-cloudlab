@@ -1,0 +1,54 @@
+---
+- name: Resolve the published certificate source without resource generation
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/source.yml
+
+- name: Converge native certificate issuance under its existing ownership lock
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/flock
+      - --nonblock
+      - /var/lib/cloudlab/certificates/ownership.lock
+      - /usr/bin/ansible-playbook
+      - -i
+      - localhost,
+      - /opt/cloudlab/playbooks/certificates/native.yml
+  environment:
+    ANSIBLE_CONFIG: '{{ host_ansible_config }}'
+    ANSIBLE_COLLECTIONS_PATH: '{{ host_ansible_collections }}'
+    ANSIBLE_NOCOLOR: '1'
+    CERTIFICATES_SOURCE_REPOSITORY: '{{ gitops_source.repository }}'
+    CERTIFICATES_SOURCE_BRANCH: '{{ gitops_source.branch }}'
+    CERTIFICATES_SOURCE_REVISION: '{{ gitops_source.revision }}'
+  register: certificates_native_applied
+  changed_when: certificates_native_applied.stdout is search('changed=[1-9][0-9]*')
+  no_log: true
+
+- name: Inspect superseded certificate helpers after native convergence
+  ansible.builtin.stat:
+    path: '/var/lib/cloudlab/certificates/{{ item.name }}'
+    follow: false
+    checksum_algorithm: sha256
+  loop:
+    - {name: configuration.py, checksum: '{{ certificates_configuration_retired_sha256 }}'}
+    - {name: inputs.py, checksum: '{{ certificates_inputs_retired_sha256 }}'}
+  register: certificates_old_helpers
+
+- name: Require recognized non-data helpers before retirement
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not item.stat.islnk | default(false)
+      - item.stat.uid == 0
+      - item.stat.mode == '0600'
+      - item.stat.checksum == item.item.checksum
+    fail_msg: Superseded certificate helper differs from reviewed bytes; preserve it for inspection.
+    quiet: true
+  loop: '{{ certificates_old_helpers.results }}'
+  when: item.stat.exists
+
+- name: Retire recognized certificate helpers after native convergence
+  ansible.builtin.file:
+    path: '{{ item.stat.path }}'
+    state: absent
+  loop: '{{ certificates_old_helpers.results }}'
+  when: item.stat.exists

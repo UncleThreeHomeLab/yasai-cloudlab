@@ -1,0 +1,48 @@
+---
+- name: Wait for the current declared certificate to be ready
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: Certificate
+    namespace: '{{ certificates_requested.namespace }}'
+    name: '{{ certificates_requested.name }}'
+  register: certificates_issued
+  until:
+    - certificates_issued.resources | length == 1
+    - >-
+      certificates_issued.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True')
+      | map(attribute='observedGeneration', default=certificates_issued.resources[0].metadata.generation)
+      | unique | list == [certificates_issued.resources[0].metadata.generation]
+  retries: 180
+  delay: 5
+  no_log: true
+
+- name: Read the certificate controller's associated TLS Secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: '{{ certificates_requested.namespace }}'
+    name: '{{ certificates_issued.resources[0].spec.secretName }}'
+  register: certificates_issued_secret
+  no_log: true
+
+- name: Require complete controller-associated TLS delivery
+  ansible.builtin.assert:
+    that:
+      - certificates_issued_secret.resources | length == 1
+      - certificates_issued_secret.resources[0].type == 'kubernetes.io/tls'
+      - "'tls.crt' in certificates_issued_secret.resources[0].data"
+      - "'tls.key' in certificates_issued_secret.resources[0].data"
+      - >-
+        certificates_issued_secret.resources[0].metadata.annotations['cert-manager.io/certificate-name']
+        | default('') == certificates_requested.name
+    quiet: true
+  no_log: true
+
+- name: Retain only certificate and Secret identities
+  ansible.builtin.set_fact:
+    certificates_observed: >-
+      {{ certificates_observed | combine({certificates_requested.key: {
+         'certificate_uid': certificates_issued.resources[0].metadata.uid,
+         'secret_uid': certificates_issued_secret.resources[0].metadata.uid}}) }}
+  no_log: true
