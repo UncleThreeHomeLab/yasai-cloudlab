@@ -9,6 +9,10 @@ input, lint and rendered-chart checks, and `lab test` for isolated local tests.
 
 [Lifecycle playbooks](playbooks/) explicitly order component work. Components
 keep numbered setup stages, named operations, inputs, assets and tests together.
+Host [enrollment](playbooks/tailscale/tasks/enrollment-key.yml) uses Ansible HTTP
+requests and the pinned vault CLI. CloudLab item `tailscale-host-enrollment` needs
+unique `CLIENT_ID` and `CLIENT_SECRET` fields. OAuth credentials stay in the runner;
+single-use host keys expire after five minutes and are removed from `/run` after use.
 GitOps/controllers retain continuous Kubernetes ownership; native infrastructure
 roots retain external state and review gates. See [AGENTS.md](../AGENTS.md).
 
