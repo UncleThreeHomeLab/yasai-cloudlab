@@ -1,0 +1,46 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ harbor_application_name }}
+  namespace: argocd
+{% if harbor_current.metadata.uid is defined %}
+  uid: {{ harbor_current.metadata.uid | to_json }}
+{% endif %}
+  labels:
+    cloudlab.io/owner: {{ harbor_policy.owner }}
+spec:
+  project: cloudlab-harbor
+  source:
+    repoURL: {{ harbor_native_source.repository | to_json }}
+    targetRevision: {{ harbor_native_source.revision | to_json }}
+    path: {{ harbor_application_path }}
+    helm:
+      releaseName: cloudlab-harbor
+{% if harbor_configuring_boundaries %}
+      valuesObject:
+        enabled: true
+        harborHost: {{ harbor_host | to_json }}
+        loginHost: {{ harbor_login_host | to_json }}
+        gatewayIP: {{ harbor_gateway | to_json }}
+{% else %}
+      valueFiles: [values.json]
+      valuesObject:
+        harbor:
+          externalURL: {{ ('https://' ~ harbor_host) | to_json }}
+          core:
+            hostAliases:
+              - ip: {{ harbor_gateway | to_json }}
+                hostnames: [{{ harbor_login_host | to_json }}]
+{% endif %}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ harbor_policy.namespace }}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions:
+      - FailOnSharedResource=true
+      - ServerSideApply=true
+      - DisableClientSideApplyMigration=true
+    retry:
+      limit: 5
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}

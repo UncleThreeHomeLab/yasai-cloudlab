@@ -83,6 +83,9 @@ Chart packaging does not regenerate these declarations.
 scoped registry credentials and coordinated recovery. Its host schedules use the
 same monthly export window and local-only freshness checks. Component tests own
 browser and provider fixtures.
+Native Harbor installation runs maintained host Ansible with the runner's same
+checked Kubernetes collection, under the shared recovery `flock`. Committed Helm
+values own static settings; native templates supply only retained private inputs.
 
 CI tools are qualified before job credentials are delivered. After independent
 bootstrap publication, run `docker compose --profile ci run --build --rm

@@ -1,0 +1,30 @@
+---
+- name: Install native host automation and Kubernetes clients from Debian
+  ansible.builtin.apt:
+    name: [ansible-core, python3-kubernetes, python3-jsonpatch]
+    state: present
+
+- name: Create the versioned native collection directory
+  ansible.builtin.file:
+    path: '{{ host_ansible_collections }}/ansible_collections/kubernetes/core'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Transfer the same checked collection archive used by the runner
+  ansible.builtin.copy:
+    src: /opt/runner/kubernetes-core.tar.gz
+    dest: '{{ host_ansible_collections }}/kubernetes-core.tar.gz'
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Extract the pinned collection into its versioned host directory
+  ansible.builtin.unarchive:
+    src: '{{ host_ansible_collections }}/kubernetes-core.tar.gz'
+    dest: '{{ host_ansible_collections }}/ansible_collections/kubernetes/core'
+    remote_src: true
+    owner: root
+    group: root
+    creates: '{{ host_ansible_collections }}/ansible_collections/kubernetes/core/MANIFEST.json'

@@ -18,17 +18,18 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from playbooks.harbor.files.bootstrap import OWNER, NAMESPACE, SECRETS
 from playbooks.istio.files.kube import get, kube, condition, wait, application_ready
 
-BASE = Path('/var/lib/cloudlab/harbor')
-CLAIMS = {'database': 'harbor-database', 'registry': 'harbor-registry', 'redis': 'harbor-redis'}
-APPS = ('cloudlab-harbor', 'cloudlab-harbor-configuration')
-LABEL = {'cloudlab.io/owner': OWNER}
 ROOT = Path(__file__).resolve().parents[3]
 if not (ROOT / 'platform').is_dir():
     ROOT = ROOT.parent
 ARTIFACTS = ROOT / 'platform/harbor'
+POLICY = json.loads((ARTIFACTS / 'policy.json').read_text())
+OWNER, NAMESPACE, SECRETS = POLICY['owner'], POLICY['namespace'], tuple(POLICY['secrets'])
+BASE = Path('/var/lib/cloudlab/harbor')
+CLAIMS = {'database': 'harbor-database', 'registry': 'harbor-registry', 'redis': 'harbor-redis'}
+APPS = ('cloudlab-harbor', 'cloudlab-harbor-configuration')
+LABEL = {'cloudlab.io/owner': OWNER}
 
 
 def atomic(path, value):

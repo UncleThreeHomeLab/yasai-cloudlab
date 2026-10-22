@@ -1,4 +1,5 @@
 import json
+import hashlib
 import re
 import subprocess
 import unittest
@@ -13,6 +14,9 @@ class BootstrapToolTests(unittest.TestCase):
         archive = next(line for line in dockerfile.splitlines() if line.startswith('ADD ') and 'kubernetes-core-' in line)
         self.assertRegex(archive, r'^ADD --checksum=sha256:[a-f0-9]{64} https://galaxy.ansible.com/')
         version = re.search(r'kubernetes-core-([0-9.]+).tar.gz', archive).group(1)
+        packaged = Path('/opt/runner/kubernetes-core.tar.gz')
+        expected = re.search(r'--checksum=sha256:([a-f0-9]{64})', archive).group(1)
+        self.assertEqual(hashlib.sha256(packaged.read_bytes()).hexdigest(), expected)
         manifest = Path('/usr/share/ansible/collections/ansible_collections/kubernetes/core/MANIFEST.json')
         self.assertEqual(json.loads(manifest.read_text())['collection_info']['version'], version)
         documentation = subprocess.check_output(['ansible-doc', '-j', 'kubernetes.core.k8s'], text=True, timeout=30)

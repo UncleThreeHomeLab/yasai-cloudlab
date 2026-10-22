@@ -25,7 +25,8 @@ class VerificationTests(unittest.TestCase):
             destination = Path(directory)
             for relative in ([f'ansible/playbooks/harbor/files/{name}' for name in modules] +
                              ['ansible/playbooks/istio/files/kube.py', 'ansible/playbooks/argocd/files/source_revision.py',
-                              'ansible/playbooks/keycloak/files/health.py'] + [f'platform/harbor/{name}' for name in artifacts]):
+                              'ansible/playbooks/keycloak/files/health.py', 'platform/harbor/policy.json'] +
+                             [f'platform/harbor/{name}' for name in artifacts]):
                 target = destination / relative.removeprefix('ansible/')
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(root / relative, target)
