@@ -1,5 +1,6 @@
 """Synthetic protected recovery metadata; no service credentials."""
 import json
+import os
 import copy
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,7 +41,8 @@ def native_application(configuration=False, current=None):
         play_path = directory / 'play.yml'
         play_path.write_text(yaml.safe_dump(play, sort_keys=False))
         result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(play_path)],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, ANSIBLE_CONFIG=str(component.parent / 'host/files/ansible.cfg')))
         return result, json.loads(result_path.read_text()) if result_path.exists() else None
 
 

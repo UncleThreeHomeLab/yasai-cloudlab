@@ -20,6 +20,14 @@
     group: root
     mode: '0644'
 
+- name: Install the shared host Ansible configuration
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/host/files/ansible.cfg
+    dest: '{{ host_ansible_config }}'
+    owner: root
+    group: root
+    mode: '0644'
+
 - name: Extract the pinned collection into its versioned host directory
   ansible.builtin.unarchive:
     src: '{{ host_ansible_collections }}/kubernetes-core.tar.gz'
