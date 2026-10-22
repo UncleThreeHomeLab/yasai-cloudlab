@@ -24,17 +24,20 @@
         api_version: external-secrets.io/v1
         kind: ExternalSecret
         namespace: '{{ harbor_policy.namespace }}'
+        name: '{{ item }}'
+      loop: '{{ harbor_policy.secrets }}'
       register: harbor_external_secrets
       until:
+        - harbor_external_secrets.resources | length == 1
         - >-
-          harbor_external_secrets.resources | selectattr('metadata.name', 'in', harbor_policy.secrets)
-          | list | length == harbor_policy.secrets | length
-        - >-
-          harbor_external_secrets.resources | selectattr('metadata.name', 'in', harbor_policy.secrets)
-          | selectattr('status.conditions', 'defined')
-          | map(attribute='status.conditions') | flatten
+          harbor_external_secrets.resources[0].status.conditions | default([])
           | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True')
-          | list | length == harbor_policy.secrets | length
+          | list | length == 1
+        - >-
+          harbor_external_secrets.resources[0].status.conditions | default([])
+          | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True')
+          | map(attribute='observedGeneration', default=harbor_external_secrets.resources[0].metadata.generation)
+          | unique | list == [harbor_external_secrets.resources[0].metadata.generation]
       retries: 60
       delay: 5
       no_log: true

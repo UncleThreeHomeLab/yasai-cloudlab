@@ -49,6 +49,9 @@ ordinary setup preserves its accepted ownership and existing data.
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.
 Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
 unrelated grants. The [cluster DNS stage](playbooks/access/030-cluster-dns.yml)
+and [access Application](playbooks/access/native.yml) use native modules and
+templates. Access retains its administrator binding, durable checkpoint, object
+identities and shared ownership lock. The cluster DNS stage
 reconciles only the custom forwarding Application; Argo owns its ConfigMap and K3s
 keeps the main CoreDNS configuration and Deployment. [Infrastructure](playbooks/infrastructure/) invokes the accepted
 [native roots](../infra/); apply requires the exact reviewed plan, source and

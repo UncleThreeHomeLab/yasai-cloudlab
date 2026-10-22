@@ -1,0 +1,76 @@
+---
+- name: Require canonical reviewed source and an explicit administrator
+  ansible.builtin.assert:
+    that:
+      - access_native_source.repository is match('^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$')
+      - access_native_source.branch is match('^[A-Za-z0-9][A-Za-z0-9/_-]*$')
+      - access_native_source.revision is match('^[a-f0-9]{40}$')
+      - access_administrator is match('^[^@\s]+@[^@\s]+$')
+    quiet: true
+  no_log: true
+
+- name: Require the retained Tailscale operator at the published revision
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-tailscale-operator
+  register: access_native_operator
+  until:
+    - access_native_operator.resources | length == 1
+    - access_native_operator.resources[0].status.health.status | default('') == 'Healthy'
+    - access_native_operator.resources[0].status.sync.status | default('') == 'Synced'
+    - access_native_operator.resources[0].status.sync.revision | default('') == access_native_source.revision
+    - access_native_operator.resources[0].status.operationState.phase | default('') == 'Succeeded'
+    - not access_native_operator.resources[0].operation | default({})
+    - >-
+      access_native_operator.resources[0].status.conditions | default([])
+      | selectattr('type', 'search', 'Error$') | list | length == 0
+  retries: 60
+  delay: 5
+  no_log: true
+
+- name: Require established retained operator APIs
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: '{{ item }}.tailscale.com'
+  loop: [proxyclasses, proxygroups]
+  register: access_native_api
+  until:
+    - access_native_api.resources | length == 1
+    - >-
+      access_native_api.resources[0].status.conditions | selectattr('type', 'equalto', 'Established')
+      | selectattr('status', 'equalto', 'True') | list | length == 1
+    - >-
+      access_native_api.resources[0].status.conditions | selectattr('type', 'equalto', 'Established')
+      | selectattr('status', 'equalto', 'True')
+      | map(attribute='observedGeneration', default=access_native_api.resources[0].metadata.generation)
+      | unique | list == [access_native_api.resources[0].metadata.generation]
+  retries: 60
+  delay: 5
+  no_log: true
+
+- name: Require ready credential delivery without reading credential fields
+  kubernetes.core.k8s_info:
+    api_version: external-secrets.io/v1
+    kind: ExternalSecret
+    namespace: '{{ item.namespace }}'
+    name: '{{ item.name }}'
+  loop:
+    - {namespace: tailscale, name: operator-oauth}
+    - {namespace: cloudlab-connectors, name: cloudflared-runtime}
+  register: access_native_credential
+  until:
+    - access_native_credential.resources | length == 1
+    - >-
+      access_native_credential.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length == 1
+    - >-
+      access_native_credential.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True')
+      | map(attribute='observedGeneration', default=access_native_credential.resources[0].metadata.generation)
+      | unique | list == [access_native_credential.resources[0].metadata.generation]
+  retries: 60
+  delay: 5
+  no_log: true

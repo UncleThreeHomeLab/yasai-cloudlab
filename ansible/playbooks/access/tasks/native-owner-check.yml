@@ -1,0 +1,27 @@
+---
+- name: Require the retained administrator, phase and recorded Application
+  ansible.builtin.assert:
+    that:
+      - access_native_state.phase in ['preparing', 'configured']
+      - access_native_state.administrator == access_administrator | hash('sha256')
+      - access_state_file.stat.exists or not access_native_current
+      - not access_native_state.application_uid | default('') or access_native_current | length > 0
+    fail_msg: Access checkpoint or administrator changed; explicit recovery or RBAC migration required.
+    quiet: true
+
+- name: Refuse a replaced or foreign access Application
+  ansible.builtin.assert:
+    that:
+      - access_native_current.metadata.labels['cloudlab.io/owner'] | default('') == 'cloudlab-access-bootstrap'
+      - not access_native_current.metadata.finalizers | default([])
+      - not access_native_current.metadata.ownerReferences | default([])
+      - access_native_state.application_uid | default(access_native_current.metadata.uid) == access_native_current.metadata.uid
+      - access_native_current.spec.project == 'cloudlab-access'
+      - >-
+        access_native_current.spec.destination ==
+        {'server': 'https://kubernetes.default.svc', 'namespace': 'tailscale'}
+      - access_native_current.spec.source.repoURL == access_native_source.repository
+      - access_native_current.spec.source.path == 'platform/connectivity/access'
+    fail_msg: Access Application has conflicting ownership or a replaced identity.
+    quiet: true
+  when: access_native_current | length > 0

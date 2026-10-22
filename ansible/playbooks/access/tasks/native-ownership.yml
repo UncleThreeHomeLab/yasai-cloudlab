@@ -1,0 +1,58 @@
+---
+- name: Inspect the retained access checkpoint without following links
+  ansible.builtin.stat:
+    path: '{{ access_state_path }}'
+    follow: false
+  register: access_state_file
+
+- name: Require a private root-owned regular checkpoint
+  ansible.builtin.assert:
+    that:
+      - access_state_file.stat.isreg | default(false)
+      - not access_state_file.stat.islnk | default(false)
+      - access_state_file.stat.uid == 0
+      - access_state_file.stat.mode == '0600'
+    quiet: true
+  when: access_state_file.stat.exists
+
+- name: Read the retained access checkpoint
+  ansible.builtin.slurp:
+    src: '{{ access_state_path }}'
+  register: access_state_bytes
+  when: access_state_file.stat.exists
+  no_log: true
+
+- name: Select retained state or the exact initial preparation
+  ansible.builtin.set_fact:
+    access_native_state: >-
+      {{ (access_state_bytes.content | b64decode | from_json) if access_state_file.stat.exists
+         else {'phase': 'preparing', 'administrator': access_administrator | hash('sha256')} }}
+  no_log: true
+
+- name: Read the existing access Application before any write
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-access
+  register: access_native_existing
+  no_log: true
+
+- name: Select the existing access Application identity
+  ansible.builtin.set_fact:
+    access_native_current: '{{ access_native_existing.resources | first | default({}) }}'
+  no_log: true
+
+- name: Check the retained checkpoint and Application before writing
+  ansible.builtin.import_tasks: native-owner-check.yml
+  no_log: true
+
+- name: Record preparation before first creation
+  ansible.builtin.copy:
+    dest: '{{ access_state_path }}'
+    content: '{{ access_native_state | to_json(sort_keys=true) }}'
+    owner: root
+    group: root
+    mode: '0600'
+  when: not access_state_file.stat.exists
+  no_log: true
