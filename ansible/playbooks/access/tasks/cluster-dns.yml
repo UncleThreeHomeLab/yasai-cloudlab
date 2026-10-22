@@ -1,0 +1,153 @@
+---
+- name: Select the published DNS Application source
+  ansible.builtin.set_fact:
+    access_dns_source: '{{ gitops_payload.stdout | from_json }}'
+  no_log: true
+
+- name: Inspect cluster DNS ownership through the maintained Kubernetes client
+  kubernetes.core.k8s_info:
+    kubeconfig: '{{ access_kubeconfig }}'
+    api_version: '{{ item.api_version }}'
+    kind: '{{ item.kind }}'
+    namespace: '{{ item.namespace }}'
+    name: '{{ item.name }}'
+  loop:
+    - {api_version: v1, kind: ConfigMap, namespace: kube-system, name: coredns}
+    - {api_version: argoproj.io/v1alpha1, kind: Application, namespace: argocd, name: cloudlab-private-dns}
+    - {api_version: v1, kind: ConfigMap, namespace: kube-system, name: coredns-custom}
+  register: access_dns_existing
+  no_log: true
+
+- name: Select current DNS resources
+  ansible.builtin.set_fact:
+    access_dns_core: '{{ access_dns_existing.results[0].resources | first | default({}) }}'
+    access_dns_application: '{{ access_dns_existing.results[1].resources | first | default({}) }}'
+    access_dns_custom: '{{ access_dns_existing.results[2].resources | first | default({}) }}'
+    access_dns_retained: {}
+  no_log: true
+
+- name: Inspect the private DNS identity receipt without following links
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/connectivity/dns-identities.json
+    follow: false
+  register: access_dns_receipt
+
+- name: Require a private regular identity receipt
+  ansible.builtin.assert:
+    that:
+      - access_dns_receipt.stat.isreg | default(false)
+      - not access_dns_receipt.stat.islnk | default(false)
+      - access_dns_receipt.stat.uid == 0
+      - access_dns_receipt.stat.mode == '0600'
+    fail_msg: DNS identity receipt has conflicting filesystem ownership.
+    quiet: true
+  when: access_dns_receipt.stat.exists
+
+- name: Read retained DNS identities
+  ansible.builtin.slurp:
+    src: /var/lib/cloudlab/connectivity/dns-identities.json
+  register: access_dns_receipt_content
+  when: access_dns_receipt.stat.exists
+  no_log: true
+
+- name: Decode retained DNS identities
+  ansible.builtin.set_fact:
+    access_dns_retained: '{{ access_dns_receipt_content.content | b64decode | from_json }}'
+  when: access_dns_receipt.stat.exists
+  no_log: true
+
+- name: Check ownership before reconciling only the custom DNS Application
+  ansible.builtin.import_tasks: cluster-dns-check.yml
+  no_log: true
+
+- name: Reconcile the custom DNS Application with its existing field manager
+  kubernetes.core.k8s:
+    kubeconfig: '{{ access_kubeconfig }}'
+    state: present
+    apply: true
+    server_side_apply:
+      field_manager: cloudlab-private-dns-bootstrap
+      force_conflicts: false
+    definition: "{{ lookup('ansible.builtin.template', '/workspace/ansible/playbooks/access/templates/cluster-dns-application.yml.j2') | from_yaml }}"
+  no_log: true
+
+- name: Wait for Argo to reconcile the exact published DNS source
+  kubernetes.core.k8s_info:
+    kubeconfig: '{{ access_kubeconfig }}'
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-private-dns
+  register: access_dns_converged
+  until:
+    - access_dns_converged.resources | length == 1
+    - access_dns_converged.resources[0].status.sync.status | default('') == 'Synced'
+    - access_dns_converged.resources[0].status.sync.revision | default('') == access_dns_source.revision
+    - access_dns_converged.resources[0].status.health.status | default('') == 'Healthy'
+    - access_dns_converged.resources[0].status.operationState.phase | default('') == 'Succeeded'
+    - not access_dns_converged.resources[0].operation | default({})
+    - >-
+      access_dns_converged.resources[0].status.conditions | default([])
+      | selectattr('type', 'search', 'Error$') | list | length == 0
+    - >-
+      access_dns_converged.resources[0].status.sync.comparedTo.source ==
+      access_dns_converged.resources[0].spec.source
+  retries: 120
+  delay: 5
+  no_log: true
+
+- name: Read only the Argo-owned custom forwarding configuration
+  kubernetes.core.k8s_info:
+    kubeconfig: '{{ access_kubeconfig }}'
+    api_version: v1
+    kind: ConfigMap
+    namespace: kube-system
+    name: coredns-custom
+  register: access_dns_forwarding
+  no_log: true
+
+- name: Require the sole Argo owner and preserve retained object identities
+  ansible.builtin.assert:
+    that:
+      - access_dns_forwarding.resources | length == 1
+      - access_dns_forwarding.resources[0].metadata.annotations['argocd.argoproj.io/tracking-id'].startswith('cloudlab-private-dns:')
+      - not access_dns_retained or access_dns_converged.resources[0].metadata.uid == access_dns_retained['application.argoproj.io']
+      - not access_dns_retained or access_dns_forwarding.resources[0].metadata.uid == access_dns_retained.configmap
+    fail_msg: Custom DNS lost its retained identity or sole Argo owner.
+    quiet: true
+  no_log: true
+
+- name: Preserve the first accepted DNS identity receipt atomically
+  ansible.builtin.copy:
+    content: >-
+      {{ {'application.argoproj.io': access_dns_converged.resources[0].metadata.uid,
+          'configmap': access_dns_forwarding.resources[0].metadata.uid} | to_json }}
+    dest: /var/lib/cloudlab/connectivity/dns-identities.json
+    mode: '0600'
+    force: false
+  no_log: true
+
+- name: Inspect the replaced standalone DNS writer
+  ansible.builtin.stat:
+    path: /var/lib/cloudlab/connectivity/dns_application.py
+    follow: false
+    checksum_algorithm: sha256
+  register: access_dns_old_writer
+
+- name: Refuse removal of foreign or redirected DNS tooling
+  ansible.builtin.assert:
+    that:
+      - access_dns_old_writer.stat.isreg | default(false)
+      - not access_dns_old_writer.stat.islnk | default(false)
+      - access_dns_old_writer.stat.uid == 0
+      - access_dns_old_writer.stat.mode == '0600'
+      - access_dns_old_writer.stat.checksum == '109038ec7f2ed1c4a77edfa9aa6b4d5ac416fa10d630d63510eaf8cc1627be37'
+    fail_msg: Replaced DNS executable differs from its reviewed bytes; preserve for inspection.
+    quiet: true
+  when: access_dns_old_writer.stat.exists
+
+- name: Retire the replaced DNS writer after native convergence
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/connectivity/dns_application.py
+    state: absent
+  when: access_dns_old_writer.stat.exists

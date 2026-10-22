@@ -1,0 +1,22 @@
+---
+- name: Reconcile the custom cluster DNS Application through native modules
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Resolve the published GitOps source before DNS changes
+      ansible.builtin.command:
+        argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
+      delegate_to: localhost
+      become: false
+      register: gitops_payload
+      changed_when: false
+      no_log: true
+  tasks:
+    - name: Read ready DNS interfaces
+      ansible.builtin.import_tasks: tasks/dns-inputs.yml
+      when: access_enabled | bool
+    - name: Reconcile only the custom forwarding Application
+      ansible.builtin.import_tasks: tasks/cluster-dns.yml
+      when: access_enabled | bool

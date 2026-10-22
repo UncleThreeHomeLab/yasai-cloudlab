@@ -3,6 +3,8 @@
 Compose provides the pinned execution environment in [runner](runner/).
 The runner [Dockerfile](runner/Dockerfile) pins bootstrap tool archives and checks
 their SHA-256 digests before extraction. Archive utilities stay in the build stage.
+It also pins `kubernetes.core`; native cluster tasks use the control-plane
+kubeconfig and Debian Kubernetes client packages without exporting cluster credentials.
 Use `lab setup` to converge and verify, `lab prove` to run setup twice and verify
 zero repeat changes on both nodes, `lab validate` for credential-free syntax,
 input, lint and rendered-chart checks, and `lab test` for isolated local tests.
@@ -44,7 +46,9 @@ ordinary setup preserves its accepted ownership and existing data.
 [Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.
 Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
-unrelated grants. [Infrastructure](playbooks/infrastructure/) invokes the accepted
+unrelated grants. The [cluster DNS stage](playbooks/access/030-cluster-dns.yml)
+reconciles only the custom forwarding Application; Argo owns its ConfigMap and K3s
+keeps the main CoreDNS configuration and Deployment. [Infrastructure](playbooks/infrastructure/) invokes the accepted
 [native roots](../infra/); apply requires the exact reviewed plan, source and
 inputs. Encrypted state, backend locks and interrupted-operation recovery remain
 with each root. Ordinary setup never imports existing external resources.

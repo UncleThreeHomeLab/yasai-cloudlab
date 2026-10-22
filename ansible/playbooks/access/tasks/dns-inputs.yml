@@ -1,0 +1,62 @@
+---
+- name: Install the maintained Kubernetes client on the control-plane host
+  ansible.builtin.apt:
+    name: [python3-kubernetes, python3-jsonpatch]
+    state: present
+
+- name: Read the ready private certificate and gateway interfaces
+  kubernetes.core.k8s_info:
+    kubeconfig: '{{ access_kubeconfig }}'
+    api_version: '{{ item.api_version }}'
+    kind: '{{ item.kind }}'
+    namespace: cloudlab-gateway-private
+    name: '{{ item.name }}'
+  loop:
+    - {api_version: cert-manager.io/v1, kind: Certificate, name: cloudlab-gateway}
+    - {api_version: v1, kind: Service, name: cloudlab-istio}
+    - {api_version: v1, kind: Service, name: cloudlab-tailnet}
+  register: access_dns_interfaces
+  no_log: true
+
+- name: Require all private DNS interfaces to exist
+  ansible.builtin.assert:
+    that: item.resources | length == 1
+    quiet: true
+  loop: '{{ access_dns_interfaces.results }}'
+  no_log: true
+
+- name: Select the private DNS interfaces
+  ansible.builtin.set_fact:
+    access_dns_certificate: '{{ access_dns_interfaces.results[0].resources[0] }}'
+    access_dns_gateway: '{{ access_dns_interfaces.results[1].resources[0] }}'
+    access_dns_tailnet: '{{ access_dns_interfaces.results[2].resources[0] }}'
+  no_log: true
+
+- name: Validate the private certificate and unique IPv4 gateway before configuration
+  ansible.builtin.assert:
+    that:
+      - >-
+        access_dns_certificate.status.conditions | default([])
+        | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True')
+        | list | length == 1
+      - access_dns_certificate.spec.dnsNames | length == 2
+      - access_dns_certificate.spec.dnsNames[0].startswith('*.internal.')
+      - access_dns_certificate.spec.dnsNames[1] == 'login.' ~ access_dns_certificate.spec.dnsNames[0][11:]
+      - access_dns_gateway.spec.clusterIP | length > 0
+      - >-
+        access_dns_tailnet.status.loadBalancer.ingress | default([])
+        | selectattr('ip', 'defined') | rejectattr('ip', 'search', ':') | list | length == 1
+    fail_msg: Private DNS requires the ready certificate and unique IPv4 gateway interfaces.
+    quiet: true
+  no_log: true
+
+- name: Expose private DNS inputs to the resolver owner
+  ansible.builtin.set_fact:
+    access_dns_inputs:
+      zone: '{{ access_dns_certificate.spec.dnsNames[0][2:] }}'
+      identity_host: '{{ access_dns_certificate.spec.dnsNames[1] }}'
+      cluster_gateway: '{{ access_dns_gateway.spec.clusterIP }}'
+      tailnet_gateway: >-
+        {{ (access_dns_tailnet.status.loadBalancer.ingress
+            | selectattr('ip', 'defined') | rejectattr('ip', 'search', ':') | first).ip }}
+  no_log: true
