@@ -8,7 +8,6 @@ import sys
 from playbooks.argocd.files.render import committed_payload
 from playbooks.access.files.preflight import ssh
 from playbooks.observability.files.configuration import grafana
-from playbooks.observability.files.values import values
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -29,12 +28,12 @@ def payload():
 def compile_payload(source, metadata):
     host_aliases = [{'ip': metadata['gatewayIP'], 'hostnames': [metadata['loginHost']]}]
     components = {name: {} for name in ('prometheus', 'loki', 'tempo', 'alloy', 'kiali')}
-    prometheus = values('prometheus')
+    prometheus = json.loads((ROOT / 'platform/observability/prometheus/values.json').read_text())['kube-prometheus-stack']
     prometheus['grafana']['grafana.ini'] = grafana('https://' + metadata['loginHost'] + '/realms/platform',
                                                 'https://' + metadata['grafanaHost'])['ini']
     prometheus['grafana']['hostAliases'] = host_aliases
     components['prometheus'] = {'kube-prometheus-stack': prometheus}
-    kiali = values('kiali')
+    kiali = json.loads((ROOT / 'platform/observability/kiali/values.json').read_text())['kiali-server']
     kiali['auth']['openid']['issuer_uri'] = 'https://' + metadata['loginHost'] + '/realms/platform'
     kiali['deployment']['host_aliases'] = host_aliases
     kiali['external_services']['grafana']['external_url'] = 'https://' + metadata['grafanaHost']

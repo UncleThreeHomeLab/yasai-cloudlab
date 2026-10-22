@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 from playbooks.observability.files.chart import render
 from playbooks.observability.files.configuration import grafana
-from playbooks.observability.files.values import values
 from playbooks.observability.files.verify import dashboards_ready
 
 
@@ -22,7 +21,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(config['data'], files)
         dashboards = [json.loads(raw) for raw in files.values()]
         self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes'})
-        settings = values('prometheus')['grafana']
+        settings = json.loads((ROOT / 'platform/observability/prometheus/values.json').read_text())['kube-prometheus-stack']['grafana']
         sources = {d['uid'] for d in settings['datasources']['datasources.yaml']['datasources']}
         for dashboard in dashboards:
             self.assertFalse(dashboard['editable'])

@@ -137,7 +137,6 @@ def tempo_protocols(raw):
 
 
 def build():
-    from playbooks.observability.files.values import values
     from playbooks.observability.files.slo import build as build_slo
     from playbooks.observability.files.configuration import audit_rules
     build_slo()
@@ -156,7 +155,6 @@ def build():
             (path / lock['archive']).write_bytes(data)
             lock['sha256'] = hashlib.sha256(data).hexdigest()
             (path / 'artifact.lock.json').write_text(json.dumps(lock, indent=2) + '\n')
-        (path / 'values.json').write_text(json.dumps({lock['chart']: values(name)}, indent=2) + '\n')
 
 
 if __name__ == '__main__':
