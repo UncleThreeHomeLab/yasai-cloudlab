@@ -1,7 +1,12 @@
 ---
+- name: Read native retained telemetry interfaces
+  ansible.builtin.import_tasks: verification-inputs.yml
+
 - name: Resolve committed telemetry behavior and retention inputs
-  ansible.builtin.command: python -m playbooks.observability.files.payload verify
-  args: {chdir: /workspace}
+  ansible.builtin.command: python -m playbooks.observability.files.payload
+  args:
+    chdir: /workspace
+    stdin: '{{ telemetry_verification_inputs | to_json }}'
   delegate_to: localhost
   become: false
   changed_when: false

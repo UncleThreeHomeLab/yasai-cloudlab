@@ -1,0 +1,15 @@
+kiali-server:
+  auth:
+    openid:
+      issuer_uri: {{ ('https://' ~ telemetry_login_host ~ '/realms/platform') | to_json }}
+  deployment:
+    host_aliases:
+      - ip: {{ telemetry_gateway | to_json }}
+        hostnames: [{{ telemetry_login_host | to_json }}]
+  external_services:
+    grafana:
+      external_url: {{ telemetry_grafana_origin | to_json }}
+  server:
+    web_fqdn: {{ telemetry_kiali_host | to_json }}
+    web_port: '443'
+    web_schema: https

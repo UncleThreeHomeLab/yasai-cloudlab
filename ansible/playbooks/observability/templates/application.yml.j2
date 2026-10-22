@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ telemetry_application_name }}
+  namespace: argocd
+{% if telemetry_current.metadata.uid is defined %}
+  uid: {{ telemetry_current.metadata.uid | to_json }}
+{% endif %}
+  labels:
+    cloudlab.io/owner: {{ telemetry_policy.owner }}
+spec:
+  project: cloudlab-observability
+  source:
+    repoURL: {{ telemetry_source.repository | to_json }}
+    targetRevision: {{ telemetry_source.revision | to_json }}
+    path: {{ telemetry_application_path }}
+    helm:
+      releaseName: {{ telemetry_application_name }}
+{% if telemetry_component == 'configuration' %}
+      valuesObject:
+        enabled: true
+        monitoringEnabled: {{ telemetry_monitoring_enabled | to_json }}
+        loginHost: {{ telemetry_login_host | to_json }}
+        grafanaHost: {{ telemetry_grafana_host | to_json }}
+        kialiHost: {{ telemetry_kiali_host | to_json }}
+        apiPeers: {{ telemetry_api_peers | sort | to_json }}
+{% else %}
+      valueFiles: [values.json]
+{% if telemetry_component in ['prometheus', 'kiali'] %}
+      valuesObject: {{ lookup('ansible.builtin.template', telemetry_template_dir ~ '/' ~ telemetry_component ~ '-values.yml.j2') | from_yaml | to_json }}
+{% endif %}
+{% endif %}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ telemetry_policy.namespace }}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions:
+      - FailOnSharedResource=true
+      - ServerSideApply=true
+      - DisableClientSideApplyMigration=true
+    retry:
+      limit: 5
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}

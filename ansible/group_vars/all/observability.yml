@@ -1,2 +1,3 @@
 ---
+observability_bootstrap_retired_sha256: 4bb70d309a1d7aeb00685ecfab0b2a23b0628a3ec1b3ac38dc97e92714b86e34
 observability_enabled: "{{ ((lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).observability | default({})).enabled | default(false) }}"

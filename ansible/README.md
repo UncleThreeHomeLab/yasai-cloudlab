@@ -79,6 +79,9 @@ redaction and bounded storage. Component `platform/observability/*/values.json` 
 own Helm settings, including Grafana authentication defaults. Identity alert rules
 live in `platform/observability/prometheus/templates/identity-alerts.json`.
 Chart packaging does not regenerate these declarations.
+Native telemetry installation uses maintained host Ansible under its existing
+component lock. Component templates provide private runtime values; committed
+chart values retain all static settings and Argo retains continuous repair.
 [Harbor](playbooks/harbor/) reads `platform/harbor/server/values.json` directly and retains Argo installation,
 scoped registry credentials and coordinated recovery. Its host schedules use the
 same monthly export window and local-only freshness checks. Component tests own

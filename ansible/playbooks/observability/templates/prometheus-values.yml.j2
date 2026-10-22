@@ -1,0 +1,14 @@
+kube-prometheus-stack:
+  grafana:
+    hostAliases:
+      - ip: {{ telemetry_gateway | to_json }}
+        hostnames: [{{ telemetry_login_host | to_json }}]
+    grafana.ini:
+      server:
+        root_url: {{ telemetry_grafana_origin | to_json }}
+      auth:
+        signout_redirect_url: {{ (telemetry_oidc_protocol ~ '/logout?' ~ telemetry_logout_query) | to_json }}
+      auth.generic_oauth:
+        auth_url: {{ (telemetry_oidc_protocol ~ '/auth') | to_json }}
+        token_url: {{ (telemetry_oidc_protocol ~ '/token') | to_json }}
+        api_url: {{ (telemetry_oidc_protocol ~ '/userinfo') | to_json }}

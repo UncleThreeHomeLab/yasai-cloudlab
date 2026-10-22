@@ -1,64 +1,41 @@
+"""Native telemetry declarations retain field ownership and dependency boundaries."""
 import copy
-import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
-from playbooks.observability.files.bootstrap import application, seed, run, COMPONENTS
+from playbooks.observability.tests.fixtures import native_application
 
 
 class BootstrapTests(unittest.TestCase):
-    def test_cold_configuration_can_resolve_secrets_before_backend_routes_become_healthy(self):
-        payload = self.payload()
-        current = application(payload, 'configuration')
-        self.assertNotIn('valueFiles', current['spec']['source']['helm'])
-        self.assertNotIn('valuesObject', application(payload, 'loki')['spec']['source']['helm'])
-        current['status'] = {'health': {'status': 'Degraded'}, 'operationState': {'phase': 'Succeeded'},
-            'sync': {'status': 'Synced', 'revision': payload['revision'],
-                     'comparedTo': {'source': current['spec']['source']}}}
-        def wait(predicate, *_args, **_kwargs): self.assertTrue(predicate())
-        with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
-                patch('playbooks.observability.files.bootstrap.kube') as mutate, \
-                patch('playbooks.observability.files.bootstrap.wait', side_effect=wait):
-            self.assertFalse(seed(payload, 'configuration'))
-        mutate.assert_not_called()
+    def test_initial_configuration_keeps_monitors_disabled_until_apis_exist(self):
+        result, value = native_application(monitoring=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(value['metadata']['uid'], 'retained-application')
+        helm = value['spec']['source']['helm']
+        self.assertNotIn('valueFiles', helm)
+        self.assertFalse(helm['valuesObject']['monitoringEnabled'])
+        self.assertEqual(helm['valuesObject']['apiPeers'], ['192.0.2.1/32', '192.0.2.2/32'])
+        self.assertFalse(value['spec']['syncPolicy']['automated']['prune'])
 
-    def payload(self):
-        return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
-                'configuration': {'enabled': True}, 'components': {name: {} for name in COMPONENTS}}
+    def test_static_backend_values_come_directly_from_git(self):
+        result, value = native_application('loki')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(value['spec']['source']['helm'], {'releaseName': 'cloudlab-loki', 'valueFiles': ['values.json']})
 
-    def test_existing_application_cannot_transfer_from_another_owner_or_source(self):
-        payload = self.payload()
-        current = application(payload, 'loki')
-        with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
-                patch('playbooks.observability.files.bootstrap.kube') as kube, \
-                patch('playbooks.observability.files.bootstrap.wait'):
-            self.assertFalse(seed(payload, 'loki'))
-            for change in ('owner', 'namespace', 'repository', 'path'):
-                other = copy.deepcopy(current)
-                if change == 'owner': other['metadata']['labels']['cloudlab.io/owner'] = 'unrelated'
-                if change == 'namespace': other['spec']['destination']['namespace'] = 'argocd'
-                if change == 'repository': other['spec']['source']['repoURL'] = 'https://github.com/example/other.git'
-                if change == 'path': other['spec']['source']['path'] = 'other'
-                with patch('playbooks.observability.files.bootstrap.get', return_value=other):
-                    with self.assertRaises(RuntimeError): seed(payload, 'loki')
-            kube.assert_not_called()
-
-    def test_monitor_api_bootstrap_order_and_repeat_do_not_toggle_ready_configuration(self):
-        for apis in (False, True):
-            observed = []
-            def seed(payload, name):
-                observed.append((name, payload['configuration']['monitoringEnabled']))
-                return not apis
-            def get(kind, name):
-                return {'api': True} if kind == 'crd' and apis else None
-            with tempfile.TemporaryDirectory() as directory:
-                with patch('playbooks.observability.files.bootstrap.Path', side_effect=lambda _: Path(directory) / 'lock'), \
-                        patch('playbooks.observability.files.bootstrap.get', side_effect=get), \
-                        patch('playbooks.observability.files.bootstrap.seed', side_effect=seed), \
-                        patch('playbooks.observability.files.bootstrap.wait'):
-                    result = run(self.payload())
-            self.assertEqual(result['changed'], not apis)
-            self.assertEqual(observed[0], ('configuration', apis))
-            if not apis: self.assertEqual(observed[-1], ('configuration', True))
-            else: self.assertEqual(sum(name == 'configuration' for name, _ in observed), 1)
+    def test_foreign_application_or_scope_cannot_be_adopted(self):
+        current = {'metadata': {'uid': 'retained', 'labels': {'cloudlab.io/owner': 'observability-platform'}},
+            'spec': {'project': 'cloudlab-observability', 'destination': {
+                'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-observability'},
+                'source': {'repoURL': 'https://github.com/fixture/platform.git', 'path': 'platform/observability/loki'}}}
+        for mutation in ('owner', 'finalizer', 'parent', 'project', 'namespace', 'repository', 'path'):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(current)
+                if mutation == 'owner': changed['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                elif mutation == 'finalizer': changed['metadata']['finalizers'] = ['foreign']
+                elif mutation == 'parent': changed['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif mutation == 'project': changed['spec']['project'] = 'foreign'
+                elif mutation == 'namespace': changed['spec']['destination']['namespace'] = 'foreign'
+                elif mutation == 'repository': changed['spec']['source']['repoURL'] = 'https://github.com/fixture/foreign.git'
+                else: changed['spec']['source']['path'] = 'foreign'
+                result, value = native_application('loki', current=changed)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIsNone(value)

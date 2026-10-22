@@ -1,0 +1,111 @@
+---
+- name: Require the published source passed by the portable runner
+  ansible.builtin.assert:
+    that:
+      - telemetry_source.repository is match('^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$')
+      - telemetry_source.revision is match('^[a-f0-9]{40}$')
+    quiet: true
+  no_log: true
+
+- name: Read retained identity and private gateway interfaces
+  kubernetes.core.k8s_info:
+    api_version: '{{ item.api_version }}'
+    kind: '{{ item.kind }}'
+    namespace: '{{ item.namespace }}'
+    name: '{{ item.name }}'
+  loop:
+    - {api_version: argoproj.io/v1alpha1, kind: Application, namespace: argocd, name: cloudlab-identity}
+    - {api_version: v1, kind: Service, namespace: cloudlab-gateway-public, name: cloudlab-istio}
+  register: telemetry_interfaces
+  no_log: true
+
+- name: Require exactly the existing interfaces
+  ansible.builtin.assert:
+    that: item.resources | length == 1
+    quiet: true
+  loop: '{{ telemetry_interfaces.results }}'
+  no_log: true
+
+- name: Select active retained identity and gateway
+  ansible.builtin.set_fact:
+    telemetry_identity_values: '{{ telemetry_interfaces.results[0].resources[0].spec.source.helm.valuesObject }}'
+    telemetry_gateway: '{{ telemetry_interfaces.results[1].resources[0].spec.clusterIP }}'
+  no_log: true
+
+- name: Require active canonical identity
+  ansible.builtin.assert:
+    that:
+      - telemetry_identity_values.loginHost is match('^login[.][a-z0-9.-]+$')
+      - not telemetry_identity_values.maintenance | default(false)
+      - telemetry_identity_values.reconciliationEnabled | default(false)
+      - telemetry_gateway is match('^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$')
+    quiet: true
+  no_log: true
+
+- name: Read retained node identities
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+  register: telemetry_nodes
+  no_log: true
+
+- name: Require both existing ready nodes
+  ansible.builtin.assert:
+    that:
+      - telemetry_nodes.resources | length == 2
+      - >-
+        telemetry_nodes.resources | map(attribute='status.conditions') | flatten
+        | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True')
+        | list | length == 2
+    quiet: true
+  no_log: true
+
+- name: Require one internal interface per retained node
+  ansible.builtin.assert:
+    that: item.status.addresses | selectattr('type', 'equalto', 'InternalIP') | list | length == 1
+    quiet: true
+  loop: '{{ telemetry_nodes.resources }}'
+  no_log: true
+
+- name: Derive private telemetry names from the retained issuer
+  ansible.builtin.set_fact:
+    telemetry_login_host: '{{ telemetry_identity_values.loginHost }}'
+    telemetry_grafana_host: 'grafana.internal.{{ telemetry_identity_values.loginHost[6:] }}'
+    telemetry_kiali_host: 'kiali.internal.{{ telemetry_identity_values.loginHost[6:] }}'
+    telemetry_api_peers: []
+  no_log: true
+
+- name: Preserve exact node peers without broadening network access
+  ansible.builtin.set_fact:
+    telemetry_api_peers: "{{ telemetry_api_peers + [item.address ~ ('/128' if ':' in item.address else '/32')] }}"
+  loop: "{{ telemetry_nodes.resources | map(attribute='status.addresses') | flatten | selectattr('type', 'equalto', 'InternalIP') }}"
+  no_log: true
+
+- name: Select exact private OAuth endpoints
+  ansible.builtin.set_fact:
+    telemetry_oidc_protocol: 'https://{{ telemetry_login_host }}/realms/platform/protocol/openid-connect'
+    telemetry_grafana_origin: 'https://{{ telemetry_grafana_host }}'
+    telemetry_logout_query: "{{ {'post_logout_redirect_uri': 'https://' ~ telemetry_grafana_host ~ '/login'} | urlencode }}"
+  no_log: true
+
+- name: Inspect existing telemetry boundaries without adoption
+  kubernetes.core.k8s_info:
+    api_version: '{{ item.api_version }}'
+    kind: '{{ item.kind }}'
+    name: '{{ item.name }}'
+  loop:
+    - {api_version: v1, kind: Namespace, name: '{{ telemetry_policy.namespace }}'}
+    - {api_version: storage.k8s.io/v1, kind: StorageClass, name: '{{ telemetry_policy.storage_class }}'}
+  register: telemetry_boundaries
+  no_log: true
+
+- name: Refuse foreign boundary ownership
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.resources | length == 0 or
+        item.resources[0].metadata.labels['cloudlab.io/owner'] | default('') == telemetry_policy.owner
+    fail_msg: Existing telemetry boundary has another owner; adoption refused.
+    quiet: true
+  loop: '{{ telemetry_boundaries.results }}'
+  no_log: true
