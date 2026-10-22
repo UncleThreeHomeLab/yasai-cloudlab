@@ -13,7 +13,7 @@
       - localhost,
       - /opt/cloudlab/playbooks/harbor/native.yml
   environment:
-    ANSIBLE_CONFIG: /dev/null
+    ANSIBLE_CONFIG: '{{ host_ansible_config }}'
     ANSIBLE_COLLECTIONS_PATH: '{{ host_ansible_collections }}'
     ANSIBLE_NOCOLOR: '1'
     HARBOR_SOURCE_REPOSITORY: '{{ gitops_source.repository }}'
