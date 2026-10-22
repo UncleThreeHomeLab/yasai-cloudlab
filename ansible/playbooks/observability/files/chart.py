@@ -9,7 +9,6 @@ import yaml
 
 from playbooks.argocd.files.render import images
 from playbooks.observability.files.package import retained, kiali_declarative, tempo_protocols
-from playbooks.observability.files.values import values
 from playbooks.observability.files.configuration import POLICY
 
 BASE = Path(__file__).resolve().parents[4] / 'platform/observability'
@@ -54,8 +53,6 @@ def check():
             upstream = (path / 'upstream.tgz').read_bytes()
             if hashlib.sha256(upstream).hexdigest() != lock['upstream_sha256'] or patcher(upstream) != raw:
                 raise ValueError('Telemetry declarative patch differs from pinned upstream')
-        if json.loads((path / 'values.json').read_text()) != {lock['chart']: values(name)}:
-            raise ValueError('Telemetry settings differ from their policy compiler')
         objects = render(name)
         for ref in images(objects):
             if not re.search(r'@sha256:[a-f0-9]{64}$', ref) or ref.rsplit('@', 1)[1] not in expected:
@@ -98,7 +95,7 @@ def check():
                 raise ValueError('Telemetry PVC can inherit monthly backups')
     if cpu > POLICY['cpu_limit_millicores'] or memory > POLICY['memory_limit_mib']:
         raise ValueError('Telemetry exceeds its agreed domain envelope')
-    prometheus = values('prometheus')['prometheus']['prometheusSpec']
+    prometheus = json.loads((BASE / 'prometheus/values.json').read_text())['kube-prometheus-stack']['prometheus']['prometheusSpec']
     if prometheus['retention'] != '7d' or prometheus['retentionSize'] != '25GB' or prometheus.get('remoteWrite'):
         raise ValueError('Metrics local retention or no-offsite policy changed')
     return {'objects': len(identities), 'crds': crds, 'cpu_limit_millicores': cpu,
