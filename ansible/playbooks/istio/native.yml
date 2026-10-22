@@ -8,6 +8,10 @@
     mesh_native_owner: cloudlab-gateways-bootstrap
     mesh_native_state_dir: /var/lib/cloudlab/mesh
     mesh_native_state_path: '{{ mesh_native_state_dir }}/ownership.json'
+    mesh_native_transport: >-
+      {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MESH_NATIVE_INPUTS_FILE')) | from_json }}
+    mesh_native_source: '{{ mesh_native_transport.mesh_native_source }}'
+    mesh_native_inventory: '{{ mesh_native_transport.mesh_native_inventory }}'
   module_defaults:
     group/kubernetes.core.k8s:
       kubeconfig: /etc/rancher/k3s/k3s.yaml
@@ -19,11 +23,13 @@
       loop: '{{ mesh_native_inventory.gateway_api }}'
       loop_control:
         loop_var: mesh_expected_crd
+        label: '{{ mesh_expected_crd.metadata.name }}'
     - name: Inspect the sole Argo ownership of each existing mesh component
       ansible.builtin.include_tasks: tasks/native-component.yml
       loop: '{{ mesh_native_inventory.mesh_objects | dict2items }}'
       loop_control:
         loop_var: mesh_expected_component
+        label: '{{ mesh_expected_component.key }}'
     - name: Validate and bind retained mesh ownership before configuration
       ansible.builtin.import_tasks: tasks/native-ownership.yml
     - name: Read existing Argo routing through its current consumer interface

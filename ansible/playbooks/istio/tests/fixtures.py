@@ -1,4 +1,4 @@
-"""Credential-free native mesh declarations and native file dispatch."""
+"""Credential-free native mesh declarations and data-only file transport."""
 import copy
 import hashlib
 import json
@@ -14,20 +14,24 @@ COMPONENT = Path(__file__).resolve().parents[1]
 
 
 def run_native(tasks, values):
-    """Use the production native file interface against disposable local files."""
+    """Read opaque data through the same native lookup interface used on hosts."""
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
         output = root / 'accepted.json'
         values = dict(values, ansible_python_interpreter=sys.executable, fixture_output_path=str(output))
         path = root / 'play.yml'
+        play_values = {'_native_fixture_inputs':
+            "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MESH_NATIVE_INPUTS_FILE')) | from_json }}"}
+        play_values.update({key: '{{ _native_fixture_inputs[' + json.dumps(key) + '] }}' for key in values})
         path.write_text(yaml.safe_dump([{'hosts': 'localhost', 'connection': 'local',
-            'gather_facts': False, 'tasks': tasks}], sort_keys=False))
+            'gather_facts': False, 'vars': play_values, 'tasks': tasks}], sort_keys=False))
         inputs = root / 'inputs.json'
         inputs.write_text(json.dumps(values))
         inputs.chmod(0o600)
-        result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '--extra-vars', '@' + str(inputs), str(path)],
+        result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(path)],
             capture_output=True, text=True, timeout=90,
-            env=dict(os.environ, ANSIBLE_CONFIG=str(COMPONENT.parent / 'host/files/ansible.cfg')))
+            env=dict(os.environ, ANSIBLE_CONFIG=str(COMPONENT.parent / 'host/files/ansible.cfg'),
+                     MESH_NATIVE_INPUTS_FILE=str(inputs)))
         return result, json.loads(output.read_text()) if output.exists() else None
 
 
