@@ -1,0 +1,30 @@
+---
+- name: Require retained zone, Gateway API, component and workload trust identities
+  ansible.builtin.assert:
+    that:
+      - mesh_native_state.phase in ['preparing', 'accepted']
+      - mesh_native_state.gateway_api == mesh_native_crd_ids
+      - mesh_native_state.zone_hash == mesh_native_zone | hash('sha256')
+      - mesh_native_state.components | default(mesh_native_component_ids) == mesh_native_component_ids
+      - mesh_native_state.workload_ca | default(mesh_native_ca) == mesh_native_ca
+      - mesh_native_checkpoint.stat.exists or not mesh_native_current
+      - not mesh_native_state.application_uid | default('') or mesh_native_current | length > 0
+    fail_msg: Mesh ownership, component identity or workload trust changed; preserve the checkpoint and review recovery.
+    quiet: true
+
+- name: Refuse a foreign or replaced gateway Application
+  ansible.builtin.assert:
+    that:
+      - mesh_native_current.metadata.labels['cloudlab.io/owner'] | default('') == mesh_native_owner
+      - not mesh_native_current.metadata.finalizers | default([])
+      - not mesh_native_current.metadata.ownerReferences | default([])
+      - mesh_native_state.application_uid | default(mesh_native_current.metadata.uid) == mesh_native_current.metadata.uid
+      - mesh_native_current.spec.project == 'cloudlab-gateways'
+      - >-
+        mesh_native_current.spec.destination ==
+        {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-gateway-public'}
+      - mesh_native_current.spec.source.repoURL == mesh_native_source.repository
+      - mesh_native_current.spec.source.path == 'platform/connectivity/gateways'
+    fail_msg: Gateway Application has a foreign owner, scope or replaced identity.
+    quiet: true
+  when: mesh_native_current | length > 0

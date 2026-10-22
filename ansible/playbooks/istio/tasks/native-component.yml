@@ -1,0 +1,71 @@
+---
+- name: Require the existing mesh component converged at the exact reviewed source
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: 'cloudlab-istio-{{ mesh_expected_component.key }}'
+  register: mesh_component_application
+  until:
+    - mesh_component_application.resources | length == 1
+    - mesh_component_application.resources[0].status.sync.status | default('') == 'Synced'
+    - mesh_component_application.resources[0].status.sync.revision | default('') == mesh_native_source.revision
+    - mesh_component_application.resources[0].status.health.status | default('') == 'Healthy'
+    - not mesh_component_application.resources[0].operation | default({})
+    - mesh_component_application.resources[0].status.operationState.phase | default('Succeeded') == 'Succeeded'
+    - >-
+      mesh_component_application.resources[0].status.conditions | default([])
+      | selectattr('type', 'search', 'Error$') | list | length == 0
+  retries: 180
+  delay: 5
+  no_log: true
+
+- name: Inspect every retained chart-owned object through the maintained API client
+  kubernetes.core.k8s_info:
+    api_version: '{{ item.apiVersion }}'
+    kind: '{{ item.kind }}'
+    namespace: '{{ item.metadata.namespace | default(omit) }}'
+    name: '{{ item.metadata.name }}'
+  loop: '{{ mesh_expected_component.value }}'
+  register: mesh_component_objects
+  no_log: true
+
+- name: Require every declared component object to exist
+  ansible.builtin.assert:
+    that: item.resources | length == 1
+    quiet: true
+  loop: '{{ mesh_component_objects.results }}'
+  no_log: true
+
+- name: Require actual Argo spec ownership for CRDs rather than copied tracking annotations
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.resources[0].metadata.managedFields | default([])
+        | selectattr('manager', 'equalto', 'argocd-controller')
+        | selectattr('operation', 'equalto', 'Apply') | selectattr('fieldsV1.f:spec', 'defined') | list | length > 0
+    quiet: true
+  loop: '{{ mesh_component_objects.results }}'
+  when: item.item.kind == 'CustomResourceDefinition'
+  no_log: true
+
+- name: Require the retained Argo tracking owner for other component objects
+  ansible.builtin.assert:
+    that:
+      - >-
+        (item.resources[0].metadata.annotations['argocd.argoproj.io/tracking-id'] | default(''))
+        .startswith('cloudlab-istio-' ~ mesh_expected_component.key ~ ':')
+    quiet: true
+  loop: '{{ mesh_component_objects.results }}'
+  when: item.item.kind != 'CustomResourceDefinition'
+  no_log: true
+
+- name: Select only current component object identities
+  vars:
+    mesh_object_group: "{{ item.item.apiVersion.split('/')[0] if '/' in item.item.apiVersion else '' }}"
+    mesh_object_kind: "{{ item.item.kind ~ ('.' ~ mesh_object_group if mesh_object_group else '') }}"
+    mesh_object_identity: "{{ [mesh_object_kind, item.item.metadata.namespace | default(''), item.item.metadata.name] | join('/') }}"
+  ansible.builtin.set_fact:
+    mesh_native_component_ids: '{{ mesh_native_component_ids | combine({mesh_object_identity: item.resources[0].metadata.uid}) }}'
+  loop: '{{ mesh_component_objects.results }}'
+  no_log: true

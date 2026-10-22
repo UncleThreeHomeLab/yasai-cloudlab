@@ -1,0 +1,57 @@
+---
+- name: Read Argo routing through its existing consumer-owned ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    namespace: argocd
+    name: argocd-cm
+  register: mesh_argo_configmap
+  no_log: true
+
+- name: Select current Argo inputs and retained route expectations
+  ansible.builtin.set_fact:
+    mesh_argo_data: '{{ (mesh_argo_configmap.resources | first | default({})).data | default({}) }}'
+    mesh_argo_previous: '{{ mesh_native_current.spec.source.helm.valuesObject.argo | default({}) }}'
+    mesh_argo_routes: {}
+  no_log: true
+
+- name: Refuse to remove existing routes when the consumer's OIDC configuration is unavailable
+  ansible.builtin.assert:
+    that: mesh_argo_data['oidc.config'] | default('') | length > 0 or mesh_argo_previous | length == 0
+    fail_msg: Existing Argo routes require their available OIDC configuration.
+    quiet: true
+  no_log: true
+
+- name: Read the current exact Argo origins only while OIDC is enabled
+  when: mesh_argo_data['oidc.config'] | default('') | length > 0
+  no_log: true
+  block:
+    - name: Require the retained consumer owner
+      ansible.builtin.assert:
+        that:
+          - >-
+            (mesh_argo_configmap.resources[0].metadata.annotations['argocd.argoproj.io/tracking-id'] | default(''))
+            .startswith('cloudlab-argocd:')
+        quiet: true
+    - name: Parse native OIDC configuration and additional origins
+      ansible.builtin.set_fact:
+        mesh_argo_oidc: '{{ mesh_argo_data["oidc.config"] | from_yaml }}'
+        mesh_argo_additional: '{{ mesh_argo_data.additionalUrls | default("[]") | from_yaml }}'
+    - name: Require the scoped platform identity client and one additional origin
+      ansible.builtin.assert:
+        that:
+          - mesh_argo_oidc is mapping
+          - mesh_argo_oidc.issuer == 'https://login.' ~ mesh_native_zone ~ '/realms/platform'
+          - mesh_argo_oidc.clientID == 'argocd'
+          - mesh_argo_additional is sequence and mesh_argo_additional is not string
+          - mesh_argo_additional | length == 1
+        quiet: true
+    - name: Validate both current gateway origins without inferring new routes
+      ansible.builtin.include_tasks: native-argo-origin.yml
+      loop: '{{ [mesh_argo_data.url | default(none)] + mesh_argo_additional }}'
+      loop_control:
+        loop_var: mesh_argo_origin
+    - name: Require both distinct existing gateway exposures
+      ansible.builtin.assert:
+        that: mesh_argo_routes.keys() | sort | list == ['private', 'public']
+        quiet: true

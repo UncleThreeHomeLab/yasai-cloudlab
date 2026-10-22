@@ -1,0 +1,22 @@
+---
+- name: Require exactly the retained public and private gateway identities
+  ansible.builtin.assert:
+    that: mesh_native_state.gateways == mesh_observed_gateways
+    fail_msg: Gateway generated object inventory changed; preserve the checkpoint and review recovery.
+    quiet: true
+  no_log: true
+
+- name: Record accepted initial mesh configuration after both gateways pass
+  when: mesh_initial_phase != 'accepted'
+  no_log: true
+  block:
+    - name: Select accepted mesh ownership
+      ansible.builtin.set_fact:
+        mesh_native_state: '{{ mesh_native_state | combine({"phase": "accepted"}) }}'
+    - name: Atomically record accepted mesh ownership
+      ansible.builtin.copy:
+        dest: '{{ mesh_native_state_path }}'
+        content: '{{ mesh_native_state | to_json(sort_keys=true) }}'
+        owner: root
+        group: root
+        mode: '0600'

@@ -7,9 +7,74 @@ import sys
 import time
 import uuid
 
-from configuration import BASE, component_identities, gateway_api, selected_zone
-import fixtures
-from kube import application_ready, condition, get, kube, wait
+from pathlib import Path
+if __package__:
+    from . import fixtures
+    from .kube import application_ready, condition, contains, get, kube, wait
+else:
+    import fixtures
+    from kube import application_ready, condition, contains, get, kube, wait
+
+BASE = Path('/var/lib/cloudlab/mesh')
+
+
+def gateway_api(expected):
+    identities = {}
+    for obj in expected:
+        name = obj['metadata']['name']
+        actual = get('customresourcedefinition', name)
+        if not actual or not contains(actual['spec'], obj['spec']):
+            raise RuntimeError('Existing Gateway API differs from its pinned standard contract')
+        annotations = actual['metadata'].get('annotations', {})
+        legacy_owner = annotations.get('meta.helm.sh/release-name')
+        if not (legacy_owner == 'traefik-crd' or
+                (legacy_owner is None and annotations.get('cloudlab.io/owner') == 'cloudlab-gateway-api')):
+            raise RuntimeError('Gateway API owner changed outside the declared handoff')
+        if annotations.get('gateway.networking.k8s.io/bundle-version') != 'v1.6.1':
+            raise RuntimeError('Gateway API version changed')
+        identities[name] = actual['metadata']['uid']
+    return identities
+
+
+def selected_zone():
+    # Certificate resources are the public interface; no private receipt coupling.
+    public = get('certificate.cert-manager.io', 'cloudlab-gateway', 'cloudlab-gateway-public')
+    private = get('certificate.cert-manager.io', 'cloudlab-gateway', 'cloudlab-gateway-private')
+    if not condition(public, 'Ready') or not condition(private, 'Ready'):
+        raise RuntimeError('Both gateway certificates must be ready before mesh configuration')
+    names = public['spec'].get('dnsNames', [])
+    if len(names) != 1 or not names[0].startswith('*.'):
+        raise RuntimeError('Public certificate wildcard contract changed')
+    zone = names[0][2:]
+    if private['spec'].get('dnsNames') != ['*.internal.' + zone, 'login.' + zone]:
+        raise RuntimeError('Private certificate wildcard contract changed')
+    return zone
+
+
+def argo_owned(obj, actual, app):
+    metadata = (actual or {}).get('metadata', {})
+    if obj['kind'] == 'CustomResourceDefinition':
+        # Argo 3.5 intentionally does not annotate CRDs for resource tracking.
+        # Require its actual SSA spec ownership, plus revision and UID checks.
+        return any(field.get('manager') == 'argocd-controller' and field.get('operation') == 'Apply'
+                   and 'f:spec' in field.get('fieldsV1', {}) for field in metadata.get('managedFields', []))
+    return metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(app + ':')
+
+
+def component_identities(payload):
+    result = {}
+    for component, objects in payload['mesh_objects'].items():
+        app = 'cloudlab-istio-' + component
+        wait(lambda: application_ready(app, payload['revision']), 'Istio Application convergence')
+        for obj in objects:
+            group = obj['apiVersion'].split('/')[0] if '/' in obj['apiVersion'] else ''
+            kind = obj['kind'] + ('.' + group if group else '')
+            meta = obj['metadata']
+            actual = get(kind, meta['name'], meta.get('namespace'))
+            if not argo_owned(obj, actual, app):
+                raise RuntimeError('Istio declaration lacks its sole Argo owner')
+            result['/'.join((kind, meta.get('namespace', ''), meta['name']))] = actual['metadata']['uid']
+    return result
 
 
 def execute(ns, pod, *command):

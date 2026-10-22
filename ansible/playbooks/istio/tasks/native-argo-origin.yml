@@ -1,0 +1,47 @@
+---
+- name: Require a string origin without whitespace or control characters
+  ansible.builtin.assert:
+    that:
+      - mesh_argo_origin is string
+      - mesh_argo_origin is not search('[\s\x00-\x1f]')
+    quiet: true
+  no_log: true
+
+- name: Parse the origin through Ansible's native URL interface
+  ansible.builtin.set_fact:
+    mesh_argo_origin_parts: '{{ mesh_argo_origin | urlsplit }}'
+  no_log: true
+
+- name: Require an exact HTTPS authority inside an approved gateway zone
+  ansible.builtin.assert:
+    that:
+      - mesh_argo_origin_parts.scheme == 'https'
+      - mesh_argo_origin_parts.port in [none, 443]
+      - mesh_argo_origin_parts.username is none
+      - mesh_argo_origin_parts.path == ''
+      - mesh_argo_origin_parts.query == ''
+      - mesh_argo_origin_parts.fragment == ''
+      - mesh_argo_origin_parts.hostname | length > 0
+      - >-
+        mesh_argo_origin_parts.hostname == 'cd.internal.' ~ mesh_native_zone or
+        (mesh_argo_origin_parts.hostname.endswith('.' ~ mesh_native_zone)
+         and mesh_argo_origin_parts.hostname.split('.') | length == mesh_native_zone.split('.') | length + 1
+         and mesh_argo_origin_parts.hostname.split('.')[0] != 'internal')
+    quiet: true
+  no_log: true
+
+- name: Select only the existing public or private gateway exposure
+  ansible.builtin.set_fact:
+    mesh_argo_exposure: "{{ 'private' if mesh_argo_origin_parts.hostname == 'cd.internal.' ~ mesh_native_zone else 'public' }}"
+  no_log: true
+
+- name: Refuse duplicate origins for one exposure
+  ansible.builtin.assert:
+    that: mesh_argo_exposure not in mesh_argo_routes
+    quiet: true
+  no_log: true
+
+- name: Retain only the current gateway hostname
+  ansible.builtin.set_fact:
+    mesh_argo_routes: '{{ mesh_argo_routes | combine({mesh_argo_exposure: mesh_argo_origin_parts.hostname}) }}'
+  no_log: true

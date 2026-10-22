@@ -9,7 +9,7 @@ import unittest
 import yaml
 
 import chart
-import fixtures
+from playbooks.istio.files import fixtures
 import vendor_charts
 
 

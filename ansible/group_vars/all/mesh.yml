@@ -1,2 +1,4 @@
 ---
 mesh_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).mesh.enabled }}"
+mesh_chart_components: [base, istiod, cni, ztunnel]
+mesh_configuration_retired_sha256: 72b4c087c50ac7bca584173725afe6777ea6ed40acff42f073ffa5b247e16590
