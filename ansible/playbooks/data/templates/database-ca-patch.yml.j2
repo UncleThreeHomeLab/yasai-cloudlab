@@ -1,0 +1,17 @@
+- op: test
+  path: /metadata/uid
+  value: {{ data_ca_current.metadata.uid | to_json }}
+- op: test
+  path: /metadata/resourceVersion
+  value: {{ data_ca_current.metadata.resourceVersion | to_json }}
+- op: add
+  path: /data
+  value:
+    ca.crt: {{ data_ca_public | to_json }}
+- op: add
+  path: /metadata/labels
+  value: {{ data_ca_labels | combine({'cloudlab.io/owner': data_ca_owner}) | to_json }}
+{% if data_ca_tracking %}
+- op: remove
+  path: /metadata/annotations/argocd.argoproj.io~1tracking-id
+{% endif %}

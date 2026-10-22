@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -191,7 +192,26 @@ def maintenance(enabled):
     return values
 
 
-def reconcile():
+def public_ca(owner):
+    """Dispatch native trust repair while the child retains the caller's lock FD."""
+    if owner.closed or Path(owner.name) != BASE / 'owner.lock':
+        raise RuntimeError('Native CA repair requires the existing data owner lock')
+    play = (ROOT / 'playbooks/data/ca/current/native-ca.yml').resolve(strict=True)
+    collections = Path('/usr/local/lib/cloudlab-ansible/current').resolve(strict=True)
+    with tempfile.TemporaryDirectory(prefix='cloudlab-data-ca-') as temporary:
+        result = subprocess.run(
+            ['/usr/bin/ansible-playbook', '-i', 'localhost,', str(play)],
+            env=dict(os.environ, ANSIBLE_CONFIG='/usr/local/lib/cloudlab-ansible/ansible.cfg',
+                     ANSIBLE_COLLECTIONS_PATH=str(collections), ANSIBLE_NOCOLOR='1',
+                     ANSIBLE_LOCAL_TEMP=temporary + '/controller',
+                     ANSIBLE_REMOTE_TEMP=temporary + '/modules'),
+            pass_fds=(owner.fileno(),), capture_output=True, text=True, check=False)
+    if result.returncode:
+        raise RuntimeError('Native public CA repair failed; private diagnostics withheld')
+    return re.search(r'changed=[1-9][0-9]*', result.stdout) is not None
+
+
+def reconcile(owner):
     values = settings()
     if values['maintenance']:
         raise RuntimeError('Interrupted data maintenance requires recovery before ordinary reconciliation')
@@ -200,21 +220,20 @@ def reconcile():
     changed = s3().ensure_bucket(values['bucket']) or changed
     from playbooks.data.files.requests import reconcile as service_requests
     changed = service_requests(values, sql, grants, s3()) or changed
-    from playbooks.data.files.public_ca import reconcile as public_ca
-    changed = public_ca(values) or changed
+    changed = public_ca(owner) or changed
     return changed
 
 
 if __name__ == '__main__':
     try:
         action = sys.argv[1]
-        with locked():
+        with locked() as owner:
             if action == 'resume':
                 from playbooks.data.files.volumes import resume
                 resume()
                 result = True
             elif action == 'reconcile':
-                result = reconcile()
+                result = reconcile(owner)
             else:
                 raise ValueError('Unknown application data control action')
         print(json.dumps({'changed': result}))

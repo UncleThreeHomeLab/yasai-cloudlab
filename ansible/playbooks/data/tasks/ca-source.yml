@@ -1,0 +1,68 @@
+---
+- name: Read the retained data Application
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-data-configuration
+  register: data_ca_application
+  no_log: true
+
+- name: Require the existing data owner and ordinary reconciliation mode
+  ansible.builtin.assert:
+    that:
+      - data_ca_application.resources | length == 1
+      - data_ca_application.resources[0].metadata.labels['cloudlab.io/owner'] == data_ca_owner
+      - not data_ca_application.resources[0].spec.source.helm.valuesObject.maintenance | bool
+    fail_msg: Public CA repair requires the retained data owner outside maintenance.
+    quiet: true
+  no_log: true
+
+- name: Read only the approved consumer list from its public interface
+  ansible.builtin.set_fact:
+    data_ca_consumers: '{{ data_ca_application.resources[0].spec.source.helm.valuesObject.serviceConsumers | default([]) }}'
+  no_log: true
+
+- name: Read the current database cluster
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    namespace: cloudlab-data
+    name: cloudlab-postgres
+  register: data_ca_cluster
+  no_log: true
+
+- name: Read the CNPG CA without exposing its private key
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: cloudlab-data
+    name: cloudlab-postgres-ca
+    hidden_fields: ['data[ca.key]', 'data[tls.key]']
+  register: data_ca_secret
+  no_log: true
+
+- name: Require the current CNPG owner before decoding public trust
+  ansible.builtin.assert:
+    that:
+      - data_ca_cluster.resources | length == 1
+      - data_ca_secret.resources | length == 1
+      - data_ca_cluster.resources[0].metadata.uid in (data_ca_secret.resources[0].metadata.ownerReferences | default([]) | map(attribute='uid') | list)
+    fail_msg: Database public CA lacks its current CNPG owner.
+    quiet: true
+  no_log: true
+
+- name: Decode only the public CA field
+  ansible.builtin.set_fact:
+    data_ca_public: '{{ data_ca_secret.resources[0].data["ca.crt"] | b64decode }}'
+  no_log: true
+
+- name: Require a public certificate and a bounded consumer list
+  ansible.builtin.assert:
+    that:
+      - "'-----BEGIN CERTIFICATE-----' in data_ca_public"
+      - data_ca_public | b64encode == data_ca_secret.resources[0].data['ca.crt']
+      - data_ca_consumers is sequence and data_ca_consumers is not string and data_ca_consumers is not mapping
+    fail_msg: Public CA or approved service consumers are invalid.
+    quiet: true
+  no_log: true

@@ -1,0 +1,20 @@
+---
+- name: Project only the CNPG public CA under the caller's retained data lock
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    data_ca_owner: cloudlab-data-bootstrap
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: /etc/rancher/k3s/k3s.yaml
+  tasks:
+    - name: Inspect the retained data Application and current CNPG source
+      ansible.builtin.import_tasks: tasks/ca-source.yml
+    - name: Project public trust only into declared service consumers
+      ansible.builtin.include_tasks: tasks/ca-consumer.yml
+      loop: '{{ data_ca_consumers }}'
+      loop_control:
+        loop_var: data_ca_namespace
+        label: '{{ data_ca_namespace }}'
