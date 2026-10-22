@@ -1,34 +1,15 @@
 ---
-- name: Read the retained data Application
-  kubernetes.core.k8s_info:
-    api_version: argoproj.io/v1alpha1
-    kind: Application
-    namespace: argocd
-    name: cloudlab-data-configuration
-  register: data_ca_application
-  no_log: true
-
-- name: Require the existing data owner and ordinary reconciliation mode
-  ansible.builtin.assert:
-    that:
-      - data_ca_application.resources | length == 1
-      - data_ca_application.resources[0].metadata.labels['cloudlab.io/owner'] == data_ca_owner
-      - not data_ca_application.resources[0].spec.source.helm.valuesObject.maintenance | bool
-    fail_msg: Public CA repair requires the retained data owner outside maintenance.
-    quiet: true
-  no_log: true
-
 - name: Read only the approved consumer list from its public interface
   ansible.builtin.set_fact:
-    data_ca_consumers: '{{ data_ca_application.resources[0].spec.source.helm.valuesObject.serviceConsumers | default([]) }}'
+    data_ca_consumers: '{{ data_native_values.serviceConsumers | default([]) }}'
   no_log: true
 
 - name: Read the current database cluster
   kubernetes.core.k8s_info:
     api_version: postgresql.cnpg.io/v1
     kind: Cluster
-    namespace: cloudlab-data
-    name: cloudlab-postgres
+    namespace: '{{ data_native_contract.namespace }}'
+    name: '{{ data_native_contract.cluster }}'
   register: data_ca_cluster
   no_log: true
 
@@ -36,8 +17,8 @@
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Secret
-    namespace: cloudlab-data
-    name: cloudlab-postgres-ca
+    namespace: '{{ data_native_contract.namespace }}'
+    name: '{{ data_native_contract.cluster }}-ca'
     hidden_fields: ['data[ca.key]', 'data[tls.key]']
   register: data_ca_secret
   no_log: true

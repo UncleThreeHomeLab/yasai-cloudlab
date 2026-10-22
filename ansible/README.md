@@ -68,6 +68,9 @@ with each root. Ordinary setup never imports existing external resources.
 on its independent five-minute host timer. CNPG and Argo retain continuous data
 service ownership. Its shared lock protects adoption, capture and isolated restore.
 Public CA repair uses [native tasks](playbooks/data/native-ca.yml) on the same timer.
+SQL grants use [native declarations](playbooks/data/native-sql.yml) through pod-local
+`psql`; the immutable CNPG image lacks Python for database modules. Native SQL runs
+atomically with server timeouts. Administrative credentials remain in the cluster.
 Its dispatcher retains the lock descriptor during native execution. Setup qualifies
 the staged native owner before switching dispatch and retiring recognized old code.
 [Backup](playbooks/backup/) owns independent control-plane capture, restic/B2

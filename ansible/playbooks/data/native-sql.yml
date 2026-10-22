@@ -1,0 +1,23 @@
+---
+- name: Repair declared SQL grants through the existing pod-local administrative identity
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    data_native_contract: '{{ lookup("ansible.builtin.file", playbook_dir + "/contract.json") | from_json }}'
+    data_native_owner: '{{ data_native_contract.bootstrap_owner }}'
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: /etc/rancher/k3s/k3s.yaml
+  tasks:
+    - name: Read approved database and role names from the retained data owner
+      ansible.builtin.import_tasks: tasks/native-settings.yml
+    - name: Require the current single-instance primary before native SQL
+      ansible.builtin.import_tasks: tasks/sql-inputs.yml
+    - name: Repair only declared database privileges
+      ansible.builtin.include_tasks: tasks/sql-grants.yml
+      loop: '{{ data_sql_databases }}'
+      loop_control:
+        loop_var: data_sql_database
+        label: '{{ data_sql_database.name }}'

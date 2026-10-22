@@ -12,9 +12,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 TASKS = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/runtime.yml').read_text())
-CA_TASKS = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/ca-runtime.yml').read_text())
+CA_TASKS = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/native-runtime.yml').read_text())
 CA_FILES = next(task['loop'] for task in CA_TASKS
-                if task['name'] == 'Stage native public trust declarations and the small dispatch interface')
+                if task['name'] == 'Stage native data declarations and the small dispatch interface')
 
 
 class DeploymentTests(unittest.TestCase):
@@ -38,10 +38,11 @@ class DeploymentTests(unittest.TestCase):
                 target = base / 'playbooks/data/ca' / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / 'ansible/playbooks/data' / name, target)
-                if name.startswith('files/'):
+                if name.startswith('files/') and name.endswith('.py'):
                     shutil.copyfile(target, base / 'playbooks/data' / name)
+            shutil.copyfile(ROOT / 'platform/data/contract.json', base / 'playbooks/data/ca/contract.json')
             syntax = subprocess.run(['ansible-playbook', '-i', 'localhost,', '--syntax-check',
-                str(base / 'playbooks/data/ca/native-ca-install.yml')],
+                str(base / 'playbooks/data/ca/native-install.yml')],
                 capture_output=True, text=True, timeout=30)
             self.assertEqual(syntax.returncode, 0, syntax.stdout + syntax.stderr)
             environment = {key: value for key, value in os.environ.items() if key != 'PYTHONPATH'}
@@ -62,8 +63,8 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn('control.py', modules)
         stages = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/main.yml').read_text())
         imports = [task['ansible.builtin.import_tasks'] for task in stages]
-        self.assertLess(imports.index('configure.yml'), imports.index('ca-handoff-runtime.yml'))
-        self.assertLess(imports.index('ca-handoff-runtime.yml'), imports.index('schedules.yml'))
+        self.assertLess(imports.index('configure.yml'), imports.index('native-converge.yml'))
+        self.assertLess(imports.index('native-converge.yml'), imports.index('schedules.yml'))
         helper = next(index for index, task in enumerate(TASKS)
                       if task['name'] == 'Install the shared Kubernetes helper from its owner')
         consumers = next(index for index, task in enumerate(TASKS)

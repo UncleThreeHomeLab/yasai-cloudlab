@@ -5,11 +5,14 @@
   gather_facts: false
   vars:
     ansible_python_interpreter: /usr/bin/python3
-    data_ca_owner: cloudlab-data-bootstrap
+    data_native_contract: '{{ lookup("ansible.builtin.file", playbook_dir + "/contract.json") | from_json }}'
+    data_native_owner: '{{ data_native_contract.bootstrap_owner }}'
   module_defaults:
     group/kubernetes.core.k8s:
       kubeconfig: /etc/rancher/k3s/k3s.yaml
   tasks:
+    - name: Read approved settings from the retained data owner
+      ansible.builtin.import_tasks: tasks/native-settings.yml
     - name: Inspect the retained data Application and current CNPG source
       ansible.builtin.import_tasks: tasks/ca-source.yml
     - name: Project public trust only into declared service consumers

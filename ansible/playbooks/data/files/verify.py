@@ -135,7 +135,7 @@ def run():
 CREATE TABLE IF NOT EXISTS public.cloudlab_recovery_probe (id integer PRIMARY KEY, object_key text NOT NULL, sha256 text NOT NULL, note text NOT NULL);
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ''', values['database'])
-        control.grants(values)
+        control.native_repair(owner, 'sql')
         client.request('PUT', values['bucket'], key, data=data, headers={'content-type': 'text/plain', 'x-amz-meta-fixture': 'cloudlab'})
         client.request('PUT', values['bucket'], key, query={'tagging': ''}, data=b'<Tagging><TagSet><Tag><Key>fixture</Key><Value>cloudlab</Value></Tag></TagSet></Tagging>')
         sql_client(values)
