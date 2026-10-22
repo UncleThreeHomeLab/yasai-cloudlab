@@ -1,0 +1,58 @@
+{{- if .Values.mesh.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-istio-ztunnel
+  namespace: argocd
+spec:
+  sourceRepos:
+  - {{ .Values.repository | quote }}
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: istio-system
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+  - group: ''
+    kind: ServiceAccount
+  - group: apps
+    kind: DaemonSet
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-istio-ztunnel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  project: cloudlab-istio-ztunnel
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: platform/connectivity/istio/ztunnel
+    helm:
+      releaseName: ztunnel
+      valueFiles:
+      - values.json
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+    - FailOnSharedResource=true
+    - DisableClientSideApplyMigration=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m
+
+{{- end }}
