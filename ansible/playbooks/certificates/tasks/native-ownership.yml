@@ -1,0 +1,86 @@
+---
+- name: Resolve the certificate state directory without following a replacement owner
+  ansible.builtin.command:
+    argv: [/usr/bin/realpath, --canonicalize-existing, '{{ certificates_state_dir }}']
+  register: certificates_canonical_dir
+  changed_when: false
+  failed_when: certificates_canonical_dir.rc != 0 or certificates_canonical_dir.stdout != certificates_state_dir
+
+- name: Inspect the retained certificate checkpoint without following links
+  ansible.builtin.stat:
+    path: '{{ certificates_state_path }}'
+    follow: false
+  register: certificates_checkpoint
+
+- name: Require a private root-owned regular checkpoint
+  ansible.builtin.assert:
+    that:
+      - certificates_checkpoint.stat.isreg | default(false)
+      - not certificates_checkpoint.stat.islnk | default(false)
+      - certificates_checkpoint.stat.uid == 0
+      - certificates_checkpoint.stat.mode == '0600'
+    quiet: true
+  when: certificates_checkpoint.stat.exists
+
+- name: Read the retained certificate checkpoint
+  ansible.builtin.slurp:
+    src: '{{ certificates_state_path }}'
+  register: certificates_checkpoint_bytes
+  when: certificates_checkpoint.stat.exists
+  no_log: true
+
+- name: Select retained ownership or initial staging intent
+  ansible.builtin.set_fact:
+    certificates_state: >-
+      {{ (certificates_checkpoint_bytes.content | b64decode | from_json) if certificates_checkpoint.stat.exists
+         else {'phase': 'staging', 'zone_hash': certificates_zone | hash('sha256')} }}
+  no_log: true
+
+- name: Inspect the retained certificate Application
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-certificates
+  register: certificates_existing
+  no_log: true
+
+- name: Retain the initial issuance phase for the complete staging transaction
+  ansible.builtin.set_fact:
+    certificates_initial_phase: '{{ certificates_state.phase }}'
+  no_log: true
+
+- name: Select the retained Application identity
+  ansible.builtin.set_fact:
+    certificates_current: '{{ certificates_existing.resources | first | default({}) }}'
+  no_log: true
+
+- name: Check checkpoint and Application ownership before writes
+  ansible.builtin.import_tasks: native-owner-check.yml
+  no_log: true
+
+- name: Refuse adoption of existing resources during initial staging
+  when: not certificates_checkpoint.stat.exists
+  no_log: true
+  block:
+    - name: Inspect every protected initial boundary and account
+      kubernetes.core.k8s_info:
+        api_version: '{{ item.api_version }}'
+        kind: '{{ item.kind }}'
+        namespace: '{{ item.namespace | default(omit) }}'
+        name: '{{ item.name }}'
+      loop:
+        - {api_version: v1, kind: Namespace, name: cloudlab-gateway-public}
+        - {api_version: v1, kind: Namespace, name: cloudlab-gateway-private}
+        - {api_version: cert-manager.io/v1, kind: Certificate, namespace: cert-manager, name: cloudlab-staging}
+        - {api_version: cert-manager.io/v1, kind: ClusterIssuer, name: cloudlab-acme-staging}
+        - {api_version: cert-manager.io/v1, kind: ClusterIssuer, name: cloudlab-acme-production}
+        - {api_version: v1, kind: Secret, namespace: cert-manager, name: cloudlab-acme-staging}
+        - {api_version: v1, kind: Secret, namespace: cert-manager, name: cloudlab-acme-production}
+      register: certificates_initial_boundaries
+    - name: Require absent boundaries before first creation
+      ansible.builtin.assert:
+        that: item.resources | length == 0
+        fail_msg: Existing certificate boundary lacks its durable ownership checkpoint; adoption refused.
+        quiet: true
+      loop: '{{ certificates_initial_boundaries.results }}'

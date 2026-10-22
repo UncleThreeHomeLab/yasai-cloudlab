@@ -18,8 +18,13 @@
   register: access_native_declared
   no_log: true
 
+- name: Select whether the Application UID needs a durable record
+  ansible.builtin.set_fact:
+    access_native_record_uid: '{{ access_native_state.application_uid | default("") != access_native_declared.resources[0].metadata.uid }}'
+  no_log: true
+
 - name: Retain Application UID before waiting for controllers
-  when: access_native_state.application_uid | default('') != access_native_declared.resources[0].metadata.uid
+  when: access_native_record_uid
   no_log: true
   block:
     - name: Select the retained Application identity

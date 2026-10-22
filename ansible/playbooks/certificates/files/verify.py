@@ -10,8 +10,21 @@ import sys
 import tempfile
 import uuid
 
-from configuration import BASE, certificate
 from kube import application_ready, get, kube, ready, wait
+
+BASE = Path('/var/lib/cloudlab/certificates')
+
+
+def certificate(name, namespace):
+    """Read only the ready certificate and its controller-associated Secret identity."""
+    obj = wait(lambda: (current if ready(current := get('certificate.cert-manager.io', name, namespace)) else None),
+               'certificate issuance')
+    secret = get('secret', obj['spec']['secretName'], namespace)
+    if not secret or secret.get('type') != 'kubernetes.io/tls' or not {'tls.crt', 'tls.key'} <= secret.get('data', {}).keys():
+        raise RuntimeError('Issued certificate Secret is incomplete')
+    if secret['metadata'].get('annotations', {}).get('cert-manager.io/certificate-name') != name:
+        raise RuntimeError('Certificate Secret lacks its controller association')
+    return {'certificate_uid': obj['metadata']['uid'], 'secret_uid': secret['metadata']['uid']}
 
 
 def fingerprint(name, namespace, trusted=False):

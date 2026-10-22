@@ -39,7 +39,7 @@
       loop_control:
         loop_var: telemetry_component
     - name: Enable monitors after Prometheus installs its APIs
-      when: not telemetry_monitoring_enabled
+      when: telemetry_monitor_apis.results | map(attribute='resources') | flatten | length != 2
       block:
         - name: Select complete monitoring configuration
           ansible.builtin.set_fact:

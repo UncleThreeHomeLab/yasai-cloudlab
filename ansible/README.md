@@ -47,6 +47,9 @@ ordinary setup preserves its accepted ownership and existing data.
 
 [Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.
+Native certificate tasks retain staging-before-production checkpoints, issued
+certificate and Secret identities, and ACME account credential hashes under the
+existing ownership lock. Zone inspection uses native HTTP and the current ESO owner.
 Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
 unrelated grants. The [cluster DNS stage](playbooks/access/030-cluster-dns.yml)
 and [access Application](playbooks/access/native.yml) use native modules and

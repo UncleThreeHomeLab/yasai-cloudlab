@@ -1,0 +1,26 @@
+---
+- name: Install maintained host Ansible and the checked Kubernetes collection
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/host/tasks/ansible-client.yml
+
+- name: Create focused native certificate task and template directories
+  ansible.builtin.file:
+    path: '/opt/cloudlab/playbooks/certificates/{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [tasks, templates]
+
+- name: Install native certificate declarations and retained ownership checks
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/certificates/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/certificates/{{ item }}'
+    mode: '0600'
+  loop:
+    - native.yml
+    - tasks/native-inputs.yml
+    - tasks/native-ownership.yml
+    - tasks/native-owner-check.yml
+    - tasks/native-staging.yml
+    - tasks/native-certificate.yml
+    - tasks/native-application.yml
+    - tasks/native-identities.yml
+    - templates/application.yml.j2
