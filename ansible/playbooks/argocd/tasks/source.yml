@@ -1,0 +1,82 @@
+---
+- name: Resolve the committed public GitOps source without rendering resources
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+  block:
+    - name: Read public GitOps source settings
+      ansible.builtin.set_fact:
+        gitops_public_source: "{{ lookup('ansible.builtin.file', '/workspace/gitops/roots/public/values.yaml') | from_yaml }}"
+
+    - name: Require an exact public GitHub repository and branch
+      ansible.builtin.assert:
+        that:
+          - gitops_public_source.repository is match('^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$')
+          - gitops_public_source.revision is match('^[A-Za-z0-9][A-Za-z0-9/_-]*$')
+        fail_msg: Public GitOps requires an explicit GitHub HTTPS repository and branch.
+        quiet: true
+
+    - name: Require committed deployment inputs before live configuration
+      ansible.builtin.command:
+        argv:
+          - git
+          - -c
+          - safe.directory=/workspace
+          - -C
+          - /workspace
+          - status
+          - --porcelain
+          - --
+          - ansible
+          - platform
+          - gitops
+          - charts
+          - apps
+          - verification/integration
+          - compose.yaml
+          - .env.example
+      register: gitops_source_status
+      changed_when: false
+      failed_when: gitops_source_status.rc != 0 or gitops_source_status.stdout | trim | length > 0
+      environment:
+        GIT_OPTIONAL_LOCKS: '0'
+
+    - name: Read the exact reviewed checkout revision
+      ansible.builtin.command:
+        argv: [git, -c, safe.directory=/workspace, -C, /workspace, rev-parse, HEAD]
+      register: gitops_source_head
+      changed_when: false
+
+    - name: Resolve the public branch without credential helpers or interactive authentication
+      ansible.builtin.command:
+        argv:
+          - git
+          - -c
+          - credential.helper=
+          - ls-remote
+          - --exit-code
+          - '{{ gitops_public_source.repository }}'
+          - 'refs/heads/{{ gitops_public_source.revision }}'
+      environment:
+        GIT_TERMINAL_PROMPT: '0'
+      register: gitops_source_published
+      changed_when: false
+      timeout: 60
+
+    - name: Require the reviewed revision to be the published branch head
+      ansible.builtin.assert:
+        that:
+          - gitops_source_head.stdout is match('^[a-f0-9]{40}$')
+          - gitops_source_published.stdout.split() | length == 2
+          - gitops_source_published.stdout.split()[0] == gitops_source_head.stdout
+          - gitops_source_published.stdout.split()[1] == 'refs/heads/' ~ gitops_public_source.revision
+        fail_msg: Publish the reviewed commit before GitOps configuration.
+        quiet: true
+
+    - name: Expose only the published source identity
+      ansible.builtin.set_fact:
+        gitops_source:
+          repository: '{{ gitops_public_source.repository }}'
+          branch: '{{ gitops_public_source.revision }}'
+          revision: '{{ gitops_source_head.stdout }}'

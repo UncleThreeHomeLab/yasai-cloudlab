@@ -17,6 +17,8 @@ unique `CLIENT_ID` and `CLIENT_SECRET` fields. OAuth credentials stay in the run
 single-use host keys expire after five minutes and are removed from `/run` after use.
 GitOps/controllers retain continuous Kubernetes ownership; native infrastructure
 roots retain external state and review gates. See [AGENTS.md](../AGENTS.md).
+The native [source check](playbooks/argocd/tasks/source.yml) binds component
+operations to a clean checkout and the anonymously readable public branch head.
 
 [Inventory](inventory.yml) loads host connection inputs from the runner;
 [group variables](group_vars/all/) define shared settings. Put bootstrap secrets

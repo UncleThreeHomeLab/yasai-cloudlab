@@ -1,7 +1,7 @@
 ---
 - name: Select the published DNS Application source
   ansible.builtin.set_fact:
-    access_dns_source: '{{ gitops_payload.stdout | from_json }}'
+    access_dns_source: '{{ gitops_source if gitops_source is defined else (gitops_payload.stdout | from_json) }}'
   no_log: true
 
 - name: Inspect cluster DNS ownership through the maintained Kubernetes client

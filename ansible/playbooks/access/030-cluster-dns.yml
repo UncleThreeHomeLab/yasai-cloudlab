@@ -6,13 +6,7 @@
   any_errors_fatal: true
   pre_tasks:
     - name: Resolve the published GitOps source before DNS changes
-      ansible.builtin.command:
-        argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
-      delegate_to: localhost
-      become: false
-      register: gitops_payload
-      changed_when: false
-      no_log: true
+      ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/source.yml
   tasks:
     - name: Read ready DNS interfaces
       ansible.builtin.import_tasks: tasks/dns-inputs.yml
