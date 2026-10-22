@@ -1,0 +1,24 @@
+---
+- name: Install maintained host Ansible and the checked Kubernetes collection
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/host/tasks/ansible-client.yml
+
+- name: Create focused native access task and template directories
+  ansible.builtin.file:
+    path: '/opt/cloudlab/playbooks/access/{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [tasks, templates]
+
+- name: Install native access declarations and retained ownership checks
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/access/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/access/{{ item }}'
+    mode: '0600'
+  loop:
+    - native.yml
+    - tasks/native-prerequisites.yml
+    - tasks/native-ownership.yml
+    - tasks/native-owner-check.yml
+    - tasks/native-application.yml
+    - tasks/native-identities.yml
+    - templates/access-application.yml.j2

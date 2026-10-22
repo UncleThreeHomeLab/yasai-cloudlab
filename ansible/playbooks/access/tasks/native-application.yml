@@ -1,0 +1,57 @@
+---
+- name: Declare only the access Application with its existing field manager
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    server_side_apply:
+      field_manager: cloudlab-access-bootstrap
+      force_conflicts: false
+    definition: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/access-application.yml.j2') | from_yaml }}"
+  no_log: true
+
+- name: Read the current Application UID after native declaration
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-access
+  register: access_native_declared
+  no_log: true
+
+- name: Retain Application UID before waiting for controllers
+  when: access_native_state.application_uid | default('') != access_native_declared.resources[0].metadata.uid
+  no_log: true
+  block:
+    - name: Select the retained Application identity
+      ansible.builtin.set_fact:
+        access_native_state: '{{ access_native_state | combine({"application_uid": access_native_declared.resources[0].metadata.uid}) }}'
+    - name: Atomically record the retained Application identity
+      ansible.builtin.copy:
+        dest: '{{ access_state_path }}'
+        content: '{{ access_native_state | to_json(sort_keys=true) }}'
+        owner: root
+        group: root
+        mode: '0600'
+
+- name: Require native access convergence at the published revision
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: argocd
+    name: cloudlab-access
+  register: access_native_ready
+  until:
+    - access_native_ready.resources | length == 1
+    - access_native_ready.resources[0].metadata.uid == access_native_state.application_uid
+    - access_native_ready.resources[0].status.health.status | default('') == 'Healthy'
+    - access_native_ready.resources[0].status.sync.status | default('') == 'Synced'
+    - access_native_ready.resources[0].status.sync.revision | default('') == access_native_source.revision
+    - access_native_ready.resources[0].status.sync.comparedTo.source == access_native_ready.resources[0].spec.source
+    - access_native_ready.resources[0].status.operationState.phase | default('') == 'Succeeded'
+    - not access_native_ready.resources[0].operation | default({})
+    - >-
+      access_native_ready.resources[0].status.conditions | default([])
+      | selectattr('type', 'search', 'Error$') | list | length == 0
+  retries: 180
+  delay: 5
+  no_log: true
