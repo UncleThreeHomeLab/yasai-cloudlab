@@ -30,6 +30,8 @@ class NativeCheckpointTests(unittest.TestCase):
                 tasks[0]['ansible.builtin.import_tasks'] = str(root / 'staging.yml')
             values = dict(values, ansible_python_interpreter=sys.executable,
                 access_state_path=str(root / 'state.json'), certificates_state_path=str(root / 'state.json'),
+                mesh_native_state_path=str(root / 'state.json'),
+                mesh_native_inputs_file={'path': str(root / 'state.json')},
                 native_marker_path=str(root / 'marker.json'))
             path = root / 'play.yml'
             path.write_text(yaml.safe_dump([{'hosts': 'localhost', 'connection': 'local', 'gather_facts': False,
@@ -39,6 +41,39 @@ class NativeCheckpointTests(unittest.TestCase):
             files = {name: json.loads((root / name).read_text()) for name in ('state.json', 'marker.json')
                      if (root / name).exists()}
             return result, files
+
+    def test_mesh_transport_inputs_are_removed_after_native_success_or_failure(self):
+        source = task_file('ansible/playbooks/istio/tasks/native-converge.yml')
+        actual = named(source, 'Pass the committed native inventory through a private temporary file')
+        for failed in (False, True):
+            block = copy.deepcopy(actual)
+            block['block'][1] = {'name': 'Synthetic native operation result',
+                'ansible.builtin.fail' if failed else 'ansible.builtin.debug': {'msg': 'synthetic'}}
+            result, files = self.run_native([block], {'gitops_source': {'revision': 'a' * 40}, 'mesh_native_inventory': {}})
+            with self.subTest(failed=failed):
+                self.assertEqual(result.returncode != 0, failed, result.stdout + result.stderr)
+                self.assertNotIn('state.json', files)
+
+    def test_mesh_records_each_gateway_before_finishing_the_pair(self):
+        source = task_file('ansible/playbooks/istio/tasks/native-gateway.yml')
+        tasks = [named(source, name) for name in ('Select retained generated gateway identities',
+            'Refuse any replaced generated gateway object',
+            'Retain each initial gateway identity before inspecting the next exposure')]
+        result, files = self.run_native(tasks, {'mesh_native_state': {'phase': 'preparing'},
+            'mesh_gateway_exposure': 'public', 'mesh_generated_gateway': {'resources': [{'metadata': {'uid': 'gateway'}}]},
+            'mesh_generated_objects': {'results': [{'resources': [{'metadata': {'uid': name}}]}
+                for name in ('deployment', 'service', 'serviceaccount')]}})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(files['state.json'], {'phase': 'preparing', 'gateways': {
+            'public': {'gateway': 'gateway', 'deployment': 'deployment', 'service': 'service', 'serviceaccount': 'serviceaccount'}}})
+
+    def test_mesh_acceptance_is_durable_after_its_in_memory_phase_changes(self):
+        tasks = task_file('ansible/playbooks/istio/tasks/native-acceptance.yml')
+        identities = {'public': {'gateway': 'public'}, 'private': {'gateway': 'private'}}
+        result, files = self.run_native(tasks, {'mesh_native_state': {'phase': 'preparing', 'gateways': identities},
+            'mesh_initial_phase': 'preparing', 'mesh_observed_gateways': identities})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(files['state.json'], {'phase': 'accepted', 'gateways': identities})
 
     def test_access_uid_is_written_after_updating_its_in_memory_state(self):
         source = task_file('ansible/playbooks/access/tasks/native-application.yml')

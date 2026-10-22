@@ -1,0 +1,85 @@
+---
+- name: Require the retained gateway programmed at its current generation
+  kubernetes.core.k8s_info:
+    api_version: gateway.networking.k8s.io/v1
+    kind: Gateway
+    namespace: 'cloudlab-gateway-{{ mesh_gateway_exposure }}'
+    name: cloudlab
+  register: mesh_generated_gateway
+  until:
+    - mesh_generated_gateway.resources | length == 1
+    - >-
+      mesh_generated_gateway.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Programmed') | selectattr('status', 'equalto', 'True')
+      | map(attribute='observedGeneration', default=mesh_generated_gateway.resources[0].metadata.generation)
+      | unique | list == [mesh_generated_gateway.resources[0].metadata.generation]
+  retries: 180
+  delay: 5
+  no_log: true
+
+- name: Read only the retained generated workload, service and account
+  kubernetes.core.k8s_info:
+    api_version: '{{ item.api_version }}'
+    kind: '{{ item.kind }}'
+    namespace: 'cloudlab-gateway-{{ mesh_gateway_exposure }}'
+    name: cloudlab-istio
+  loop:
+    - {key: deployment, api_version: apps/v1, kind: Deployment}
+    - {key: service, api_version: v1, kind: Service}
+    - {key: serviceaccount, api_version: v1, kind: ServiceAccount}
+  register: mesh_generated_objects
+  no_log: true
+
+- name: Require every generated object to exist
+  ansible.builtin.assert:
+    that: item.resources | length == 1
+    quiet: true
+  loop: '{{ mesh_generated_objects.results }}'
+  no_log: true
+
+- name: Require the existing gateway Service to remain internal
+  ansible.builtin.assert:
+    that: mesh_generated_objects.results[1].resources[0].spec.type == 'ClusterIP'
+    fail_msg: Gateway Service is not internal; preserve the ownership checkpoint.
+    quiet: true
+  no_log: true
+
+- name: Select retained generated gateway identities
+  ansible.builtin.set_fact:
+    mesh_generated_identity:
+      gateway: '{{ mesh_generated_gateway.resources[0].metadata.uid }}'
+      deployment: '{{ mesh_generated_objects.results[0].resources[0].metadata.uid }}'
+      service: '{{ mesh_generated_objects.results[1].resources[0].metadata.uid }}'
+      serviceaccount: '{{ mesh_generated_objects.results[2].resources[0].metadata.uid }}'
+    mesh_record_gateway: '{{ mesh_gateway_exposure not in mesh_native_state.gateways | default({}) }}'
+  no_log: true
+
+- name: Refuse any replaced generated gateway object
+  ansible.builtin.assert:
+    that:
+      - mesh_native_state.gateways[mesh_gateway_exposure] | default(mesh_generated_identity) == mesh_generated_identity
+    fail_msg: Generated gateway identities changed; explicit recovery required.
+    quiet: true
+  no_log: true
+
+- name: Retain each initial gateway identity before inspecting the next exposure
+  when: mesh_record_gateway
+  no_log: true
+  block:
+    - name: Select the retained gateway identity
+      ansible.builtin.set_fact:
+        mesh_native_state: >-
+          {{ mesh_native_state | combine({'gateways': mesh_native_state.gateways | default({})
+             | combine({mesh_gateway_exposure: mesh_generated_identity})}) }}
+    - name: Atomically record this gateway before proceeding
+      ansible.builtin.copy:
+        dest: '{{ mesh_native_state_path }}'
+        content: '{{ mesh_native_state | to_json(sort_keys=true) }}'
+        owner: root
+        group: root
+        mode: '0600'
+
+- name: Retain the observed exposure for final strict comparison
+  ansible.builtin.set_fact:
+    mesh_observed_gateways: '{{ mesh_observed_gateways | combine({mesh_gateway_exposure: mesh_generated_identity}) }}'
+  no_log: true

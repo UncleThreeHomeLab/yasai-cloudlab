@@ -1,0 +1,59 @@
+---
+- name: Read the native Helm version used for the committed mesh artifacts
+  ansible.builtin.command:
+    argv: [helm, version, --short]
+  delegate_to: localhost
+  become: false
+  register: mesh_helm_version
+  changed_when: false
+
+- name: Initialize the committed native mesh inventory
+  ansible.builtin.set_fact:
+    mesh_native_inventory: {mesh_objects: {}}
+  no_log: true
+
+- name: Read each committed component through its pinned native chart interface
+  ansible.builtin.include_tasks: native-chart-inventory.yml
+  loop: '{{ mesh_chart_components }}'
+  loop_control:
+    loop_var: mesh_inventory_component
+
+- name: Inspect the checksum of the retained upstream Gateway API declaration
+  ansible.builtin.stat:
+    path: /workspace/platform/connectivity/gateway-api/upstream.yaml
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: mesh_gateway_api_archive
+
+- name: Require the exact pinned upstream Gateway API bytes
+  ansible.builtin.assert:
+    that:
+      - >-
+        mesh_gateway_api_archive.stat.checksum ==
+        (lookup('ansible.builtin.file', '/workspace/platform/connectivity/gateway-api/artifact.lock.json') | from_json).sha256
+    quiet: true
+
+- name: Read the retained upstream Gateway API declarations without rewriting them
+  ansible.builtin.set_fact:
+    mesh_gateway_api_documents: >-
+      {{ lookup('ansible.builtin.file', '/workspace/platform/connectivity/gateway-api/upstream.yaml')
+         | from_yaml_all | select('truthy') | list }}
+  no_log: true
+
+- name: Require the existing standard Gateway API inventory
+  ansible.builtin.assert:
+    that:
+      - mesh_gateway_api_documents | length == 12
+      - mesh_gateway_api_documents | selectattr('kind', 'equalto', 'CustomResourceDefinition') | list | length == 10
+      - >-
+        mesh_gateway_api_documents | map(attribute='kind') | unique | sort | list ==
+        ['CustomResourceDefinition', 'ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding']
+    quiet: true
+
+- name: Select only the existing CRD contracts for read-only server comparison
+  ansible.builtin.set_fact:
+    mesh_native_inventory: >-
+      {{ mesh_native_inventory | combine({'gateway_api': mesh_gateway_api_documents
+         | selectattr('kind', 'equalto', 'CustomResourceDefinition') | list}) }}
+  no_log: true

@@ -1,0 +1,29 @@
+---
+- name: Install maintained host Ansible and the checked Kubernetes collection
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/host/tasks/ansible-client.yml
+
+- name: Create focused native mesh task and template directories
+  ansible.builtin.file:
+    path: '/opt/cloudlab/playbooks/istio/{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [tasks, templates]
+
+- name: Install native mesh declarations and retained ownership checks
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/istio/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/istio/{{ item }}'
+    mode: '0600'
+  loop:
+    - native.yml
+    - tasks/native-inputs.yml
+    - tasks/native-gateway-api.yml
+    - tasks/native-component.yml
+    - tasks/native-ownership.yml
+    - tasks/native-owner-check.yml
+    - tasks/native-argo.yml
+    - tasks/native-argo-origin.yml
+    - tasks/native-application.yml
+    - tasks/native-gateway.yml
+    - tasks/native-acceptance.yml
+    - templates/application.yml.j2

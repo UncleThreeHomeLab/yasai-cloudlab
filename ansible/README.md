@@ -50,6 +50,9 @@ ordinary setup preserves its accepted ownership and existing data.
 Native certificate tasks retain staging-before-production checkpoints, issued
 certificate and Secret identities, and ACME account credential hashes under the
 existing ownership lock. Zone inspection uses native HTTP and the current ESO owner.
+Native mesh configuration reads pinned declarations through Helm, compares retained
+Gateway API specs with server dry-run, and preserves workload CA and generated
+gateway identities. Existing controllers retain all mesh and Gateway API ownership.
 Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
 unrelated grants. The [cluster DNS stage](playbooks/access/030-cluster-dns.yml)
 and [access Application](playbooks/access/native.yml) use native modules and

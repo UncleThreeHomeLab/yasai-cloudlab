@@ -1,0 +1,52 @@
+---
+- name: Inspect the existing Gateway API CRD without adopting it
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: '{{ mesh_expected_crd.metadata.name }}'
+  register: mesh_existing_crd
+  no_log: true
+
+- name: Require its retained upstream owner, version and served-version inventory
+  ansible.builtin.assert:
+    that:
+      - mesh_existing_crd.resources | length == 1
+      - >-
+        mesh_existing_crd.resources[0].metadata.annotations['meta.helm.sh/release-name'] | default('') == 'traefik-crd'
+        or (mesh_existing_crd.resources[0].metadata.annotations['meta.helm.sh/release-name'] is not defined
+            and mesh_existing_crd.resources[0].metadata.annotations['cloudlab.io/owner'] | default('') == 'cloudlab-gateway-api')
+      - mesh_existing_crd.resources[0].metadata.annotations['gateway.networking.k8s.io/bundle-version'] | default('') == 'v1.6.1'
+      - >-
+        mesh_existing_crd.resources[0].spec.versions | map(attribute='name') | list ==
+        mesh_expected_crd.spec.versions | map(attribute='name') | list
+    quiet: true
+  no_log: true
+
+- name: Compare the server-defaulted native spec using server dry-run only
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    server_side_apply:
+      field_manager: cloudlab-gateway-api-contract-check
+      force_conflicts: false
+    definition: >-
+      {{ mesh_expected_crd | combine({'metadata': {'name': mesh_expected_crd.metadata.name,
+         'uid': mesh_existing_crd.resources[0].metadata.uid}}) }}
+  check_mode: true
+  changed_when: false
+  register: mesh_crd_dry_run
+  no_log: true
+
+- name: Require the unchanged CRD specification and retained UID
+  ansible.builtin.assert:
+    that:
+      - mesh_crd_dry_run.result.spec == mesh_existing_crd.resources[0].spec
+      - mesh_crd_dry_run.result.metadata.uid == mesh_existing_crd.resources[0].metadata.uid
+    fail_msg: Existing Gateway API differs from its pinned standard contract; its owner remains unchanged.
+    quiet: true
+  no_log: true
+
+- name: Retain only the current CRD identity for checkpoint comparison
+  ansible.builtin.set_fact:
+    mesh_native_crd_ids: '{{ mesh_native_crd_ids | combine({mesh_expected_crd.metadata.name: mesh_existing_crd.resources[0].metadata.uid}) }}'
+  no_log: true

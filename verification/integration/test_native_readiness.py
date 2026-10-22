@@ -21,6 +21,7 @@ class NativeReadinessTests(unittest.TestCase):
             ('ansible/playbooks/access/tasks/native-identities.yml', 'access_native_proxy', 'ProxyGroupReady'),
             ('ansible/playbooks/certificates/tasks/native-inputs.yml', 'certificates_dns_external', 'Ready'),
             ('ansible/playbooks/certificates/tasks/native-certificate.yml', 'certificates_issued', 'Ready'),
+            ('ansible/playbooks/istio/tasks/native-gateway.yml', 'mesh_generated_gateway', 'Programmed'),
         ]
         tasks = []
         for filename, registered, condition in sources:

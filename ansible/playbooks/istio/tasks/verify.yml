@@ -1,19 +1,15 @@
 ---
-- name: Render pinned mesh verification inputs
-  ansible.builtin.command:
-    argv: [python, /workspace/ansible/playbooks/istio/files/chart.py, payload]
-  delegate_to: localhost
-  become: false
-  register: mesh_verification_payload
-  changed_when: false
-  no_log: true
+- name: Resolve the exact native mesh verification source
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/source.yml
+
+- name: Read committed mesh verification declarations directly through Helm
+  ansible.builtin.import_tasks: native-inventory.yml
 
 - name: Prove ambient identity policy and internal gateway isolation
   ansible.builtin.command:
     argv: [python3, /var/lib/cloudlab/mesh/verify.py]
     stdin: >-
-      {{ (gitops_verification_payload.stdout | from_json)
-         | combine(mesh_verification_payload.stdout | from_json)
+      {{ gitops_source | combine(mesh_native_inventory)
          | combine({'smoke_image': smoke_image}) | to_json }}
   register: mesh_verified
   changed_when: false
