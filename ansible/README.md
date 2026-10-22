@@ -1,6 +1,8 @@
 # Ansible
 
 Compose provides the pinned execution environment in [runner](runner/).
+The runner [Dockerfile](runner/Dockerfile) pins bootstrap tool archives and checks
+their SHA-256 digests before extraction. Archive utilities stay in the build stage.
 Use `lab setup` to converge and verify, `lab prove` to run setup twice and verify
 zero repeat changes on both nodes, `lab validate` for credential-free syntax,
 input, lint and rendered-chart checks, and `lab test` for isolated local tests.

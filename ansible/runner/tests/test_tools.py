@@ -1,15 +1,10 @@
-import bz2
-import hashlib
-import io
 import json
-import tarfile
+import re
+import subprocess
 import unittest
-import zipfile
 from pathlib import Path
 
 import yaml
-
-from install_tools import binary
 
 
 class BootstrapToolTests(unittest.TestCase):
@@ -23,7 +18,6 @@ class BootstrapToolTests(unittest.TestCase):
         self.assertIn('COPY --from=ci-source tools/crane/go.mod tools/crane/go.sum ./', dockerfile)
         self.assertIn('GOTOOLCHAIN=local', dockerfile)
         self.assertIn('-mod=readonly', dockerfile)
-        self.assertNotIn('crane', json.loads((root / 'ansible/runner/tools.lock.json').read_text()))
         services = yaml.safe_load((root / 'compose.yaml').read_text())['services']
         for name in ('lab', 'infra', 'infra-github', 'infra-harbor', 'service'):
             self.assertEqual(services[name]['build']['additional_contexts'],
@@ -43,28 +37,20 @@ class BootstrapToolTests(unittest.TestCase):
                 with self.subTest(compose=path.relative_to(root), service=name):
                     self.assertTrue((path.parent / context / dockerfile).is_file())
 
-    def test_archive_formats_preserve_exact_checked_binary(self):
-        payload = b'synthetic-bootstrap-binary'
-        zipped, tarred = io.BytesIO(), io.BytesIO()
-        with zipfile.ZipFile(zipped, 'w') as archive:
-            archive.writestr('tool', payload)
-        with tarfile.open(fileobj=tarred, mode='w:gz') as archive:
-            member = tarfile.TarInfo('tool')
-            member.size = len(payload)
-            archive.addfile(member, io.BytesIO(payload))
-        for suffix, data in (('.zip', zipped.getvalue()), ('.bz2', bz2.compress(payload)), ('.tar.gz', tarred.getvalue())):
-            pin = {'url': 'https://example.invalid/tool' + suffix, 'sha256': hashlib.sha256(data).hexdigest()}
-            with self.subTest(suffix=suffix):
-                self.assertEqual(binary('tool', pin, data), payload)
-                with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
-                    binary('tool', pin, data + b'changed')
-
-    def test_tar_symlink_cannot_select_an_external_binary(self):
-        output = io.BytesIO()
-        with tarfile.open(fileobj=output, mode='w:gz') as archive:
-            member = tarfile.TarInfo('tool')
-            member.type, member.linkname = tarfile.SYMTYPE, '/unrelated'
-            archive.addfile(member)
-        data = output.getvalue()
-        with self.assertRaisesRegex(ValueError, 'regular archive member'):
-            binary('tool', {'url': 'https://example.invalid/tool.tar.gz', 'sha256': hashlib.sha256(data).hexdigest()}, data)
+    def test_installed_bootstrap_tools_match_checked_downloads(self):
+        dockerfile = (Path(__file__).resolve().parents[1] / 'Dockerfile').read_text()
+        tools = {
+            'helm': (r'/helm-v([0-9.]+)-linux-amd64.tar.gz', ['version', '--short']),
+            'tofu': (r'/tofu_([0-9.]+)_linux_amd64.zip', ['version']),
+            'op': (r'/op_linux_amd64_v([0-9.]+).zip', ['--version']),
+            'restic': (r'/restic_([0-9.]+)_linux_amd64.bz2', ['version']),
+        }
+        for name, (pattern, arguments) in tools.items():
+            with self.subTest(tool=name):
+                downloads = [line for line in dockerfile.splitlines()
+                             if line.startswith('ADD ') and re.search(pattern, line)]
+                self.assertEqual(len(downloads), 1)
+                self.assertRegex(downloads[0], r'^ADD --checksum=sha256:[a-f0-9]{64} https://')
+                expected = re.search(pattern, downloads[0]).group(1)
+                actual = subprocess.check_output([name, *arguments], text=True, timeout=15)
+                self.assertRegex(actual.splitlines()[0], r'(?<![0-9.])' + re.escape(expected) + r'(?![0-9.])')
