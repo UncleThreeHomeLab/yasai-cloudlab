@@ -9,6 +9,12 @@ import yaml
 
 
 class BootstrapToolTests(unittest.TestCase):
+    def test_host_native_actions_have_a_recognized_bounded_deadline(self):
+        configuration = Path(__file__).resolve().parents[2] / 'playbooks/host/files/ansible.cfg'
+        actual = subprocess.check_output(['ansible-config', 'dump', '--only-changed', '-c', str(configuration)],
+                                         text=True, timeout=15)
+        self.assertRegex(actual, r'(?m)^TASK_TIMEOUT\([^\n]+\) = 60$')
+
     def test_kubernetes_collection_matches_checked_archive(self):
         dockerfile = (Path(__file__).resolve().parents[1] / 'Dockerfile').read_text()
         archive = next(line for line in dockerfile.splitlines() if line.startswith('ADD ') and 'kubernetes-core-' in line)
