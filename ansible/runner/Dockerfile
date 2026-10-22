@@ -58,6 +58,10 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /opt/runn
 COPY --from=provider-build /provider-mirror /opt/providers
 COPY providers.tfrc /opt/runner/providers.tfrc
 COPY run.py /opt/runner/run.py
+ADD --checksum=sha256:46915a47dc933469dcd44cbb4e722203876ff7777d2a9b3e81c93060c662ce49 https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/kubernetes-core-6.6.0.tar.gz /tmp/kubernetes-core.tar.gz
+RUN mkdir -p /usr/share/ansible/collections/ansible_collections/kubernetes/core \
+    && tar -xzf /tmp/kubernetes-core.tar.gz -C /usr/share/ansible/collections/ansible_collections/kubernetes/core \
+    && rm /tmp/kubernetes-core.tar.gz
 ENV ANSIBLE_CONFIG=/workspace/ansible/ansible.cfg \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/workspace/ansible:/workspace

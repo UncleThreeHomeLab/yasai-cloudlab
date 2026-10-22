@@ -54,17 +54,8 @@
     dest: /var/lib/cloudlab/connectivity/dns_inputs.py
     mode: '0600'
 
-- name: Read private DNS inputs from ready cluster interfaces
-  ansible.builtin.command: python3 /var/lib/cloudlab/connectivity/dns_inputs.py
-  register: access_dns_inputs
-  changed_when: false
-  no_log: true
-
-- name: Install the bounded cluster DNS Application owner
-  ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/access/files/dns_application.py'
-    dest: /var/lib/cloudlab/connectivity/dns_application.py
-    mode: '0600'
+- name: Read private DNS inputs through maintained Kubernetes modules
+  ansible.builtin.import_tasks: dns-inputs.yml
 
 - name: Install the disposable access fixture owner
   ansible.builtin.copy:

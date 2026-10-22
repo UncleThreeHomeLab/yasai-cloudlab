@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-private-dns
+  namespace: argocd
+{% if access_dns_application.metadata.resourceVersion is defined %}
+  uid: {{ access_dns_application.metadata.uid | to_json }}
+  resourceVersion: {{ access_dns_application.metadata.resourceVersion | to_json }}
+{% endif %}
+  labels:
+    cloudlab.io/owner: cloudlab-private-dns-bootstrap
+spec:
+  project: cloudlab-private-dns
+  source:
+    repoURL: {{ access_dns_source.repository | to_json }}
+    targetRevision: {{ access_dns_source.branch | to_json }}
+    path: platform/connectivity/private-dns
+    helm:
+      releaseName: cloudlab-private-dns
+      valuesObject:
+        zone: {{ access_dns_inputs.zone | to_json }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - FailOnSharedResource=true
+      - DisableClientSideApplyMigration=true

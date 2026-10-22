@@ -8,6 +8,16 @@ import yaml
 
 
 class BootstrapToolTests(unittest.TestCase):
+    def test_kubernetes_collection_matches_checked_archive(self):
+        dockerfile = (Path(__file__).resolve().parents[1] / 'Dockerfile').read_text()
+        archive = next(line for line in dockerfile.splitlines() if line.startswith('ADD ') and 'kubernetes-core-' in line)
+        self.assertRegex(archive, r'^ADD --checksum=sha256:[a-f0-9]{64} https://galaxy.ansible.com/')
+        version = re.search(r'kubernetes-core-([0-9.]+).tar.gz', archive).group(1)
+        manifest = Path('/usr/share/ansible/collections/ansible_collections/kubernetes/core/MANIFEST.json')
+        self.assertEqual(json.loads(manifest.read_text())['collection_info']['version'], version)
+        documentation = subprocess.check_output(['ansible-doc', '-j', 'kubernetes.core.k8s'], text=True, timeout=30)
+        self.assertIn('server_side_apply', json.loads(documentation)['kubernetes.core.k8s']['doc']['options'])
+
     def test_bootstrap_crane_reuses_the_reviewed_source_and_module_locks(self):
         root = Path(__file__).resolve().parents[3]
         dockerfile = (root / 'ansible/runner/Dockerfile').read_text()
