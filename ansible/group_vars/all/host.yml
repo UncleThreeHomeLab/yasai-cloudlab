@@ -1,9 +1,4 @@
 ---
-host_kubernetes_collection_version: >-
-  {{ (lookup('ansible.builtin.file', '/usr/share/ansible/collections/ansible_collections/kubernetes/core/MANIFEST.json')
-      | from_json).collection_info.version }}
-host_ansible_collections: '/usr/local/lib/cloudlab-ansible/{{ host_kubernetes_collection_version }}'
-host_ansible_config: /usr/local/lib/cloudlab-ansible/ansible.cfg
 host_kernel_settings:
   net.ipv4.ip_forward: 1
   # Container runtime shims and mesh agents share root's inotify allowance.

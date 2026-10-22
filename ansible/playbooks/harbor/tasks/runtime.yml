@@ -4,9 +4,6 @@
     name: python3-yaml
     state: present
 
-- name: Install native Ansible and its checksum-verified Kubernetes collection
-  ansible.builtin.import_tasks: /workspace/ansible/playbooks/host/tasks/ansible-client.yml
-
 - name: Create private Harbor automation and recovery directories
   ansible.builtin.file:
     path: '{{ item }}'
@@ -14,37 +11,12 @@
     mode: '0700'
   loop: [/opt/cloudlab/playbooks/harbor/files, /opt/cloudlab/platform/harbor, /var/lib/cloudlab/harbor]
 
-- name: Install shared Harbor policy before recovery and native consumers
-  ansible.builtin.copy:
-    src: /workspace/platform/harbor/policy.json
-    dest: /opt/cloudlab/platform/harbor/policy.json
-    mode: '0600'
-
-- name: Create focused native Harbor task and template directories
-  ansible.builtin.file:
-    path: '/opt/cloudlab/playbooks/harbor/{{ item }}'
-    state: directory
-    mode: '0700'
-  loop: [tasks, templates]
-
-- name: Install native Harbor declarations and their inputs
-  ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/harbor/{{ item }}'
-    dest: '/opt/cloudlab/playbooks/harbor/{{ item }}'
-    mode: '0600'
-  loop:
-    - native.yml
-    - tasks/native-inputs.yml
-    - tasks/native-application.yml
-    - tasks/native-owner-check.yml
-    - templates/application.yml.j2
-
 - name: Install Harbor declaration and recovery owners
   ansible.builtin.copy:
     src: '/workspace/ansible/playbooks/harbor/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/harbor/files/{{ item }}'
     mode: '0600'
-  loop: [recovery.py, restore.py, remote.py, verify.py, deployments.py]
+  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, values.py, deployments.py]
 
 - name: Retain independent pinned artifacts for isolated Harbor restores
   ansible.builtin.copy:
@@ -58,9 +30,4 @@
     src: '/workspace/platform/harbor/{{ item }}'
     dest: '/opt/cloudlab/platform/harbor/{{ item }}'
     mode: '0600'
-  loop: [images.lock.json, cosign.lock.json]
-
-- name: Remove the replaced Harbor settings generator after installing its callers
-  ansible.builtin.file:
-    path: /opt/cloudlab/playbooks/harbor/files/values.py
-    state: absent
+  loop: [policy.json, images.lock.json, cosign.lock.json]

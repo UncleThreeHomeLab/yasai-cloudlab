@@ -124,8 +124,8 @@ def run():
         if not application_ready(name, revision):
             raise RuntimeError('Data GitOps application is not converged at the tested revision')
     result = {'storage': storage(), 'jobs_and_limits': schedules_and_limits(), 'b2_reads': 0}
-    with control.locked() as owner:
-        control.reconcile(owner)
+    with control.locked():
+        control.reconcile()
         admin, client = control.s3(), control.s3(False)
         data = b'cloudlab committed attachment\n'
         digest = hashlib.sha256(data).hexdigest()
@@ -135,7 +135,7 @@ def run():
 CREATE TABLE IF NOT EXISTS public.cloudlab_recovery_probe (id integer PRIMARY KEY, object_key text NOT NULL, sha256 text NOT NULL, note text NOT NULL);
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ''', values['database'])
-        control.native_repair(owner, 'sql')
+        control.grants(values)
         client.request('PUT', values['bucket'], key, data=data, headers={'content-type': 'text/plain', 'x-amz-meta-fixture': 'cloudlab'})
         client.request('PUT', values['bucket'], key, query={'tagging': ''}, data=b'<Tagging><TagSet><Tag><Key>fixture</Key><Value>cloudlab</Value></Tag></TagSet></Tagging>')
         sql_client(values)

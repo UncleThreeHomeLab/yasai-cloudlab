@@ -78,7 +78,7 @@
   ansible.builtin.command:
     argv: [python3, /var/lib/cloudlab/private-dns/dns_host.py]
     stdin: >-
-      {{ hostvars[groups['k3s_servers'][0]].access_dns_inputs
+      {{ (hostvars[groups['k3s_servers'][0]].access_dns_inputs.stdout | from_json)
          | combine({'names': ((lookup('env', 'PRIVATE_ACCESS_HOSTS') | from_json)
              + ([data_policy.s3_label] if data_enabled | bool else [])) | unique | list,
            'tailnet_address': access_dns_tailnet.stdout | trim,
@@ -114,7 +114,7 @@
   ansible.builtin.command:
     argv: [python, /workspace/ansible/playbooks/access/files/dns_tailnet.py]
     stdin: >-
-      {{ hostvars[groups['k3s_servers'][0]].access_dns_inputs
+      {{ (hostvars[groups['k3s_servers'][0]].access_dns_inputs.stdout | from_json)
          | combine({'nameservers': [hostvars['cloudlab'].access_dns_tailnet.stdout | trim,
                                    hostvars['cloudlab-worker'].access_dns_tailnet.stdout | trim]}) | to_json }}
   delegate_to: localhost
@@ -125,9 +125,20 @@
   no_log: true
 
 - name: Reconcile only custom cluster DNS forwarding after both host resolvers pass
-  ansible.builtin.import_tasks: cluster-dns.yml
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/connectivity/dns_application.py]
+    stdin: '{{ hostvars[groups["k3s_servers"][0]].gitops_payload.stdout }}'
   delegate_to: '{{ groups["k3s_servers"][0] }}'
   run_once: true
+  register: access_cluster_dns
+  changed_when: access_cluster_dns.rc == 0 and (access_cluster_dns.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require the declared cluster DNS forwarding owner
+  ansible.builtin.assert:
+    that: access_cluster_dns.rc == 0
+    fail_msg: Cluster DNS forwarding did not converge; existing cluster DNS retained.
 
 - name: Reconcile Access protection before public tunnel routes and DNS
   ansible.builtin.command: python /workspace/ansible/playbooks/access/files/external.py

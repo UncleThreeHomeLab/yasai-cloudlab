@@ -1,24 +1,14 @@
 # Ansible
 
 Compose provides the pinned execution environment in [runner](runner/).
-The runner [Dockerfile](runner/Dockerfile) pins bootstrap tool archives and checks
-their SHA-256 digests before extraction. Archive utilities stay in the build stage.
-It also pins `kubernetes.core`; native cluster tasks use the control-plane
-kubeconfig and Debian Kubernetes client packages without exporting cluster credentials.
 Use `lab setup` to converge and verify, `lab prove` to run setup twice and verify
 zero repeat changes on both nodes, `lab validate` for credential-free syntax,
 input, lint and rendered-chart checks, and `lab test` for isolated local tests.
 
 [Lifecycle playbooks](playbooks/) explicitly order component work. Components
 keep numbered setup stages, named operations, inputs, assets and tests together.
-Host [enrollment](playbooks/tailscale/tasks/enrollment-key.yml) uses Ansible HTTP
-requests and the pinned vault CLI. CloudLab item `tailscale-host-enrollment` needs
-unique `CLIENT_ID` and `CLIENT_SECRET` fields. OAuth credentials stay in the runner;
-single-use host keys expire after five minutes and are removed from `/run` after use.
 GitOps/controllers retain continuous Kubernetes ownership; native infrastructure
 roots retain external state and review gates. See [AGENTS.md](../AGENTS.md).
-The native [source check](playbooks/argocd/tasks/source.yml) binds component
-operations to a clean checkout and the anonymously readable public branch head.
 
 [Inventory](inventory.yml) loads host connection inputs from the runner;
 [group variables](group_vars/all/) define shared settings. Put bootstrap secrets
@@ -47,19 +37,8 @@ ordinary setup preserves its accepted ownership and existing data.
 
 [Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.
-Native certificate tasks retain staging-before-production checkpoints, issued
-certificate and Secret identities, and ACME account credential hashes under the
-existing ownership lock. Zone inspection uses native HTTP and the current ESO owner.
-Native mesh configuration reads pinned declarations through Helm, compares retained
-Gateway API specs with server dry-run, and preserves workload CA and generated
-gateway identities. Existing controllers retain all mesh and Gateway API ownership.
 Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
-unrelated grants. The [cluster DNS stage](playbooks/access/030-cluster-dns.yml)
-and [access Application](playbooks/access/native.yml) use native modules and
-templates. Access retains its administrator binding, durable checkpoint, object
-identities and shared ownership lock. The cluster DNS stage
-reconciles only the custom forwarding Application; Argo owns its ConfigMap and K3s
-keeps the main CoreDNS configuration and Deployment. [Infrastructure](playbooks/infrastructure/) invokes the accepted
+unrelated grants. [Infrastructure](playbooks/infrastructure/) invokes the accepted
 [native roots](../infra/); apply requires the exact reviewed plan, source and
 inputs. Encrypted state, backend locks and interrupted-operation recovery remain
 with each root. Ordinary setup never imports existing external resources.
@@ -67,12 +46,6 @@ with each root. Ordinary setup never imports existing external resources.
 [Data](playbooks/data/) keeps scoped SQL grants, S3 credentials and bucket repair
 on its independent five-minute host timer. CNPG and Argo retain continuous data
 service ownership. Its shared lock protects adoption, capture and isolated restore.
-Public CA repair uses [native tasks](playbooks/data/native-ca.yml) on the same timer.
-SQL grants use [native declarations](playbooks/data/native-sql.yml) through pod-local
-`psql`; the immutable CNPG image lacks Python for database modules. Native SQL runs
-atomically with server timeouts. Administrative credentials remain in the cluster.
-Its dispatcher retains the lock descriptor during native execution. Setup qualifies
-the staged native owner before switching dispatch and retiring recognized old code.
 [Backup](playbooks/backup/) owns independent control-plane capture, restic/B2
 operations and local freshness checks. `backup` explicitly orders control-plane,
 data/identity and Harbor recovery owners within the existing monthly window.
@@ -90,20 +63,10 @@ configuration. External publication, identity and retirement remain explicit.
 `/recovery/`; it restores only the recorded fixture-created sources field conflict.
 
 [Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
-redaction and bounded storage. Component `platform/observability/*/values.json` files
-own Helm settings, including Grafana authentication defaults. Identity alert rules
-live in `platform/observability/prometheus/templates/identity-alerts.json`.
-Chart packaging does not regenerate these declarations.
-Native telemetry installation uses maintained host Ansible under its existing
-component lock. Component templates provide private runtime values; committed
-chart values retain all static settings and Argo retains continuous repair.
-[Harbor](playbooks/harbor/) reads `platform/harbor/server/values.json` directly and retains Argo installation,
+redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installation,
 scoped registry credentials and coordinated recovery. Its host schedules use the
 same monthly export window and local-only freshness checks. Component tests own
 browser and provider fixtures.
-Native Harbor installation runs maintained host Ansible with the runner's same
-checked Kubernetes collection, under the shared recovery `flock`. Committed Helm
-values own static settings; native templates supply only retained private inputs.
 
 CI tools are qualified before job credentials are delivered. After independent
 bootstrap publication, run `docker compose --profile ci run --build --rm

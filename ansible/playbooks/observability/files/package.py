@@ -137,8 +137,13 @@ def tempo_protocols(raw):
 
 
 def build():
+    from playbooks.observability.files.values import values
     from playbooks.observability.files.slo import build as build_slo
+    from playbooks.observability.files.configuration import audit_rules
     build_slo()
+    resource = {'apiVersion': 'monitoring.coreos.com/v1', 'kind': 'PrometheusRule',
+                'metadata': {'name': 'identity-evidence', 'namespace': 'cloudlab-observability'}, 'spec': audit_rules()}
+    (BASE / 'prometheus/templates/identity-alerts.json').write_text(json.dumps(resource, indent=2) + '\n')
     for name in ('prometheus', 'loki', 'tempo', 'alloy', 'kiali'):
         path = BASE / name
         lock = json.loads((path / 'artifact.lock.json').read_text())
@@ -151,6 +156,7 @@ def build():
             (path / lock['archive']).write_bytes(data)
             lock['sha256'] = hashlib.sha256(data).hexdigest()
             (path / 'artifact.lock.json').write_text(json.dumps(lock, indent=2) + '\n')
+        (path / 'values.json').write_text(json.dumps({lock['chart']: values(name)}, indent=2) + '\n')
 
 
 if __name__ == '__main__':

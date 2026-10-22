@@ -1,6 +1,4 @@
 {
-  "bootstrap_owner": "cloudlab-data-bootstrap",
-  "bootstrap_application": "cloudlab-data-configuration",
   "namespace": "cloudlab-data",
   "operator_namespace": "cnpg-system",
   "cluster": "cloudlab-postgres",

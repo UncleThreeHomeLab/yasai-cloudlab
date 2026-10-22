@@ -12,15 +12,12 @@
     state: directory
     mode: '0700'
 
-- name: Install certificate behavior and renewal checks
+- name: Install certificate configuration and verification modules
   ansible.builtin.copy:
     src: '/workspace/ansible/playbooks/certificates/files/{{ item }}'
     dest: '/var/lib/cloudlab/certificates/{{ item }}'
     mode: '0600'
-  loop: [kube.py, verify.py]
-
-- name: Install native certificate declarations and ownership checks
-  ansible.builtin.import_tasks: native-runtime.yml
+  loop: [configuration.py, inputs.py, kube.py, verify.py]
 
 - name: Install the pinned certificate renewal tool
   ansible.builtin.get_url:
@@ -45,5 +42,20 @@
   changed_when: false
   no_log: true
 
-- name: Configure staging before production through native declarations
-  ansible.builtin.import_tasks: native-converge.yml
+- name: Configure staging before production through the private runtime Application
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/certificates/configuration.py]
+    stdin: '{{ gitops_payload.stdout }}'
+  register: certificates_configured
+  changed_when: certificates_configured.rc == 0 and (certificates_configured.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require certificate configuration to pass
+  ansible.builtin.assert:
+    that: certificates_configured.rc == 0
+    fail_msg: Certificate configuration failed; private diagnostics withheld and issued credentials retained.
+
+- name: Report sanitized certificate ownership
+  ansible.builtin.debug:
+    msg: '{{ certificates_configured.stdout | from_json }}'

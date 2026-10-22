@@ -117,11 +117,12 @@ def gateways(zone='example.invalid'):
 
 
 if __name__ == '__main__':
-    if sys.argv[1:]:
-        raise SystemExit('Chart checks accept no deployment payload mode')
     groups = {name: render(name) for name in PATHS}
     count = validate(groups)
     definitions = gateway_api()
     gateways()
-    print(json.dumps({'mesh_objects': count, 'gateway_api_definitions': len(definitions),
-                      'gateway_api_existing_owner_retained': True, 'resources_applied': False}))
+    if sys.argv[1:] == ['payload']:
+        print(json.dumps({'mesh_objects': groups, 'gateway_api': definitions}))
+    else:
+        print(json.dumps({'mesh_objects': count, 'gateway_api_definitions': len(definitions),
+                          'gateway_api_existing_owner_retained': True, 'resources_applied': False}))

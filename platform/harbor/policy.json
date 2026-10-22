@@ -1,10 +1,5 @@
 {
   "namespace": "cloudlab-harbor",
-  "owner": "harbor-platform",
-  "secrets": [
-    "harbor-emergency", "harbor-database", "harbor-runtime", "harbor-token-signing",
-    "harbor-oidc", "harbor-browser-key", "harbor-browser-oidc", "harbor-recovery-verifier"
-  ],
   "storage_class": "cloudlab-harbor",
   "cpu_limit_millicores": 2000,
   "memory_limit_mib": 4096,

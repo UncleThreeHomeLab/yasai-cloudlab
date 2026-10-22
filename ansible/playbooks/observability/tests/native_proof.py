@@ -55,9 +55,9 @@ def prepare():
         '  forward_to = [loki.process.redacted.receiver]\n}\n' + pipeline)
     (FIXTURE / 'config.alloy').chmod(0o644)
     from playbooks.observability.files.slo import rules
-    audit_rules = json.loads((ROOT / 'platform/observability/prometheus/templates/identity-alerts.json').read_text())['spec']
+    from playbooks.observability.files.configuration import audit_rules
     compiled = rules()
-    compiled['groups'].extend(audit_rules['groups'])
+    compiled['groups'].extend(audit_rules()['groups'])
     (FIXTURE / 'slo-rules.json').write_text(json.dumps(compiled))
     (FIXTURE / 'prometheus.yaml').write_text(yaml.safe_dump({
         'global': {'scrape_interval': '2s', 'evaluation_interval': '30s'},
@@ -87,7 +87,7 @@ def prepare():
         cases.extend([{'eval_time': '20m', 'alertname': rule['alert'],
                        'exp_alerts': [{'exp_labels': rule['labels'], 'exp_annotations': rule['annotations']}]},
                       {'eval_time': '140m', 'alertname': rule['alert'], 'exp_alerts': []}])
-    audit = {rule['alert']: rule['expr'] for rule in audit_rules['groups'][0]['rules']}
+    audit = {rule['alert']: rule['expr'] for rule in audit_rules()['groups'][0]['rules']}
     audit_cases = []
     for newest, incomplete in ((1190, 0), (1190, 1), (100, 0)):
         observations = [{'series': metric + '{realm="platform",instance="' + instance + '"}',

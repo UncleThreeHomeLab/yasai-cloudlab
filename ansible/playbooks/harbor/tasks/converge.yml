@@ -1,48 +1,22 @@
 ---
-- name: Resolve the published Harbor source without rendering resources
-  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/source.yml
-
-- name: Converge native Harbor Applications under the existing recovery lock
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/flock
-      - --nonblock
-      - /run/lock/cloudlab-harbor.lock
-      - /usr/bin/ansible-playbook
-      - -i
-      - localhost,
-      - /opt/cloudlab/playbooks/harbor/native.yml
-  environment:
-    ANSIBLE_CONFIG: '{{ host_ansible_config }}'
-    ANSIBLE_COLLECTIONS_PATH: '{{ host_ansible_collections }}'
-    ANSIBLE_NOCOLOR: '1'
-    HARBOR_SOURCE_REPOSITORY: '{{ gitops_source.repository }}'
-    HARBOR_SOURCE_REVISION: '{{ gitops_source.revision }}'
-  register: harbor_native_applied
-  changed_when: harbor_native_applied.stdout is search('changed=[1-9][0-9]*')
+- name: Resolve published Harbor installation and private identity inputs
+  ansible.builtin.command: python -m playbooks.harbor.files.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  register: harbor_payload
+  changed_when: false
   no_log: true
 
-- name: Inspect the superseded Harbor installation writer after native convergence
-  ansible.builtin.stat:
-    path: /opt/cloudlab/playbooks/harbor/files/bootstrap.py
-    follow: false
-    checksum_algorithm: sha256
-  register: harbor_old_writer
+- name: Reconcile Harbor only through Argo
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/harbor/files/bootstrap.py
+  args: {stdin: '{{ harbor_payload.stdout }}'}
+  register: harbor_applied
+  changed_when: harbor_applied.rc == 0 and (harbor_applied.stdout | from_json).changed
+  failed_when: false
+  no_log: true
 
-- name: Require the recognized non-data writer before retirement
+- name: Require Harbor installation convergence
   ansible.builtin.assert:
-    that:
-      - harbor_old_writer.stat.isreg | default(false)
-      - not harbor_old_writer.stat.islnk | default(false)
-      - harbor_old_writer.stat.uid == 0
-      - harbor_old_writer.stat.mode == '0600'
-      - harbor_old_writer.stat.checksum == harbor_bootstrap_retired_sha256
-    fail_msg: Superseded Harbor executable differs from its reviewed bytes; preserve it for inspection.
-    quiet: true
-  when: harbor_old_writer.stat.exists
-
-- name: Retire the recognized installation writer after native convergence
-  ansible.builtin.file:
-    path: /opt/cloudlab/playbooks/harbor/files/bootstrap.py
-    state: absent
-  when: harbor_old_writer.stat.exists
+    that: harbor_applied.rc == 0
+    fail_msg: Harbor installation incomplete; existing credentials, volumes and owners retained.
