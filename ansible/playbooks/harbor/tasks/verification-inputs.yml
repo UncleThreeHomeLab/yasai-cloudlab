@@ -1,0 +1,25 @@
+---
+- name: Resolve the published Harbor verification source through native Git
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/source.yml
+
+- name: Read only the current Harbor identity and gateway interfaces
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: /etc/rancher/k3s/k3s.yaml
+  no_log: true
+  block:
+    - name: Select the published source and committed policy
+      ansible.builtin.set_fact:
+        harbor_native_source: '{{ gitops_source }}'
+        harbor_policy: "{{ lookup('ansible.builtin.file', '/workspace/platform/harbor/policy.json') | from_json }}"
+    - name: Validate retained identity, gateway and boundary ownership
+      ansible.builtin.import_tasks: native-inputs.yml
+    - name: Expose read-only verifier inputs without generating resources
+      ansible.builtin.set_fact:
+        harbor_verification_payload:
+          repository: '{{ gitops_source.repository }}'
+          revision: '{{ gitops_source.revision }}'
+          configuration:
+            harborHost: '{{ harbor_host }}'
+            loginHost: '{{ harbor_login_host }}'
+            gatewayIP: '{{ harbor_gateway }}'

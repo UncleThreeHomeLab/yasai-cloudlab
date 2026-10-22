@@ -1,0 +1,16 @@
+---
+- name: Refuse foreign Harbor Application ownership or scope
+  ansible.builtin.assert:
+    that:
+      - harbor_current.metadata.labels['cloudlab.io/owner'] | default('') == harbor_policy.owner
+      - not harbor_current.metadata.ownerReferences | default([])
+      - not harbor_current.metadata.finalizers | default([])
+      - harbor_current.spec.project == 'cloudlab-harbor'
+      - >-
+        harbor_current.spec.destination ==
+        {'server': 'https://kubernetes.default.svc', 'namespace': harbor_policy.namespace}
+      - harbor_current.spec.source.repoURL == harbor_native_source.repository
+      - harbor_current.spec.source.path == harbor_application_path
+    fail_msg: Harbor Application has another owner or scope; adoption refused.
+    quiet: true
+  when: harbor_current | length > 0

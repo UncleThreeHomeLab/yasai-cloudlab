@@ -1,2 +1,3 @@
 ---
 harbor_enabled: "{{ ((lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).harbor | default({})).enabled | default(false) }}"
+harbor_bootstrap_retired_sha256: 3220460cf27aab6764066e8cc15305a943569c4bce83153bceeea761dc06adb2
