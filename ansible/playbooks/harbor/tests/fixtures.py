@@ -1,49 +1,10 @@
 """Synthetic protected recovery metadata; no service credentials."""
 import json
-import os
 import copy
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
-from pathlib import Path
-import subprocess
-import sys
-import tempfile
-import yaml
 from playbooks.harbor.files.recovery import CLAIMS, SECRETS, ARTIFACTS
-
-
-def native_application(configuration=False, current=None):
-    """Render the real Ansible declaration only after its native ownership checks."""
-    component = Path(__file__).resolve().parents[1]
-    policy = json.loads((ARTIFACTS / 'policy.json').read_text())
-    name = 'cloudlab-harbor-configuration' if configuration else 'cloudlab-harbor'
-    path = 'platform/harbor' if configuration else 'platform/harbor/server'
-    if current is None:
-        current = {'metadata': {'uid': 'retained-application', 'labels': {'cloudlab.io/owner': policy['owner']}},
-            'spec': {'project': 'cloudlab-harbor', 'destination': {
-                'server': 'https://kubernetes.default.svc', 'namespace': policy['namespace']},
-                'source': {'repoURL': 'https://github.com/fixture/platform.git', 'path': path}}}
-    values = {'harbor_policy': policy, 'harbor_native_source': {
-            'repository': 'https://github.com/fixture/platform.git', 'revision': 'a' * 40},
-        'harbor_configuring_boundaries': configuration, 'harbor_current': current,
-        'harbor_application_name': name, 'harbor_application_path': path,
-        'harbor_host': 'harbor.internal.example.invalid', 'harbor_login_host': 'login.example.invalid',
-        'harbor_gateway': '10.43.0.100', 'ansible_python_interpreter': sys.executable}
-    with tempfile.TemporaryDirectory() as folder:
-        directory = Path(folder)
-        result_path = directory / 'application.json'
-        play = [{'hosts': 'localhost', 'connection': 'local', 'gather_facts': False, 'vars': values,
-            'tasks': [{'ansible.builtin.import_tasks': str(component / 'tasks/native-owner-check.yml')},
-                {'ansible.builtin.copy': {'content': "{{ lookup('ansible.builtin.template', '" +
-                    str(component / 'templates/application.yml.j2') + "') | from_yaml | to_json }}",
-                    'dest': str(result_path), 'mode': '0600'}}]}]
-        play_path = directory / 'play.yml'
-        play_path.write_text(yaml.safe_dump(play, sort_keys=False))
-        result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(play_path)],
-            capture_output=True, text=True, timeout=60,
-            env=dict(os.environ, ANSIBLE_CONFIG=str(component.parent / 'host/files/ansible.cfg')))
-        return result, json.loads(result_path.read_text()) if result_path.exists() else None
 
 
 @contextmanager

@@ -1,7 +1,8 @@
-"""Scoped, ETag-guarded host policy; independent of Kubernetes."""
+"""Scoped policy and one-use enrollment keys, independent of Kubernetes."""
 import copy
 import json
 import os
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.parse
@@ -106,10 +107,23 @@ def policy(apply=False):
                       'devices': len(devices.get('devices', []))}))
 
 
+def key(test=False):
+    api = API('tailscale-test-enrollment' if test else 'tailscale-host-enrollment')
+    value, _ = api.request('POST', 'tailnet/-/keys', {
+        'capabilities': {'devices': {'create': {'reusable': False, 'ephemeral': test,
+            'preauthorized': True, 'tags': [TEST_TAG if test else HOST_TAG]}}},
+        'expirySeconds': 300,
+        'description': 'cloudlab disposable test' if test else 'cloudlab host enrollment'})
+    # Only consumed through Ansible no_log or a private subprocess pipe.
+    print(value['key'])
+
+
 if __name__ == '__main__':
     try:
         if sys.argv[1] in ('policy', 'policy-check'):
             policy(sys.argv[1] == 'policy')
+        elif sys.argv[1] in ('key', 'test-key'):
+            key(sys.argv[1] == 'test-key')
         else:
             raise ValueError('Unknown Tailscale action')
     except (RuntimeError, ValueError) as error:

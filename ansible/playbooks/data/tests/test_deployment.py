@@ -12,9 +12,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 TASKS = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/runtime.yml').read_text())
-CA_TASKS = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/native-runtime.yml').read_text())
-CA_FILES = next(task['loop'] for task in CA_TASKS
-                if task['name'] == 'Stage native data declarations and the small dispatch interface')
 
 
 class DeploymentTests(unittest.TestCase):
@@ -34,22 +31,11 @@ class DeploymentTests(unittest.TestCase):
                         shutil.copytree(source, target, dirs_exist_ok=True)
                     else:
                         shutil.copyfile(source, target)
-            for name in CA_FILES:
-                target = base / 'playbooks/data/ca' / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(ROOT / 'ansible/playbooks/data' / name, target)
-                if name.startswith('files/') and name.endswith('.py'):
-                    shutil.copyfile(target, base / 'playbooks/data' / name)
-            shutil.copyfile(ROOT / 'platform/data/contract.json', base / 'playbooks/data/ca/contract.json')
-            syntax = subprocess.run(['ansible-playbook', '-i', 'localhost,', '--syntax-check',
-                str(base / 'playbooks/data/ca/native-install.yml')],
-                capture_output=True, text=True, timeout=30)
-            self.assertEqual(syntax.returncode, 0, syntax.stdout + syntax.stderr)
             environment = {key: value for key, value in os.environ.items() if key != 'PYTHONPATH'}
             result = subprocess.run(
                 [sys.executable, '-I', '-c',
                  'import sys; sys.path.insert(0, sys.argv[1]); '
-                 'from playbooks.data.files import control, configuration, backup, verify, rotation; '
+                 'from playbooks.data.files import control, configuration, backup, verify, rotation, public_ca; '
                  'from playbooks.keycloak.files import maintenance, recovery, isolated_restore; '
                  'assert control.ROOT == __import__("pathlib").Path(sys.argv[1]); '
                  'assert callable(configuration.configure); assert callable(backup.freshness)', str(base)],
@@ -59,12 +45,7 @@ class DeploymentTests(unittest.TestCase):
     def test_new_repair_dependency_precedes_its_active_timer_consumer(self):
         modules = next(task['loop'] for task in TASKS if task['name'] == 'Install application data automation from its owner')
         self.assertEqual(len(modules), len(set(modules)))
-        self.assertNotIn('public_ca.py', modules)
-        self.assertNotIn('control.py', modules)
-        stages = yaml.safe_load((ROOT / 'ansible/playbooks/data/tasks/main.yml').read_text())
-        imports = [task['ansible.builtin.import_tasks'] for task in stages]
-        self.assertLess(imports.index('configure.yml'), imports.index('native-converge.yml'))
-        self.assertLess(imports.index('native-converge.yml'), imports.index('schedules.yml'))
+        self.assertLess(modules.index('public_ca.py'), modules.index('control.py'))
         helper = next(index for index, task in enumerate(TASKS)
                       if task['name'] == 'Install the shared Kubernetes helper from its owner')
         consumers = next(index for index, task in enumerate(TASKS)

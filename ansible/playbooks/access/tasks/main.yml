@@ -13,8 +13,12 @@
     state: directory
     mode: '0700'
 
-- name: Install the native access Application owner
-  ansible.builtin.import_tasks: native-runtime.yml
+- name: Install the bounded access Application owner
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/access/files/configuration.py'
+    dest: /var/lib/cloudlab/connectivity/configuration.py
+    mode: '0600'
+
 
 - name: Require native controller readiness
   ansible.builtin.command:
@@ -24,8 +28,25 @@
   changed_when: false
   no_log: true
 
-- name: Reconcile native access after operator and credential readiness
-  ansible.builtin.import_tasks: native-converge.yml
+- name: Reconcile access after operator and credential readiness
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/connectivity/configuration.py]
+    stdin: >-
+      {{ (gitops_payload.stdout | from_json)
+         | combine({'administrator': lookup('ansible.builtin.env', 'TAILSCALE_ADMIN_LOGIN')}) | to_json }}
+  register: access_configured
+  changed_when: access_configured.rc == 0 and (access_configured.stdout | from_json).changed
+  failed_when: false
+  no_log: true
+
+- name: Require access configuration to pass
+  ansible.builtin.assert:
+    that: access_configured.rc == 0
+    fail_msg: Access configuration failed; private checkpoint retained.
+
+- name: Report sanitized access configuration status
+  ansible.builtin.debug:
+    msg: '{{ access_configured.stdout | from_json }}'
 
 - name: Install private DNS input discovery
   ansible.builtin.copy:
@@ -33,8 +54,17 @@
     dest: /var/lib/cloudlab/connectivity/dns_inputs.py
     mode: '0600'
 
-- name: Read private DNS inputs through maintained Kubernetes modules
-  ansible.builtin.import_tasks: dns-inputs.yml
+- name: Read private DNS inputs from ready cluster interfaces
+  ansible.builtin.command: python3 /var/lib/cloudlab/connectivity/dns_inputs.py
+  register: access_dns_inputs
+  changed_when: false
+  no_log: true
+
+- name: Install the bounded cluster DNS Application owner
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/access/files/dns_application.py'
+    dest: /var/lib/cloudlab/connectivity/dns_application.py
+    mode: '0600'
 
 - name: Install the disposable access fixture owner
   ansible.builtin.copy:

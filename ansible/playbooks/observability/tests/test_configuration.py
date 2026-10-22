@@ -1,6 +1,4 @@
 import unittest
-import json
-from pathlib import Path
 
 from playbooks.observability.files.configuration import grafana
 from playbooks.keycloak.files.configuration import client
@@ -35,9 +33,8 @@ class AuthenticationContractTests(unittest.TestCase):
 
 class AuditProjectionTests(unittest.TestCase):
     def test_missing_stale_failed_and_truncated_evidence_has_alerts(self):
-        root = Path(__file__).resolve().parents[4]
-        resource = json.loads((root / 'platform/observability/prometheus/templates/identity-alerts.json').read_text())
-        rules = {rule['alert']: rule for rule in resource['spec']['groups'][0]['rules']}
+        from playbooks.observability.files.configuration import audit_rules
+        rules = {rule['alert']: rule for rule in audit_rules()['groups'][0]['rules']}
         for realm in ('Platform', 'Applications'):
             expression = rules['KeycloakEvidenceStale' + realm]['expr']
             self.assertIn('absent(', expression)

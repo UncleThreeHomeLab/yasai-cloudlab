@@ -1,57 +1,80 @@
-"""Native issuance keeps staging boundaries and refuses changed ownership."""
-import copy
-import hashlib
+"""Issuance must resume safely and never skip staging or overwrite another owner."""
+import json
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
-from playbooks.certificates.tests.fixtures import native_application
+import configuration as config
+from kube import ready
 
 
 class ConfigurationTests(unittest.TestCase):
-    def test_native_application_retains_zone_branch_uid_and_non_destructive_policy(self):
-        result, value = native_application()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(value['metadata']['uid'], 'retained-application')
-        self.assertEqual(value['spec']['source']['targetRevision'], 'main')
-        self.assertEqual(value['spec']['source']['helm']['valuesObject'], {'zone': 'example.invalid', 'production': True})
-        self.assertFalse(value['spec']['syncPolicy']['automated']['prune'])
-        self.assertFalse(any('Force' in option or 'Replace' in option for option in value['spec']['syncPolicy']['syncOptions']))
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.base = Path(directory.name)
+        for name, value in [('BASE', self.base), ('zone', lambda: 'example.invalid'),
+                            ('wait', lambda *args, **kwargs: True), ('kube', lambda *args, **kwargs: ''),
+                            ('get', lambda *args, **kwargs: None)]:
+            mocked = patch.object(config, name, value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
+        self.payload = {'repository': 'https://github.com/example/platform.git', 'branch': 'main', 'revision': 'reviewed'}
+        self.identity = {'certificate_uid': 'certificate', 'secret_uid': 'secret'}
 
-    def test_initial_staging_never_enables_production(self):
-        state = {'phase': 'staging', 'zone_hash': hashlib.sha256(b'example.invalid').hexdigest()}
-        result, value = native_application(state=state, current={}, receipt=False, production=False)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertFalse(value['spec']['source']['helm']['valuesObject']['production'])
-        self.assertNotIn('uid', value['metadata'])
+    def test_failed_staging_never_enables_production_and_resumes(self):
+        stages = []
+        with patch.object(config, 'configure', side_effect=lambda p, z, prod, s: stages.append(prod) or False), \
+                patch.object(config, 'certificate', side_effect=RuntimeError('not issued')):
+            with self.assertRaisesRegex(RuntimeError, 'not issued'):
+                config.run(self.payload)
+        self.assertEqual(stages, [False])
+        self.assertEqual(json.loads((self.base / 'ownership.json').read_text())['phase'], 'staging')
+        with patch.object(config, 'configure', side_effect=lambda p, z, prod, s: stages.append(prod) or False), \
+                patch.object(config, 'certificate', return_value=self.identity), \
+                patch.object(config, 'get', return_value={'metadata': {'uid': 'account'}, 'data': {'tls.key': 'fixture'}}):
+            self.assertTrue(config.run(self.payload)['changed'])
+            self.assertFalse(config.run(self.payload)['changed'])
+        self.assertEqual(stages, [False, False, True, True])
 
-    def test_zone_checkpoint_replacement_and_missing_staging_refuse_before_render(self):
-        baseline = {'phase': 'accepted', 'zone_hash': hashlib.sha256(b'example.invalid').hexdigest(),
-            'application_uid': 'retained-application',
-            'staging': {'certificate_uid': 'retained-staging', 'secret_uid': 'retained-staging-secret'}}
-        for values in ({'receipt': False}, {'current': {}},
-                {'state': dict(baseline, zone_hash='foreign')},
-                {'state': dict(baseline, application_uid='replaced')},
-                {'state': dict(baseline, phase='foreign')},
-                {'state': {key: value for key, value in baseline.items() if key != 'staging'}}):
-            with self.subTest(values=values):
-                result, value = native_application(**values)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIsNone(value)
+    def test_selected_zone_change_is_rejected_before_writes(self):
+        config.record({'phase': 'accepted', 'zone_hash': 'different'})
+        with patch.object(config, 'configure') as writer:
+            with self.assertRaisesRegex(RuntimeError, 'DNS zone'):
+                config.run(self.payload)
+            writer.assert_not_called()
 
-    def test_foreign_owner_finalizer_parent_and_scope_refuse_before_render(self):
-        baseline = {'metadata': {'uid': 'retained-application', 'labels': {'cloudlab.io/owner': 'cloudlab-certificates-bootstrap'}},
-            'spec': {'project': 'cloudlab-certificates', 'destination': {
-                'server': 'https://kubernetes.default.svc', 'namespace': 'cert-manager'},
-                'source': {'repoURL': 'https://github.com/fixture/platform.git', 'path': 'platform/certificates/configuration'}}}
-        for field in ('owner', 'finalizer', 'parent', 'project', 'namespace', 'repository', 'path'):
-            current = copy.deepcopy(baseline)
-            if field == 'owner': current['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
-            elif field == 'finalizer': current['metadata']['finalizers'] = ['foreign']
-            elif field == 'parent': current['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
-            elif field == 'project': current['spec']['project'] = 'foreign'
-            elif field == 'namespace': current['spec']['destination']['namespace'] = 'foreign'
-            elif field == 'repository': current['spec']['source']['repoURL'] = 'https://github.com/fixture/foreign.git'
-            else: current['spec']['source']['path'] = 'foreign'
-            with self.subTest(field=field):
-                result, value = native_application(current=current)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIsNone(value)
+    def test_foreign_application_and_replaced_identity_are_rejected(self):
+        for metadata in [{'uid': 'existing', 'labels': {'cloudlab.io/owner': 'foreign'}},
+                         {'uid': 'replaced', 'labels': {'cloudlab.io/owner': config.OWNER}},
+                         {'uid': 'existing', 'labels': {'cloudlab.io/owner': config.OWNER}, 'finalizers': ['cascade']}]:
+            with patch.object(config, 'get', return_value={'metadata': metadata}), patch.object(config, 'kube') as writer:
+                with self.assertRaisesRegex(RuntimeError, 'conflicting owner'):
+                    config.configure(self.payload, 'example.invalid', False, {'application_uid': 'existing'})
+                writer.assert_not_called()
+
+    def test_missing_checkpoint_cannot_adopt_an_existing_application(self):
+        with patch.object(config, 'get', return_value={'metadata': {'uid': 'existing'}}), \
+                patch.object(config, 'configure') as writer:
+            with self.assertRaisesRegex(RuntimeError, 'without its durable'):
+                config.run(self.payload)
+            writer.assert_not_called()
+
+    def test_readiness_must_match_current_generation(self):
+        resource = {'metadata': {'generation': 2}, 'status': {'conditions': [
+            {'type': 'Ready', 'status': 'True', 'observedGeneration': 1}]}}
+        self.assertFalse(ready(resource))
+        resource['status']['conditions'][0]['observedGeneration'] = 2
+        self.assertTrue(ready(resource))
+
+    def test_runtime_application_preserves_secret_ownership_and_private_values(self):
+        app = config.application(self.payload, 'example.invalid', False)
+        self.assertNotIn('finalizers', app['metadata'])
+        self.assertEqual(app['spec']['source']['helm']['valuesObject'], {'zone': 'example.invalid', 'production': False})
+        self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
+        self.assertFalse(any('Force' in x or 'Replace' in x for x in app['spec']['syncPolicy']['syncOptions']))
+
+
+if __name__ == '__main__':
+    unittest.main()

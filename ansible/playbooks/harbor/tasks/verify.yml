@@ -1,10 +1,16 @@
 ---
-- name: Read native Harbor verification inputs
-  ansible.builtin.import_tasks: verification-inputs.yml
+- name: Resolve the published Harbor verification inputs
+  ansible.builtin.command: python -m playbooks.harbor.files.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: harbor_verification_payload
 
 - name: Verify private Harbor installation and current coordinated local restore
   ansible.builtin.command: python3 /opt/cloudlab/playbooks/harbor/files/verify.py
-  args: {stdin: '{{ harbor_verification_payload | to_json }}'}
+  args: {stdin: '{{ harbor_verification_payload.stdout }}'}
   changed_when: false
   no_log: true
   register: harbor_verified

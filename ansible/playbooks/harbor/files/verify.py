@@ -9,10 +9,9 @@ import traceback
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from playbooks.harbor.files import recovery, deployments
+from playbooks.harbor.files.values import POLICY
 from playbooks.keycloak.files.health import direct_https
 from playbooks.istio.files.kube import get, contains, application_ready
-
-POLICY = json.loads((recovery.ARTIFACTS / 'policy.json').read_text())
 
 
 def oidc_discovery(login_host):

@@ -1,5 +1,3 @@
 ---
 certificates_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).certificates.enabled }}"
 certificates_lock: "{{ lookup('file', '/workspace/platform/certificates/cert-manager/artifact.lock.json') | from_json }}"
-certificates_configuration_retired_sha256: a1c8072fea9cb092020e008ecf2760c1797fc2f427ff2e9998932ed9f36258be
-certificates_inputs_retired_sha256: 75bb58beaa9b1bc9484a0536500d5efd5eb3fd13a506bb0a730989c70c982914

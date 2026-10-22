@@ -17,6 +17,26 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
-    - name: Check native host DNS, TLS and registry authentication
-      ansible.builtin.import_tasks: tasks/host-verify.yml
+    - name: Resolve published Harbor host verification inputs
+      ansible.builtin.command: python -m playbooks.harbor.files.payload
+      args: {chdir: /workspace}
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: harbor_host_payload
+      when: harbor_enabled | bool
+
+    - name: Check each host resolver and HTTPS registry challenge
+      ansible.builtin.command:
+        argv: [python3, -c, "{{ lookup('file', '/workspace/ansible/playbooks/harbor/files/host_verify.py') }}"]
+        stdin: '{{ harbor_host_payload.stdout }}'
+      register: harbor_host_verified
+      changed_when: false
+      no_log: true
+      when: harbor_enabled | bool
+
+    - name: Report sanitized node registry reachability
+      ansible.builtin.debug:
+        msg: '{{ harbor_host_verified.stdout | from_json }}'
       when: harbor_enabled | bool

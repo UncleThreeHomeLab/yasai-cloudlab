@@ -1,4 +1,2 @@
 ---
 access_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).access.enabled }}"
-access_kubeconfig: /etc/rancher/k3s/k3s.yaml
-access_configuration_retired_sha256: b3df74907830ec9a625bcdd406d7f2e5b0b5e2985ba5dbc000c772a21aa833e2

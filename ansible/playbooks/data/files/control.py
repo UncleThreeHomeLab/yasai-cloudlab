@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -20,10 +19,9 @@ from playbooks.istio.files.kube import application_ready, condition, get, kube, 
 from playbooks.data.files.s3 import S3, S3Error
 
 BASE = Path('/var/lib/cloudlab/application-data')
-CONTRACT = json.loads((ROOT / 'platform/data/contract.json').read_text())
-NAMESPACE = CONTRACT['namespace']
-APP = CONTRACT['bootstrap_application']
-OWNER = CONTRACT['bootstrap_owner']
+NAMESPACE = 'cloudlab-data'
+APP = 'cloudlab-data-configuration'
+OWNER = 'cloudlab-data-bootstrap'
 
 
 def atomic(path, value):
@@ -72,7 +70,7 @@ def secret(name):
 
 
 def primary():
-    cluster = get('cluster.postgresql.cnpg.io', CONTRACT['cluster'], NAMESPACE)
+    cluster = get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', NAMESPACE)
     if not condition(cluster, 'Ready') or cluster['spec']['instances'] != 1:
         raise RuntimeError('Single-instance PostgreSQL is not ready')
     return cluster['status']['currentPrimary']
@@ -109,6 +107,32 @@ def s3(admin=True):
         raise RuntimeError('Requested S3 identity is disabled for maintenance')
     credentials = selected['credentials'][0]
     return S3('https://' + values['s3Host'], credentials['accessKey'], credentials['secretKey'])
+
+
+def grants(values):
+    app, migration, backup, database = [identity(values[key]) for key in
+                                      ('applicationRole', 'migrationRole', 'backupRole', 'database')]
+    desired = f'''REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
+REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;
+REVOKE ALL ON DATABASE {database} FROM PUBLIC;
+GRANT CONNECT ON DATABASE {database} TO {app}, {migration}, {backup};
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO {app}, {backup};
+GRANT USAGE, CREATE ON SCHEMA public TO {migration};
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app};
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {app};
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO {backup};
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {backup};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {app};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT ON TABLES TO {backup};
+ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT ON SEQUENCES TO {backup};
+'''
+    # GRANT/REVOKE are idempotent; catalog comparisons detect actual changes.
+    query = "SELECT json_agg(t ORDER BY t.name)::text FROM (SELECT 'db:'||datname name, datacl::text acl FROM pg_database UNION ALL SELECT 'schema:'||nspname, nspacl::text FROM pg_namespace UNION ALL SELECT 'relation:'||oid::text, relacl::text FROM pg_class UNION ALL SELECT 'default:'||oid::text, defaclacl::text FROM pg_default_acl) t;"
+    before = sql(query, values['database'])
+    sql(desired, values['database'])
+    return before != sql(query, values['database'])
 
 
 def reload_s3():
@@ -167,51 +191,30 @@ def maintenance(enabled):
     return values
 
 
-def native_repair(owner, component):
-    """Dispatch a fixed native stage while its child retains the caller's lock FD."""
-    stages = {'sql': 'native-sql.yml', 'ca': 'native-ca.yml'}
-    if component not in stages:
-        raise ValueError('Unknown native data repair stage')
-    if owner.closed or Path(owner.name) != BASE / 'owner.lock':
-        raise RuntimeError('Native data repair requires the existing data owner lock')
-    play = (ROOT / 'playbooks/data/ca/current' / stages[component]).resolve(strict=True)
-    collections = Path('/usr/local/lib/cloudlab-ansible/current').resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix='cloudlab-data-ca-') as temporary:
-        result = subprocess.run(
-            ['/usr/bin/ansible-playbook', '-i', 'localhost,', str(play)],
-            env=dict(os.environ, ANSIBLE_CONFIG='/usr/local/lib/cloudlab-ansible/ansible.cfg',
-                     ANSIBLE_COLLECTIONS_PATH=str(collections), ANSIBLE_NOCOLOR='1',
-                     ANSIBLE_LOCAL_TEMP=temporary + '/controller',
-                     ANSIBLE_REMOTE_TEMP=temporary + '/modules'),
-            pass_fds=(owner.fileno(),), capture_output=True, text=True, check=False)
-    if result.returncode:
-        raise RuntimeError('Native data repair failed; private diagnostics withheld')
-    return re.search(r'changed=[1-9][0-9]*', result.stdout) is not None
-
-
-def reconcile(owner):
+def reconcile():
     values = settings()
     if values['maintenance']:
         raise RuntimeError('Interrupted data maintenance requires recovery before ordinary reconciliation')
-    changed = native_repair(owner, 'sql')
+    changed = grants(values)
     changed = reload_s3() or changed
     changed = s3().ensure_bucket(values['bucket']) or changed
     from playbooks.data.files.requests import reconcile as service_requests
-    changed = service_requests(values, s3()) or changed
-    changed = native_repair(owner, 'ca') or changed
+    changed = service_requests(values, sql, grants, s3()) or changed
+    from playbooks.data.files.public_ca import reconcile as public_ca
+    changed = public_ca(values) or changed
     return changed
 
 
 if __name__ == '__main__':
     try:
         action = sys.argv[1]
-        with locked() as owner:
+        with locked():
             if action == 'resume':
                 from playbooks.data.files.volumes import resume
                 resume()
                 result = True
             elif action == 'reconcile':
-                result = reconcile(owner)
+                result = reconcile()
             else:
                 raise ValueError('Unknown application data control action')
         print(json.dumps({'changed': result}))

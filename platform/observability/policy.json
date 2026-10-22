@@ -1,8 +1,5 @@
 {
   "namespace": "cloudlab-observability",
-  "owner": "observability-platform",
-  "components": ["prometheus", "loki", "tempo", "alloy", "kiali"],
-  "secrets": ["grafana-emergency", "grafana-oidc", "kiali-signing-key", "kiali-oidc"],
   "storage_class": "cloudlab-telemetry",
   "cpu_limit_millicores": 3000,
   "memory_limit_mib": 6144,

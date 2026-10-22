@@ -102,7 +102,7 @@ def remote(payload):
     from playbooks.data.files import control, verify
     from playbooks.data.files.s3 import S3, S3Error
     from playbooks.istio.files.kube import get, kube, wait
-    with control.locked() as owner:
+    with control.locked():
         desired = control.settings()
         if desired['maintenance']:
             raise RuntimeError('Resume interrupted data maintenance before credential rotation')
@@ -116,7 +116,7 @@ def remote(payload):
         wait(lambda: control.secret('notes-application')['password'] == sql['new']['password'], 'rotated SQL Secret')
         wait(lambda: control.s3(False).access == object_key['new']['ACCESS_KEY_ID'] and
              control.s3(False).secret == object_key['new']['SECRET_ACCESS_KEY'], 'rotated S3 Secret')
-        control.reconcile(owner)
+        control.reconcile()
         client = control.s3(False)
         client.request('HEAD', desired['bucket'])
         old = S3(client.endpoint, object_key['old']['ACCESS_KEY_ID'], object_key['old']['SECRET_ACCESS_KEY'])
