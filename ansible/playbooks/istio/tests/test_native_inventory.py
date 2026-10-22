@@ -14,5 +14,9 @@ class NativeInventoryTests(unittest.TestCase):
             {'mesh_chart_components': ['base', 'istiod', 'cni', 'ztunnel']})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for component in ('base', 'istiod', 'cni', 'ztunnel'):
-            self.assertEqual(inventory['mesh_objects'][component], chart.render(component))
+            expected = [{'apiVersion': item['apiVersion'], 'kind': item['kind'],
+                'metadata': {key: item['metadata'][key] for key in ('name', 'namespace') if key in item['metadata']}}
+                for item in chart.render(component)]
+            self.assertEqual(inventory['mesh_objects'][component], expected)
+            self.assertTrue(all(set(item) == {'apiVersion', 'kind', 'metadata'} for item in inventory['mesh_objects'][component]))
         self.assertEqual(inventory['gateway_api'], chart.gateway_api())

@@ -8,6 +8,13 @@ from playbooks.istio.tests.fixtures import COMPONENT, native_application, retain
 
 
 class NativeConfigurationTests(unittest.TestCase):
+    def test_native_transport_preserves_opaque_go_templates_as_data(self):
+        expected = {'go': '{{ .ProxyConfig }}', 'literal': '{{ missing_variable }}'}
+        result, value = run_native([{'ansible.builtin.copy': {'dest': '{{ fixture_output_path }}',
+            'mode': '0600', 'content': '{{ opaque_chart_data | to_json }}'}}], {'opaque_chart_data': expected})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(value, expected)
+
     def test_native_gateway_application_preserves_values_branch_uid_and_no_prune(self):
         result, value = native_application()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

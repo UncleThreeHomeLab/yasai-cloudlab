@@ -51,9 +51,28 @@
   timeout: 90
   no_log: true
 
-- name: Select the native chart declarations for identity verification
+- name: Initialize only the immutable lookup identities required by verification
+  ansible.builtin.set_fact:
+    mesh_component_lookup_objects: []
+  no_log: true
+
+- name: Retain lookup identities while leaving opaque chart bodies with Argo
+  vars:
+    mesh_lookup_metadata: >-
+      {{ {'name': item.metadata.name} | combine(
+         {'namespace': item.metadata.namespace} if item.metadata.namespace is defined else {}) }}
+  ansible.builtin.set_fact:
+    mesh_component_lookup_objects: >-
+      {{ mesh_component_lookup_objects + [{'apiVersion': item.apiVersion, 'kind': item.kind,
+         'metadata': mesh_lookup_metadata}] }}
+  loop: '{{ mesh_component_rendered.stdout | from_yaml_all | select("truthy") | list }}'
+  loop_control:
+    label: '{{ item.kind }}/{{ item.metadata.name }}'
+  no_log: true
+
+- name: Select only native lookup identities for component ownership verification
   ansible.builtin.set_fact:
     mesh_native_inventory: >-
       {{ mesh_native_inventory | combine({'mesh_objects': mesh_native_inventory.mesh_objects
-         | combine({mesh_inventory_component: mesh_component_rendered.stdout | from_yaml_all | select('truthy') | list})}) }}
+         | combine({mesh_inventory_component: mesh_component_lookup_objects})}) }}
   no_log: true

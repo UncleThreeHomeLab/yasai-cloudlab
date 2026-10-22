@@ -33,13 +33,12 @@
           - /usr/bin/ansible-playbook
           - -i
           - localhost,
-          - --extra-vars
-          - '@{{ mesh_native_inputs_file.path }}'
           - /opt/cloudlab/playbooks/istio/native.yml
       environment:
         ANSIBLE_CONFIG: '{{ host_ansible_config }}'
         ANSIBLE_COLLECTIONS_PATH: '{{ host_ansible_collections }}'
         ANSIBLE_NOCOLOR: '1'
+        MESH_NATIVE_INPUTS_FILE: '{{ mesh_native_inputs_file.path }}'
       register: mesh_native_applied
       changed_when: mesh_native_applied.stdout is search('changed=[1-9][0-9]*')
   always:
