@@ -1,26 +1,48 @@
 ---
-- name: Resolve committed telemetry policy and retained private peers
-  ansible.builtin.command: python -m playbooks.observability.files.payload
-  args: {chdir: /workspace}
-  delegate_to: localhost
-  become: false
-  changed_when: false
-  no_log: true
-  register: telemetry_payload
+- name: Resolve the published telemetry source without rendering resources
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/source.yml
 
-- name: Reconcile only declared telemetry Applications
-  ansible.builtin.command: python3 /opt/cloudlab/playbooks/observability/files/bootstrap.py
-  args: {stdin: '{{ telemetry_payload.stdout }}'}
+- name: Converge native telemetry Applications under the existing component lock
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/flock
+      - --nonblock
+      - /run/lock/cloudlab-observability.lock
+      - /usr/bin/ansible-playbook
+      - -i
+      - localhost,
+      - /opt/cloudlab/playbooks/observability/native.yml
+  environment:
+    ANSIBLE_CONFIG: '{{ host_ansible_config }}'
+    ANSIBLE_COLLECTIONS_PATH: '{{ host_ansible_collections }}'
+    ANSIBLE_NOCOLOR: '1'
+    TELEMETRY_SOURCE_REPOSITORY: '{{ gitops_source.repository }}'
+    TELEMETRY_SOURCE_REVISION: '{{ gitops_source.revision }}'
   register: telemetry_applied
-  changed_when: telemetry_applied.rc == 0 and (telemetry_applied.stdout | from_json).changed
-  failed_when: false
+  changed_when: telemetry_applied.stdout is search('changed=[1-9][0-9]*')
   no_log: true
 
-- name: Require telemetry convergence
-  ansible.builtin.assert:
-    that: telemetry_applied.rc == 0
-    fail_msg: Telemetry bootstrap incomplete; existing credentials, volumes and controllers retained.
+- name: Inspect the superseded installation writer after native convergence
+  ansible.builtin.stat:
+    path: /opt/cloudlab/playbooks/observability/files/bootstrap.py
+    follow: false
+    checksum_algorithm: sha256
+  register: telemetry_old_writer
 
-- name: Report the redacted telemetry owner result
-  ansible.builtin.debug:
-    msg: '{{ telemetry_applied.stdout | from_json }}'
+- name: Require the recognized non-data writer before retirement
+  ansible.builtin.assert:
+    that:
+      - telemetry_old_writer.stat.isreg | default(false)
+      - not telemetry_old_writer.stat.islnk | default(false)
+      - telemetry_old_writer.stat.uid == 0
+      - telemetry_old_writer.stat.mode == '0600'
+      - telemetry_old_writer.stat.checksum == observability_bootstrap_retired_sha256
+    fail_msg: Superseded telemetry executable differs from reviewed bytes; preserve it for inspection.
+    quiet: true
+  when: telemetry_old_writer.stat.exists
+
+- name: Retire the recognized installation writer after native convergence
+  ansible.builtin.file:
+    path: /opt/cloudlab/playbooks/observability/files/bootstrap.py
+    state: absent
+  when: telemetry_old_writer.stat.exists

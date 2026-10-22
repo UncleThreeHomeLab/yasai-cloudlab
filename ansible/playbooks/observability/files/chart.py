@@ -12,7 +12,7 @@ from playbooks.observability.files.package import retained, kiali_declarative, t
 from playbooks.observability.files.configuration import POLICY
 
 BASE = Path(__file__).resolve().parents[4] / 'platform/observability'
-COMPONENTS = ('prometheus', 'loki', 'tempo', 'alloy', 'kiali')
+COMPONENTS = tuple(POLICY['components'])
 
 
 def render(name, runtime=None):

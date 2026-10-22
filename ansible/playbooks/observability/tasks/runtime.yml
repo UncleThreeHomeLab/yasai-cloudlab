@@ -1,13 +1,49 @@
 ---
+- name: Install maintained host Ansible and the checked Kubernetes collection
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/host/tasks/ansible-client.yml
+
 - name: Create the telemetry owner module directory
   ansible.builtin.file:
     path: /opt/cloudlab/playbooks/observability/files
     state: directory
     mode: '0700'
 
-- name: Install the bounded telemetry bootstrap from its owner
+- name: Create focused native telemetry task and template directories
+  ansible.builtin.file:
+    path: '/opt/cloudlab/playbooks/observability/{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [tasks, templates]
+
+- name: Create the retained telemetry policy directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/platform/observability
+    state: directory
+    mode: '0700'
+
+- name: Install the committed telemetry policy
   ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/observability/files/{{ item }}'
-    dest: '/opt/cloudlab/playbooks/observability/files/{{ item }}'
+    src: /workspace/platform/observability/policy.json
+    dest: /opt/cloudlab/platform/observability/policy.json
     mode: '0600'
-  loop: [bootstrap.py, verify.py]
+
+- name: Install native telemetry declarations and their inputs
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/observability/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/observability/{{ item }}'
+    mode: '0600'
+  loop:
+    - native.yml
+    - tasks/native-inputs.yml
+    - tasks/native-application.yml
+    - tasks/native-owner-check.yml
+    - tasks/native-secrets.yml
+    - templates/application.yml.j2
+    - templates/prometheus-values.yml.j2
+    - templates/kiali-values.yml.j2
+
+- name: Install the read-only telemetry verifier from its owner
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/observability/files/verify.py
+    dest: /opt/cloudlab/playbooks/observability/files/verify.py
+    mode: '0600'

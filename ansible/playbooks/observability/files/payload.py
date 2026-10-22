@@ -1,13 +1,11 @@
-"""Bind public pins to existing private identity and network interfaces."""
+"""Read-only discovery and behavioral expectations; never generate deployment resources."""
 import json
 import os
 from pathlib import Path
 import shlex
 import sys
 
-from playbooks.argocd.files.render import committed_payload
 from playbooks.access.files.preflight import ssh
-from playbooks.observability.files.configuration import grafana
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -19,37 +17,12 @@ def metadata():
     return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script), timeout=60))
 
 
-def payload():
-    source = committed_payload()
-    discovered = metadata()
-    return compile_payload(source, discovered)
-
-
-def compile_payload(source, metadata):
-    host_aliases = [{'ip': metadata['gatewayIP'], 'hostnames': [metadata['loginHost']]}]
-    components = {name: {} for name in ('prometheus', 'loki', 'tempo', 'alloy', 'kiali')}
-    prometheus = json.loads((ROOT / 'platform/observability/prometheus/values.json').read_text())['kube-prometheus-stack']
-    prometheus['grafana']['grafana.ini'] = grafana('https://' + metadata['loginHost'] + '/realms/platform',
-                                                'https://' + metadata['grafanaHost'])['ini']
-    prometheus['grafana']['hostAliases'] = host_aliases
-    components['prometheus'] = {'kube-prometheus-stack': prometheus}
-    kiali = json.loads((ROOT / 'platform/observability/kiali/values.json').read_text())['kiali-server']
-    kiali['auth']['openid']['issuer_uri'] = 'https://' + metadata['loginHost'] + '/realms/platform'
-    kiali['deployment']['host_aliases'] = host_aliases
-    kiali['external_services']['grafana']['external_url'] = 'https://' + metadata['grafanaHost']
-    kiali['server'] = {'web_fqdn': metadata['kialiHost'], 'web_port': '443', 'web_schema': 'https'}
-    components['kiali'] = {'kiali-server': kiali}
-    configuration = {key: value for key, value in metadata.items() if key != 'gatewayIP'}
-    return {'repository': source['repository'], 'revision': source['revision'],
-            'configuration': dict(configuration, enabled=True), 'components': components}
-
-
-def verification_payload():
+def verification_payload(inputs):
     from playbooks.observability.files.configuration import POLICY
     from playbooks.observability.files.chart import render
     from playbooks.observability.files.slo import rules
     from playbooks.services.files.inputs import catalog
-    source, discovered = committed_payload(), metadata()
+    source, discovered = inputs['source'], inputs['metadata']
     entries = [entry for entry in catalog(required=True)['catalog'] if entry['publication'] == 'published' and
                entry['definition']['name'] == 'notes' and entry['approval'].get('chartPath') == 'apps/notes']
     if len(entries) != 1 or entries[0]['definition']['exposure']['class'] != 'public':
@@ -61,7 +34,7 @@ def verification_payload():
     configurations['prometheus'] = {'cloudlab-dashboards': {
         path.name: path.read_text() for path in sorted((ROOT / 'platform/observability/prometheus/dashboards').glob('*.json'))}}
     configurations['kiali'] = {obj['metadata']['name']: obj['data']
-        for obj in render('kiali', compile_payload(source, discovered)['components']['kiali']) if obj['kind'] == 'ConfigMap'}
+        for obj in render('kiali', inputs['kiali_values']) if obj['kind'] == 'ConfigMap'}
     ports = {obj['metadata']['name']: obj['spec']['ports'] for component in ('alloy', 'tempo')
              for obj in render(component) if obj['kind'] == 'Service'}
     return {'repository': source['repository'], 'revision': source['revision'], 'policy': POLICY,
@@ -75,7 +48,8 @@ def verification_payload():
 
 if __name__ == '__main__':
     try:
-        mode = sys.argv[1] if len(sys.argv) == 2 else 'bootstrap' if len(sys.argv) == 1 else ''
-        print(json.dumps({'bootstrap': payload, 'verify': verification_payload}[mode]()))
+        if len(sys.argv) != 1:
+            raise ValueError('Verification inputs must arrive through stdin')
+        print(json.dumps(verification_payload(json.load(sys.stdin))))
     except Exception:
         raise SystemExit('Telemetry inputs unavailable; private values withheld') from None

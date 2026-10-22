@@ -1,0 +1,65 @@
+---
+- name: Converge native telemetry declarations under the shared component lock
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    telemetry_template_dir: '{{ playbook_dir }}/templates'
+    telemetry_policy: "{{ lookup('ansible.builtin.file', '/opt/cloudlab/platform/observability/policy.json') | from_json }}"
+    telemetry_source:
+      repository: "{{ lookup('ansible.builtin.env', 'TELEMETRY_SOURCE_REPOSITORY') }}"
+      revision: "{{ lookup('ansible.builtin.env', 'TELEMETRY_SOURCE_REVISION') }}"
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: /etc/rancher/k3s/k3s.yaml
+  tasks:
+    - name: Validate retained telemetry prerequisites
+      ansible.builtin.import_tasks: tasks/native-inputs.yml
+    - name: Inspect monitor APIs before initial boundary declaration
+      kubernetes.core.k8s_info:
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: '{{ item }}'
+      loop: [podmonitors.monitoring.coreos.com, servicemonitors.monitoring.coreos.com]
+      register: telemetry_monitor_apis
+      no_log: true
+    - name: Enable monitors only when both retained APIs exist
+      ansible.builtin.set_fact:
+        telemetry_monitoring_enabled: '{{ telemetry_monitor_apis.results | map(attribute="resources") | flatten | length == 2 }}'
+    - name: Declare boundaries before their backends
+      ansible.builtin.import_tasks: tasks/native-application.yml
+      vars:
+        telemetry_component: configuration
+    - name: Wait for current vault delivery before installing telemetry
+      ansible.builtin.import_tasks: tasks/native-secrets.yml
+    - name: Declare retained backends in dependency order
+      ansible.builtin.include_tasks: tasks/native-application.yml
+      loop: '{{ telemetry_policy.components }}'
+      loop_control:
+        loop_var: telemetry_component
+    - name: Enable monitors after Prometheus installs its APIs
+      when: not telemetry_monitoring_enabled
+      block:
+        - name: Select complete monitoring configuration
+          ansible.builtin.set_fact:
+            telemetry_monitoring_enabled: true
+        - name: Declare the completed monitoring boundaries
+          ansible.builtin.import_tasks: tasks/native-application.yml
+          vars:
+            telemetry_component: configuration
+    - name: Require healthy completed telemetry boundaries
+      kubernetes.core.k8s_info:
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: cloudlab-observability
+      register: telemetry_complete
+      until:
+        - telemetry_complete.resources | length == 1
+        - telemetry_complete.resources[0].status.health.status | default('') == 'Healthy'
+        - telemetry_complete.resources[0].status.sync.status | default('') == 'Synced'
+        - telemetry_complete.resources[0].status.sync.revision | default('') == telemetry_source.revision
+      retries: 60
+      delay: 5
+      no_log: true
