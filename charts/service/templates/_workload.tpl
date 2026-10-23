@@ -88,6 +88,9 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Values.name }}
         cloudlab.io/owner: {{ .Values.owner | quote }}
+        {{- if .Values.rollouts.enabled }}
+        cloudlab.io/release-analysis: approved
+        {{- end }}
         {{- if eq (index .Values.environment "OTEL_ENABLED" | default "") "1" }}
         cloudlab.io/telemetry: safe
         {{- end }}
@@ -221,36 +224,6 @@ spec:
     {{- range .Values.ports }}
     - {name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: TCP}
     {{- end }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Values.name }}-metrics
-  labels: {cloudlab.io/release-metrics: {{ .Values.name }}}
-spec:
-  selector: {app.kubernetes.io/name: {{ .Values.name }}}
-  ports:
-    - {name: http-metrics, port: 9091, targetPort: http-metrics, appProtocol: http}
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata: {name: {{ .Values.name }}-release}
-spec:
-  selector:
-    matchLabels: {cloudlab.io/release-metrics: {{ .Values.name }}}
-  endpoints:
-    - port: http-metrics
-      interval: 5s
-      scrapeTimeout: 3s
-      relabelings:
-        - sourceLabels: [__meta_kubernetes_pod_label_rollouts_pod_template_hash]
-          targetLabel: revision
-        - targetLabel: service
-          replacement: {{ .Values.name }}
-  sampleLimit: 1000
-  targetLimit: 8
-  labelLimit: 20
-  labelValueLengthLimit: 100
 {{- end }}
 {{- if .Values.persistence.enabled }}
 ---

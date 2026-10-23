@@ -108,7 +108,8 @@ def restore(nonce):
     sequence = json.loads(CHECKPOINT.read_text()).get('known_sequence', 'baseline')
     remote(nonce, 'release', environment={'RELEASE_MODE': 'healthy', 'RELEASE_SEQUENCE': sequence})
     return wait_for(nonce, lambda s: s['phase'] == 'Healthy' and s['stable'] == s['current'] and
-                    s['weights'] == [100, 0] and s['sync'] == 'Synced', 'known-good release restored')
+                    s['weights'] == [100, 0] and s['mode'] == 'healthy' and s['sequence'] == sequence and s['observed'],
+                    'known-good release restored')
 
 
 def prove():
@@ -124,10 +125,14 @@ def prove():
     # Apply only the accepted Argo bootstrap entry point; no host, recovery or application CI scenarios.
     applies = []
     for _ in range(2):
-        subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/argocd/010-bootstrap.yml'],
-                       cwd=ROOT / 'ansible', check=True, timeout=600)
-        applies.append(json.loads(Path('/tmp/lab-stats.json').read_text()))
-    if any(row['changed'] or row.get('failures') or row.get('unreachable') for row in applies[1].values()):
+        stats = {}
+        for component in ('argocd/010-bootstrap', 'observability/020-converge'):
+            subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/' + component + '.yml'],
+                           cwd=ROOT / 'ansible', check=True, timeout=600)
+            stats[component] = json.loads(Path('/tmp/lab-stats.json').read_text())
+        applies.append(stats)
+    if any(row['changed'] or row.get('failures') or row.get('unreachable')
+           for component in applies[1].values() for row in component.values()):
         raise RuntimeError('Scoped repeat apply did not converge without changes')
     deadline = time.monotonic() + 600
     while True:
@@ -146,7 +151,7 @@ def prove():
             remote(nonce, 'cleanup')
         CHECKPOINT.write_text(json.dumps({'nonce': nonce, 'known_sequence': 'baseline'}))
         prepared = True
-        remote(nonce, 'prepare', objects=objects(source['repository'], source['revision'], prerequisites['host']))
+        remote(nonce, 'prepare', objects=objects(source['repository'], source['revision'], prerequisites['host'], prerequisites['artifact']))
         wait_for(nonce, lambda s: s['phase'] == 'Healthy' and s['stable'] == s['current'] and s['sync'] == 'Synced', 'fixture baseline')
         with tunnel(prerequisites['gateway']):
             for mode in ('healthy', 'faulty', 'missing', 'low-samples', 'query-failure'):
@@ -183,6 +188,9 @@ def prove():
                         process.terminate()
                         process.communicate(timeout=15)
                 state = remote(nonce, 'snapshot')
+                result['pending_case'] = {'case': mode, 'traffic': measured, 'state': state,
+                                          'decision_seconds': decision_seconds, 'weight_observations': observations}
+                RECEIPT.write_text(json.dumps(result, indent=2))
                 if mode == 'healthy':
                     if state['phase'] != 'Healthy' or state['current'] != state['stable'] or state['weights'] != [100, 0]:
                         raise RuntimeError('Healthy revision did not promote')
@@ -201,6 +209,7 @@ def prove():
                            'traffic': measured, 'analysis': state['metrics'], 'analysis_phase': state['analysis_phase'],
                            'weight_observations': observations, 'new_stable_requests': 0 if mode == 'healthy' else 30}
                 result['runs'].append(receipt)
+                result.pop('pending_case', None)
                 RECEIPT.write_text(json.dumps(result, indent=2))
                 print(json.dumps({'case': mode, 'elapsed_seconds': receipt['elapsed_seconds'],
                                   'traffic': measured, 'analysis': state['metrics']}), flush=True)
@@ -211,12 +220,14 @@ def prove():
         if final['retained'] != prerequisites['retained']:
             raise RuntimeError('Accepted Notes resources or images changed during release proof')
     finally:
-        if prepared:
-            if remote(nonce, 'snapshot')['current']:
-                restore(nonce)
-                result['restored'] = True
-            result['fixture_removed'] = remote(nonce, 'cleanup')['fixture_removed']
-        RECEIPT.write_text(json.dumps(result, indent=2))
+        try:
+            if prepared:
+                if remote(nonce, 'snapshot')['current']:
+                    restore(nonce)
+                    result['restored'] = True
+                result['fixture_removed'] = remote(nonce, 'cleanup')['fixture_removed']
+        finally:
+            RECEIPT.write_text(json.dumps(result, indent=2))
     return result
 
 
@@ -224,6 +235,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('check', 'prove', 'cleanup'))
     action = parser.parse_args().action
+    if action != 'check':
+        import fcntl
+        lock = Path('/recovery/rollouts-proof.lock').open('a')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another measured release operation holds the fixture lock') from None
     if action == 'check':
         result = check()
     elif action == 'cleanup':

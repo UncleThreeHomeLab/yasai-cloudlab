@@ -119,7 +119,7 @@ def inspect(request):
                 actual_environment = {row['name']: row.get('value') for row in deployed['spec']['template']['spec']['containers'][0].get('env', [])}
                 if any(actual_environment.get(key) != value for key, value in definition['environment'].items()):
                     raise RuntimeError('Backend environment differs from its approved Git definition')
-            if (not deployed or deployed.get('status', {}).get('observedGeneration') != deployed['metadata']['generation'] or
+            if (not deployed or str(deployed.get('status', {}).get('observedGeneration')) != str(deployed['metadata']['generation']) or
                     deployed.get('status', {}).get('availableReplicas') != definition['replicas'] or
                     (progressive and (deployed['status'].get('phase') != 'Healthy' or
                                       deployed['status'].get('stableRS') != deployed['status'].get('currentPodHash'))) or

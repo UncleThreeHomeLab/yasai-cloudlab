@@ -16,9 +16,23 @@ class RolloutsTests(TestCase):
     def test_controller_artifact_images_and_plugin_are_pinned_without_application_secret_access(self):
         self.assertTrue(check()['pinned_plugin_checksum'])
 
+    def test_platform_monitor_uses_watched_namespace_and_trusted_revision_labels(self):
+        import yaml
+        monitor = yaml.safe_load((ROOT / 'platform/delivery/rollouts/templates/monitor.yaml').read_text())
+        self.assertEqual(monitor['metadata']['namespace'], 'cloudlab-observability')
+        self.assertEqual(monitor['spec']['selector']['matchLabels'], {'cloudlab.io/release-analysis': 'approved'})
+        endpoint = monitor['spec']['podMetricsEndpoints'][0]
+        self.assertEqual(endpoint['port'], 'http-metrics')
+        self.assertEqual(endpoint['relabelings'][1]['targetLabel'], 'revision')
+        self.assertEqual(endpoint['relabelings'][2]['targetLabel'], 'service')
+        self.assertEqual(monitor['spec']['targetLimit'], 8)
+
     def test_analysis_is_per_revision_fail_closed_and_uses_accepted_baseline(self):
         value = definition()
         rendered = render(validate(value))
+        route = next(o for o in rendered if o['kind'] == 'HTTPRoute')
+        self.assertEqual(route['spec']['parentRefs'][0]['kind'], 'Gateway')
+        self.assertTrue(all(b['group'] == '' and b['kind'] == 'Service' for b in route['spec']['rules'][0]['backendRefs']))
         self.assertNotIn('Deployment', {o['kind'] for o in rendered})
         rollout = next(o for o in rendered if o['kind'] == 'Rollout')
         self.assertEqual(rollout['spec']['strategy']['canary']['trafficRouting']['plugins'], {
@@ -58,8 +72,8 @@ class RolloutsTests(TestCase):
         rendered = resources(value, approval, approval['repository'], 'a' * 40)
         project = next(o for o in rendered if o['kind'] == 'AppProject')
         kinds = {r['kind'] for r in project['spec']['namespaceResourceWhitelist']}
-        self.assertTrue({'Rollout', 'AnalysisTemplate', 'ServiceMonitor'} <= kinds)
-        self.assertFalse({'ReplicaSet', 'AnalysisRun', 'Secret'} & kinds)
+        self.assertTrue({'Rollout', 'AnalysisTemplate'} <= kinds)
+        self.assertFalse({'ReplicaSet', 'AnalysisRun', 'Secret', 'ServiceMonitor', 'PodMonitor'} & kinds)
         template = next(o for o in rendered if o['kind'] == 'ApplicationSet')['spec']['template']['spec']
         self.assertIn('RespectIgnoreDifferences=true', template['syncPolicy']['syncOptions'])
         ignore = template['ignoreDifferences']
@@ -100,6 +114,23 @@ class RolloutsTests(TestCase):
         project = next(o for o in rows if o['kind'] == 'AppProject')
         self.assertEqual(project['spec']['clusterResourceWhitelist'], [])
         self.assertEqual(project['spec']['destinations'][0]['namespace'], 'cloudlab-app-rollouts-proof')
+
+    def test_live_fixture_reuses_signed_artifact_and_only_eso_owned_pull_delivery(self):
+        artifact = {'image': 'registry.example.invalid/cloudlab-public/notes@sha256:' + 'a' * 64,
+                    'policy_hash': 'b' * 64, 'policy': {'validationFailureAction': 'Enforce', 'rules': []},
+                    'delivery': {'target': {'name': 'harbor-application-pull', 'creationPolicy': 'Owner'},
+                                 'dataFrom': [{'extract': {'key': 'harbor-cloudlab-public-pull'}}]}}
+        before = copy.deepcopy(artifact)
+        rows = objects('https://github.com/example/platform.git', 'a' * 40, 'test.internal.example.invalid', artifact)
+        app = next(o for o in rows if o['kind'] == 'Application')
+        value = app['spec']['source']['helm']['valuesObject']
+        validate(value)
+        self.assertEqual(value['image'], artifact['image'])
+        self.assertEqual(value['secrets'], [])
+        self.assertEqual(next(o for o in rows if o['kind'] == 'ExternalSecret')['spec'], artifact['delivery'])
+        self.assertEqual(next(o for o in rows if o['kind'] == 'Policy')['spec'], artifact['policy'])
+        self.assertFalse({'Secret', 'PersistentVolumeClaim'} & {o['kind'] for o in rows})
+        self.assertEqual(artifact, before)
 
     def test_rollout_and_analysis_match_the_pinned_controller_schemas(self):
         import subprocess

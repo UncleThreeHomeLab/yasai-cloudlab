@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: {name: release-canaries, namespace: cloudlab-observability}
+spec:
+  namespaceSelector: {any: true}
+  selector:
+    matchLabels: {cloudlab.io/release-analysis: approved}
+  podMetricsEndpoints:
+    - port: http-metrics
+      interval: 5s
+      scrapeTimeout: 3s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_rollouts_pod_template_hash]
+          regex: .+
+          action: keep
+        - sourceLabels: [__meta_kubernetes_pod_label_rollouts_pod_template_hash]
+          targetLabel: revision
+        - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+          targetLabel: service
+  sampleLimit: 1000
+  targetLimit: 8
+  labelLimit: 20
+  labelValueLengthLimit: 100

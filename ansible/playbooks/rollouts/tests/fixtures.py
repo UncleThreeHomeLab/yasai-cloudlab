@@ -7,7 +7,7 @@ NS = 'cloudlab-app-rollouts-proof'
 APP = 'cloudlab-rollouts-proof'
 
 
-def definition(host='release.internal.example.invalid'):
+def definition(host='release.internal.example.invalid', artifact=None):
     value = yaml.safe_load((ROOT / 'charts/service/values.yaml').read_text())
     value.update(name='release-proof', owner='platform')
     value['rollouts']['enabled'] = True
@@ -16,13 +16,18 @@ def definition(host='release.internal.example.invalid'):
     value['health'] = {kind: {'path': '/ready', 'port': 'http'} for kind in ('readiness', 'liveness')}
     value['command'] = ['python', '-c', (Path(__file__).with_name('server.py')).read_text()]
     value['environment'] = {'RELEASE_MODE': 'healthy', 'RELEASE_SEQUENCE': 'baseline'}
+    if artifact:
+        value['image'] = artifact['image']
+        value['imagePullSecrets'] = [{'name': 'harbor-application-pull'}]
+        value['artifactPolicyHash'] = artifact['policy_hash']
     return value
 
 
-def objects(repository, revision, host):
+def objects(repository, revision, host, artifact=None):
     namespace = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': NS, 'labels': {
         'cloudlab.io/owner': 'service-platform', 'cloudlab.io/gateway': 'private',
         'cloudlab.io/release-analysis': 'approved', 'istio.io/dataplane-mode': 'ambient',
+        'cloudlab.io/service-secrets': 'approved',
         'pod-security.kubernetes.io/enforce': 'restricted', 'pod-security.kubernetes.io/enforce-version': 'v1.36'}}}
     quota = {'apiVersion': 'v1', 'kind': 'ResourceQuota', 'metadata': {'name': 'budget', 'namespace': NS},
              'spec': {'hard': {'requests.cpu': '500m', 'requests.memory': '512Mi', 'limits.cpu': '1',
@@ -45,10 +50,10 @@ def objects(repository, revision, host):
                         'clusterResourceWhitelist': [], 'namespaceResourceWhitelist': [
                             {'group': group, 'kind': kind} for group, kind in [('', 'Service'), ('', 'ServiceAccount'),
                             ('argoproj.io', 'Rollout'), ('argoproj.io', 'AnalysisTemplate'),
-                            ('monitoring.coreos.com', 'ServiceMonitor'), ('gateway.networking.k8s.io', 'HTTPRoute')]]}}
+                            ('gateway.networking.k8s.io', 'HTTPRoute')]]}}
     app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': {'name': APP, 'namespace': 'argocd'},
            'spec': {'project': APP, 'source': {'repoURL': repository, 'targetRevision': revision, 'path': 'charts/service',
-                    'helm': {'valuesObject': definition(host)}},
+                    'helm': {'valuesObject': definition(host, artifact)}},
                     'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NS},
                     'ignoreDifferences': [
                         {'group': 'gateway.networking.k8s.io', 'kind': 'HTTPRoute', 'name': 'release-proof',
@@ -59,4 +64,10 @@ def objects(repository, revision, host):
                     'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True},
                                    'syncOptions': ['RespectIgnoreDifferences=true', 'FailOnSharedResource=true',
                                                    'DisableClientSideApplyMigration=true']}}}
-    return [namespace, quota, network, authorization, project, app]
+    registry = [] if not artifact else [
+        {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret',
+         'metadata': {'name': 'harbor-application-pull', 'namespace': NS}, 'spec': artifact['delivery']},
+        {'apiVersion': 'kyverno.io/v1', 'kind': 'Policy',
+         'metadata': {'name': 'application-artifacts', 'namespace': NS,
+                      'annotations': {'pod-policies.kyverno.io/autogen-controllers': 'none'}}, 'spec': artifact['policy']}]
+    return [namespace, quota, network, authorization, *registry, project, app]

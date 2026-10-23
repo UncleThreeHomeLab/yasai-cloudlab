@@ -31,14 +31,20 @@ The maximum gauge must retain the maximum for the evaluation window. Keep this
 synthetic traffic separate from user SLOs. [Release policy](release-policy.json)
 sets the 120-second window, minimum 230 samples and strict error/latency limits.
 Missing, non-finite, low-sample or failed queries abort; they cannot promote.
+The platform owns the shared PodMonitor in the existing watched telemetry namespace,
+with a cap of eight simultaneous revision targets. Application projects cannot write
+telemetry resources or deploy into that namespace.
 The catalog delegates only backend weights and revision selectors to Rollouts.
 Argo owns Rollout, Services, HTTPRoutes and AnalysisTemplates; Rollouts owns generated
 ReplicaSets and AnalysisRuns. Do not enable this on an existing Deployment without
 an explicitly reviewed migration; Notes retains its accepted signed Deployment flow.
 Run `docker compose run --build --rm --entrypoint python lab -m
 playbooks.rollouts.tests.proof prove` from a clean published checkout. It applies
-the scoped GitOps bootstrap twice and exercises disposable releases through the
+the scoped GitOps and telemetry owners twice and exercises disposable releases through the
 existing private gateway, with verified TLS, 6 RPS, four VUs and 190 seconds per case.
+It reuses the accepted signed public image and its unchanged Enforce policy. ESO
+delivers only the existing public pull credential; no application credentials enter
+the fixture. No application CI or dedicated test repository is required.
 It restores the healthy release before removing its data-free namespace. Interrupted
 proofs retain `/recovery/rollouts-proof.json`; rerun with `cleanup` to restore and
 remove only those owned fixtures. Measurements remain in the recovery volume.
