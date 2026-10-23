@@ -24,7 +24,7 @@ class Handler(BaseHTTPRequestHandler):
             body = metrics().encode()
             status = 200
         elif self.path == '/ready':
-            body, status = b'ready', 200
+            body, status = b'{"ready":true}', 200
         elif self.path == '/canary-proof':
             started = time.monotonic()
             status = 503 if MODE == 'faulty' else 200
@@ -38,8 +38,9 @@ class Handler(BaseHTTPRequestHandler):
                         if elapsed <= bound:
                             BUCKETS[bound] += 1
         else:
-            body, status = b'not found', 404
+            body, status = b'{"error":"not found"}', 404
         self.send_response(status)
+        self.send_header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8' if self.path == '/metrics' else 'application/json')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('X-CloudLab-Revision', REVISION)
         self.end_headers()
