@@ -12,7 +12,7 @@ if (!/^https:\/\/[a-z0-9.-]+:8443$/.test(origin || '')) throw new Error('Canonic
 export const options = {
   // Six total RPS gives each half enough samples for the accepted per-revision gate.
   scenarios: { release: { executor: 'constant-arrival-rate', rate: 6, timeUnit: '1s',
-    duration: `${policy.duration_seconds + 70}s`, preAllocatedVUs: 2, maxVUs: 4 } },
+    duration: `${policy.duration_seconds + 70}s`, preAllocatedVUs: 4, maxVUs: 4 } },
   hosts: { [origin.substring(8)]: '127.0.0.1:8443' },
   discardResponseBodies: true,
   maxRedirects: 0,
