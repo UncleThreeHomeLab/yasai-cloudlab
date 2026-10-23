@@ -101,7 +101,8 @@ def traffic_result(process):
 
 
 def restore(nonce):
-    remote(nonce, 'release', environment={'RELEASE_MODE': 'healthy', 'RELEASE_SEQUENCE': 'healthy'})
+    sequence = json.loads(CHECKPOINT.read_text()).get('known_sequence', 'baseline')
+    remote(nonce, 'release', environment={'RELEASE_MODE': 'healthy', 'RELEASE_SEQUENCE': sequence})
     return wait_for(nonce, lambda s: s['phase'] == 'Healthy' and s['stable'] == s['current'] and
                     s['weights'] == [100, 0] and s['sync'] == 'Synced', 'known-good release restored')
 
@@ -136,8 +137,12 @@ def prove():
     result = {'revision': source['revision'], 'scoped_applies': applies, 'runs': [], 'restored': False, 'fixture_removed': False}
     prepared = False
     try:
-        remote(nonce, 'prepare', objects=objects(source['repository'], source['revision'], prerequisites['host']))
+        if remote(nonce, 'snapshot')['current']:
+            restore(nonce)
+            remote(nonce, 'cleanup')
+        CHECKPOINT.write_text(json.dumps({'nonce': nonce, 'known_sequence': 'baseline'}))
         prepared = True
+        remote(nonce, 'prepare', objects=objects(source['repository'], source['revision'], prerequisites['host']))
         wait_for(nonce, lambda s: s['phase'] == 'Healthy' and s['stable'] == s['current'] and s['sync'] == 'Synced', 'fixture baseline')
         with tunnel(prerequisites['gateway']):
             for mode in ('healthy', 'faulty', 'missing', 'low-samples', 'query-failure'):
@@ -149,11 +154,14 @@ def prove():
                 process = traffic(prerequisites['host'], previous, state['current'])
                 injected = False
                 observations = []
+                decision_seconds = None
                 try:
                     traffic_started = time.monotonic()
                     while process.poll() is None:
                         state = remote(nonce, 'snapshot')
                         elapsed = time.monotonic() - traffic_started
+                        if decision_seconds is None and (state['abort'] or (state['phase'] == 'Healthy' and state['current'] == state['stable'])):
+                            decision_seconds = round(time.monotonic() - started, 3)
                         if mode == 'query-failure' and not injected and state['analysis']:
                             injected = remote(nonce, 'query-failure')['injected']
                         if elapsed <= 120:
@@ -174,6 +182,7 @@ def prove():
                 if mode == 'healthy':
                     if state['phase'] != 'Healthy' or state['current'] != state['stable'] or state['weights'] != [100, 0]:
                         raise RuntimeError('Healthy revision did not promote')
+                    CHECKPOINT.write_text(json.dumps({'nonce': nonce, 'known_sequence': 'healthy'}))
                 else:
                     if (not state['abort'] or state['stable'] != previous or state['weights'] != [100, 0] or
                             state['analysis_phase'] not in ('Failed', 'Error')):
@@ -184,6 +193,7 @@ def prove():
                 if not any(o['seconds'] >= 65 and o['sync'] == 'Synced' for o in observations):
                     raise RuntimeError('Argo reconciliation was not observed during delegated traffic weights')
                 receipt = {'case': mode, 'elapsed_seconds': round(time.monotonic() - started, 3),
+                           'decision_seconds': decision_seconds,
                            'traffic': measured, 'analysis': state['metrics'], 'analysis_phase': state['analysis_phase'],
                            'weight_observations': observations, 'new_stable_requests': 0 if mode == 'healthy' else 30}
                 result['runs'].append(receipt)
@@ -198,8 +208,9 @@ def prove():
             raise RuntimeError('Accepted Notes resources or images changed during release proof')
     finally:
         if prepared:
-            restore(nonce)
-            result['restored'] = True
+            if remote(nonce, 'snapshot')['current']:
+                restore(nonce)
+                result['restored'] = True
             result['fixture_removed'] = remote(nonce, 'cleanup')['fixture_removed']
         RECEIPT.write_text(json.dumps(result, indent=2))
     return result

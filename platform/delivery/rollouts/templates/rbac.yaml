@@ -13,7 +13,7 @@ rules:
     resources: [deployments]
     verbs: [get, list, watch]
   - apiGroups: ['']
-    resources: [pods, configmaps]
+    resources: [pods]
     verbs: [get, list, watch]
   - apiGroups: ['']
     resources: [services]
@@ -29,4 +29,18 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata: {name: argo-rollouts}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: argo-rollouts}
+subjects: [{kind: ServiceAccount, name: argo-rollouts, namespace: argo-rollouts}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: argo-rollouts-config, namespace: argo-rollouts}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: argo-rollouts-config, namespace: argo-rollouts}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: argo-rollouts-config}
 subjects: [{kind: ServiceAccount, name: argo-rollouts, namespace: argo-rollouts}]

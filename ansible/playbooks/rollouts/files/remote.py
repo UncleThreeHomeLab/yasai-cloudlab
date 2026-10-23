@@ -35,7 +35,7 @@ def snapshot():
     status = rollout.get('status', {})
     analysis = status.get('canary', {}).get('currentStepAnalysisRunStatus', {}).get('name')
     if not analysis and rollout:
-        candidates = [o for o in get('analysisruns.argoproj.io', namespace=NS)['items']
+        candidates = [o for o in (get('analysisruns.argoproj.io', namespace=NS) or {'items': []})['items']
                       if any(ref.get('uid') == rollout['metadata']['uid'] for ref in o['metadata'].get('ownerReferences', []))
                       and any(arg.get('name') == 'revision' and arg.get('value') == status.get('currentPodHash')
                               for arg in o['spec'].get('args', []))]
@@ -101,7 +101,7 @@ def run(request):
             raise RuntimeError('Disposable application scope changed')
         app['spec']['source']['helm']['valuesObject']['environment'].update(request['environment'])
         app['metadata']['annotations'] = {'argocd.argoproj.io/refresh': 'hard'}
-        kube('replace', '-f', '-', document=app)
+        kube('replace', '--field-manager=cloudlab-rollouts-fixture', '-f', '-', document=app)
     elif action == 'refresh':
         kube('annotate', 'application.argoproj.io', APP, '-n', 'argocd', 'argocd.argoproj.io/refresh=hard', '--overwrite')
     elif action == 'query-failure':
@@ -135,7 +135,8 @@ def run(request):
             kube('delete', 'application.argoproj.io', APP, '-n', 'argocd', '--cascade=orphan', '--wait=true')
         if get('namespace', NS):
             # Refuse teardown of any data-bearing fixture; this proof declares none.
-            if get('pvc', namespace=NS)['items'] or get('secrets', namespace=NS)['items']:
+            if ((get('pvc', namespace=NS) or {'items': []})['items'] or
+                    (get('secrets', namespace=NS) or {'items': []})['items']):
                 raise RuntimeError('Disposable namespace contains unexpected data or credentials')
             kube('delete', 'namespace', NS, '--wait=true', '--timeout=180s')
         if get('appproject.argoproj.io', APP, 'argocd'):
@@ -150,5 +151,7 @@ if __name__ == '__main__':
     import sys
     try:
         print(json.dumps(run(json.load(sys.stdin))))
+    except (ValueError, RuntimeError) as error:
+        raise SystemExit(str(error)) from None
     except Exception:
         raise SystemExit('Progressive delivery check failed; private diagnostics withheld') from None
