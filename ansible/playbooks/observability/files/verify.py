@@ -79,6 +79,37 @@ def proxy(origin, gateway, headers, datasource, path):
     return json.loads(raw)
 
 
+def release_state_matches(rollout, route, info, weights, roles):
+    """Compare exported labels/weights with Kubernetes without inventing missing data."""
+    try:
+        stable, candidate = rollout['status']['stableRS'], rollout['status']['currentPodHash']
+        if not stable or not candidate or len(info) != 1:
+            return False
+        if (info[0]['metric']['stable_revision'], info[0]['metric']['canary_revision']) != (stable, candidate):
+            return False
+        expected = {backend['name']: backend['weight'] for backend in route['spec']['rules'][0]['backendRefs']}
+        observed = {row['metric']['backend']: float(row['value'][1]) for row in weights}
+        if observed != expected or len(observed) != len(weights):
+            return False
+        expected_roles = {('stable', stable)} | ({('canary', candidate)} if stable != candidate else set())
+        return len(roles) == len(expected_roles) and {
+            (row['metric']['role'], row['metric']['revision']) for row in roles if float(row['value'][1]) == 1} == expected_roles
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
+
+
+def release_view_ready(origin, gateway, headers):
+    rollout = get('rollout.argoproj.io', 'notes-web', 'cloudlab-app-notes')
+    if not rollout:
+        return True
+    route = get('httproute.gateway.networking.k8s.io', 'notes-web', 'cloudlab-app-notes')
+    def query(metric, field):
+        selector = '{namespace="cloudlab-app-notes",' + field + '="notes-web"}'
+        return proxy(origin, gateway, headers, 'metrics', '/api/v1/query?' + urllib.parse.urlencode({'query': metric + selector}))['data']['result']
+    return release_state_matches(rollout, route, query('cloudlab_rollout_info', 'rollout'),
+        query('cloudlab_httproute_backend_weight', 'route'), query('cloudlab:rollout_revision:info', 'rollout'))
+
+
 def dashboards_ready(origin, gateway, headers, dashboards):
     for expected in dashboards.values():
         status, raw = direct_https(origin + '/api/dashboards/uid/' + expected['uid'], gateway, headers)
@@ -94,7 +125,7 @@ def dashboards_ready(origin, gateway, headers, dashboards):
                 expression = target['expr']
                 for variable, value in (('$__rate_interval', '2m'), ('$__range', '6h'),
                                         ('$namespace', '.*'), ('$pod', '.*'), ('$instance', '.*'),
-                                        ('$service', '.*'), ('$route', '.*'), ('$traffic', 'user')):
+                                        ('$service', '.*'), ('$rollout', '.*'), ('$route', '.*'), ('$traffic', 'user|release')):
                     expression = expression.replace(variable, value)
                 datasource = panel['datasource']['uid']
                 parameters = {'query': expression}
@@ -159,7 +190,9 @@ def run(payload):
     authorization = 'Basic ' + base64.b64encode(credentials.encode()).decode()
     query_headers = {'Authorization': authorization, 'Accept': 'application/json'}
     wait(lambda: dashboards_ready(origin, private_gateway, query_headers, payload['dashboards']),
-         'four provisioned dashboards and retired SLO dashboard removal', timeout=180)
+         'provisioned dashboards and retired SLO dashboard removal', timeout=180)
+    wait(lambda: release_view_ready(origin, private_gateway, query_headers),
+         'release dashboard routing weights and revision roles', timeout=180)
     trace_id = secrets.token_hex(16)
     headers = {'traceparent': '00-' + trace_id + '-' + secrets.token_hex(8) + '-01',
                'User-Agent': 'CloudLab-Telemetry-Proof/1.0'}
@@ -210,6 +243,7 @@ def run(payload):
             'all_metric_targets_healthy': True,
             'kiali_route_references_visible': True, 'telemetry_service_protocols': True,
             'provisioned_dashboards': len(payload['dashboards']), 'retired_slo_dashboard_removed': True,
+            'release_view_matches_kubernetes': True,
             'retention_settings': True, 'elapsed_retention_deletion_proven': False}
 
 

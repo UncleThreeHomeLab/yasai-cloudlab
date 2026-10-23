@@ -1,5 +1,7 @@
 """Bounded upstream chart settings; no secrets or deployment addresses."""
 import json
+import hashlib
+import yaml
 from pathlib import Path
 
 from playbooks.observability.files.configuration import POLICY, grafana
@@ -28,6 +30,7 @@ def values(name):
         result['digest'] = 'sha256:' + result.pop('sha')
         return result
     if name == 'prometheus':
+        rollout_metrics = (BASE / 'prometheus/rollout-metrics.yaml').read_text()
         ini = grafana('https://login.example.invalid/realms/platform', 'https://grafana.internal.example.invalid')['ini']
         return {
             'fullnameOverride': 'cloudlab', 'cleanPrometheusOperatorObjectNames': True,
@@ -92,7 +95,14 @@ def values(name):
                      'disableDeletion': False, 'allowUiUpdates': False, 'options': {'path': '/var/lib/grafana/dashboards/cloudlab'}}]}},
                 'dashboardsConfigMaps': {'cloudlab': 'cloudlab-dashboards'}},
             'kube-state-metrics': {'image': dict(image('ksm'), sha='sha256:' + image('ksm')['sha']),
-                                  'resources': resources(75, 128)},
+                'resources': resources(75, 128),
+                'podAnnotations': {'checksum/release-metrics': hashlib.sha256(rollout_metrics.encode()).hexdigest()},
+                'customResourceState': {'enabled': True, 'config': yaml.safe_load(
+                    rollout_metrics)},
+                'rbac': {'customResourceState': {'createClusterRoleRules': False}, 'extraRules': [
+                    {'apiGroups': ['apiextensions.k8s.io'], 'resources': ['customresourcedefinitions'], 'verbs': ['list', 'watch']},
+                    {'apiGroups': ['argoproj.io'], 'resources': ['rollouts'], 'verbs': ['list', 'watch']},
+                    {'apiGroups': ['gateway.networking.k8s.io'], 'resources': ['httproutes'], 'verbs': ['list', 'watch']}]}},
             'prometheus-node-exporter': {'image': dict(digest_image('node'), distroless=False), 'resources': resources(50, 64, 10, 32)},
         }
     if name == 'loki':

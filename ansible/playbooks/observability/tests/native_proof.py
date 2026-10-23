@@ -116,13 +116,17 @@ def prepare():
                 expression = target['expr']
                 for key, value in (('$__rate_interval', '2m'), ('$__range', '6h'), ('$namespace', '.*'),
                                    ('$pod', '.*'), ('$instance', '.*'), ('$service', '.*'),
-                                   ('$route', '.*'), ('$traffic', 'user')):
+                                   ('$rollout', '.*'), ('$route', '.*'), ('$traffic', 'user|release')):
                     expression = expression.replace(key, value)
                 expressions.append({'record': 'dashboard:query_' + str(len(expressions)), 'expr': expression})
     (FIXTURE / 'dashboard-rules.json').write_text(json.dumps({'groups': [
         {'name': 'dashboard-syntax', 'rules': expressions}]}))
     tests = json.loads((FIXTURE / 'slo-test.json').read_text())
     tests['rule_files'].append('/fixture/dashboard-rules.json')
+    from playbooks.observability.tests.fixtures import rollout_visibility_tests
+    release_tests = rollout_visibility_tests()
+    tests['rule_files'].extend(release_tests['rule_files'])
+    tests['tests'].extend(release_tests['tests'])
     (FIXTURE / 'slo-test.json').write_text(json.dumps(tests))
     print(json.dumps({'fixture_prepared': True, 'production_credentials': False}))
 

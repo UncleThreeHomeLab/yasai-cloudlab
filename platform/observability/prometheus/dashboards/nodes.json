@@ -39,6 +39,12 @@
   },
   "links": [
     {
+      "type": "link",
+      "title": "Releases",
+      "url": "/d/cloudlab-rollouts",
+      "keepTime": true
+    },
+    {
       "type": "dashboards",
       "tags": [
         "cloudlab"

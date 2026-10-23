@@ -87,6 +87,11 @@ Merge its private client PR, add `grafana` and `kiali` to `PRIVATE_ACCESS_HOSTS`
 review `observability.enabled` in the public root, then run `prove`.
 Git owns [dashboards](platform/observability/prometheus/dashboards) and
 [Grafana settings](ansible/playbooks/observability/files/configuration.py).
+Open **Releases** from the Grafana home dashboard for stable/canary weights,
+observed request shares, counts, rates and revision hashes. Select user or
+synthetic release traffic; probes are excluded. Missing metrics show UNKNOWN,
+while valid counters with no recent requests show No traffic. Routing state is
+scraped every 30 seconds; request panels use a two-minute window.
 Telemetry PVCs have local retention and no off-site backup. Identity enrollment
 and [lifecycle operations](ansible/playbooks/keycloak/) remain explicit.
 

@@ -1,0 +1,943 @@
+{
+  "uid": "cloudlab-rollouts",
+  "title": "Releases",
+  "description": "Live stable/canary routing, measured requests and current revision information. UNKNOWN means missing telemetry. No traffic means valid counters recorded zero requests.",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "tags": [
+    "cloudlab",
+    "releases"
+  ],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "metrics"
+        },
+        "query": "label_values(cloudlab_rollout_info, namespace)",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "sort": 1,
+        "current": {
+          "text": "cloudlab-app-notes",
+          "value": "cloudlab-app-notes"
+        }
+      },
+      {
+        "name": "rollout",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "metrics"
+        },
+        "query": "label_values(cloudlab_rollout_info{namespace=~\"$namespace\"}, rollout)",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "sort": 1,
+        "current": {
+          "text": "notes-web",
+          "value": "notes-web"
+        }
+      },
+      {
+        "name": "traffic",
+        "label": "Traffic",
+        "type": "custom",
+        "query": "user,release",
+        "includeAll": true,
+        "allValue": "user|release",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "User requests and identifiable synthetic release requests; health probes are excluded."
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Nodes",
+      "url": "/d/cloudlab-nodes",
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Release state",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "description": "Healthy means no release is progressing. Degraded indicates an aborted or failed release.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "UNKNOWN",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Progressing"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Paused"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Degraded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "cloudlab_rollout_phase{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 1",
+          "legendFormat": "{{phase}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "textMode": "name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Configured traffic split",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 10,
+        "h": 5
+      },
+      "description": "Live HTTPRoute backend weights. Stable 100% / Canary 0% means new requests go to stable.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "UNKNOWN",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            }
+          ],
+          "min": 0,
+          "max": 100
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Canary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\",backend=\"$rollout\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\"})",
+          "legendFormat": "Stable",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\",backend=\"$rollout-canary\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\"})",
+          "legendFormat": "Canary",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Observed traffic split \u2014 last 2m",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 0,
+        "w": 10,
+        "h": 5
+      },
+      "description": "Measured request share, not configured weights. No traffic is different from missing telemetry. Probes are excluded.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "UNKNOWN",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "No traffic",
+                  "color": "gray"
+                }
+              }
+            }
+          ],
+          "min": 0,
+          "max": 100
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Canary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))",
+          "legendFormat": "Stable",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))",
+          "legendFormat": "Canary",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Requests \u2014 last 2m",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Prometheus estimates request counts over two minutes. Canary is zero only when no separate candidate revision exists; missing active-revision data stays UNKNOWN.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "UNKNOWN",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Canary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by(namespace,rollout) (cloudlab:rollout_requests:increase2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"}))",
+          "legendFormat": "Stable",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "(sum by(namespace,rollout) (cloudlab:rollout_requests:increase2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))",
+          "legendFormat": "Canary",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Requests per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Two-minute rates split by the live stable/canary revision mapping. Select user or synthetic release traffic above.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "UNKNOWN",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Canary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"}))",
+          "legendFormat": "Stable",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "(sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))",
+          "legendFormat": "Canary",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Canary share over time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Configured percentage changes immediately after scraping; observed percentage averages requests over the previous two minutes.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "UNKNOWN",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "No traffic",
+                  "color": "gray"
+                }
+              }
+            }
+          ],
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\",backend=\"$rollout-canary\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\"})",
+          "legendFormat": "Configured canary",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))",
+          "legendFormat": "Observed canary",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Stable and candidate revisions",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "description": "A candidate row appears only when its pod revision differs from stable. It may remain after an abort while configured canary weight is zero.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "UNKNOWN",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "cloudlab:rollout_revision:info{namespace=~\"$namespace\",rollout=~\"$rollout\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "role",
+                "revision"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "role": "Role",
+              "revision": "Pod revision"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Replicas and metric freshness",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 4
+      },
+      "description": "Ready pods can include both revisions during a rollout. Routing state is scraped every 30s; metric age over 90s is stale.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "UNKNOWN",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Metric age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "cloudlab_rollout_replicas_available{namespace=~\"$namespace\",rollout=~\"$rollout\"}",
+          "legendFormat": "Ready pods",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "cloudlab_rollout_replicas_desired{namespace=~\"$namespace\",rollout=~\"$rollout\"}",
+          "legendFormat": "Desired per revision",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "expr": "time() - max(timestamp(cloudlab_rollout_info{namespace=~\"$namespace\",rollout=~\"$rollout\"}))",
+          "legendFormat": "Metric age",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    }
+  ]
+}

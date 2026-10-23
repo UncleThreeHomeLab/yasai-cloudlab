@@ -281,6 +281,9 @@
         "server": {
           "root_url": "https://grafana.internal.example.invalid"
         },
+        "dashboards": {
+          "default_home_dashboard_path": "/var/lib/grafana/dashboards/cloudlab/nodes.json"
+        },
         "security": {
           "cookie_secure": true,
           "cookie_samesite": "lax",
@@ -337,9 +340,6 @@
         },
         "alerting": {
           "enabled": false
-        },
-        "dashboards": {
-          "default_home_dashboard_path": "/var/lib/grafana/dashboards/cloudlab/nodes.json"
         }
       },
       "datasources": {
@@ -432,6 +432,199 @@
           "cpu": "75m",
           "memory": "128Mi"
         }
+      },
+      "podAnnotations": {
+        "checksum/release-metrics": "be6e426bf2553aa0b561f78afd2fdd45f18f451ecb4ff8ae2f4d9e8afaa29cc5"
+      },
+      "customResourceState": {
+        "enabled": true,
+        "config": {
+          "kind": "CustomResourceStateMetrics",
+          "spec": {
+            "resources": [
+              {
+                "groupVersionKind": {
+                  "group": "argoproj.io",
+                  "version": "v1alpha1",
+                  "kind": "Rollout"
+                },
+                "metricNamePrefix": "cloudlab_rollout",
+                "labelsFromPath": {
+                  "namespace": [
+                    "metadata",
+                    "namespace"
+                  ],
+                  "rollout": [
+                    "metadata",
+                    "name"
+                  ],
+                  "service": [
+                    "metadata",
+                    "name"
+                  ]
+                },
+                "metrics": [
+                  {
+                    "name": "info",
+                    "help": "Stable and candidate pod revisions managed by Rollouts.",
+                    "each": {
+                      "type": "Info",
+                      "info": {
+                        "path": [
+                          "status"
+                        ],
+                        "labelsFromPath": {
+                          "stable_revision": [
+                            "stableRS"
+                          ],
+                          "canary_revision": [
+                            "currentPodHash"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "phase",
+                    "help": "Current Rollout phase.",
+                    "each": {
+                      "type": "StateSet",
+                      "stateSet": {
+                        "path": [
+                          "status",
+                          "phase"
+                        ],
+                        "labelName": "phase",
+                        "list": [
+                          "Healthy",
+                          "Progressing",
+                          "Paused",
+                          "Degraded",
+                          "Error",
+                          "Pending",
+                          "Terminating",
+                          "Unknown"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "name": "replicas_desired",
+                    "help": "Desired replicas in one revision.",
+                    "each": {
+                      "type": "Gauge",
+                      "gauge": {
+                        "path": [
+                          "spec",
+                          "replicas"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "name": "replicas_available",
+                    "help": "Available replicas across stable and candidate revisions.",
+                    "each": {
+                      "type": "Gauge",
+                      "gauge": {
+                        "path": [
+                          "status",
+                          "availableReplicas"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "groupVersionKind": {
+                  "group": "gateway.networking.k8s.io",
+                  "version": "v1",
+                  "kind": "HTTPRoute"
+                },
+                "metricNamePrefix": "cloudlab_httproute",
+                "labelsFromPath": {
+                  "namespace": [
+                    "metadata",
+                    "namespace"
+                  ],
+                  "route": [
+                    "metadata",
+                    "name"
+                  ]
+                },
+                "metrics": [
+                  {
+                    "name": "backend_weight",
+                    "help": "Backend weight in the service chart's single HTTPRoute rule.",
+                    "each": {
+                      "type": "Gauge",
+                      "gauge": {
+                        "path": [
+                          "spec",
+                          "rules",
+                          "0",
+                          "backendRefs"
+                        ],
+                        "labelsFromPath": {
+                          "backend": [
+                            "name"
+                          ]
+                        },
+                        "valueFrom": [
+                          "weight"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "rbac": {
+        "customResourceState": {
+          "createClusterRoleRules": false
+        },
+        "extraRules": [
+          {
+            "apiGroups": [
+              "apiextensions.k8s.io"
+            ],
+            "resources": [
+              "customresourcedefinitions"
+            ],
+            "verbs": [
+              "list",
+              "watch"
+            ]
+          },
+          {
+            "apiGroups": [
+              "argoproj.io"
+            ],
+            "resources": [
+              "rollouts"
+            ],
+            "verbs": [
+              "list",
+              "watch"
+            ]
+          },
+          {
+            "apiGroups": [
+              "gateway.networking.k8s.io"
+            ],
+            "resources": [
+              "httproutes"
+            ],
+            "verbs": [
+              "list",
+              "watch"
+            ]
+          }
+        ]
       }
     },
     "prometheus-node-exporter": {
