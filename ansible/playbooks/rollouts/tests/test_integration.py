@@ -27,6 +27,47 @@ class RolloutsTests(TestCase):
         self.assertEqual(endpoint['relabelings'][2]['targetLabel'], 'service')
         self.assertEqual(monitor['spec']['targetLimit'], 8)
 
+    def test_exporter_http_protocol_and_missing_low_sample_and_fault_fixtures(self):
+        import importlib.util
+        import os
+        import threading
+        import urllib.request
+        import urllib.error
+        spec = importlib.util.spec_from_file_location('rollouts_exporter', Path(__file__).with_name('server.py'))
+        exporter = importlib.util.module_from_spec(spec)
+        with patch.dict(os.environ, {'CLOUDLAB_REVISION': 'fixture-revision'}):
+            spec.loader.exec_module(exporter)
+        server = exporter.ThreadingHTTPServer(('127.0.0.1', 0), exporter.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        origin = 'http://127.0.0.1:' + str(server.server_port)
+        request = urllib.request.Request(origin + '/canary-proof', headers={'User-Agent': 'CloudLab-Release-Proof/1.0'})
+        try:
+            with urllib.request.urlopen(origin + '/metrics', timeout=5) as response:
+                self.assertEqual(response.headers['Content-Type'], 'text/plain; version=0.0.4; charset=utf-8')
+                self.assertIn(b'status="503"} 0', response.read())
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.headers['X-CloudLab-Revision'], 'fixture-revision')
+            self.assertEqual(exporter.COUNTS['200'], 1)
+            exporter.MODE = 'low-samples'
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.status, 200)
+            self.assertEqual(exporter.COUNTS['200'], 1)
+            exporter.MODE = 'missing'
+            with urllib.request.urlopen(origin + '/metrics', timeout=5) as response:
+                self.assertEqual(response.read(), b'')
+                self.assertIn('version=0.0.4', response.headers['Content-Type'])
+            exporter.MODE = 'faulty'
+            with self.assertRaises(urllib.error.HTTPError) as failure:
+                urllib.request.urlopen(request, timeout=5)
+            self.assertEqual(failure.exception.code, 503)
+            failure.exception.close()
+            self.assertEqual(exporter.COUNTS['503'], 1)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_analysis_is_per_revision_fail_closed_and_uses_accepted_baseline(self):
         value = definition()
         rendered = render(validate(value))
@@ -97,6 +138,12 @@ class RolloutsTests(TestCase):
     def test_foreign_disposable_owner_refuses_mutation(self):
         with self.assertRaises(RuntimeError):
             owned({'metadata': {'labels': {}}}, 'a' * 32)
+
+    def test_repeated_cleanup_of_absent_fixture_is_a_noop(self):
+        from playbooks.rollouts.files import remote
+        with patch.object(remote, 'get', return_value=None), patch.object(remote, 'kube') as kube:
+            self.assertEqual(remote.run({'nonce': 'a' * 32, 'action': 'cleanup'}), {'fixture_removed': True})
+            kube.assert_not_called()
 
     def test_new_rollout_with_no_analysis_runs_has_a_readable_snapshot(self):
         from playbooks.rollouts.files.remote import snapshot

@@ -87,20 +87,26 @@ def traffic(host, stable, canary):
         raise RuntimeError('Measured releases require the pinned k6 runner')
     return subprocess.Popen(['k6', 'run', '--quiet', '--log-output=none', '--no-usage-report',
                              str(Path(__file__).with_name('traffic.k6.js'))],
-                            env=dict(os.environ, RELEASE_ORIGIN='https://' + host + ':8443',
-                                     STABLE_REVISION=stable, CANARY_REVISION=canary),
+                            env={'PATH': os.environ['PATH'], 'NO_PROXY': '*',
+                                 'RELEASE_ORIGIN': 'https://' + host + ':8443',
+                                 'STABLE_REVISION': stable, 'CANARY_REVISION': canary},
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
 def traffic_result(process):
     stdout, _stderr = process.communicate(timeout=220)
-    if process.returncode:
-        raise RuntimeError('Bounded traffic transport, revision identity or iteration check failed')
-    document = json.loads(stdout.strip())
+    try:
+        document = json.loads(stdout.strip())
+    except ValueError:
+        error = RuntimeError('Bounded traffic summary unavailable')
+        error.evidence = {'exit_code': process.returncode}
+        raise error from None
     total = document['stable_samples'] + document['canary_samples']
-    if (document['unknown_revision'] or document['dropped_iterations'] or total < 680 or
+    if (process.returncode or document['unknown_revision'] or document['dropped_iterations'] or total < 680 or
             not 0.35 <= document['canary_samples'] / total <= 0.65):
-        raise RuntimeError('Observed requests do not establish the configured 50/50 split')
+        error = RuntimeError('Bounded traffic thresholds or observed 50/50 split failed')
+        error.evidence = dict(document, exit_code=process.returncode)
+        raise error
     return document
 
 
@@ -112,7 +118,7 @@ def restore(nonce):
                     'known-good release restored')
 
 
-def prove():
+def prove(*, converge=True):
     check()
     environment()
     from playbooks.argocd.files.render import committed_payload
@@ -124,14 +130,14 @@ def prove():
     image = next(name + '@' + digest for name, digest in pin['images'].items())
     # Apply only the accepted Argo bootstrap entry point; no host, recovery or application CI scenarios.
     applies = []
-    for _ in range(2):
+    for _ in range(2 if converge else 0):
         stats = {}
         for component in ('argocd/010-bootstrap', 'services/010-bootstrap', 'observability/020-converge'):
             subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/' + component + '.yml'],
                            cwd=ROOT / 'ansible', check=True, timeout=600)
             stats[component] = json.loads(Path('/tmp/lab-stats.json').read_text())
         applies.append(stats)
-    if any(row['changed'] or row.get('failures') or row.get('unreachable')
+    if applies and any(row['changed'] or row.get('failures') or row.get('unreachable')
            for component in applies[1].values() for row in component.values()):
         raise RuntimeError('Scoped repeat apply did not converge without changes')
     deadline = time.monotonic() + 600
@@ -143,7 +149,8 @@ def prove():
         if time.monotonic() >= deadline:
             raise RuntimeError('Pinned Git-owned Rollouts application is not ready')
         time.sleep(10)
-    result = {'revision': source['revision'], 'scoped_applies': applies, 'runs': [], 'restored': False, 'fixture_removed': False}
+    result = {'revision': source['revision'], 'setup_repeated': converge, 'scoped_applies': applies,
+              'runs': [], 'restored': False, 'fixture_removed': False}
     prepared = False
     try:
         if remote(nonce, 'snapshot')['current']:
@@ -182,7 +189,13 @@ def prove():
                         if elapsed > 215:
                             raise RuntimeError('Bounded traffic process exceeded deadline')
                         time.sleep(5)
-                    measured = traffic_result(process)
+                    try:
+                        measured = traffic_result(process)
+                    except RuntimeError as error:
+                        result['pending_case'] = {'case': mode, 'traffic': getattr(error, 'evidence', {}),
+                                                  'state': state, 'weight_observations': observations}
+                        RECEIPT.write_text(json.dumps(result, indent=2))
+                        raise
                 finally:
                     if process.poll() is None:
                         process.terminate()
@@ -235,7 +248,7 @@ def prove():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('check', 'prove', 'cleanup'))
+    parser.add_argument('action', choices=('check', 'prove', 'verify', 'cleanup'))
     action = parser.parse_args().action
     if action != 'check':
         import fcntl
@@ -249,10 +262,11 @@ def main():
     elif action == 'cleanup':
         environment()
         nonce = json.loads(CHECKPOINT.read_text())['nonce']
-        restore(nonce)
+        if remote(nonce, 'snapshot')['current']:
+            restore(nonce)
         result = remote(nonce, 'cleanup')
     else:
-        result = prove()
+        result = prove(converge=action == 'prove')
     print(json.dumps(result, sort_keys=True))
 
 

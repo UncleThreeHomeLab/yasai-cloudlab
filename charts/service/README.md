@@ -48,6 +48,8 @@ the fixture. No application CI or dedicated test repository is required.
 It restores the healthy release before removing its data-free namespace. Interrupted
 proofs retain `/recovery/rollouts-proof.json`; rerun with `cleanup` to restore and
 remove only those owned fixtures. Measurements remain in the recovery volume.
+Use `verify` instead of `prove` to repeat only release behavior after fixture changes;
+it still requires the published source, pinned controller and accepted signed release.
 An administrator may set `approval.artifact` with `repository`, `project`,
 `releasePath`, `sourceRepository`, retained signing `identities` and `action`
 (`Audit` before tested `Enforce`). The repository must match the application and
