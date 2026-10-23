@@ -62,7 +62,7 @@ def run(request):
     action = request['action']
     if action == 'prerequisites':
         if not application_ready('cloudlab-rollouts', request['revision']):
-            raise RuntimeError('Pinned Git-owned Rollouts application is not ready')
+            return {'ready': False}
         controller = get('deployment', 'argo-rollouts', 'argo-rollouts')
         if controller['spec']['template']['spec']['containers'][0]['image'] != request['controller_image']:
             raise RuntimeError('Rollouts controller image differs from reviewed pin')
