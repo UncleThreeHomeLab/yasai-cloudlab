@@ -1,0 +1,47 @@
+kind: CustomResourceStateMetrics
+spec:
+  resources:
+    - groupVersionKind: {group: argoproj.io, version: v1alpha1, kind: Rollout}
+      metricNamePrefix: cloudlab_rollout
+      labelsFromPath:
+        namespace: [metadata, namespace]
+        rollout: [metadata, name]
+        service: [metadata, name]
+      metrics:
+        - name: info
+          help: Stable and candidate pod revisions managed by Rollouts.
+          each:
+            type: Info
+            info:
+              path: [status]
+              labelsFromPath:
+                stable_revision: [stableRS]
+                canary_revision: [currentPodHash]
+        - name: phase
+          help: Current Rollout phase.
+          each:
+            type: StateSet
+            stateSet:
+              path: [status, phase]
+              labelName: phase
+              list: [Healthy, Progressing, Paused, Degraded, Error, Pending, Terminating, Unknown]
+        - name: replicas_desired
+          help: Desired replicas in one revision.
+          each: {type: Gauge, gauge: {path: [spec, replicas]}}
+        - name: replicas_available
+          help: Available replicas across stable and candidate revisions.
+          each: {type: Gauge, gauge: {path: [status, availableReplicas]}}
+    - groupVersionKind: {group: gateway.networking.k8s.io, version: v1, kind: HTTPRoute}
+      metricNamePrefix: cloudlab_httproute
+      labelsFromPath:
+        namespace: [metadata, namespace]
+        route: [metadata, name]
+      metrics:
+        - name: backend_weight
+          help: Backend weight in the service chart's single HTTPRoute rule.
+          each:
+            type: Gauge
+            gauge:
+              path: [spec, rules, "0", backendRefs]
+              labelsFromPath: {backend: [name]}
+              valueFrom: [weight]

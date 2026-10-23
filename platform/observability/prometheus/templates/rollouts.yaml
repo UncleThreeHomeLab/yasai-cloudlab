@@ -1,0 +1,7 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rollout-visibility
+  namespace: {{ .Release.Namespace }}
+spec:
+{{ .Files.Get "rollout-rules.yaml" | indent 2 }}

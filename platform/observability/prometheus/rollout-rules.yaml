@@ -1,0 +1,25 @@
+groups:
+  - name: rollout-visibility
+    interval: 15s
+    rules:
+      - record: cloudlab:rollout_revision:info
+        labels: {role: stable}
+        expr: label_replace(cloudlab_rollout_info{stable_revision!=""}, "revision", "$1", "stable_revision", "(.+)")
+      - record: cloudlab:rollout_revision:info
+        labels: {role: canary}
+        expr: >-
+          label_replace(cloudlab_rollout_info{canary_revision!=""}, "revision", "$1", "canary_revision", "(.+)")
+          unless on(namespace, rollout, revision)
+          label_replace(cloudlab_rollout_info{stable_revision!=""}, "revision", "$1", "stable_revision", "(.+)")
+      - record: cloudlab:rollout_candidate:present
+        expr: >-
+          max by(namespace, rollout) (cloudlab:rollout_revision:info{role="canary"})
+          or on(namespace, rollout) (0 * max by(namespace, rollout) (cloudlab_rollout_info{stable_revision!="",canary_revision!=""}))
+      - record: cloudlab:rollout_requests:rate2m
+        expr: >-
+          sum by(namespace, service, revision, traffic) (rate(cloudlab_http_requests_total{job="cloudlab-observability/release-canaries",traffic=~"user|release"}[2m]))
+          * on(namespace, service, revision) group_left(rollout, role) cloudlab:rollout_revision:info
+      - record: cloudlab:rollout_requests:increase2m
+        expr: >-
+          sum by(namespace, service, revision, traffic) (increase(cloudlab_http_requests_total{job="cloudlab-observability/release-canaries",traffic=~"user|release"}[2m]))
+          * on(namespace, service, revision) group_left(rollout, role) cloudlab:rollout_revision:info
