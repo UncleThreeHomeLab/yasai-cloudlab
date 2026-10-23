@@ -36,8 +36,12 @@ def remote(nonce, action, **request):
     from playbooks.access.files.preflight import ssh
     source = (ROOT / 'ansible/playbooks/rollouts/files/remote.py').read_text()
     code = "import sys;sys.path.insert(0,'/opt/cloudlab');\n" + source
-    return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code),
-                         input=json.dumps(dict(request, nonce=nonce, action=action)), timeout=240))
+    try:
+        return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code),
+                             input=json.dumps(dict(request, nonce=nonce, action=action)), timeout=240,
+                             diagnostics='/recovery/rollouts-remote-error.log'))
+    except RuntimeError:
+        raise RuntimeError('Progressive delivery operation failed: ' + action + '; private diagnostics retained in recovery volume') from None
 
 
 def wait_for(nonce, predicate, label, timeout=420):
