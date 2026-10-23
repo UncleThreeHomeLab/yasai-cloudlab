@@ -40,7 +40,7 @@ ReplicaSets and AnalysisRuns. Do not enable this on an existing Deployment witho
 an explicitly reviewed migration; Notes retains its accepted signed Deployment flow.
 Run `docker compose run --build --rm --entrypoint python lab -m
 playbooks.rollouts.tests.proof prove` from a clean published checkout. It applies
-the scoped GitOps and telemetry owners twice and exercises disposable releases through the
+the scoped GitOps, service and telemetry owners twice and exercises disposable releases through the
 existing private gateway, with verified TLS, 6 RPS, four VUs and 190 seconds per case.
 It reuses the accepted signed public image and its unchanged Enforce policy. ESO
 delivers only the existing public pull credential; no application credentials enter
