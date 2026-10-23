@@ -13,7 +13,7 @@ from playbooks.services.files.gitops import resources
 
 
 class RolloutsTests(TestCase):
-    def test_controller_artifact_images_and_plugin_are_pinned_without_secret_access(self):
+    def test_controller_artifact_images_and_plugin_are_pinned_without_application_secret_access(self):
         self.assertTrue(check()['pinned_plugin_checksum'])
 
     def test_analysis_is_per_revision_fail_closed_and_uses_accepted_baseline(self):

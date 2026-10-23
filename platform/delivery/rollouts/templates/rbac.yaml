@@ -1,4 +1,4 @@
-# No Secret access or alternate traffic providers. Analysis uses the private Prometheus API.
+# Native caches read provider objects; only Gateway API traffic resources can change.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata: {name: argo-rollouts}
@@ -24,6 +24,15 @@ rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [httproutes]
     verbs: [get, list, watch, update, patch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.istio.io]
+    resources: [virtualservices, destinationrules]
+    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -37,6 +46,11 @@ metadata: {name: argo-rollouts-config, namespace: argo-rollouts}
 rules:
   - apiGroups: ['']
     resources: [configmaps]
+    verbs: [get, list, watch]
+  # Upstream always starts this informer with an exact name field selector.
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [argo-rollouts-notification-secret]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
