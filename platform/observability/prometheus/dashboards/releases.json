@@ -80,7 +80,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "Release state",
+      "title": "State",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -348,7 +348,7 @@
         "w": 10,
         "h": 5
       },
-      "description": "Measured request share, not configured weights. No traffic is different from missing telemetry. Probes are excluded.",
+      "description": "Measured request share, not configured weights. No traffic is different from missing telemetry. Probes are excluded. Uses the current stable/candidate revision identities; completed revisions are not counted as canary.",
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
@@ -708,6 +708,15 @@
               "options": {
                 "match": "nan",
                 "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "-1": {
                   "text": "No traffic",
                   "color": "gray"
                 }
@@ -729,7 +738,7 @@
         },
         {
           "refId": "B",
-          "expr": "100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))",
+          "expr": "((100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))) and on(namespace,rollout) (((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))) > 0)) or on(namespace,rollout) ((((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))) == 0) - 1)",
           "legendFormat": "Observed canary",
           "instant": false,
           "range": true
@@ -843,7 +852,7 @@
         "w": 24,
         "h": 4
       },
-      "description": "Ready pods can include both revisions during a rollout. Routing state is scraped every 30s; metric age over 90s is stale.",
+      "description": "Ready pods can include both revisions during a rollout; the desired count is the steady-state target, not a target for each revision. Routing state is scraped every 30s; metric age over 90s is stale.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -923,7 +932,7 @@
         {
           "refId": "B",
           "expr": "cloudlab_rollout_replicas_desired{namespace=~\"$namespace\",rollout=~\"$rollout\"}",
-          "legendFormat": "Desired per revision",
+          "legendFormat": "Desired (steady state)",
           "instant": true,
           "range": false
         },
