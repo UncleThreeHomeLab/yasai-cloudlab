@@ -373,6 +373,15 @@
               "options": {
                 "match": "nan",
                 "result": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "-1": {
                   "text": "No traffic",
                   "color": "gray"
                 }
@@ -418,14 +427,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))",
+          "expr": "((100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))) and on(namespace,rollout) (((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))) > 0)) or on(namespace,rollout) ((((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))) == 0) - 1)",
           "legendFormat": "Stable",
           "instant": true,
           "range": false
         },
         {
           "refId": "B",
-          "expr": "100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))",
+          "expr": "((100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0))))) and on(namespace,rollout) (((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))) > 0)) or on(namespace,rollout) ((((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"stable\",traffic=~\"$traffic\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\"$namespace\",rollout=~\"$rollout\",role=\"canary\",traffic=~\"$traffic\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\"$namespace\",rollout=~\"$rollout\"} == 0)))) == 0) - 1)",
           "legendFormat": "Canary",
           "instant": true,
           "range": false
@@ -731,7 +740,7 @@
           "displayMode": "list",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull"
+            "last"
           ]
         },
         "tooltip": {

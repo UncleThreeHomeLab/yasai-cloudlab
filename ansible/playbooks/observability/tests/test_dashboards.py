@@ -78,8 +78,9 @@ class DashboardTests(unittest.TestCase):
         observed = panels['Observed traffic split — last 2m']
         self.assertTrue(all('cloudlab:rollout_requests:rate2m' in target['expr'] for target in observed['targets']))
         self.assertTrue(all('or vector(0)' not in target['expr'] for panel in dashboard['panels'] for target in panel['targets']))
-        mapping = observed['fieldConfig']['defaults']['mappings'][1]['options']
-        self.assertEqual((mapping['match'], mapping['result']['text']), ('nan', 'No traffic'))
+        mapping = observed['fieldConfig']['defaults']['mappings'][2]['options']
+        self.assertEqual(mapping['-1']['text'], 'No traffic')
+        self.assertTrue(all('> 0' in target['expr'] and '== 0' in target['expr'] for target in observed['targets']))
         self.assertIn('== 0', observed['targets'][1]['expr'])
         roles = panels['Stable and candidate revisions']['transformations'][0]['options']['include']['names']
         self.assertEqual(roles, ['role', 'revision'])

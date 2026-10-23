@@ -64,7 +64,7 @@ def rollout_visibility_tests():
                                     check(expression(4), 120), check(expression(4, 1), 120)]),
         ('completed', [info('old'), counter('old')], [check(expression(3), 100), check(expression(3, 1), 0), check(expression(4, 1), 0)]),
         ('idle-with-valid-zero-counters', [info('old'), counter('old', 0)],
-            [check('(' + expression(3) + ') != bool (' + expression(3) + ')', 1), check(expression(4), 0), check(expression(4, 1), 0)]),
+            [check(expression(3), -1), check(expression(3, 1), -1), check(expression(4), 0), check(expression(4, 1), 0)]),
         ('active-candidate-metrics-missing', [info('new'), counter('old')], [check(expression(3), None), check(expression(3, 1), None), check(expression(4, 1), None)]),
         ('all-request-metrics-missing', [info('old')], [check(expression(3), None), check(expression(3, 1), None), check(expression(4), None)]),
         ('routing-state-missing', [counter('old')], [check(expression(3), None), check(expression(3, 1), None), check(expression(4, 1), None)]),
