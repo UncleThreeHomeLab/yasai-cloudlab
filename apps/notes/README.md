@@ -9,6 +9,11 @@ Use the [service contract](../../charts/service/README.md) for onboarding. The
 administrator selects `approval.chartPath: apps/notes` and supplies one `notes`
 definition with its public exposure and one private operations exposure. Its Helm chart
 derives both workloads and route paths directly from the approved Git definition.
+With `definition.rollouts.enabled`, the packaged frontend uses HTTPRoute canaries;
+the API keeps its Deployment. Telemetry is required. Budget both frontend revisions
+and an API surge together. Migrate alongside the old frontend, verify stable
+traffic, then retire only its superseded Deployment. The Notes application
+repository owns signed release tests and deliberate disposable failures.
 Identity callbacks remain with their owner. The data owner projects the public
 database CA under its existing lock and five-minute repair schedule.
 Use `reader`, `writer` and `operator` client roles with explicit group mappings.

@@ -1,8 +1,16 @@
 {{- range $name := list "web" "api" }}
 {{- $values := deepCopy (index $.Values $name) }}
+{{- $_ := unset $values "renderDisabled" }}
 {{- if $.Values.definition }}
 {{- $definition := $.Values.definition }}
-{{- if $definition.rollouts.enabled }}{{ fail "Use a stateless service declaration for measured release fixtures; Notes composition remains on its accepted Deployment flow" }}{{- end }}
+{{- if and $definition.rollouts.enabled (not $.Values.telemetry) }}{{ fail "Notes canaries require release telemetry" }}{{- end }}
+{{- if $definition.rollouts.enabled }}
+{{- $copies := add (mul (int $definition.replicas) 3) 1 }}
+{{- if or (gt $copies 8) (gt (mul $copies (int (trimSuffix "m" $definition.resources.limits.cpu))) 2000) (gt (mul $copies (int (trimSuffix "Mi" $definition.resources.limits.memory))) 2048) (gt (mul $copies (int (trimSuffix "m" $definition.resources.requests.cpu))) 1000) (gt (mul $copies (int (trimSuffix "Mi" $definition.resources.requests.memory))) 1024) }}
+{{- fail "Notes stable, canary and API surge exceed the namespace budget" }}
+{{- end }}
+{{- end }}
+{{- if eq $name "web" }}{{ $_ := set $values "rollouts" $definition.rollouts }}{{- end }}
 {{- $_ := set $values "artifactPolicyHash" ($definition.artifactPolicyHash | default "") }}
 {{- $private := dict }}
 {{- range $definition.additionalExposures }}
@@ -55,9 +63,13 @@
 {{- $_ := set $values.environment "PYTHONPATH" "/dependencies:/app:/app/lib.zip" }}
 {{- $_ := set $values.environment "SOURCE_SHA256" (last (splitList "sha256:" $values.image)) }}
 {{- end }}
-{{- $context := dict "Values" $values "Release" $.Release "Capabilities" $.Capabilities }}
+{{- $context := dict "Values" $values "Release" $.Release "Capabilities" $.Capabilities "Files" $.Subcharts.web.Files }}
 ---
 {{ include "cloudlab.service.workload" $context }}
 ---
 {{ include "cloudlab.service.route" $context }}
+{{- if $values.rollouts.enabled }}
+---
+{{ include "cloudlab.service.analysis" $context }}
+{{- end }}
 {{- end }}

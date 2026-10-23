@@ -6,6 +6,8 @@
 {{- range .Values.catalog }}
 {{- $v := .definition }}
 {{- $a := .approval }}
+{{- $releaseService := $v.name }}
+{{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}{{ $releaseService = "notes-web" }}{{- end }}
 {{- $namespace := printf "cloudlab-app-%s" $a.name }}
 {{- $artifact := $a.artifact | default dict }}
 {{- if $artifact }}
@@ -111,7 +113,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: {name: release-scrapes, namespace: {{ $namespace }}}
 spec:
-  podSelector: {matchLabels: {app.kubernetes.io/name: {{ $v.name }}}}
+  podSelector: {matchLabels: {app.kubernetes.io/name: {{ $releaseService }}}}
   policyTypes: [Ingress]
   ingress:
     - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-observability}}}]
@@ -121,7 +123,7 @@ apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata: {name: release-scrapes, namespace: {{ $namespace }}}
 spec:
-  selector: {matchLabels: {app.kubernetes.io/name: {{ $v.name }}}}
+  selector: {matchLabels: {app.kubernetes.io/name: {{ $releaseService }}}}
   action: ALLOW
   rules:
     - from:
@@ -216,8 +218,8 @@ spec:
         - group: gateway.networking.k8s.io
           kind: HTTPRoute
           jqPathExpressions:
-            - '.spec.rules[].backendRefs[] | select(.name == "{{ $v.name }}" or .name == "{{ $v.name }}-canary") | .weight'
-        {{- range $service := list $v.name (printf "%s-canary" $v.name) }}
+            - '.spec.rules[].backendRefs[] | select(.name == "{{ $releaseService }}" or .name == "{{ $releaseService }}-canary") | .weight'
+        {{- range $service := list $releaseService (printf "%s-canary" $releaseService) }}
         - group: ''
           kind: Service
           name: {{ $service }}

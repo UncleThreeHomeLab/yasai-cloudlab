@@ -36,21 +36,10 @@ with a cap of eight simultaneous revision targets. Application projects cannot w
 telemetry resources or deploy into that namespace.
 The catalog delegates only backend weights and revision selectors to Rollouts.
 Argo owns Rollout, Services, HTTPRoutes and AnalysisTemplates; Rollouts owns generated
-ReplicaSets and AnalysisRuns. Do not enable this on an existing Deployment without
-an explicitly reviewed migration; Notes retains its accepted signed Deployment flow.
-Run `docker compose run --build --rm --entrypoint python lab -m
-playbooks.rollouts.tests.proof prove` from a clean published checkout. It applies
-the scoped GitOps, service and telemetry owners twice and exercises disposable releases through the
-existing private gateway, with verified TLS, 6 RPS, four VUs and 190 seconds per case.
-It reuses the accepted signed public image and its unchanged Enforce policy. ESO
-delivers only the existing public pull credential; no application credentials enter
-the fixture. No application CI or dedicated test repository is required.
-It restores the healthy release before removing its data-free namespace. Interrupted
-proofs retain `/recovery/rollouts-proof.json`; rerun with `cleanup` to restore and
-remove only those owned fixtures. Measurements remain in the recovery volume.
-Use `verify` instead of `prove` to repeat only release behavior after fixture changes;
-it still requires the published source, pinned controller and accepted signed release.
-`verify --case query-failure` repeats one named fixture and records that limited scope.
+ReplicaSets and AnalysisRuns. Existing Deployments require a staged migration: run
+the Rollout alongside the Deployment, verify stable traffic, then retire only the
+superseded stateless Deployment. The Notes application repository owns its signed
+release demonstration and bounded traffic proof. Platform tests stay offline.
 An administrator may set `approval.artifact` with `repository`, `project`,
 `releasePath`, `sourceRepository`, retained signing `identities` and `action`
 (`Audit` before tested `Enforce`). The repository must match the application and
