@@ -262,7 +262,8 @@ def main():
     elif action == 'cleanup':
         environment()
         nonce = json.loads(CHECKPOINT.read_text())['nonce']
-        restore(nonce)
+        if remote(nonce, 'snapshot')['current']:
+            restore(nonce)
         result = remote(nonce, 'cleanup')
     else:
         result = prove(converge=action == 'prove')

@@ -139,6 +139,12 @@ class RolloutsTests(TestCase):
         with self.assertRaises(RuntimeError):
             owned({'metadata': {'labels': {}}}, 'a' * 32)
 
+    def test_repeated_cleanup_of_absent_fixture_is_a_noop(self):
+        from playbooks.rollouts.files import remote
+        with patch.object(remote, 'get', return_value=None), patch.object(remote, 'kube') as kube:
+            self.assertEqual(remote.run({'nonce': 'a' * 32, 'action': 'cleanup'}), {'fixture_removed': True})
+            kube.assert_not_called()
+
     def test_new_rollout_with_no_analysis_runs_has_a_readable_snapshot(self):
         from playbooks.rollouts.files.remote import snapshot
         def get(kind, *_args, **_kwargs):
