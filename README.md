@@ -227,7 +227,7 @@ Deployment still depends on inputs and verification.
 | Supply chain | Trivy + Cosign | Scan, sign and verify images | Planned |
 | Policy | Kyverno + Pod Security | Enforce workload digest, resource and token rules; restricted application pods | Enforced |
 | GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Available |
-| Releases | Argo Rollouts | Canary releases and previews | Planned |
+| Releases | Argo Rollouts | HTTPRoute canaries with per-revision Prometheus analysis | Available |
 | Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Available |
 | Logs | Grafana Alloy + Loki | Collect and store redacted logs | Available |
 | Traces | OpenTelemetry + Tempo | Collect and store traces | Available |
