@@ -50,6 +50,7 @@ proofs retain `/recovery/rollouts-proof.json`; rerun with `cleanup` to restore a
 remove only those owned fixtures. Measurements remain in the recovery volume.
 Use `verify` instead of `prove` to repeat only release behavior after fixture changes;
 it still requires the published source, pinned controller and accepted signed release.
+`verify --case query-failure` repeats one named fixture and records that limited scope.
 An administrator may set `approval.artifact` with `repository`, `project`,
 `releasePath`, `sourceRepository`, retained signing `identities` and `action`
 (`Audit` before tested `Enforce`). The repository must match the application and
