@@ -31,14 +31,10 @@ def resources(definition, approval, platform_repository, platform_revision):
     import subprocess
     import yaml
     from playbooks.services.files.contract import ROOT
-    validation_approval = dict(approval)
-    # Workload-independent validation of the admin boundary; runtime notes values
-    # are compiled by the notes adapter from the existing identity and data owners.
-    validation_approval['chartPath'] = 'charts/service'
     result = subprocess.run(['helm', 'template', 'services', str(ROOT / 'platform/delivery/services'),
                              '-n', 'argocd', '-f', '-'], input=json.dumps({
                                  'repository': platform_repository, 'revision': platform_revision,
-                                 'catalog': [{'definition': definition, 'approval': validation_approval}],
+                                 'catalog': [{'definition': definition, 'approval': approval}],
                                  'dataApprovals': {r['credentialReference']: {'service': name, 'kind': kind, 'name': r['name'],
                                      'item': ('cnpg' if kind == 'database' else 's3') + '-' + name + '-production'}
                                      for kind, r in definition['data'].items()}}),

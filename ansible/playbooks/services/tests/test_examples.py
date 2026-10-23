@@ -14,7 +14,8 @@ from playbooks.services.files.inputs import validate_catalog
 
 class ExampleTests(unittest.TestCase):
     def test_notes_preparation_preserves_identity_data_and_chart_without_test_sources(self):
-        value = definitions('example.invalid', 'https://github.com/example/public.git', 'a'*40, 'notes', 'notes')
+        public = yaml.safe_load((examples.ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
+        value = definitions('example.invalid', public, 'a'*40, 'notes', 'notes')
         validate_catalog(value)
         self.assertEqual(len(value['catalog']), 1)
         notes = value['catalog'][0]
@@ -24,6 +25,9 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual(notes['definition']['additionalExposures'][0]['class'], 'private')
         self.assertEqual(set(value['dataApprovals']), {'notes-database', 'notes-objects'})
         self.assertEqual(notes['definition']['data']['database']['retention'], 'retain')
+        value['catalog'][0]['approval']['repository'] = 'https://github.com/example/unapproved.git'
+        with self.assertRaises(ValueError):
+            validate_catalog(value)
 
     def test_bundles_preserve_private_approvals_without_publishing_or_repinning(self):
         value = {'catalog': [], 'dataApprovals': {}}

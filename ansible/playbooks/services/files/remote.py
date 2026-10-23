@@ -111,7 +111,7 @@ def inspect(request):
                             owner.get('controller') is True for owner in application.get('metadata', {}).get('ownerReferences', []))):
                 raise RuntimeError('Backend release differs from its approved ApplicationSet artifact')
         for workload_name in workload_names:
-            progressive = definition.get('rollouts', {}).get('enabled', False)
+            progressive = definition.get('rollouts', {}).get('enabled', False) and (not notes or workload_name == 'notes-web')
             if progressive and get('deployment', workload_name, namespace):
                 raise RuntimeError('Existing Deployment requires a reviewed controller migration before Rollout acceptance')
             deployed = get('rollout.argoproj.io' if progressive else 'deployment', workload_name, namespace)
