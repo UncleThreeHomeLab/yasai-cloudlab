@@ -4,7 +4,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from playbooks.istio.files.kube import application_ready, get, kube
+from playbooks.istio.files.kube import application_ready, condition, get, kube, wait
 from playbooks.keycloak.files.health import direct_https
 
 NS = 'cloudlab-app-rollouts-proof'
@@ -33,6 +33,8 @@ def snapshot():
     route = get('httproute', NAME, NS) or {}
     app = get('application.argoproj.io', APP, 'argocd') or {}
     status = rollout.get('status', {})
+    containers = rollout.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])
+    environment = {o['name']: o.get('value') for o in containers[0].get('env', [])} if containers else {}
     analysis = status.get('canary', {}).get('currentStepAnalysisRunStatus', {}).get('name')
     if not analysis and rollout:
         candidates = [o for o in (get('analysisruns.argoproj.io', namespace=NS) or {'items': []})['items']
@@ -47,6 +49,8 @@ def snapshot():
         metrics.append({key: metric.get(key) for key in ('name', 'phase', 'count', 'successful', 'failed', 'error')})
         metrics[-1]['values'] = [m.get('value') for m in metric.get('measurements', [])]
     return {'phase': status.get('phase'), 'stable': status.get('stableRS'), 'current': status.get('currentPodHash'),
+            'sequence': environment.get('RELEASE_SEQUENCE'), 'mode': environment.get('RELEASE_MODE'),
+            'observed': str(status.get('observedGeneration')) == str(rollout.get('metadata', {}).get('generation', -1)),
             'abort': status.get('abort', False), 'analysis': analysis,
             'analysis_phase': (run or {}).get('status', {}).get('phase'), 'metrics': metrics,
             'weights': [b.get('weight') for r in route.get('spec', {}).get('rules', []) for b in r.get('backendRefs', [])],
@@ -89,15 +93,40 @@ def run(request):
         workloads = get('deployments', namespace='cloudlab-app-notes')['items']
         retained = {o['metadata']['name']: [o['metadata']['uid'], o['spec']['template']['spec']['containers'][0]['image']]
                     for o in workloads}
-        return {'host': host, 'gateway': gateway, 'retained': retained}
+        policy = get('policy.kyverno.io', 'application-artifacts', 'cloudlab-app-notes')
+        delivery = get('externalsecret.external-secrets.io', 'harbor-application-pull', 'cloudlab-app-notes')
+        pull_sources = delivery.get('spec', {}).get('dataFrom', []) if delivery else []
+        images = {row[1] for row in retained.values()}
+        if (len(images) != 1 or not policy or policy['spec'].get('validationFailureAction') != 'Enforce' or
+                not policy.get('status', {}).get('ready') or not condition(delivery, 'Ready') or
+                len(pull_sources) != 1 or set(pull_sources[0]) != {'extract'} or
+                pull_sources[0]['extract'].get('key') != 'harbor-cloudlab-public-pull'):
+            raise RuntimeError('Accepted signed public release and ESO pull delivery are required')
+        image = next(iter(images))
+        if not any(image.startswith(reference.removesuffix('*')) for rule in policy['spec']['rules']
+                   for verification in rule.get('verifyImages', []) for reference in verification.get('imageReferences', [])):
+            raise RuntimeError('Fixture image is not covered by the retained signature verifier')
+        import hashlib
+        artifact = {'image': image, 'policy': policy['spec'], 'delivery': delivery['spec'],
+                    'policy_hash': hashlib.sha256(json.dumps(policy['spec'], sort_keys=True).encode()).hexdigest()}
+        return {'host': host, 'gateway': gateway, 'retained': retained, 'artifact': artifact}
     owned(get('namespace', NS), nonce)
     owned(get('appproject.argoproj.io', APP, 'argocd'), nonce)
     owned(get('application.argoproj.io', APP, 'argocd'), nonce)
     if action == 'prepare':
         for obj in request['objects']:
             if ((obj['kind'] == 'Namespace' and obj['metadata']['name'] == NS) or
-                (obj['metadata'].get('namespace') == NS and obj['kind'] in ('ResourceQuota', 'NetworkPolicy', 'AuthorizationPolicy')) or
+                (obj['metadata'].get('namespace') == NS and obj['kind'] in ('ResourceQuota', 'NetworkPolicy', 'AuthorizationPolicy', 'Policy', 'ExternalSecret')) or
                 (obj['metadata'].get('namespace') == 'argocd' and obj['metadata']['name'] == APP and obj['kind'] in ('AppProject', 'Application'))):
+                if obj['kind'] in ('Policy', 'ExternalSecret'):
+                    kind, name = ('policy.kyverno.io', 'application-artifacts') if obj['kind'] == 'Policy' else (
+                        'externalsecret.external-secrets.io', 'harbor-application-pull')
+                    if obj['metadata']['name'] != name or obj['spec'] != get(kind, name, 'cloudlab-app-notes')['spec']:
+                        raise RuntimeError('Disposable signature or registry declaration differs from its accepted owner')
+                if obj['kind'] == 'Application':
+                    wait(lambda: condition(get('externalsecret.external-secrets.io', 'harbor-application-pull', NS), 'Ready') and
+                         (get('policy.kyverno.io', 'application-artifacts', NS) or {}).get('status', {}).get('ready'),
+                         'disposable signed admission and ESO pull readiness', timeout=180)
                 write(obj, nonce)
             else:
                 raise ValueError('Fixture resource is outside the disposable scope')
@@ -134,16 +163,21 @@ def run(request):
             time.sleep(0.2)
         return {'new_stable_requests': 30}
     elif action == 'cleanup':
+        if get('namespace', NS):
+            delivery = owned(get('externalsecret.external-secrets.io', 'harbor-application-pull', NS), nonce)
+            secret_objects = (get('secrets', namespace=NS) or {'items': []})['items']
+            if ((get('pvc', namespace=NS) or {'items': []})['items'] or any(
+                    secret['metadata']['name'] != 'harbor-application-pull' or not delivery or
+                    not any(ref.get('uid') == delivery['metadata']['uid'] and ref.get('controller') is True
+                            for ref in secret['metadata'].get('ownerReferences', [])) for secret in secret_objects)):
+                raise RuntimeError('Disposable namespace contains unexpected data or credentials')
         app = get('application.argoproj.io', APP, 'argocd')
         if app:
             if app['metadata'].get('finalizers'):
                 raise RuntimeError('Unexpected application finalizer; cleanup refused')
             kube('delete', 'application.argoproj.io', APP, '-n', 'argocd', '--cascade=orphan', '--wait=true')
         if get('namespace', NS):
-            # Refuse teardown of any data-bearing fixture; this proof declares none.
-            if ((get('pvc', namespace=NS) or {'items': []})['items'] or
-                    (get('secrets', namespace=NS) or {'items': []})['items']):
-                raise RuntimeError('Disposable namespace contains unexpected data or credentials')
+            # Only the owned ESO pull copy can accompany this data-free fixture.
             kube('delete', 'namespace', NS, '--wait=true', '--timeout=180s')
         if get('appproject.argoproj.io', APP, 'argocd'):
             kube('delete', 'appproject.argoproj.io', APP, '-n', 'argocd', '--wait=true')

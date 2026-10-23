@@ -21,6 +21,7 @@ spec:
     - {group: networking.k8s.io, kind: NetworkPolicy}
     - {group: rbac.authorization.k8s.io, kind: Role}
     - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+    - {group: monitoring.coreos.com, kind: PodMonitor}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
