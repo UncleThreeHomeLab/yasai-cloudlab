@@ -55,7 +55,8 @@ def run():
     origin = 'https://' + entries[0]['definition']['exposure']['hostname']
     issuer = 'https://' + metadata()['loginHost'] + '/realms/applications'
     saved = json.loads(RESULT.read_text()) if RESULT.exists() else {}
-    policy = json.loads((ROOT / 'apps/notes/slo.json').read_text())['release']
+    from playbooks.observability.files.slo import definition
+    policy = definition()['release']
     if saved.get('nonce') == request['nonce']:
         evidence = result(saved['evidence'], policy)
     else:

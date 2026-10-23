@@ -2,6 +2,7 @@
 {{- $values := deepCopy (index $.Values $name) }}
 {{- if $.Values.definition }}
 {{- $definition := $.Values.definition }}
+{{- if $definition.rollouts.enabled }}{{ fail "Use a stateless service declaration for measured release fixtures; Notes composition remains on its accepted Deployment flow" }}{{- end }}
 {{- $_ := set $values "artifactPolicyHash" ($definition.artifactPolicyHash | default "") }}
 {{- $private := dict }}
 {{- range $definition.additionalExposures }}

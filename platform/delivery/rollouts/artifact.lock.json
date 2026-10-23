@@ -1,0 +1,5 @@
+{
+  "chart": {"version": "2.43.8", "app_version": "v1.10.1", "archive": "charts/argo-rollouts-2.43.8.tgz", "sha256": "1c998ee3cd72a078ca73ba399644198fe8a446399b5fc5bbff94af5043a0747d"},
+  "images": {"quay.io/argoproj/argo-rollouts:v1.10.1": "sha256:fbcc4cf0a29da25d86230992b1dfdeadf30b6f1baa74ea7c9c98e3e580769396"},
+  "plugin": {"version": "v0.17.0", "url": "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.17.0/gatewayapi-plugin-linux-amd64", "sha256": "1904ca787d33107c140521899d61fff030ee75d99908bd175fca5a4647759061"}
+}

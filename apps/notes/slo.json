@@ -13,5 +13,5 @@
     {"long": "1h", "short": "5m", "seconds": 3600, "budget_fraction": 0.02, "minimum_samples": 100, "severity": "critical"},
     {"long": "6h", "short": "30m", "seconds": 21600, "budget_fraction": 0.05, "minimum_samples": 1000, "severity": "warning"}
   ],
-  "release": {"route": "/api/release/notes", "traffic": "release", "rate_per_second": 2, "duration_seconds": 120, "maximum_vus": 4, "minimum_samples": 230, "p95_seconds": 0.25, "maximum_seconds": 1, "failure_rate": 0.01}
+  "release": {"route": "/api/release/notes", "rate_per_second": 2, "maximum_vus": 4}
 }

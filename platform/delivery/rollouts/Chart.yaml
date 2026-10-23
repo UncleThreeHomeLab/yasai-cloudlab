@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cloudlab-rollouts
+version: 1.0.0
+dependencies:
+  - name: argo-rollouts
+    version: 2.43.8
+    repository: https://argoproj.github.io/argo-helm

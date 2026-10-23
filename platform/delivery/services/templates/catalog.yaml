@@ -46,6 +46,9 @@ metadata:
     pod-security.kubernetes.io/enforce-version: v1.36
     istio.io/dataplane-mode: ambient
     cloudlab.io/service-secrets: approved
+    {{- if $v.rollouts.enabled }}
+    cloudlab.io/release-analysis: approved
+    {{- end }}
     {{- if $classes }}
     cloudlab.io/gateway: {{ if gt (len $classes) 1 }}mixed{{ else }}{{ first $classes }}{{ end }}
     {{- end }}
@@ -102,6 +105,30 @@ spec:
               {{- range $classes }}
               - {{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" . | quote }}
               {{- end }}
+{{- if $v.rollouts.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: release-scrapes, namespace: {{ $namespace }}}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: {{ $v.name }}}}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-observability}}}]
+      ports: [{protocol: TCP, port: 9091}, {protocol: TCP, port: 15008}]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: release-scrapes, namespace: {{ $namespace }}}
+spec:
+  selector: {matchLabels: {app.kubernetes.io/name: {{ $v.name }}}}
+  action: ALLOW
+  rules:
+    - from:
+        - source: {principals: ['cluster.local/ns/cloudlab-observability/sa/cloudlab-prometheus']}
+      to:
+        - operation: {ports: ['9091']}
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -120,6 +147,11 @@ spec:
     - {group: '', kind: PersistentVolumeClaim}
     - {group: apps, kind: Deployment}
     - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+    {{- if $v.rollouts.enabled }}
+    - {group: argoproj.io, kind: Rollout}
+    - {group: argoproj.io, kind: AnalysisTemplate}
+    - {group: monitoring.coreos.com, kind: ServiceMonitor}
+    {{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -180,7 +212,20 @@ spec:
       destination:
         server: https://kubernetes.default.svc
         namespace: {{ $namespace }}
+      {{- if $v.rollouts.enabled }}
+      ignoreDifferences:
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jqPathExpressions:
+            - '.spec.rules[].backendRefs[] | select(.name == "{{ $v.name }}" or .name == "{{ $v.name }}-canary") | .weight'
+        {{- range $service := list $v.name (printf "%s-canary" $v.name) }}
+        - group: ''
+          kind: Service
+          name: {{ $service }}
+          jsonPointers: ['/spec/selector/rollouts-pod-template-hash']
+        {{- end }}
+      {{- end }}
       syncPolicy:
         automated: {prune: false, selfHeal: true, allowEmpty: false}
-        syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+        syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true{{ if $v.rollouts.enabled }}, RespectIgnoreDifferences=true{{ end }}]
 {{- end }}

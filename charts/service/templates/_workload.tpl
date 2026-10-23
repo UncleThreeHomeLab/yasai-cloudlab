@@ -3,8 +3,21 @@
 {{- if and .Values.persistence.enabled (gt (int .Values.replicas) 1) }}
 {{- fail "ReadWriteOnce service persistence requires one replica" }}
 {{- end }}
-{{- if or .Values.monitoring.enabled .Values.rollouts.enabled }}
-{{- fail "Monitoring and Rollouts require a separately accepted dependency integration" }}
+{{- if .Values.monitoring.enabled }}
+{{- fail "Monitoring requires a separately accepted dependency integration" }}
+{{- end }}
+{{- if and .Values.rollouts.enabled (or .Values.persistence.enabled (eq .Values.exposure.class "none")) }}
+{{- fail "Rollouts require a stateless service and a Gateway API exposure" }}
+{{- end }}
+{{- $metrics := false }}
+{{- range .Values.ports }}
+{{- if and (eq .name "http-metrics") (eq (int .port) 9091) }}{{ $metrics = true }}{{- end }}
+{{- end }}
+{{- if and .Values.rollouts.enabled (not $metrics) }}
+{{- fail "Rollouts require the per-revision release exporter on http-metrics port 9091" }}
+{{- end }}
+{{- if and .Values.rollouts.enabled (hasKey .Values.environment "CLOUDLAB_REVISION") }}
+{{- fail "Rollouts reserve CLOUDLAB_REVISION for the pod template hash" }}
 {{- end }}
 {{- range .Values.secrets }}
 {{- if or (hasPrefix "../" .mountPath) (hasPrefix "/var/run" .mountPath) (hasPrefix "/proc" .mountPath) }}
@@ -18,14 +31,44 @@ metadata:
   labels: {cloudlab.io/owner: {{ .Values.owner | quote }}}
 automountServiceAccountToken: false
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: {{ if .Values.rollouts.enabled }}argoproj.io/v1alpha1{{ else }}apps/v1{{ end }}
+kind: {{ if .Values.rollouts.enabled }}Rollout{{ else }}Deployment{{ end }}
 metadata:
   name: {{ .Values.name }}
   labels: {cloudlab.io/owner: {{ .Values.owner | quote }}}
 spec:
   replicas: {{ .Values.replicas }}
   revisionHistoryLimit: 2
+  {{- if .Values.rollouts.enabled }}
+  progressDeadlineSeconds: 600
+  progressDeadlineAbort: true
+  strategy:
+    canary:
+      stableService: {{ .Values.name }}
+      canaryService: {{ .Values.name }}-canary
+      maxUnavailable: 0
+      maxSurge: 1
+      scaleDownDelaySeconds: 30
+      abortScaleDownDelaySeconds: 30
+      trafficRouting:
+        plugins:
+          argoproj-labs/gatewayAPI:
+            namespace: {{ .Release.Namespace }}
+            disableInProgressLabel: true
+            httpRoutes:
+              - {name: {{ .Values.name }}}
+              {{- range $index, $exposure := .Values.additionalExposures }}
+              - {name: {{ printf "%s-extra-%d" $.Values.name $index }}}
+              {{- end }}
+      steps:
+        - setWeight: 50
+        - pause: {duration: 30s}
+        - analysis:
+            templates: [{templateName: {{ .Values.name }}-release}]
+            args:
+              - name: revision
+                valueFrom: {podTemplateHashValue: Latest}
+  {{- else }}
   strategy:
     {{- if .Values.persistence.enabled }}
     type: Recreate
@@ -33,6 +76,7 @@ spec:
     type: RollingUpdate
     rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
     {{- end }}
+  {{- end }}
   selector:
     matchLabels: {app.kubernetes.io/name: {{ .Values.name }}}
   template:
@@ -58,7 +102,7 @@ spec:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
-          matchLabelKeys: [pod-template-hash]
+          matchLabelKeys: [{{ if .Values.rollouts.enabled }}rollouts-pod-template-hash{{ else }}pod-template-hash{{ end }}]
           labelSelector:
             matchLabels: {app.kubernetes.io/name: {{ .Values.name }}}
       {{- end }}
@@ -113,6 +157,11 @@ spec:
             capabilities: {drop: [ALL]}
           env:
             - {name: PYTHONDONTWRITEBYTECODE, value: '1'}
+            {{- if .Values.rollouts.enabled }}
+            - name: CLOUDLAB_REVISION
+              valueFrom:
+                fieldRef: {fieldPath: "metadata.labels['rollouts-pod-template-hash']"}
+            {{- end }}
             {{- range $key, $value := .Values.environment }}
             - {name: {{ $key }}, value: {{ $value | quote }}}
             {{- end }}
@@ -151,6 +200,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.name }}
+  labels: {app.kubernetes.io/name: {{ .Values.name }}}
 spec:
   type: ClusterIP
   selector: {app.kubernetes.io/name: {{ .Values.name }}}
@@ -158,6 +208,50 @@ spec:
     {{- range .Values.ports }}
     - {name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: TCP}
     {{- end }}
+{{- if .Values.rollouts.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}-canary
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: {{ .Values.name }}}
+  ports:
+    {{- range .Values.ports }}
+    - {name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: TCP}
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}-metrics
+  labels: {cloudlab.io/release-metrics: {{ .Values.name }}}
+spec:
+  selector: {app.kubernetes.io/name: {{ .Values.name }}}
+  ports:
+    - {name: http-metrics, port: 9091, targetPort: http-metrics, appProtocol: http}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: {{ .Values.name }}-release}
+spec:
+  selector:
+    matchLabels: {cloudlab.io/release-metrics: {{ .Values.name }}}
+  endpoints:
+    - port: http-metrics
+      interval: 5s
+      scrapeTimeout: 3s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_rollouts_pod_template_hash]
+          targetLabel: revision
+        - targetLabel: service
+          replacement: {{ .Values.name }}
+  sampleLimit: 1000
+  targetLimit: 8
+  labelLimit: 20
+  labelValueLengthLimit: 100
+{{- end }}
 {{- if .Values.persistence.enabled }}
 ---
 apiVersion: v1

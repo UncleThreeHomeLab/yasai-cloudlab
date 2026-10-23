@@ -1,0 +1,12 @@
+---
+- name: Require the Git-owned progressive delivery controller
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Wait for the pinned Rollouts controller
+      ansible.builtin.command:
+        argv: [/usr/local/bin/k3s, kubectl, rollout, status, deployment/argo-rollouts, -n, argo-rollouts, --timeout=300s]
+      changed_when: false
+      when: (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).rollouts.enabled | default(false)

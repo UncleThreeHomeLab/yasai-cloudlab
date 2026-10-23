@@ -6,7 +6,9 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def definition():
-    return json.loads((ROOT / 'apps/notes/slo.json').read_text())
+    value = json.loads((ROOT / 'apps/notes/slo.json').read_text())
+    value['release'].update(json.loads((ROOT / 'charts/service/release-policy.json').read_text()))
+    return value
 
 
 def expressions(indicator, window):
