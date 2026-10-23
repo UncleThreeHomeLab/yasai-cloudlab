@@ -82,6 +82,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(mapping['-1']['text'], 'No traffic')
         self.assertTrue(all('> 0' in target['expr'] and '== 0' in target['expr'] for target in observed['targets']))
         self.assertIn('== 0', observed['targets'][1]['expr'])
+        self.assertEqual(panels['Canary share over time']['targets'][1]['expr'], observed['targets'][1]['expr'])
         roles = panels['Stable and candidate revisions']['transformations'][0]['options']['include']['names']
         self.assertEqual(roles, ['role', 'revision'])
 
