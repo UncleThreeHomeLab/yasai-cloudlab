@@ -98,7 +98,9 @@ def run(request):
         pull_sources = delivery.get('spec', {}).get('dataFrom', []) if delivery else []
         images = {row[1] for row in retained.values()}
         if (len(images) != 1 or not policy or policy['spec'].get('validationFailureAction') != 'Enforce' or
-                not policy.get('status', {}).get('ready') or not condition(delivery, 'Ready') or
+                not condition(policy, 'Ready') or not condition(delivery, 'Ready') or
+                any(not o['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:')
+                    for o in (policy, delivery)) or
                 len(pull_sources) != 1 or set(pull_sources[0]) != {'extract'} or
                 pull_sources[0]['extract'].get('key') != 'harbor-cloudlab-public-pull'):
             raise RuntimeError('Accepted signed public release and ESO pull delivery are required')
@@ -125,7 +127,7 @@ def run(request):
                         raise RuntimeError('Disposable signature or registry declaration differs from its accepted owner')
                 if obj['kind'] == 'Application':
                     wait(lambda: condition(get('externalsecret.external-secrets.io', 'harbor-application-pull', NS), 'Ready') and
-                         (get('policy.kyverno.io', 'application-artifacts', NS) or {}).get('status', {}).get('ready'),
+                         condition(get('policy.kyverno.io', 'application-artifacts', NS), 'Ready'),
                          'disposable signed admission and ESO pull readiness', timeout=180)
                 write(obj, nonce)
             else:

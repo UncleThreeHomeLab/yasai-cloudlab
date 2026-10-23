@@ -22,7 +22,8 @@ export const options = {
   systemTags: ['status', 'method', 'name', 'scenario', 'error_code'],
 };
 export default function () {
-  const response = http.get(origin + '/canary-proof', { timeout: '2s', tags: {name: 'disposable-release'} });
+  const response = http.get(origin + '/canary-proof', { headers: {Host: origin.substring(8).split(':')[0]},
+    timeout: '2s', tags: {name: 'disposable-release'} });
   unknown.add(response.headers['X-Cloudlab-Revision'] !== __ENV.STABLE_REVISION &&
     response.headers['X-Cloudlab-Revision'] !== __ENV.CANARY_REVISION ? 1 : 0);
   if (exec.instance.currentTestRunDuration < policy.duration_seconds * 1000) {

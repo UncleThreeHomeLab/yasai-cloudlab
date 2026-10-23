@@ -108,6 +108,46 @@ class RolloutsTests(TestCase):
             self.assertEqual(snapshot()['current'], 'new')
             self.assertIsNone(snapshot()['analysis'])
 
+    def test_signed_prerequisite_uses_native_ready_conditions_and_accepted_owners(self):
+        from datetime import datetime, timezone
+        from playbooks.rollouts.files import remote
+        image = 'registry.example.invalid/cloudlab-public/notes@sha256:' + 'a' * 64
+        metadata = {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-services:owned'}}
+        status = {'conditions': [{'type': 'Ready', 'status': 'True'}]}
+        policy = {'metadata': copy.deepcopy(metadata), 'status': status,
+                  'spec': {'validationFailureAction': 'Enforce', 'rules': [{'verifyImages': [
+                      {'imageReferences': ['registry.example.invalid/cloudlab-public/notes@sha256:*']}]}]}}
+        delivery = {'metadata': metadata, 'status': status,
+                    'spec': {'dataFrom': [{'extract': {'key': 'harbor-cloudlab-public-pull'}}]}}
+        def get(kind, name=None, namespace=None):
+            if kind.startswith('lease.'):
+                return {'spec': {'holderIdentity': 'controller', 'renewTime': datetime.now(timezone.utc).isoformat()}}
+            if kind == 'configmap':
+                return {'data': {'trafficRouterPlugins': 'pinned-checksum'}}
+            if kind == 'deployment':
+                return {'spec': {'template': {'spec': {'containers': [{'image': 'controller-image'}]}}}}
+            if kind == 'deployments':
+                return {'items': [{'metadata': {'name': 'notes-api', 'uid': 'retained'},
+                                   'spec': {'template': {'spec': {'containers': [{'image': image}]}}}}]}
+            if kind == 'httproute':
+                return {'items': [{'spec': {'parentRefs': [{'namespace': 'cloudlab-gateway-private'}],
+                                           'hostnames': ['notes.internal.example.invalid']}}]}
+            if kind == 'service':
+                return {'spec': {'clusterIP': '192.0.2.1'}}
+            if kind.startswith('policy.'):
+                return policy
+            if kind.startswith('externalsecret.'):
+                return delivery
+            raise AssertionError(kind)
+        request = {'nonce': 'a' * 32, 'action': 'prerequisites', 'revision': 'b' * 40,
+                   'controller_image': 'controller-image', 'plugin_sha256': 'pinned-checksum'}
+        with patch.object(remote, 'get', side_effect=get), patch.object(remote, 'application_ready', return_value=True), \
+                patch.object(remote, 'kube', return_value=Mock(returncode=1, stdout='no')):
+            self.assertEqual(remote.run(request)['artifact']['image'], image)
+            policy['metadata']['annotations'] = {}
+            with self.assertRaises(RuntimeError):
+                remote.run(request)
+
     def test_fixture_has_no_persistence_credentials_or_broad_project(self):
         rows = objects('https://github.com/example/platform.git', 'a' * 40, 'test.internal.example.invalid')
         self.assertFalse({'Secret', 'PersistentVolumeClaim'} & {o['kind'] for o in rows})

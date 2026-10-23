@@ -126,7 +126,7 @@ def prove():
     applies = []
     for _ in range(2):
         stats = {}
-        for component in ('argocd/010-bootstrap', 'observability/020-converge'):
+        for component in ('argocd/010-bootstrap', 'services/010-bootstrap', 'observability/020-converge'):
             subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/' + component + '.yml'],
                            cwd=ROOT / 'ansible', check=True, timeout=600)
             stats[component] = json.loads(Path('/tmp/lab-stats.json').read_text())
@@ -187,7 +187,9 @@ def prove():
                     if process.poll() is None:
                         process.terminate()
                         process.communicate(timeout=15)
-                state = remote(nonce, 'snapshot')
+                state = wait_for(nonce, lambda s: s['abort'] or (s['phase'] == 'Healthy' and
+                                 s['current'] == s['stable'] and s['weights'] == [100, 0]),
+                                 'analysis decision and traffic convergence', timeout=120)
                 result['pending_case'] = {'case': mode, 'traffic': measured, 'state': state,
                                           'decision_seconds': decision_seconds, 'weight_observations': observations}
                 RECEIPT.write_text(json.dumps(result, indent=2))
