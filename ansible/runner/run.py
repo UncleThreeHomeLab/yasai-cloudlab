@@ -222,6 +222,7 @@ def main():
             raise SystemExit(result.returncode)
         return
     if action == 'charts':
+        subprocess.run([sys.executable, '-m', 'playbooks.rollouts.files.check'], cwd='/workspace', check=True)
         subprocess.run([sys.executable, '-m', 'playbooks.admission.files.chart'], cwd='/workspace', check=True)
         subprocess.run([sys.executable, '-m', 'playbooks.ci.files.chart'], cwd='/workspace', check=True)
         subprocess.run([sys.executable, '/workspace/verification/integration/chart_parity.py'], check=True)

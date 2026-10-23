@@ -1,0 +1,32 @@
+# No Secret access or alternate traffic providers. Analysis uses the private Prometheus API.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: argo-rollouts}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [rollouts, rollouts/status, rollouts/finalizers, analysisruns, analysisruns/status, analysisruns/finalizers, analysistemplates, clusteranalysistemplates, experiments, experiments/status, experiments/finalizers]
+    verbs: [get, list, watch, update, patch, create, delete]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch, update, patch, create, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [pods, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [services]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, update, patch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: argo-rollouts}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: argo-rollouts}
+subjects: [{kind: ServiceAccount, name: argo-rollouts, namespace: argo-rollouts}]

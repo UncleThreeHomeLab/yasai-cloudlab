@@ -459,7 +459,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "const": false
+          "type": "boolean"
         }
       },
       "required": [

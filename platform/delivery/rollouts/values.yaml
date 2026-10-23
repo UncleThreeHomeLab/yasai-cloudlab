@@ -1,0 +1,28 @@
+argo-rollouts:
+  fullnameOverride: argo-rollouts
+  createClusterAggregateRoles: false
+  controller:
+    replicas: 1
+    createClusterRole: false
+    image:
+      tag: v1.10.1@sha256:fbcc4cf0a29da25d86230992b1dfdeadf30b6f1baa74ea7c9c98e3e580769396
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    logging: {format: json, level: warn}
+    trafficRouterPlugins:
+      - name: argoproj-labs/gatewayAPI
+        location: https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.17.0/gatewayapi-plugin-linux-amd64
+        sha256: 1904ca787d33107c140521899d61fff030ee75d99908bd175fca5a4647759061
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile: {type: RuntimeDefault}
+  crdAnnotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+  providerRBAC: {enabled: false}
+  notifications:
+    configmap: {create: false}
+  dashboard: {enabled: false}

@@ -2,7 +2,8 @@ import http from 'k6/http';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
-const policy = JSON.parse(open('./slo.json')).release;
+const policy = { ...JSON.parse(open('./slo.json')).release,
+  ...JSON.parse(open('../../charts/service/release-policy.json')) };
 const origin = __ENV.RELEASE_ORIGIN;
 const token = __ENV.RELEASE_TOKEN;
 if (!/^https:\/\/[a-z0-9.-]+$/.test(origin || '') || !token || token.length > 16384) {

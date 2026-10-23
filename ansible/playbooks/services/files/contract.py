@@ -58,7 +58,8 @@ def validate(definition):
                    for kind in ('requests', 'limits')]
         if amounts[0] > amounts[1]:
             raise ValueError('Resource request exceeds limit')
-        copies = value['replicas'] + (0 if value['persistence']['enabled'] else 1)
+        copies = (2 * value['replicas'] if value['rollouts']['enabled'] else
+                  value['replicas'] + (0 if value['persistence']['enabled'] else 1))
         if amounts[0] * copies > 1000 or amounts[1] * copies > 2000:
             raise ValueError('Service exceeds its namespace resource budget')
     mounts = value.get('secrets', []) + value.get('configMaps', [])

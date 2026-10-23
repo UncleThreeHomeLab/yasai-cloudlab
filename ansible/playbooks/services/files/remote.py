@@ -111,13 +111,18 @@ def inspect(request):
                             owner.get('controller') is True for owner in application.get('metadata', {}).get('ownerReferences', []))):
                 raise RuntimeError('Backend release differs from its approved ApplicationSet artifact')
         for workload_name in workload_names:
-            deployed = get('deployment', workload_name, namespace)
+            progressive = definition.get('rollouts', {}).get('enabled', False)
+            if progressive and get('deployment', workload_name, namespace):
+                raise RuntimeError('Existing Deployment requires a reviewed controller migration before Rollout acceptance')
+            deployed = get('rollout.argoproj.io' if progressive else 'deployment', workload_name, namespace)
             if not notes and deployed:
                 actual_environment = {row['name']: row.get('value') for row in deployed['spec']['template']['spec']['containers'][0].get('env', [])}
                 if any(actual_environment.get(key) != value for key, value in definition['environment'].items()):
                     raise RuntimeError('Backend environment differs from its approved Git definition')
             if (not deployed or deployed.get('status', {}).get('observedGeneration') != deployed['metadata']['generation'] or
                     deployed.get('status', {}).get('availableReplicas') != definition['replicas'] or
+                    (progressive and (deployed['status'].get('phase') != 'Healthy' or
+                                      deployed['status'].get('stableRS') != deployed['status'].get('currentPodHash'))) or
                     deployed['spec']['template']['spec']['containers'][0]['image'] != expected_image):
                 raise RuntimeError('Backend is not ready at its pinned image')
         quota = get('resourcequota', 'budget', namespace)
@@ -238,9 +243,10 @@ def inspect(request):
         kube('patch', 'application.argoproj.io', application_name, '-n', 'argocd', '--type=merge',
              '-p', json.dumps({'spec': {'syncPolicy': {'automated': {'enabled': False}}}}))
         children = application.get('status', {}).get('resources', [])
-        allowed = {'HTTPRoute'} if action == 'retire-route' else {'Deployment', 'Service', 'ServiceAccount', 'HTTPRoute', 'ConfigMap'}
+        allowed = {'HTTPRoute'} if action == 'retire-route' else {'Deployment', 'Service', 'ServiceAccount', 'HTTPRoute', 'ConfigMap', 'Rollout', 'AnalysisTemplate', 'ServiceMonitor'}
         planned = []
-        groups = {'Deployment': 'apps', 'Service': '', 'ServiceAccount': '', 'HTTPRoute': 'gateway.networking.k8s.io', 'ConfigMap': ''}
+        groups = {'Deployment': 'apps', 'Service': '', 'ServiceAccount': '', 'HTTPRoute': 'gateway.networking.k8s.io', 'ConfigMap': '',
+                  'Rollout': 'argoproj.io', 'AnalysisTemplate': 'argoproj.io', 'ServiceMonitor': 'monitoring.coreos.com'}
         for child in children:
             if child['kind'] not in allowed: continue
             if child.get('group', '') != groups[child['kind']]:

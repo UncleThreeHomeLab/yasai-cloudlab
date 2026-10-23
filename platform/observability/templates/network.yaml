@@ -14,6 +14,9 @@ spec:
   egress:
     - to: [{podSelector: {}}]
     - to:
+        - namespaceSelector: {matchLabels: {cloudlab.io/release-analysis: approved}}
+      ports: [{protocol: TCP, port: 9091}, {protocol: TCP, port: 15008}]
+    - to:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-app-notes}}
           podSelector: {matchLabels: {cloudlab.io/telemetry: safe}}
       ports: [{protocol: TCP, port: 15008}]

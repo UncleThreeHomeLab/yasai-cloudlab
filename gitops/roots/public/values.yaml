@@ -36,3 +36,5 @@ admission:
 ci:
   enabled: true
   poolEnabled: false
+rollouts:
+  enabled: true

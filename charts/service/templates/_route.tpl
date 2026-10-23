@@ -12,7 +12,12 @@ spec:
     - matches:
         - path: {type: PathPrefix, value: {{ .Values.exposure.path | quote }}}
       backendRefs:
+        {{- if .Values.rollouts.enabled }}
+        - {name: {{ .Values.name }}, port: {{ .Values.exposure.port }}, weight: 100}
+        - {name: {{ .Values.name }}-canary, port: {{ .Values.exposure.port }}, weight: 0}
+        {{- else }}
         - {name: {{ .Values.name }}, port: {{ .Values.exposure.port }}}
+        {{- end }}
 {{- end }}
 {{- range $index, $exposure := .Values.additionalExposures }}
 {{- if eq $exposure.class "none" }}{{ fail "Additional exposure requires a public or private route" }}{{- end }}
@@ -29,7 +34,12 @@ spec:
     - matches:
         - path: {type: PathPrefix, value: {{ $exposure.path | quote }}}
       backendRefs:
+        {{- if $.Values.rollouts.enabled }}
+        - {name: {{ $.Values.name }}, port: {{ $exposure.port }}, weight: 100}
+        - {name: {{ $.Values.name }}-canary, port: {{ $exposure.port }}, weight: 0}
+        {{- else }}
         - {name: {{ $.Values.name }}, port: {{ $exposure.port }}}
+        {{- end }}
 {{- end }}
 
 {{- end }}

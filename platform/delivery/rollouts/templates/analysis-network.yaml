@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: rollout-analysis, namespace: cloudlab-observability}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: argo-rollouts}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: argo-rollouts}}
+      ports: [{protocol: TCP, port: 9090}, {protocol: TCP, port: 15008}]

@@ -18,9 +18,30 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `exposure`, `additionalExposures` | One primary exposure plus optional private views; common hostname/class/access/path/port fields |
 | `data` | Optional database/bucket names, scoped credential references and `retain` policy |
 | `oidc` | Optional applications-realm client, exact callback paths, audience, profile/email scopes and role/group mapping |
-| `monitoring`, `rollouts` | Disabled until their separately verified integrations exist |
+| `monitoring` | Disabled; application monitoring stays with its accepted telemetry owner |
+| `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
 
 Source visibility (`approval.visibility`) is independent of network exposure.
+Rollouts require the Git-owned [controller and pinned plugin](../../platform/delivery/rollouts/),
+an exposed stateless service and `http-metrics:9091`. The exporter must label
+`cloudlab_http_requests_total`, `cloudlab_http_duration_seconds_bucket` and
+`cloudlab_http_duration_seconds_max` with `service`, `traffic="release"` and
+`revision` from the chart-supplied `CLOUDLAB_REVISION`. Initialize zero error counters.
+The maximum gauge must retain the maximum for the evaluation window. Keep this
+synthetic traffic separate from user SLOs. [Release policy](release-policy.json)
+sets the 120-second window, minimum 230 samples and strict error/latency limits.
+Missing, non-finite, low-sample or failed queries abort; they cannot promote.
+The catalog delegates only backend weights and revision selectors to Rollouts.
+Argo owns Rollout, Services, HTTPRoutes and AnalysisTemplates; Rollouts owns generated
+ReplicaSets and AnalysisRuns. Do not enable this on an existing Deployment without
+an explicitly reviewed migration; Notes retains its accepted signed Deployment flow.
+Run `docker compose run --build --rm --entrypoint python lab -m
+playbooks.rollouts.tests.proof prove` from a clean published checkout. It applies
+the scoped GitOps bootstrap twice and exercises disposable releases through the
+existing private gateway, with verified TLS, 6 RPS, four VUs and 190 seconds per case.
+It restores the healthy release before removing its data-free namespace. Interrupted
+proofs retain `/recovery/rollouts-proof.json`; rerun with `cleanup` to restore and
+remove only those owned fixtures. Measurements remain in the recovery volume.
 An administrator may set `approval.artifact` with `repository`, `project`,
 `releasePath`, `sourceRepository`, retained signing `identities` and `action`
 (`Audit` before tested `Enforce`). The repository must match the application and

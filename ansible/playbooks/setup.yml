@@ -56,6 +56,8 @@
   ansible.builtin.import_playbook: harbor/020-converge.yml
 - name: Run harbor/030-schedules.yml
   ansible.builtin.import_playbook: harbor/030-schedules.yml
+- name: Require the Git-owned progressive delivery controller
+  ansible.builtin.import_playbook: rollouts/010-converge.yml
 - name: Retire replaced runtime after every consumer converges
   ansible.builtin.import_playbook: data/030-retire-runtime.yml
 - name: Retire replaced identity runtime after consumers converge
