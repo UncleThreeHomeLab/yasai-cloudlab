@@ -116,8 +116,6 @@ def prove():
     CHECKPOINT.write_text(json.dumps({'nonce': nonce}))
     CHECKPOINT.chmod(0o600)
     image = next(name + '@' + digest for name, digest in pin['images'].items())
-    prerequisites = remote(nonce, 'prerequisites', revision=source['revision'], controller_image=image,
-                           plugin_sha256=pin['plugin']['sha256'])
     # Apply only the accepted Argo bootstrap entry point; no host, recovery or application CI scenarios.
     applies = []
     for _ in range(2):
@@ -126,6 +124,15 @@ def prove():
         applies.append(json.loads(Path('/tmp/lab-stats.json').read_text()))
     if any(row['changed'] or row.get('failures') or row.get('unreachable') for row in applies[1].values()):
         raise RuntimeError('Scoped repeat apply did not converge without changes')
+    deadline = time.monotonic() + 600
+    while True:
+        prerequisites = remote(nonce, 'prerequisites', revision=source['revision'], controller_image=image,
+                               plugin_sha256=pin['plugin']['sha256'])
+        if prerequisites.get('ready') is not False:
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Pinned Git-owned Rollouts application is not ready')
+        time.sleep(10)
     result = {'revision': source['revision'], 'scoped_applies': applies, 'runs': [], 'restored': False, 'fixture_removed': False}
     prepared = False
     try:
