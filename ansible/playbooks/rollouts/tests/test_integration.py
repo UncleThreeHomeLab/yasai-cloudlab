@@ -2,7 +2,7 @@ import copy
 import json
 from pathlib import Path
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from playbooks.rollouts.files.check import check, ROOT
 from playbooks.rollouts.files.remote import owned
@@ -13,7 +13,7 @@ from playbooks.services.files.gitops import resources
 
 
 class RolloutsTests(TestCase):
-    def test_controller_artifact_images_and_plugin_are_pinned_without_secret_access(self):
+    def test_controller_artifact_images_and_plugin_are_pinned_without_application_secret_access(self):
         self.assertTrue(check()['pinned_plugin_checksum'])
 
     def test_analysis_is_per_revision_fail_closed_and_uses_accepted_baseline(self):
@@ -83,6 +83,16 @@ class RolloutsTests(TestCase):
     def test_foreign_disposable_owner_refuses_mutation(self):
         with self.assertRaises(RuntimeError):
             owned({'metadata': {'labels': {}}}, 'a' * 32)
+
+    def test_new_rollout_with_no_analysis_runs_has_a_readable_snapshot(self):
+        from playbooks.rollouts.files.remote import snapshot
+        def get(kind, *_args, **_kwargs):
+            if kind == 'rollout.argoproj.io':
+                return {'metadata': {'uid': 'fixture'}, 'status': {'phase': 'Healthy', 'currentPodHash': 'new'}}
+            return None
+        with patch('playbooks.rollouts.files.remote.get', side_effect=get):
+            self.assertEqual(snapshot()['current'], 'new')
+            self.assertIsNone(snapshot()['analysis'])
 
     def test_fixture_has_no_persistence_credentials_or_broad_project(self):
         rows = objects('https://github.com/example/platform.git', 'a' * 40, 'test.internal.example.invalid')

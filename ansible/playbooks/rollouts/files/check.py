@@ -28,8 +28,17 @@ def check():
     if plugins != [{'name': 'argoproj-labs/gatewayAPI', 'location': lock['plugin']['url'], 'sha256': lock['plugin']['sha256']}]:
         raise ValueError('Gateway plugin version or checksum differs')
     roles = [o for o in objects if o['kind'] in ('Role', 'ClusterRole')]
-    if any(resource in ('secrets', '*', 'virtualservices') for role in roles for rule in role['rules'] for resource in rule['resources']):
-        raise ValueError('Rollouts permissions exceed the Gateway API integration')
+    for role in roles:
+        for rule in role['rules']:
+            if '*' in rule['resources'] or '*' in rule['verbs']:
+                raise ValueError('Rollouts permissions must name resources and verbs')
+            if 'secrets' in rule['resources'] and not (
+                    role['kind'] == 'Role' and role['metadata'].get('namespace') == 'argo-rollouts' and
+                    rule.get('resourceNames') == ['argo-rollouts-notification-secret'] and
+                    set(rule['verbs']) <= {'get', 'list', 'watch'}):
+                raise ValueError('Rollouts must not read application or arbitrary Secrets')
+            if set(rule['resources']) & {'ingresses', 'virtualservices', 'destinationrules', 'jobs'} and not set(rule['verbs']) <= {'get', 'list', 'watch'}:
+                raise ValueError('Alternate providers and Job analysis must remain read-only')
     return {'controller_objects': len(objects), 'deterministic': True, 'pinned_plugin_checksum': True}
 
 
