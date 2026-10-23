@@ -4,8 +4,14 @@ kind: ClusterRole
 metadata: {name: argo-rollouts}
 rules:
   - apiGroups: [argoproj.io]
-    resources: [rollouts, rollouts/status, rollouts/finalizers, analysisruns, analysisruns/status, analysisruns/finalizers, analysistemplates, clusteranalysistemplates, experiments, experiments/status, experiments/finalizers]
+    resources: [rollouts, rollouts/status, rollouts/finalizers]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [argoproj.io]
+    resources: [analysisruns, analysisruns/status, analysisruns/finalizers, experiments, experiments/status, experiments/finalizers]
     verbs: [get, list, watch, update, patch, create, delete]
+  - apiGroups: [argoproj.io]
+    resources: [analysistemplates, clusteranalysistemplates]
+    verbs: [get, list, watch]
   - apiGroups: [apps]
     resources: [replicasets]
     verbs: [get, list, watch, update, patch, create, delete]
@@ -44,6 +50,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata: {name: argo-rollouts-config, namespace: argo-rollouts}
 rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, create, update, patch]
   - apiGroups: ['']
     resources: [configmaps]
     verbs: [get, list, watch]

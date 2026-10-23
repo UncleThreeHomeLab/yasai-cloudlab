@@ -63,6 +63,12 @@ def run(request):
     if action == 'prerequisites':
         if not application_ready('cloudlab-rollouts', request['revision']):
             return {'ready': False}
+        from datetime import datetime, timezone
+        lease = get('lease.coordination.k8s.io', 'argo-rollouts-controller-lock', 'argo-rollouts') or {}
+        renewed = lease.get('spec', {}).get('renewTime')
+        if (not lease.get('spec', {}).get('holderIdentity') or not renewed or
+                (datetime.now(timezone.utc) - datetime.fromisoformat(renewed.replace('Z', '+00:00'))).total_seconds() > 30):
+            return {'ready': False}
         controller = get('deployment', 'argo-rollouts', 'argo-rollouts')
         if controller['spec']['template']['spec']['containers'][0]['image'] != request['controller_image']:
             raise RuntimeError('Rollouts controller image differs from reviewed pin')
