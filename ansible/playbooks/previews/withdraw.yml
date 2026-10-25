@@ -1,0 +1,19 @@
+---
+- name: Withdraw only journaled preview execution without Git credentials
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Install the bounded withdrawal operation
+      ansible.builtin.copy:
+        src: /workspace/ansible/playbooks/previews/files/withdraw.py
+        dest: /opt/cloudlab/playbooks/previews/files/withdraw.py
+        mode: '0600'
+    - name: Withdraw exact state UID and approval digests
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/previews/files/withdraw.py
+      args:
+        stdin: "{{ lookup('env', 'CLOUDLAB_PREVIEW_WITHDRAW_REQUEST') }}"
+      register: preview_withdrawal
+      changed_when: (preview_withdrawal.stdout | from_json).changed
+      no_log: true

@@ -6,7 +6,7 @@ import urllib.request
 
 sys.path.insert(0, '/opt/cloudlab')
 from playbooks.istio.files.kube import get, kube, wait
-from playbooks.previews.files.contract import OWNER, STATE, runtime_catalog, names
+from playbooks.previews.files.contract import OWNER, STATE, ORIGIN_VERSION, runtime_catalog, names, hostname
 from playbooks.previews.files.admission import CONTROLLER, native
 
 
@@ -51,6 +51,8 @@ def verify(payload):
     for instance, record in entries.items():
         if record['phase'] != 'active':
             continue
+        if record.get('originVersion') != ORIGIN_VERSION:
+            raise ValueError('Historical shared-origin preview remains active')
         row = record['approval']
         n = names(row)
         namespace = get('namespace', n['namespace'])
@@ -69,10 +71,11 @@ def verify(payload):
                 spec['syncPolicy'] != {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True}):
             raise ValueError('Preview ApplicationSet execution boundary differs')
         route = get('httproute', 'preview', n['namespace'])
-        if route['spec']['parentRefs'][0]['namespace'] != 'cloudlab-gateway-private':
+        if (route['spec']['parentRefs'][0]['namespace'] != 'cloudlab-gateway-private' or
+                route['spec']['hostnames'] != [hostname(row, settings)]):
             raise ValueError('Preview route is not private')
         try:
-            with urllib.request.urlopen('https://' + settings['hostname'] + n['path'], timeout=10):
+            with urllib.request.urlopen('https://' + hostname(row, settings) + n['path'], timeout=10):
                 raise ValueError('Unauthenticated preview application data is reachable')
         except urllib.error.HTTPError as error:
             if error.code not in (401, 403):

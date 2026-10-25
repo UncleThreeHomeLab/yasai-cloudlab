@@ -10,11 +10,11 @@ from urllib.parse import quote
 
 try:
     from playbooks.previews.files.contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE)
+        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
     from playbooks.keycloak.files.configuration import client as compile_client
 except ImportError:
     from preview_contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE)
+        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
     from configuration import client as compile_client
 
 IDENTITY_OWNER = 'cloudlab-preview-identity'
@@ -57,7 +57,7 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
             continue
         approval(row)
         lifecycle = (intent or {}).get('entries', {}).get(instance)
-        if existing or not lifecycle or lifecycle.get('phase') not in ('pending', 'active'):
+        if existing or not lifecycle or lifecycle.get('originVersion') != ORIGIN_VERSION or lifecycle.get('phase') not in ('pending', 'active'):
             continue
         if lifecycle.get('approvalDigest') != digest(canonical(row)) or not row['createdAt'] <= now < row['expiresAt']:
             continue
@@ -70,7 +70,7 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
             raise ValueError('Preview client exists without creation inventory; adoption refused')
         records[instance] = {'approval': row, 'approvalDigest': digest(canonical(row)), 'clientId': identifier,
                              'settings': {key: settings[key] for key in ('hostname', 'issuer')},
-                             'phase': 'creating', 'uuid': None}
+                             'phase': 'creating', 'uuid': None, 'originVersion': ORIGIN_VERSION}
         save(state)
     for instance, record in records.items():
         if record['phase'] == 'retired':
@@ -79,7 +79,7 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
         if (instance != row['instance'] or record['clientId'] != names(row)['client'] or record['clientId'] in persistent or
                 record['approvalDigest'] != digest(canonical(row)) or record['phase'] not in ('creating', 'active', 'retiring', 'disabled')):
             raise ValueError('Preview client runtime inventory identity differs')
-        if obsolete(row) and record['phase'] in ('creating', 'active'):
+        if (obsolete(row) or record.get('originVersion') != ORIGIN_VERSION) and record['phase'] in ('creating', 'active'):
             record['phase'] = 'retiring'
             save(state)
         current = desired.get(instance)
@@ -89,8 +89,9 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
                 continue
             current = row
             if lifecycle is None:
-                lifecycle = {'approvalDigest': record['approvalDigest'], 'phase': 'active'}
-        wants_active = (not obsolete(row) and current is not None and lifecycle is not None and
+                lifecycle = {'approvalDigest': record['approvalDigest'], 'phase': 'active', 'originVersion': ORIGIN_VERSION}
+        wants_active = (record.get('originVersion') == ORIGIN_VERSION and not obsolete(row) and current is not None and lifecycle is not None and
+            lifecycle.get('originVersion') == ORIGIN_VERSION and
             lifecycle.get('approvalDigest') == record['approvalDigest'] and
             lifecycle.get('phase') in ('pending', 'active') and row['createdAt'] <= now < row['expiresAt'])
         if record['phase'] in ('retiring', 'disabled'):

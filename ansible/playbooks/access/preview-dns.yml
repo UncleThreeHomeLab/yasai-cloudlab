@@ -1,0 +1,35 @@
+---
+- name: Read ready private DNS interfaces without external reconciliation
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require reviewed preview enablement
+      ansible.builtin.assert:
+        that: previews_enabled | bool and access_enabled | bool
+    - name: Validate the complete private prefix before host changes
+      ansible.builtin.command: python -m playbooks.access.files.dns_catalog
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+    - name: Install private DNS input discovery
+      ansible.builtin.copy:
+        src: /workspace/ansible/playbooks/access/files/dns_inputs.py
+        dest: /var/lib/cloudlab/connectivity/dns_inputs.py
+        mode: '0600'
+    - name: Read current private DNS interfaces
+      ansible.builtin.command: python3 /var/lib/cloudlab/connectivity/dns_inputs.py
+      register: access_dns_inputs
+      changed_when: false
+      no_log: true
+
+- name: Configure only the existing independent host DNS owner
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Apply validated preview DNS through its owner
+      ansible.builtin.import_tasks: tasks/dns_host.yml

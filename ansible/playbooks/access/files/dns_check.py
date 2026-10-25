@@ -13,7 +13,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 from playbooks.access.files.dns import configuration
-from playbooks.access.files.dns_wire import absent_answer, private_answer, query
+from playbooks.access.files.dns_wire import absent_answer, private_answer, query, nodata_answer
 
 
 def check():
@@ -27,7 +27,8 @@ def check():
             binary = directory / 'coredns'
             binary.write_bytes(archive.extractfile('coredns').read())
             binary.chmod(0o700)
-        inputs = dict(zone='internal.example.invalid', identity_host='login.example.invalid', names=['app'], tailnet_address='100.64.0.1',
+        inputs = dict(zone='internal.example.invalid', identity_host='login.example.invalid', names=['app', 'preview'],
+                      preview_dns={'prefix': 'preview', 'zone': 'internal.example.invalid'}, tailnet_address='100.64.0.1',
                       host_address='10.44.0.1', cluster_gateway='10.43.0.10', tailnet_gateway='100.64.0.5',
                       nameservers=['100.64.0.1', '100.64.0.2'], upstreams=['1.1.1.1'])
         for name, content in configuration(inputs).items():
@@ -59,6 +60,18 @@ def check():
                     raise RuntimeError('Canonical issuer DNS bypassed its source restriction')
                 for destination, source in [('127.0.0.1', '127.0.0.1'), ('127.0.0.2', '127.0.0.2')]:
                     absent_answer(destination, 'missing.internal.example.invalid', source=source, tcp=tcp)
+                    name = 'preview-' + 'a' * 32 + '.internal.example.invalid'
+                    expected = '10.43.0.10' if destination == '127.0.0.1' else '100.64.0.5'
+                    for spelling in (name, name.upper()):
+                        private_answer(destination, spelling, expected, source=source, tcp=tcp)
+                        nodata_answer(destination, spelling, source=source, tcp=tcp)
+                    for invalid in ('preview-' + 'a' * 31, 'preview-' + 'g' * 32,
+                                    'other-' + 'a' * 32, 'x.preview-' + 'a' * 32):
+                        absent_answer(destination, invalid + '.internal.example.invalid', source=source, tcp=tcp)
+                for destination, denied_source in [('127.0.0.2', '127.0.0.1'), ('127.0.0.1', '127.0.0.2')]:
+                    for record_type in (1, 28):
+                        if query(destination, name, source=denied_source, tcp=tcp, record_type=record_type)['rcode'] != 5:
+                            raise RuntimeError('Preview template bypassed DNS source restriction')
                 if query('127.0.0.2', 'github.com', source='127.0.0.2', tcp=tcp)['rcode'] != 5:
                     raise RuntimeError('Tailnet listener became a public recursive resolver')
                 if query('127.0.0.2', 'app.internal.example.invalid', source='127.0.0.1', tcp=tcp)['rcode'] != 5:
@@ -67,6 +80,7 @@ def check():
             process.terminate()
             process.wait(timeout=10)
     return {'artifact_verified': True, 'private_views_udp_tcp': True, 'canonical_private_issuer_udp_tcp': True, 'unknown_names_fail_closed': True,
+            'preview_origins_udp_tcp': True, 'preview_aaaa_nodata': True,
             'tailnet_recursion_denied': True, 'source_restriction': True, 'live_host_dns_tested': False}
 
 

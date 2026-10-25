@@ -9,6 +9,29 @@ from playbooks.argocd.files import repository_tokens, private_publish
 
 
 class CommandTests(unittest.TestCase):
+    def test_publication_requires_inspected_base_before_write_token(self):
+        with patch.object(command, 'published'), patch.object(command, 'read', return_value={'catalog': catalog()}), \
+                patch.object(repository_tokens, 'issue') as issue, self.assertRaises(ValueError):
+            command.main(['catalog-propose', 'docs/local/catalog.json'])
+        issue.assert_not_called()
+
+    def test_unpublished_code_cannot_prepare_or_publish(self):
+        for action in ('prepare', 'catalog-propose'):
+            with patch.object(command, 'published', side_effect=ValueError('unpublished')), \
+                    patch.object(command, 'read') as read, patch.object(repository_tokens, 'issue') as issue:
+                with self.assertRaises(ValueError): command.main([action, 'docs/local/input.json'])
+                read.assert_not_called()
+                issue.assert_not_called()
+
+    def test_withdrawal_uses_vm_owner_without_git_or_discovery_credentials(self):
+        request = {'stateUID': 'fixture-state', 'entries': {'a' * 32: 'b' * 64}}
+        with patch.object(command, 'read', return_value=request), patch.object(command, 'dotenv_values', return_value={}), \
+                patch.object(command, 'vm_environment'), patch.object(command, 'playbook') as playbook, \
+                patch.object(command, 'published', side_effect=AssertionError('Git unavailable')), \
+                patch.object(repository_tokens, 'issue', side_effect=AssertionError('Token unavailable')):
+            command.main(['withdraw', 'docs/local/input.json'])
+            playbook.assert_called_once_with('withdraw.yml')
+
     def request(self):
         return {'repository': 'example/platform', 'pullRequest': 7, 'image': approval()['image'],
                 'platformRevision': 'c' * 40, 'private': True, 'lifetimeSeconds': 600}
@@ -34,7 +57,8 @@ class CommandTests(unittest.TestCase):
     def test_catalog_publication_uses_scoped_app_without_operator_token_and_always_revokes(self):
         for failure in (False, True):
             lease = {'token': 'ghs_synthetic_write'}
-            with patch.object(command, 'read', return_value={'catalog': catalog()}), \
+            with patch.object(command, 'read', return_value={'catalog': catalog(), 'expectedBase': 'c' * 40}), \
+                    patch.object(command, 'published'), \
                     patch.object(command, 'dotenv_values', return_value={}), \
                     patch.object(repository_tokens, 'issue', return_value=lease) as issue, \
                     patch.object(repository_tokens, 'revoke') as revoke, \
@@ -47,4 +71,5 @@ class CommandTests(unittest.TestCase):
                     self.assertNotIn(lease['token'], output.getvalue())
             issue.assert_called_once_with({}, 'private-config', {'contents': 'write', 'pull_requests': 'write'})
             self.assertEqual(publish.call_args.kwargs['scope'], 'previews')
+            self.assertEqual(publish.call_args.kwargs['expected_base'], 'c' * 40)
             revoke.assert_called_once_with(lease)

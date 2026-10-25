@@ -3,9 +3,9 @@ import json
 from pathlib import Path
 
 try:
-    from .contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, approval, canonical, digest, names, runtime_catalog
+    from .contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, approval, canonical, digest, names, hostname, runtime_catalog
 except ImportError:
-    from contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, approval, canonical, digest, names, runtime_catalog
+    from contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, approval, canonical, digest, names, hostname, runtime_catalog
 
 
 def metadata(row, state_uid, name, namespace=None):
@@ -29,7 +29,7 @@ def workload(row, settings, state_uid='render-only'):
         'resources': {'requests': {'cpu': '50m', 'memory': '32Mi'}, 'limits': {'cpu': '200m', 'memory': '128Mi'}} if fixture else definition['resources'],
         'environment': dict(environment, CLOUDLAB_SOURCE_SHA=row['sourceSha'],
             CLOUDLAB_PREVIEW_PATH=n['path'], OIDC_CALLBACK_PATH=n['path'] + 'callback',
-            OIDC_REDIRECT_URI='https://' + settings['hostname'] + n['path'] + 'callback',
+            OIDC_REDIRECT_URI='https://' + hostname(row, settings) + n['path'] + 'callback',
             OIDC_ISSUER=settings['issuer'], OIDC_CLIENT_ID=n['client'], OIDC_AUDIENCE=n['client']),
         'secrets': [], 'configMaps': [], 'data': {}, 'persistence': {'enabled': False, 'size': '1Gi', 'mountPath': '/data', 'retention': 'retain'},
         'exposure': {'class': 'none'}, 'additionalExposures': [], 'oidc': {'enabled': False},
@@ -186,7 +186,7 @@ def private_route(row, settings, state_uid):
     return {'apiVersion': 'gateway.networking.k8s.io/v1', 'kind': 'HTTPRoute',
         'metadata': metadata(row, state_uid, 'preview', n['namespace']),
         'spec': {'parentRefs': [{'name': 'cloudlab', 'namespace': 'cloudlab-gateway-private', 'sectionName': 'https'}],
-                 'hostnames': [settings['hostname']], 'rules': [{'matches': [{'path': {'type': 'PathPrefix', 'value': n['path']}}],
+                 'hostnames': [hostname(row, settings)], 'rules': [{'matches': [{'path': {'type': 'PathPrefix', 'value': n['path']}}],
                     'backendRefs': [{'name': 'preview', 'port': port}]}]}}
 
 

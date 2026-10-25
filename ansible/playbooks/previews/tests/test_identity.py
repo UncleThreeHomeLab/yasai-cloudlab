@@ -14,11 +14,32 @@ from playbooks.keycloak.files import preview_clients as identity
 
 
 class IdentityTests(unittest.TestCase):
+    def test_legacy_origin_retires_before_repair_even_without_input(self):
+        for available in (True, False):
+            row, settings, api = approval(), catalog(), Keycloak()
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
+            state = {'format': 1, 'entries': {}}
+            identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
+            del state['entries'][row['instance']]['originVersion']
+            old_callback = ['https://preview.internal.example.invalid/previews/' + row['instance'] + '/callback']
+            api.rows['owned-client-uuid']['redirectUris'] = old_callback
+            identity.reconcile(settings if available else None, intent if available else None, state, api, lambda value: None, 1501, set(), input_available=available)
+            self.assertFalse(api.rows['owned-client-uuid']['enabled'])
+            self.assertEqual(api.rows['owned-client-uuid']['redirectUris'], old_callback)
+            self.assertEqual(state['entries'][row['instance']]['approvalDigest'], digest(canonical(row)))
+            identity.reconcile(None, None, state, api, lambda value: None, 2100, set(), input_available=False)
+            self.assertEqual(api.deleted, [])
+            identity.reconcile(None, None, state, api, lambda value: None, 2101, set(), input_available=False)
+            self.assertEqual(api.deleted, ['owned-client-uuid'])
+            identity.reconcile(settings, intent, state, api, lambda value: None, 1502, set())
+            self.assertEqual(api.rows, {})
+
+
     def test_obsolete_client_is_disabled_then_uuid_deleted_with_or_without_catalog(self):
         from playbooks.previews.files import contract
         for available in (True, False):
             row, settings, api = approval(), catalog(), Keycloak()
-            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
             state = {'format': 1, 'entries': {}}
             identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
             with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
@@ -34,7 +55,7 @@ class IdentityTests(unittest.TestCase):
     def test_expired_or_retiring_client_cleanup_ignores_new_callback_hostname(self):
         for phase, now in (('active', 2000), ('retiring', 1501)):
             row, settings, api = approval(), catalog(), Keycloak()
-            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
             state = {'format': 1, 'entries': {}}
             identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
             settings['hostname'] = 'changed.internal.example.invalid'
@@ -49,7 +70,7 @@ class IdentityTests(unittest.TestCase):
     def test_obsolete_new_or_creating_row_never_creates_or_reactivates_client(self):
         from playbooks.previews.files import contract
         row, settings, api = approval(), catalog(), Keycloak()
-        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
         state = {'format': 1, 'entries': {}}
         with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
             identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
@@ -67,7 +88,7 @@ class IdentityTests(unittest.TestCase):
         from playbooks.previews.files import contract
         for change in ('uuid', 'persistent'):
             row, settings, api = approval(), catalog(), Keycloak()
-            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
             state = {'format': 1, 'entries': {}}
             identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
             if change == 'uuid':
@@ -82,7 +103,7 @@ class IdentityTests(unittest.TestCase):
         from playbooks.previews.files import contract
         for corrupt, image_changed in ((False, False), (True, False), (False, True), (True, True)):
             row, settings, api = approval(), catalog(), Keycloak()
-            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
             state = {'format': 1, 'entries': {}}
             identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
             api.rows['unrelated'] = {'id': 'unrelated', 'clientId': 'persistent-client'}
@@ -119,14 +140,14 @@ class IdentityTests(unittest.TestCase):
     def test_disable_confirm_grace_and_exact_removal_without_git(self):
         row = approval()
         settings = catalog()
-        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
         state = {'format': 1, 'entries': {}}
         api = Keycloak()
         saves = []
         save = lambda value: saves.append(copy.deepcopy(value))
         identity.reconcile(settings, intent, state, api, save, 1500, set())
         self.assertEqual(state['entries'][row['instance']]['phase'], 'active')
-        self.assertEqual(next(iter(api.rows.values()))['redirectUris'], ['https://preview.internal.example.invalid/previews/' + row['instance'] + '/callback'])
+        self.assertEqual(next(iter(api.rows.values()))['redirectUris'], ['https://preview-' + row['instance'] + '.internal.example.invalid/previews/' + row['instance'] + '/callback'])
         identity.reconcile(None, None, state, api, save, 2000, set())
         self.assertFalse(next(iter(api.rows.values()))['enabled'])
         self.assertEqual(state['entries'][row['instance']]['disabledAt'], 2000)
@@ -141,7 +162,7 @@ class IdentityTests(unittest.TestCase):
     def test_uuid_change_and_persistent_collision_never_adopted(self):
         row = approval()
         settings = catalog()
-        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'originVersion': 2, 'approvalDigest': digest(canonical(row))}}}
         state = {'format': 1, 'entries': {}}
         api = Keycloak()
         with self.assertRaises(ValueError): identity.reconcile(settings, intent, state, api, lambda x: None, 1500, {names(row)['client']})

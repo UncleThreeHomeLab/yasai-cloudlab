@@ -35,7 +35,10 @@ The PR file `previews/definition.json` selects one profile:
 
 Image selection belongs to administrator approval, outside the source blob. This
 lets an existing trusted build sign that exact commit before its digest is approved.
-Each callback is `https://<private-host>/previews/<instance>/callback`. Synthetic
+The catalog label is at most 30 characters. Each browser origin is
+`https://<label>-<32hex-instance>.internal.<zone>`; callbacks retain the exact
+`/previews/<instance>/callback` path. Legacy shared-origin records retire before
+execution or client repair. Synthetic
 callbacks are empty landing endpoints for an external Code+PKCE verifier. Application
 images must support the supplied callback and base path. Audience checks occur at
 the namespace waypoint; direct pod/service access cannot bypass that waypoint.
@@ -43,7 +46,8 @@ the namespace waypoint; direct pod/service access cannot bypass that waypoint.
 Use `lab preview prepare docs/local/request.json` with `repository`, `pullRequest`,
 `image`, `platformRevision`, `lifetimeSeconds` and `private`. The approved record is
 written privately under `/recovery`. `lab preview catalog-propose
-docs/local/catalog.json` opens the owning private PR; review and merge explicitly.
+docs/local/catalog.json` requires `catalog` and the inspected main SHA as
+`expectedBase`; it opens the owning private PR. Review and merge explicitly.
 Neither operation enables automatic merging. Public discovery is anonymous.
 Private discovery uses the existing `github-release-private` App only on the
 trusted local Compose executor. It derives an exact-repository Contents/PR read
@@ -65,6 +69,26 @@ qualifies isolated copies of these policies through Compose and existing SSH;
 it creates no controller grants and removes only its owned resources.
 PR revision, positive OIDC, close, expiry and orphan acceptance use owned fixtures;
 ordinary component verification does not claim those checks passed.
+Explicit fixture journals use the existing private Linux recovery volume at
+`/recovery/previews/<fixture-nonce>/journal.json`, with mode 0600, durable writes
+and digest-checked updates. Keep journals until owned resources are absent;
+never clear the shared recovery volume.
+Run the isolated browser fixture from a clean checkout without `.env`:
+
+```sh
+echo '["https://preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.internal.example.invalid","https://preview-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.internal.example.invalid"]' | docker compose -f ansible/playbooks/previews/tests/compose.browser-origins.yml run --build --rm -T browser
+```
+
+Input accepts only two distinct synthetic nonce origins in `internal.example.invalid`.
+The existing pinned browser recipe checks DOM, storage, host cookies and CORS
+using ephemeral local HTTPS. It proves no live TLS or OIDC behavior.
+
+`lab preview dns` applies only the existing host DNS owner after validating the
+enabled catalog and reserved private prefix. It changes no external grants or
+public records. `lab preview withdraw docs/local/withdraw.json` takes a journaled
+`stateUID` and `entries` map of instance to approval digest. It irreversibly
+withdraws only those entries using native resource-version checks, without Git
+or discovery credentials; the running lifecycle owners finish cleanup.
 
 Close, a new commit, expiry or missing approval irreversibly withdraws execution.
 Client removal follows verified disable plus 600 seconds, across bounded jobs.
