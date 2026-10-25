@@ -37,6 +37,8 @@
   ansible.builtin.import_playbook: data/verify.yml
 - name: Verify application delivery and authorization
   ansible.builtin.import_playbook: services/verify.yml
+- name: Verify private preview lifecycle
+  ansible.builtin.import_playbook: previews/verify.yml
 - name: Verify telemetry behavior
   ansible.builtin.import_playbook: observability/verify.yml
 - name: Verify registry behavior and host access

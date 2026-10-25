@@ -18,6 +18,14 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_preview_commands_dispatch_to_the_component_without_vm_inputs(self):
+        with patch.object(sys, 'argv', ['run.py', 'preview', 'check']), \
+                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
+            with self.assertRaises(SystemExit) as result:
+                runner.main()
+        self.assertEqual(result.exception.code, 0)
+        self.assertEqual(run.call_args.args[0], [sys.executable, '-m', 'playbooks.previews.files.command', 'check'])
+
     def test_dotenv_preserves_literal_shell_and_secret_characters(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / '.env'

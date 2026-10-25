@@ -38,3 +38,5 @@ ci:
   poolEnabled: false
 rollouts:
   enabled: true
+previews:
+  enabled: false

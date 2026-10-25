@@ -1,0 +1,253 @@
+import copy
+import json
+import unittest
+from unittest.mock import patch
+
+from fixtures import approval, catalog, pull, source_responses
+from playbooks.previews.files.contract import OWNER, IDENTITY_STATE, canonical, digest, names
+from playbooks.previews.files.controller import Controller
+from playbooks.previews.files.kube import identity, Kubernetes, APIError
+from playbooks.previews.files.resources import metadata, private_route
+from playbooks.previews.files.github import GitHub
+from playbooks.previews.files import controller as runtime
+
+
+class Cluster:
+    def __init__(self):
+        self.objects, self.deleted, self.counter = {}, [], 0
+
+    def get(self, key):
+        return copy.deepcopy(self.objects.get(tuple(key)))
+
+    def create(self, obj):
+        key = identity(obj)
+        if key in self.objects:
+            raise APIError(409)
+        self.counter += 1
+        obj = copy.deepcopy(obj)
+        obj['metadata'].update(uid='uid-' + str(self.counter), resourceVersion=str(self.counter))
+        self.objects[key] = obj
+        return copy.deepcopy(obj)
+
+    def replace(self, obj):
+        key = identity(obj)
+        if self.objects[key]['metadata']['resourceVersion'] != obj['metadata']['resourceVersion']:
+            raise APIError(409)
+        self.counter += 1
+        obj = copy.deepcopy(obj)
+        obj['metadata']['resourceVersion'] = str(self.counter)
+        self.objects[key] = obj
+        return copy.deepcopy(obj)
+
+    def delete(self, key, uid, version, *, orphan=False):
+        obj = self.objects[tuple(key)]
+        if obj['metadata']['uid'] != uid or obj['metadata']['resourceVersion'] != version:
+            raise APIError(409)
+        self.deleted.append((tuple(key), orphan))
+        del self.objects[tuple(key)]
+
+    def namespace_inventory(self, namespace):
+        return [copy.deepcopy(obj) for key, obj in self.objects.items() if key[2] == namespace]
+
+    def identity_phase(self, row, phase):
+        key = ('v1', 'ConfigMap', 'cloudlab-identity', IDENTITY_STATE)
+        value = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
+            'name': IDENTITY_STATE, 'namespace': 'cloudlab-identity', 'labels': {'cloudlab.io/owner': 'cloudlab-preview-identity'}},
+            'data': {'state.json': json.dumps({'format': 1, 'entries': {row['instance']: {
+                'phase': phase, 'verifiedAt': 1500, 'approvalDigest': digest(canonical(row))}}})}}
+        if key in self.objects:
+            value['metadata'].update(self.objects[key]['metadata'])
+            self.replace(value)
+        else:
+            self.create(value)
+
+
+class Git:
+    def __init__(self):
+        self.value, self.offline = pull(), False
+
+    def pull(self, row):
+        if self.offline:
+            raise RuntimeError('Provider unavailable')
+        return copy.deepcopy(self.value)
+
+    def allows(self, row, now):
+        return True
+
+    def verified(self, row):
+        from playbooks.previews.files.contract import validate_pull
+        result = self.pull(row)
+        validate_pull(row, result)
+        return result
+
+
+class ControllerTests(unittest.TestCase):
+    def active(self):
+        row, settings, cluster, git = approval(), catalog(), Cluster(), Git()
+        settings['privateDiscovery'] = True
+        cluster.identity_phase(row, 'active')
+        controller = Controller(cluster, git, 1500)
+        controller.waypoint_ready = lambda row: True
+        controller.publication_ready = lambda row, settings: True
+        controller.run(settings, 'https://github.com/example/platform.git')
+        controller.materialize(controller.state['entries'][row['instance']], private_route(row, settings, controller.object['metadata']['uid']))
+        controller.now = 1561
+        return controller, row, settings, cluster, git
+
+    def test_new_commit_cannot_change_execution_and_cleanup_preserves_persistent_app(self):
+        controller, row, settings, cluster, git = self.active()
+        n = names(row)
+        appset_key = ('argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', n['name'])
+        self.assertEqual(cluster.objects[appset_key]['spec']['template']['spec']['source']['targetRevision'], row['platformRevision'])
+        persistent = cluster.create({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+            'metadata': {'name': 'persistent-private', 'namespace': 'argocd'}, 'spec': {'prune': False}})
+        before = copy.deepcopy(persistent)
+        git.value['head']['sha'] = 'f' * 40
+        cluster.identity_phase(row, 'retired')
+        for _ in range(30):
+            controller.run(settings, 'https://github.com/example/platform.git')
+        self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+        self.assertNotIn(appset_key, cluster.objects)
+        self.assertEqual(cluster.get(identity(persistent)), before)
+        self.assertTrue(next(orphan for key, orphan in cluster.deleted if key == appset_key))
+        self.assertTrue(next(orphan for key, orphan in cluster.deleted if key[1] == 'Namespace'))
+
+    def test_provider_outage_retains_until_absolute_expiry(self):
+        controller, row, settings, cluster, git = self.active()
+        git.offline = True
+        before = copy.deepcopy(cluster.objects)
+        result = controller.run(settings, 'https://github.com/example/platform.git')
+        self.assertGreater(result['discovery_unavailable'], 0)
+        self.assertEqual({key: value for key, value in cluster.objects.items() if key[3] != 'cloudlab-preview-state'},
+                         {key: value for key, value in before.items() if key[3] != 'cloudlab-preview-state'})
+        self.assertEqual(cluster.deleted, [])
+        controller.now = row['expiresAt']
+        cluster.identity_phase(row, 'retired')
+        for _ in range(30): controller.run(settings, 'https://github.com/example/platform.git')
+        self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+
+    def test_foreign_pvc_vetoes_cascading_workload_deletion(self):
+        controller, row, settings, cluster, git = self.active()
+        n = names(row)
+        meta = metadata(row, controller.object['metadata']['uid'], 'preview', n['namespace'])
+        meta['annotations']['argocd.argoproj.io/tracking-id'] = n['name'] + ':apps/Deployment:' + n['namespace'] + '/preview'
+        deployment = cluster.create({'apiVersion': 'apps/v1', 'kind': 'Deployment', 'metadata': meta, 'spec': {}})
+        pvc = cluster.create({'apiVersion': 'v1', 'kind': 'PersistentVolumeClaim', 'metadata': {
+            'name': 'foreign-data', 'namespace': n['namespace'], 'ownerReferences': [{'uid': deployment['metadata']['uid']}]}, 'spec': {}})
+        git.value['state'] = 'closed'
+        results = [controller.run(settings, 'https://github.com/example/platform.git') for _ in range(10)]
+        self.assertTrue(any(result['failures'] for result in results))
+        self.assertEqual(cluster.get(identity(pvc)), pvc)
+        self.assertEqual(cluster.get(identity(deployment)), deployment)
+        self.assertFalse(any(key[1] in ('Deployment', 'Namespace') for key, _ in cluster.deleted))
+
+    def test_many_unavailable_candidates_cannot_starve_local_expiry(self):
+        controller, row, settings, cluster, git = self.active()
+        candidates = [approval(format(number, '032x')) for number in range(1, 20)]
+        for candidate in candidates:
+            candidate.update(createdAt=2000, expiresAt=5000)
+        settings = catalog([row, *candidates])
+        settings['privateDiscovery'] = True
+        controller.now = row['expiresAt']
+        calls = []
+        def unavailable(candidate):
+            calls.append(candidate['instance'])
+            self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retiring')
+            self.assertTrue(any(key[1] == 'HTTPRoute' for key, _ in cluster.deleted))
+            raise RuntimeError('Provider unavailable')
+        git.verified = unavailable
+        result = controller.run(settings, 'https://github.com/example/platform.git')
+        self.assertEqual(result['discovery_unavailable'], 1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(controller.state['entries'][row['instance']]['reason'], 'expired')
+
+    def test_missing_or_malformed_private_lease_preserves_local_cleanup(self):
+        for lease in (None, {}, {'expiresAt': 'invalid'}):
+            controller, row, settings, cluster, git = self.active()
+            controller.github = GitHub('', private=True, lease=lease)
+            controller.now = row['expiresAt']
+            cluster.identity_phase(row, 'retired')
+            with patch('urllib.request.build_opener') as network:
+                for _ in range(30): controller.run(settings, 'https://github.com/example/platform.git')
+            self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+            network.assert_not_called()
+
+    def test_anonymous_budget_includes_blobs_across_twenty_rejected_candidates(self):
+        rows = [approval(format(number, '032x')) for number in range(1, 21)]
+        for row in rows:
+            row.update(expiresAt=10000, sourceDigest='0' * 64)
+        settings, cluster, api = catalog(rows), Cluster(), GitHub()
+        controller = Controller(cluster, api, 1500)
+        responses = source_responses(rows[0])
+        calls = []
+        def response(path):
+            calls.append(path)
+            if '/pulls/' in path: return pull(rows[0])
+            return responses[path]
+        with patch.object(api, 'request', side_effect=response):
+            for minute in range(60):
+                controller.now = 1500 + 60 * minute
+                controller.run(settings, 'https://github.com/example/platform.git')
+        self.assertEqual(sum('/pulls/' in path for path in calls), 8)
+        self.assertEqual(sum('/contents/' in path for path in calls), 8)
+        self.assertEqual(len(calls), 40)
+        self.assertLess(len(calls) + 8, 60)
+        self.assertEqual(controller.state['entries'], {})
+
+    def test_bad_candidates_reserve_discovery_for_existing_preview_close(self):
+        controller, row, settings, cluster, git = self.active()
+        candidates = [approval(format(number, '032x')) for number in range(1, 20)]
+        settings = catalog([row, *candidates])
+        settings['privateDiscovery'] = True
+        git.value['state'] = 'closed'
+        git.verified = lambda row: (_ for _ in ()).throw(RuntimeError('Provider unavailable'))
+        result = controller.run(settings, 'https://github.com/example/platform.git')
+        self.assertEqual(result['discovery_unavailable'], 1)
+        self.assertEqual(controller.state['entries'][row['instance']]['reason'], 'closed')
+
+    def test_runtime_adapter_cleans_expiry_when_administrator_input_is_unavailable(self):
+        for mode in ('missing', 'corrupt', 'binding'):
+            controller, row, settings, cluster, git = self.active()
+            cluster.identity_phase(row, 'retired')
+            if mode != 'missing':
+                if mode == 'binding': settings['hostname'] = 'another.internal.example.invalid'
+                cluster.create({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
+                    'name': 'cloudlab-preview-approvals', 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
+                    'data': {'catalog.json': '{' if mode == 'corrupt' else json.dumps(settings),
+                             'platformRepository': 'https://github.com/example/platform.git'}})
+            with patch.object(runtime, 'Kubernetes', return_value=cluster), patch.object(runtime.time, 'time', return_value=row['expiresAt']), \
+                    patch('urllib.request.build_opener') as network:
+                for _ in range(30): result = runtime.run()
+            state = json.loads(cluster.get(('v1', 'ConfigMap', 'argocd', 'cloudlab-preview-state'))['data']['state.json'])
+            self.assertEqual(state['entries'][row['instance']]['phase'], 'retired')
+            self.assertEqual(result['input_unavailable'], 1)
+            network.assert_not_called()
+
+    def test_runtime_adapter_keeps_foreign_state_a_hard_stop(self):
+        controller, row, settings, cluster, git = self.active()
+        cluster.objects[('v1', 'ConfigMap', 'argocd', 'cloudlab-preview-state')]['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+        with patch.object(runtime, 'Kubernetes', return_value=cluster), self.assertRaises(ValueError): runtime.run()
+        self.assertEqual(cluster.deleted, [])
+
+    def test_delete_api_keeps_uid_version_and_orphan_boundary(self):
+        kube = object.__new__(Kubernetes)
+        with patch.object(kube, 'request') as request:
+            kube.delete(('argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', 'preview-a'), 'uid', '12', orphan=True)
+        options = request.call_args.args[2]
+        self.assertEqual(options['preconditions'], {'uid': 'uid', 'resourceVersion': '12'})
+        self.assertEqual(options['propagationPolicy'], 'Orphan')
+
+    def test_incomplete_collection_cannot_authorize_namespace_delete(self):
+        kube = object.__new__(Kubernetes)
+        responses = [{'resources': [{'name': 'pods', 'kind': 'Pod', 'namespaced': True, 'verbs': ['list']}]},
+                     {'groups': []}, {'metadata': {'continue': 'next-page'}, 'items': []}]
+        with patch.object(kube, 'request', side_effect=responses), self.assertRaises(RuntimeError):
+            kube.namespace_inventory('cloudlab-preview-' + 'a' * 32)
+
+    def test_missing_recorded_uid_or_version_never_reaches_delete_api(self):
+        kube = object.__new__(Kubernetes)
+        for uid, version in (('', '12'), ('uid', ''), (None, '12')):
+            with self.subTest(uid=uid, version=version), patch.object(kube, 'request') as request:
+                with self.assertRaisesRegex(ValueError, 'exact UID and resource version'):
+                    kube.delete(('v1', 'Namespace', '', 'cloudlab-preview-' + 'a' * 32), uid, version)
+                request.assert_not_called()

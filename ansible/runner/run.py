@@ -104,6 +104,9 @@ def main():
     if sys.argv[1:2] == ['service']:
         raise SystemExit(subprocess.run([sys.executable, '-m', 'playbooks.services.files.command', *sys.argv[2:]],
                                        cwd='/workspace', check=False).returncode)
+    if sys.argv[1:2] == ['preview']:
+        raise SystemExit(subprocess.run([sys.executable, '-m', 'playbooks.previews.files.command', *sys.argv[2:]],
+                                       cwd='/workspace', check=False).returncode)
     if sys.argv[1:2] in (['infra'], ['infra-harbor']):
         import argparse
         harbor = sys.argv[1] == 'infra-harbor'

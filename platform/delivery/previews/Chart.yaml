@@ -1,0 +1,4 @@
+apiVersion: v2
+name: cloudlab-previews
+version: 0.1.0
+description: Private revision-approved previews with bounded lifecycle ownership.

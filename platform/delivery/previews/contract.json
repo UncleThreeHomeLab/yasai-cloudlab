@@ -1,0 +1,40 @@
+{
+  "sourcePath": "previews/definition.json",
+  "profiles": [
+    "synthetic",
+    "application"
+  ],
+  "maximumLifetimeSeconds": 86400,
+  "maximumConcurrentIncludingRetirement": 2,
+  "anonymousDiscoveryIntervalSeconds": 900,
+  "authenticatedDiscoveryIntervalSeconds": 60,
+  "expiryCheckIntervalSeconds": 60,
+  "identityGraceSeconds": 600,
+  "tombstoneCapacity": 256,
+  "privateValues": "previews/catalog.json",
+  "privateDiscoveryCredential": {
+    "localAppItem": "github-release-private",
+    "localAppFields": [
+      "APP_ID",
+      "INSTALLATION_ID",
+      "PRIVATE_KEY"
+    ],
+    "runtimeSecret": "argocd/github-preview-discovery",
+    "runtimeFields": [
+      "TOKEN",
+      "lease.json"
+    ],
+    "permissions": [
+      "Contents read",
+      "Pull requests read",
+      "Metadata read"
+    ],
+    "scope": "Local derivation for the designated configuration repository only. App keys stay local; approvals expire at least 300 seconds before their token. Repeat applies preserve valid owned tokens; superseded tokens expire within one hour."
+  },
+  "sourceBinding": "Exact same-repository PR SHA and exact source blob digest; platform approval separately binds immutable image and chart revision.",
+  "applicationArtifacts": "Public immutable artifacts require an approved signer, issuer, source repository and signed githubWorkflowSha equal to the approved source SHA. Private registry credentials are not supported.",
+  "identity": "Distinct public PKCE client and audience per instance. Exact callback and empty health/callback exceptions; no production credentials.",
+  "deletion": "Only inventoried disposable preview objects and clients. UID/version guards and complete namespace inventory precede cascading deletion. Unexpected storage, retention or ownership blocks deletion.",
+  "persistentResources": "ApplicationSet create-update and resource preservation remain effective. Git failures never authorize persistent application or private-source pruning.",
+  "privateMaximumLifetimeSeconds": 3000
+}

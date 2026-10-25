@@ -27,7 +27,14 @@ def app_token(credentials):
     if not all(credentials[field].isascii() and credentials[field].isdigit()
                for field in FIELDS[:2]):
         raise RuntimeError('GitHub App IDs must be numeric')
-    key = serialization.load_pem_private_key(credentials['PRIVATE_KEY'].encode(), password=None)
+    pem = credentials['PRIVATE_KEY'].replace('\\n', '\n').strip()
+    match = re.fullmatch(r'-----BEGIN (RSA )?PRIVATE KEY-----\s*(.*?)\s*-----END (RSA )?PRIVATE KEY-----', pem, re.S)
+    if not match or match[1] != match[3]:
+        raise RuntimeError('GitHub App requires one PEM private key')
+    label = (match[1] or '') + 'PRIVATE KEY'
+    body = re.sub(r'\s+', '', match[2])
+    pem = '-----BEGIN ' + label + '-----\n' + body + '\n-----END ' + label + '-----\n'
+    key = serialization.load_pem_private_key(pem.encode(), password=None)
     if not isinstance(key, rsa.RSAPrivateKey) or key.key_size < 2048:
         raise RuntimeError('GitHub App requires an RSA key of at least 2048 bits')
     def encode(value):

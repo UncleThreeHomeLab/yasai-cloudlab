@@ -1,0 +1,6 @@
+{
+  "pilot": "docker.io/istio/pilot:1.31.1@sha256:212ca088ada22f48be1576e6b688972b8aa7495710abb7c5f1febca856a15577",
+  "proxyv2": "docker.io/istio/proxyv2:1.31.1@sha256:d86cba0dd1eb15c00b6901c69ce5ae3d2d5f8427a47751098cf8c3ab2a4a62e9",
+  "install-cni": "docker.io/istio/install-cni:1.31.1@sha256:49140cc9a9d742cea829f452d93956896e85c4f47bbc7b69cf76484b63cce8b1",
+  "ztunnel": "docker.io/istio/ztunnel:1.31.1@sha256:dc8d3dfe8b17680a7df2b7176d68caba220bfc88ecfaf349cde4bc56da3cf459"
+}

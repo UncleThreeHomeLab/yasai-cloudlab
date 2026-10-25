@@ -47,6 +47,10 @@ initContainers:
         {{- else }}
         acquire_sync();
         {{- end }}
+        {{- if and (not .Values.bootstrapMode) (empty .Values.operation) .Values.privateStateEnabled }}
+        from preview_clients import attempt as preview_clients;
+        Path('/imports/skip').exists() or preview_clients({{ .Values.adminHost | quote }});
+        {{- end }}
         {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
         {{- if eq .Values.operation.action "initialize-owner" }}
         prepare_application_owner('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }})
@@ -69,9 +73,7 @@ initContainers:
       {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
       - {name: proof-credentials, mountPath: /proof-credentials, readOnly: true}
       {{- end }}
-      {{- if or .Values.bootstrapMode (not (empty .Values.operation)) }}
       - {name: credentials, mountPath: /credentials, readOnly: true}
-      {{- end }}
       {{- if .Values.bootstrapMode }}
       - {name: health-credentials, mountPath: /health-credentials, readOnly: true}
       - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
@@ -142,6 +144,7 @@ containers:
           {{- end }}
         done
         echo 'Scoped identity reconciliation completed'
+        if test -f /imports/preview-error; then echo 'Preview identity reconciliation failed; ordinary realm repair completed'; exit 1; fi
         {{- end }}
     env:
       - {name: KEYCLOAK_URL, value: {{ printf "https://%s" .Values.adminHost | quote }}}

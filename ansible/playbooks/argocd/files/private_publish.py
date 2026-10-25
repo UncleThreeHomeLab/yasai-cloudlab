@@ -15,6 +15,7 @@ def publish(api, values, files, *, scope="identity", expected_base=None):
     allowed, required = {
         'identity': ({'identity/configmap.yaml', 'identity/argo-values.yaml'}, 'identity/configmap.yaml'),
         'services': ({'services/catalog.json'}, 'services/catalog.json'),
+        'previews': ({'previews/catalog.json'}, 'previews/catalog.json'),
     }.get(scope, (set(), None))
     if not files or set(files) - allowed or required not in files:
         raise ValueError('Private publication requires its complete bounded owner bundle')
@@ -79,6 +80,8 @@ def publish(api, values, files, *, scope="identity", expected_base=None):
                 'Only identity inputs change; omitted overlays and unrelated files are retained. '
                 'Realm changes remain owned by serialized keycloak-config-cli reconciliation.' if scope == 'identity' else
                 'Apply the complete reviewed service catalog. Only services/catalog.json changes. '
-                'Namespaces, quotas, sources and scoped requests remain controlled by platform owners.')})
+                'Namespaces, quotas, sources and scoped requests remain controlled by platform owners.' if scope == 'services' else
+                'Review the complete private preview approvals and retained namespace authorizations. '
+                'No automatic merge or production credential change is authorized.')})
     return {'private_source_changed': True, 'private_pull_request': pull['number'],
             'private_source_merged': False}

@@ -1,0 +1,14 @@
+---
+- name: Configure the private preview lifecycle
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Preserve the worker as an unchanged component participant
+      ansible.builtin.debug:
+        msg: Preview control tasks run on the existing server only.
+      when: k3s_mode == 'agent'
+    - name: Install the published bounded preview owner
+      ansible.builtin.import_tasks: tasks/bootstrap.yml
+      when: previews_enabled | bool and k3s_mode == 'server'

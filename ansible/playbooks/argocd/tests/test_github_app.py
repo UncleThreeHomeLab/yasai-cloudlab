@@ -67,6 +67,20 @@ class AppAccessTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(RuntimeError):
                 github_app.verify_installation(dict(base, **change), '123')
 
+    def test_pem_storage_forms_sign_the_same_jwt_without_changing_credentials(self):
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        for kind in (serialization.PrivateFormat.PKCS8, serialization.PrivateFormat.TraditionalOpenSSL):
+            pem = key.private_bytes(serialization.Encoding.PEM, kind, serialization.NoEncryption()).decode()
+            credentials = {'APP_ID': '123', 'INSTALLATION_ID': '456', 'PRIVATE_KEY': pem}
+            with patch.object(github_app.time, 'time', return_value=1000):
+                expected = github_app.app_token(credentials)
+                for stored in (pem.replace('\n', '\\n'), pem.replace('\n', ' '), pem.replace('\n', '\r\n')):
+                    variant = dict(credentials, PRIVATE_KEY=stored)
+                    self.assertEqual(github_app.app_token(variant), expected)
+                    self.assertEqual(variant['PRIVATE_KEY'], stored)
+        with self.assertRaises(RuntimeError):
+            github_app.app_token(dict(credentials, PRIVATE_KEY=pem.replace('END RSA PRIVATE KEY', 'END PRIVATE KEY')))
+
     def test_missing_repository_error_excludes_private_names(self):
         with self.assertRaises(RuntimeError) as raised:
             github_app.verify_repositories({'total_count': 0, 'repositories': []},
