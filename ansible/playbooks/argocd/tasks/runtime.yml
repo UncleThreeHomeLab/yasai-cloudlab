@@ -1,0 +1,13 @@
+---
+- name: Create the packaged public source owner directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/playbooks/argocd/files
+    state: directory
+    mode: '0700'
+
+- name: Install the public source owner and its complete standalone input closure
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/argocd/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/argocd/files/{{ item }}'
+    mode: '0600'
+  loop: [bootstrap.py, source_transition.py, source_revision.py, sync_recovery.py, private_sources.py]

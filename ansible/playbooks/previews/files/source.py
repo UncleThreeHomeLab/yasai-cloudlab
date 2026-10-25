@@ -13,8 +13,8 @@ from playbooks.previews.files.contract import runtime_catalog
 ROOT = Path(__file__).resolve().parents[4]
 
 
-def read():
-    values = dotenv_values(ROOT / '.env', interpolate=False)
+def read(values=None):
+    values = dotenv_values(ROOT / '.env', interpolate=False) if values is None else values
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
     api = GitHub(app_token(credentials))

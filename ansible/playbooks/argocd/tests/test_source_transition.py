@@ -9,6 +9,72 @@ import source_transition as migration
 
 
 class SourceTransitionTests(unittest.TestCase):
+    def accepted_fixture(self):
+        objects = self.fixtures()
+        target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}
+        root = objects['application.argoproj.io', migration.ROOT_APP]
+        root['spec']['source'].update(repoURL='https://github.com/example/platform.git', targetRevision='main',
+            helm={'valuesObject': {'identity': {'enabled': True, 'argo': target}}})
+        root['status'] = {'sync': {'status': 'Synced', 'revision': 'b' * 40, 'comparedTo': {'source': copy.deepcopy(root['spec']['source'])}},
+                          'health': {'status': 'Healthy'}, 'operationState': {'phase': 'Succeeded'}}
+        project = objects['appproject.argoproj.io', 'cloudlab-root']
+        project['spec']['sourceRepos'] = [root['spec']['source']['repoURL']]
+        project['spec']['namespaceResourceWhitelist'] = migration.identity_project_rules(project)
+        receipt = {'phase': 'accepted', 'target': target, 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project'}
+        arguments = {'repository': root['spec']['source']['repoURL'], 'branch': 'main', 'revision': 'b' * 40,
+                     'private_repository': target['valuesRepository']}
+        return objects, receipt, arguments
+
+    def test_accepted_binding_reader_is_read_only_and_does_not_require_current_private_catalog_head(self):
+        objects, receipt, arguments = self.accepted_fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'identity-values-binding.json').write_text(json.dumps(receipt))
+            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda *key: objects[key]), \
+                    patch.object(migration, 'kube', side_effect=AssertionError('mutation')), \
+                    patch.object(migration, 'bind_identity', side_effect=AssertionError('handoff')), \
+                    patch.object(migration, 'resume_identity_binding', side_effect=AssertionError('repair')), \
+                    patch.object(migration, 'pause', side_effect=AssertionError('pause')), \
+                    patch.object(migration, 'grant_identity_source', side_effect=AssertionError('grant')), \
+                    patch.object(migration, 'wait_application', side_effect=AssertionError('mutating wait')):
+                self.assertEqual(migration.accepted_identity_binding(**arguments), receipt['target'])
+
+    def test_binding_reader_rejects_missing_malformed_pending_or_changed_native_contract(self):
+        for change in ('missing', 'malformed', 'phase', 'target-key', 'target-sha', 'private-repo', 'uid', 'deleting', 'root-repo',
+                       'branch', 'overlay', 'identity-disabled', 'not-synced', 'revision', 'unhealthy', 'operation', 'compared', 'grant'):
+            objects, receipt, arguments = self.accepted_fixture()
+            root = objects['application.argoproj.io', migration.ROOT_APP]
+            if change == 'phase': receipt['phase'] = 'resumed'
+            if change == 'target-key': receipt['target']['unknown'] = True
+            if change == 'target-sha': receipt['target']['valuesRevision'] = 'main'
+            if change == 'private-repo': arguments['private_repository'] = 'https://github.com/example/other.git'
+            if change == 'uid': receipt['controller_uid'] = 'replacement'
+            if change == 'deleting': objects['statefulset', migration.CONTROLLER]['metadata']['deletionTimestamp'] = 'synthetic'
+            if change == 'root-repo': root['spec']['source']['repoURL'] = 'https://github.com/example/other.git'
+            if change == 'branch': arguments['branch'] = 'other'
+            if change == 'overlay': root['spec']['source']['helm']['valuesObject']['identity']['argo'] = {'valuesRepository': 'changed'}
+            if change == 'identity-disabled': root['spec']['source']['helm']['valuesObject']['identity']['enabled'] = False
+            if change == 'not-synced': root['status']['sync']['status'] = 'OutOfSync'
+            if change == 'revision': root['status']['sync']['revision'] = 'c' * 40
+            if change == 'unhealthy': root['status']['health']['status'] = 'Progressing'
+            if change == 'operation': root['operation'] = {'sync': {}}
+            if change == 'compared': root['status']['sync'].pop('comparedTo')
+            if change == 'grant': objects['appproject.argoproj.io', 'cloudlab-root']['spec']['namespaceResourceWhitelist'].pop()
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                if change != 'missing': (base / 'identity-values-binding.json').write_text('{' if change == 'malformed' else json.dumps(receipt))
+                with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda *key: objects[key]), \
+                        patch.object(migration, 'kube', side_effect=AssertionError('mutation')), self.subTest(change=change):
+                    with self.assertRaises((ValueError, RuntimeError)): migration.accepted_identity_binding(**arguments)
+
+    def test_binding_reader_rejects_wrong_expected_coordinates_before_native_reads(self):
+        _, _, arguments = self.accepted_fixture()
+        for changed in ({'repository': '*'}, {'private_repository': arguments['repository']},
+                        {'private_repository': 'https://github.com/foreign/private.git'}, {'branch': '*'}, {'revision': 'main'}):
+            with patch.object(migration, 'get') as read, self.assertRaises(ValueError):
+                migration.accepted_identity_binding(**dict(arguments, **changed))
+            read.assert_not_called()
+
     def test_identity_binding_resumes_sole_controller_when_root_patch_fails(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)

@@ -14,6 +14,11 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(objects['argocd-rbac-cm']['data']['policy.default'], 'role:no-access')
         self.assertTrue(all('@sha256:' in x for x in images(self.data['operator'])))
 
+    def test_actual_enabled_public_root_renders_without_private_identity_injection(self):
+        project = next(obj for obj in self.data['roots'] if obj['kind'] == 'AppProject' and obj['metadata']['name'] == 'cloudlab-previews')
+        self.assertEqual(project['spec']['sourceRepos'], [self.data['repository']])
+        self.assertFalse(any(obj['kind'] == 'ExternalSecret' and obj['metadata']['name'] == 'cloudlab-previews-source' for obj in self.data['roots']))
+
     def test_public_project_cannot_create_privileged_platform_objects(self):
         project = next(x['spec'] for x in self.data['roots'] if x['kind'] == 'AppProject' and x['metadata']['name'] == 'cloudlab-public')
         self.assertEqual(project['clusterResourceWhitelist'], [])

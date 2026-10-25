@@ -2,16 +2,64 @@
 import fcntl
 import json
 import os
+import re
 import sys
 import time
 
 try:
     from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
+    from .source_revision import matches_revision
 except ImportError:
     from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
+    from source_revision import matches_revision
 
 ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
+
+
+def accepted_identity_binding(*, repository, branch, revision, private_repository):
+    """Read the accepted native handoff without repairing or mutating its owner."""
+    pattern = r'https://github[.]com/([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9_.-]*)[.]git'
+    public = re.fullmatch(pattern, repository) if isinstance(repository, str) else None
+    private = re.fullmatch(pattern, private_repository) if isinstance(private_repository, str) else None
+    if (not public or not private or repository.lower() == private_repository.lower() or
+            public[1].lower() != private[1].lower() or
+            not isinstance(branch, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_-]*', branch) or
+            not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision)):
+        raise ValueError('Accepted identity binding requires exact expected source coordinates')
+    try:
+        receipt = json.loads((BASE / 'identity-values-binding.json').read_text())
+    except (OSError, ValueError):
+        raise RuntimeError('Accepted native identity receipt is unavailable') from None
+    if (not isinstance(receipt, dict) or set(receipt) != {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid'} or
+            receipt['phase'] != 'accepted' or not isinstance(receipt['target'], dict) or
+            set(receipt['target']) != {'valuesRepository', 'valuesRevision'} or
+            receipt['target']['valuesRepository'] != private_repository or
+            any(not isinstance(receipt[key], str) or not receipt[key] for key in ('root_uid', 'controller_uid', 'project_uid')) or
+            not isinstance(receipt['target']['valuesRevision'], str) or not re.fullmatch('[a-f0-9]{40}', receipt['target']['valuesRevision'])):
+        raise RuntimeError('Native identity binding is not accepted')
+    objects = {key: get(kind, name) for key, kind, name in (
+        ('root_uid', 'application.argoproj.io', ROOT_APP), ('controller_uid', 'statefulset', CONTROLLER),
+        ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
+    if any(not obj or obj.get('metadata', {}).get('uid') != receipt[key] or
+           obj.get('metadata', {}).get('deletionTimestamp') for key, obj in objects.items()):
+        raise RuntimeError('Accepted native identity resource identity changed')
+    root, project, controller = objects['root_uid'], objects['project_uid'], objects['controller_uid']
+    if validate(root, project, controller, repository):
+        raise RuntimeError('Accepted native identity uses another public source')
+    if project['spec'].get('namespaceResourceWhitelist') != identity_project_rules(project):
+        raise RuntimeError('Accepted root identity source grant is incomplete')
+    source = root['spec']['source']
+    values = source.get('helm', {}).get('valuesObject', {}).get('identity', {})
+    status = root.get('status', {})
+    if (root['spec'].get('sources') or source.get('targetRevision') != branch or values.get('enabled') is not True or
+            values.get('argo') != receipt['target'] or status.get('sync', {}).get('status') != 'Synced' or
+            not matches_revision(root, revision) or status.get('health', {}).get('status') != 'Healthy' or
+            status.get('operationState', {}).get('phase') != 'Succeeded' or
+            status.get('sync', {}).get('comparedTo', {}).get('source') != source or
+            any(condition.get('type', '').endswith('Error') for condition in status.get('conditions', []))):
+        raise RuntimeError('Accepted native identity root has not converged at the expected source')
+    return dict(receipt['target'])
 
 
 def record(path, state):

@@ -1,14 +1,49 @@
 """Quiesce identity through its Argo owner inside the existing backup boundary."""
 import json
 import fcntl
+import re
 from pathlib import Path
 
-from playbooks.istio.files.kube import condition, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
 
 APP = 'cloudlab-identity'
 NAMESPACE = 'cloudlab-identity'
 OWNER = 'cloudlab-identity-bootstrap'
 BASE = Path('/var/lib/cloudlab/identity')
+
+
+def accepted_scoped_identity(*, revision):
+    """Require the retired scoped owner without running reconciliation or recovery."""
+    if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
+        raise ValueError('Scoped identity readiness requires an immutable public revision')
+    try:
+        receipt = json.loads((BASE / 'ownership.json').read_text())
+        retirement = json.loads((BASE / 'retirement.json').read_text())
+    except (OSError, ValueError):
+        raise RuntimeError('Accepted scoped identity receipts are unavailable') from None
+    if not isinstance(receipt, dict) or not isinstance(retirement, dict):
+        raise RuntimeError('Accepted scoped identity receipts are invalid')
+    app = get('application.argoproj.io', APP, 'argocd') or {}
+    server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
+    values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
+    if (receipt.get('phase') != 'scoped' or receipt.get('revision') != revision or not receipt.get('uid') or
+            app.get('metadata', {}).get('uid') != receipt['uid'] or
+            app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
+            app['metadata'].get('ownerReferences') or app['metadata'].get('finalizers') or app['metadata'].get('deletionTimestamp') or
+            retirement.get('phase') != 'accepted' or retirement.get('application_uid') != receipt['uid'] or
+            not retirement.get('keycloak_uid') or server.get('metadata', {}).get('uid') != retirement['keycloak_uid'] or
+            server.get('metadata', {}).get('deletionTimestamp') or
+            type(server.get('metadata', {}).get('generation')) is not int or server['metadata']['generation'] < 1 or
+            app.get('spec', {}).get('project') != APP or app['spec'].get('source', {}).get('path') != 'platform/identity/keycloak' or
+            values.get('enabled') is not True or values.get('reconciliationEnabled') is not True or
+            values.get('bootstrapAdminEnabled') is not False or values.get('bootstrapMode') or values.get('maintenance') or values.get('operation') or
+            not application_ready(APP, revision) or not contains(app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {}), app['spec']['source']) or
+            not condition(server, 'Ready')):
+        raise RuntimeError('Current retired scoped identity is not ready')
+    recovery = BASE / 'startup-recovery.json'
+    if recovery.exists() and json.loads(recovery.read_text()).get('phase') != 'accepted':
+        raise RuntimeError('Complete the pending identity recovery before preview setup')
+    return {'identity_ready': True}
 
 
 def _set_maintenance(enabled, identities=None):

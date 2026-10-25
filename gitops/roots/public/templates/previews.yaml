@@ -1,11 +1,15 @@
 {{- if .Values.previews.enabled }}
-{{- if or (not .Values.identity.enabled) (not .Values.identity.argo) }}{{ fail "Previews require the accepted private identity and configuration source" }}{{ end }}
+{{- if not .Values.identity.enabled }}{{ fail "Previews require the accepted private identity and configuration source" }}{{ end }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: cloudlab-previews, namespace: argocd}
 spec:
   description: Platform-controlled private preview lifecycle and admission.
-  sourceRepos: [{{ .Values.repository | quote }}, {{ .Values.identity.argo.valuesRepository | quote }}]
+  sourceRepos:
+    - {{ .Values.repository | quote }}
+    {{- if .Values.identity.argo }}
+    - {{ .Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: argocd}
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
@@ -21,6 +25,7 @@ spec:
     - {group: rbac.authorization.k8s.io, kind: RoleBinding}
     - {group: batch, kind: CronJob}
     - {group: networking.k8s.io, kind: NetworkPolicy}
+{{- if .Values.identity.argo }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -48,4 +53,5 @@ spec:
         githubAppPrivateKey: |-
 {{ .Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: github-argocd}}]
+{{- end }}
 {{- end }}

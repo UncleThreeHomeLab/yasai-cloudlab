@@ -21,10 +21,11 @@ class AdmissionTests(unittest.TestCase):
         from pathlib import Path
         from playbooks.previews.files import bootstrap, contract
         settings = catalog()
-        payload = {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+        payload = {'repository': 'https://github.com/example/platform.git', 'branch': 'main', 'revision': 'a' * 40,
                    'privateRepository': 'https://github.com/example/config.git', 'privateRevision': 'b' * 40,
                    'catalog': settings}
         with tempfile.TemporaryDirectory() as directory, patch.object(bootstrap, 'BASE', Path(directory)), \
+                patch.object(bootstrap, 'prerequisites', return_value={'prerequisites_ready': True}), \
                 patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64), \
                 patch.object(bootstrap, 'get', return_value=None), patch.object(bootstrap, 'wait'), \
                 patch.object(bootstrap, 'kube'), patch.object(bootstrap, 'native') as native_check, \
