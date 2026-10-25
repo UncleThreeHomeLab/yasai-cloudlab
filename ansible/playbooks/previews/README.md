@@ -101,3 +101,14 @@ applications, private roots, vault items and external data are never removed.
 After withdrawing private approvals and removing their ApplicationSets, run
 `lab preview credentials-retire` to revoke and UID-guard deletion of only the
 owned operational discovery Secret. No vault item or App key changes.
+
+Explicit fixture stages run through `docker compose run --rm --entrypoint python
+lab -m playbooks.previews.tests.live_acceptance <stage> --nonce <32hex> --live`.
+Use `inspect`, then `viewer-provision`, `viewer-stage`, `viewer-propose`,
+`viewer-merge`, and `viewer-enroll`. Publication and protected merge are separate
+stages. `viewer-observe`, `offboard-propose`, `offboard-merge`, `viewer-offboard`
+retain the viewer tombstone and vault item. Synthetic PR stages are `pr-create`,
+`pr-advance` and `pr-cleanup`, with `--slot a|b|c|d`. No PR merges release code.
+Each invocation requires clean published main and a serialized private journal;
+the original platform revision must remain its ancestor. Runtime viewer changes
+use the versioned fixture Ansible entry point and existing identity owners.

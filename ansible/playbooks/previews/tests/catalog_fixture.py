@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+from urllib.parse import quote
 
 from playbooks.previews.files.contract import canonical, digest, names, runtime_catalog, repository as validate_repository
 from playbooks.keycloak.files.private_source import decode_contents
@@ -132,3 +133,164 @@ def restoration(original, current, expected, *, absent):
     # In particular an originally absent file must survive concurrent user population.
     return {'expectedBase': current['revision'], 'raw': base64.b64encode(
         (json.dumps({'catalog': settings}, sort_keys=True, indent=2) + '\n').encode()).decode()}
+
+
+def pull_repository(api, repository):
+    validate_repository(repository)
+    repo = api.request('GET', 'repos/' + repository)
+    if (repo.get('full_name') != repository or repo.get('private') is not True or repo.get('fork') is not False or
+            repo.get('default_branch') != 'main' or type(repo.get('id')) is not int or repo['id'] < 1 or
+            not isinstance(repo.get('node_id'), str) or not 1 <= len(repo['node_id']) <= 256 or
+            not repo['node_id'].isascii() or any(ord(char) <= 32 or ord(char) == 127 for char in repo['node_id'])):
+        raise ValueError('Fixture PR requires its designated private nonfork repository')
+    return repo
+
+
+def pull_receipt(api, repository, nonce, slot):
+    if not re.fullmatch('[a-f0-9]{32}', nonce) or slot not in ('a', 'b', 'c', 'd'):
+        raise ValueError('Fixture PR requires its journal nonce and bounded slot')
+    repo = pull_repository(api, repository)
+    base = api.request('GET', 'repos/' + repository + '/git/ref/heads/main')['object']['sha']
+    return {'repository': repository, 'repositoryId': repo['id'], 'repositoryNodeId': repo['node_id'], 'base': base,
+            'branch': 'cloudlab-preview-fixture/' + nonce + '/' + slot, 'head': None,
+            'number': None, 'generation': -1, 'pending': None, 'pullIntent': False, 'closed': False, 'deleted': False}
+
+
+def pull_scope(receipt, nonce, slot):
+    validate_repository(receipt['repository'])
+    if (not re.fullmatch('[a-f0-9]{32}', nonce) or slot not in ('a', 'b', 'c', 'd') or
+            receipt['branch'] != 'cloudlab-preview-fixture/' + nonce + '/' + slot or
+            not re.fullmatch('[a-f0-9]{40}', receipt['base']) or type(receipt['repositoryId']) is not int or
+            receipt['repositoryId'] < 1):
+        raise ValueError('Fixture PR receipt differs from its journal')
+    return 'repos/' + receipt['repository']
+
+
+def verified_pull(api, receipt, nonce, slot):
+    prefix = pull_scope(receipt, nonce, slot)
+    pull = api.request('GET', prefix + '/pulls/' + str(receipt['number']))
+    if (pull.get('number') != receipt['number'] or pull.get('head', {}).get('sha') != receipt['head'] or
+            pull.get('head', {}).get('ref') != receipt['branch'] or pull.get('base', {}).get('ref') != 'main' or
+            any(pull.get(side, {}).get('repo', {}).get('id') != receipt['repositoryId'] for side in ('head', 'base')) or
+            pull.get('head', {}).get('repo', {}).get('fork') is not False or pull.get('merged') is True):
+        raise ValueError('Fixture PR identity or exact head changed')
+    return pull
+
+
+def commit_pull(api, receipt, nonce, slot, save, *, advance=False):
+    """Journal intent before Git objects/ref writes; an interrupted ref is inspected exactly."""
+    from playbooks.previews.files.contract import SOURCE_PATH, source
+    prefix = pull_scope(receipt, nonce, slot)
+    if receipt['closed'] or receipt['deleted']:
+        raise ValueError('Closed fixture branches cannot be reactivated')
+    if advance and receipt['number'] is None:
+        raise ValueError('Create the owned fixture PR before advancing it')
+    if advance and receipt['pending'] is None:
+        if verified_pull(api, receipt, nonce, slot).get('state') != 'open':
+            raise ValueError('Only an open owned fixture PR may advance')
+    if receipt['pending'] is None:
+        if not advance and receipt['head'] is not None:
+            return
+        receipt['pending'] = {'parent': receipt['head'] or receipt['base'], 'head': None,
+                              'generation': receipt['generation'] + 1}
+        save()
+    pending = receipt['pending']
+    raw = canonical({'profile': 'synthetic', 'message': 'synthetic fixture ' + slot + ' revision ' + str(pending['generation'])})
+    source(raw)
+    route = prefix + '/git/ref/heads/' + quote(receipt['branch'], safe='/')
+    current = api.request('GET', route, missing=True)
+    actual = current['object']['sha'] if current else None
+    if actual not in (receipt['head'], pending['head']):
+        raise ValueError('Fixture branch collision or concurrent commit; overwrite refused')
+    if not advance and pending['parent'] == receipt['base'] and api.request('GET', prefix + '/git/ref/heads/main')['object']['sha'] != receipt['base']:
+        raise ValueError('Fixture baseline advanced before branch creation')
+    if pending['head'] is None:
+        parent = api.request('GET', prefix + '/git/commits/' + pending['parent'])
+        tree = api.request('POST', prefix + '/git/trees', {'base_tree': parent['tree']['sha'], 'tree': [
+            {'path': SOURCE_PATH, 'mode': '100644', 'type': 'blob', 'content': raw.decode()}]})
+        pending['head'] = api.request('POST', prefix + '/git/commits', {
+            'message': 'Update synthetic preview fixture', 'tree': tree['sha'], 'parents': [pending['parent']]})['sha']
+        save()
+    if actual != pending['head']:
+        if receipt['head'] is None:
+            api.request('POST', prefix + '/git/refs', {'ref': 'refs/heads/' + receipt['branch'], 'sha': pending['head']})
+        else:
+            api.request('PATCH', prefix + '/git/refs/heads/' + quote(receipt['branch'], safe='/'), {'sha': pending['head'], 'force': False})
+    blob = api.request('GET', prefix + '/contents/' + SOURCE_PATH + '?ref=' + pending['head'])
+    difference = api.request('GET', prefix + '/compare/' + pending['parent'] + '...' + pending['head'])
+    if (decode_contents(blob) != raw or difference.get('total_commits') != 1 or
+            len(difference.get('files', [])) != 1 or difference['files'][0].get('filename') != SOURCE_PATH or
+            difference['files'][0].get('status') not in ('added', 'modified') or 'previous_filename' in difference['files'][0]):
+        raise ValueError('Fixture commit differs from its single synthetic source file')
+    receipt.update(head=pending['head'], generation=pending['generation'], pending=None)
+    save()
+
+
+def open_pull(api, receipt, nonce, slot, save):
+    prefix = pull_scope(receipt, nonce, slot)
+    if receipt['number'] is not None:
+        pull = verified_pull(api, receipt, nonce, slot)
+        if pull.get('state') != 'open' or pull.get('draft') is not False:
+            raise ValueError('Fixture PR is not an open approved source')
+        return
+    if receipt['head'] is None or receipt['pending'] is not None or receipt['closed'] or receipt['deleted']:
+        raise ValueError('Fixture branch is not ready for a PR')
+    pulls = api.request('GET', prefix + '/pulls?state=all&head=' + quote(receipt['repository'].split('/')[0] + ':' + receipt['branch'], safe=''))
+    if len(pulls) > 1 or (pulls and not receipt['pullIntent']):
+        raise ValueError('Unjournaled or ambiguous fixture PR; adoption refused')
+    receipt['pullIntent'] = True
+    save()
+    pull = pulls[0] if pulls else api.request('POST', prefix + '/pulls', {
+        'head': receipt['branch'], 'base': 'main', 'title': 'Synthetic private preview fixture',
+        'body': 'Disposable synthetic configuration fixture; no production credentials or release.',
+        'draft': False, 'maintainer_can_modify': False})
+    receipt['number'] = pull['number']
+    pull = verified_pull(api, receipt, nonce, slot)
+    if pull.get('state') != 'open' or pull.get('draft') is not False:
+        raise ValueError('Fixture PR is not an open approved source')
+    save()
+
+
+def cleanup_pull(api, receipt, nonce, slot, save):
+    prefix = pull_scope(receipt, nonce, slot)
+    repository = pull_repository(api, receipt['repository'])
+    if repository['id'] != receipt['repositoryId'] or repository['node_id'] != receipt.get('repositoryNodeId'):
+        raise ValueError('Fixture cleanup repository identity changed')
+    if not isinstance(receipt.get('head'), str) or not re.fullmatch('[a-f0-9]{40}', receipt['head']):
+        raise ValueError('Fixture atomic deletion requires its exact journaled head')
+    if receipt['pending'] is not None:
+        raise ValueError('Inspect the interrupted fixture commit before cleanup')
+    if receipt['number'] is not None:
+        pull = verified_pull(api, receipt, nonce, slot)
+        if pull.get('state') != 'closed':
+            receipt['closeIntent'] = True
+            save()
+            api.request('PATCH', prefix + '/pulls/' + str(receipt['number']), {'state': 'closed'})
+            if verified_pull(api, receipt, nonce, slot).get('state') != 'closed':
+                raise RuntimeError('Fixture PR close did not converge')
+        receipt['closed'] = True
+        save()
+    route = prefix + '/git/ref/heads/' + quote(receipt['branch'], safe='/')
+    current = api.request('GET', route, missing=True)
+    if current is not None:
+        if current['object']['sha'] != receipt['head']:
+            raise ValueError('Fixture cleanup head changed; branch deletion refused')
+        receipt['deleteIntent'] = True
+        save()
+        # Native compare-and-swap rejects a push racing the inspection above.
+        mutation_id = digest(canonical({'repository': repository['node_id'], 'ref': receipt['branch'], 'head': receipt['head']}))
+        result = api.request('POST', 'graphql', {
+            'query': 'mutation($input:UpdateRefsInput!){updateRefs(input:$input){clientMutationId}}',
+            'variables': {'input': {'repositoryId': repository['node_id'], 'clientMutationId': mutation_id,
+                'refUpdates': [{'name': 'refs/heads/' + receipt['branch'], 'beforeOid': receipt['head'],
+                                'afterOid': '0' * 40, 'force': False}]}}})
+        if (not isinstance(result, dict) or ('errors' in result and result['errors'] != []) or not isinstance(result.get('data'), dict) or
+                not isinstance(result['data'].get('updateRefs'), dict) or
+                result['data']['updateRefs'].get('clientMutationId') != mutation_id):
+            raise RuntimeError('Fixture atomic deletion failed; provider diagnostics withheld')
+        if api.request('GET', route, missing=True) is not None:
+            raise RuntimeError('Fixture branch absence not confirmed; deletion receipt withheld')
+    elif not receipt.get('deleteIntent'):
+        raise ValueError('Fixture branch disappeared without deletion intent')
+    receipt['deleted'] = True
+    save()
