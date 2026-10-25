@@ -1,13 +1,6 @@
 ---
 - name: Install the bounded public root handoff from its GitOps owner
-  ansible.builtin.copy:
-    src: /workspace/ansible/playbooks/argocd/files/{{ item }}
-    dest: /opt/cloudlab/playbooks/argocd/files/{{ item }}
-    mode: '0600'
-  loop:
-    - bootstrap.py
-    - source_transition.py
-    - sync_recovery.py
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/runtime.yml
 - name: Discover existing CNPG and private access inputs
   ansible.builtin.command:
     argv:

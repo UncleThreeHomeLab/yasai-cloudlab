@@ -21,6 +21,12 @@ designated private configuration repository as `{"catalog": {...}}`, with:
 - `artifacts`: image repository to exact `subject`, `issuer`, `sourceRepository`
   and `public: true` trust. Existing signing must bind the image to `sourceSha`.
 
+Plain public rendering grants only the public project source. Private source
+authorization and its credential require the accepted native identity overlay.
+Setup checks that handoff, current retired scoped identity and exact ready source
+ownership before discovery delivery or controller configuration; rendering alone
+does not establish readiness.
+
 The PR file `previews/definition.json` selects one profile:
 
 - `{"profile":"synthetic","message":"synthetic data"}` uses the fixed pinned

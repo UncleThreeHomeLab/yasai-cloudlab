@@ -20,6 +20,9 @@ class DeploymentTests(unittest.TestCase):
         for path in (ROOT / 'ansible/playbooks/data/tasks/runtime.yml',
                      OWNER / 'tasks/runtime.yml', OWNER / 'tasks/converge.yml'):
             tasks.extend(yaml.safe_load(path.read_text()))
+        tasks = [nested for task in tasks for nested in (
+            yaml.safe_load((ROOT / Path(task['ansible.builtin.import_tasks']).relative_to('/workspace')).read_text())
+            if 'ansible.builtin.import_tasks' in task else [task])]
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             for task in tasks:

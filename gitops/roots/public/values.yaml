@@ -39,4 +39,4 @@ ci:
 rollouts:
   enabled: true
 previews:
-  enabled: false
+  enabled: true

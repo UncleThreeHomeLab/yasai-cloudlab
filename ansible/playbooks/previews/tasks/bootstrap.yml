@@ -21,6 +21,31 @@
     mode: '0600'
   loop: [bootstrap.py, admission.py, contract.py, resources.py, images.lock.json, sigstore-fulcio.crt, verify.py, credentials_remote.py]
 
+- name: Install the accepted public source reader through its owner
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/runtime.yml
+
+- name: Create the scoped identity and Kubernetes observer directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [/opt/cloudlab/playbooks/keycloak/files, /opt/cloudlab/playbooks/istio/files]
+
+- name: Install read-only observers from their existing component owners
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/{{ item.owner }}/files/{{ item.name }}'
+    dest: '/opt/cloudlab/playbooks/{{ item.owner }}/files/{{ item.name }}'
+    mode: '0600'
+  loop:
+    - {owner: keycloak, name: maintenance.py}
+    - {owner: istio, name: kube.py}
+
+- name: Require accepted native identity and source readiness before discovery credentials
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/previews/files/bootstrap.py check
+  args: {stdin: '{{ preview_payload.stdout }}'}
+  changed_when: false
+  no_log: true
+
 - name: Ensure the scoped operational private discovery lease without delivering App keys
   ansible.builtin.command: python -m playbooks.previews.files.credentials ensure
   args:
