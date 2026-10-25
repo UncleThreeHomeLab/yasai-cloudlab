@@ -1,0 +1,43 @@
+---
+- name: Run one bounded preview viewer operation through its installed owner
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Validate the private fixture dispatch before host changes
+      ansible.builtin.assert:
+        that:
+          - preview_viewer.nonce is match('^[a-f0-9]{32}$')
+          - preview_viewer.realm == 'applications'
+          - preview_viewer.action in ['baseline', 'stage', 'enroll', 'observe', 'wait', 'offboard']
+      vars:
+        preview_viewer: "{{ lookup('env', 'CLOUDLAB_PREVIEW_VIEWER_REQUEST') | from_json }}"
+      no_log: true
+    - name: Create the explicit preview fixture operation directory
+      ansible.builtin.file:
+        path: /opt/cloudlab/playbooks/previews/tests
+        state: directory
+        mode: '0700'
+      no_log: true
+    - name: Install the source-owned viewer dispatcher
+      ansible.builtin.copy:
+        src: /workspace/ansible/playbooks/previews/tests/viewer_runtime.py
+        dest: /opt/cloudlab/playbooks/previews/tests/viewer_runtime.py
+        mode: '0600'
+      no_log: true
+    - name: Invoke only remote identity owner primitives
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/previews/tests/viewer_runtime.py
+      args:
+        stdin: "{{ lookup('env', 'CLOUDLAB_PREVIEW_VIEWER_REQUEST') }}"
+      register: preview_viewer_result
+      changed_when: (lookup('env', 'CLOUDLAB_PREVIEW_VIEWER_REQUEST') | from_json).action in ['stage', 'enroll', 'offboard']
+      no_log: true
+    - name: Retain the bounded private observation in the fixture recovery volume
+      ansible.builtin.copy:
+        content: '{{ preview_viewer_result.stdout }}'
+        dest: "/recovery/previews/{{ (lookup('env', 'CLOUDLAB_PREVIEW_VIEWER_REQUEST') | from_json).nonce }}/viewer-result.json"
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+      no_log: true
