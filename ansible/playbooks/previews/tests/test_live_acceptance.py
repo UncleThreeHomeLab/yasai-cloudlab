@@ -2,6 +2,8 @@ import copy
 import json
 import fcntl
 import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -99,6 +101,55 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(command['ansible.builtin.command'].endswith('/previews/tests/viewer_runtime.py'))
         self.assertTrue(tasks[-1]['no_log'])
         self.assertEqual(tasks[-1]['ansible.builtin.copy']['mode'], '0600')
+
+    def test_actual_installer_closes_preactivation_baseline_imports_without_checkout_path(self):
+        import yaml
+        tasks = yaml.safe_load(Path(runtime.__file__).with_name('viewer.yml').read_text())[0]['tasks']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            installed = root / 'installed'
+            selected = []
+            for task in tasks:
+                if 'ansible.builtin.command' in task:
+                    break
+                if 'ansible.builtin.file' in task or 'src' in task.get('ansible.builtin.copy', {}):
+                    task = copy.deepcopy(task)
+                    module = task.get('ansible.builtin.file', task.get('ansible.builtin.copy'))
+                    field = 'path' if 'path' in module else 'dest'
+                    module[field] = module[field].replace('/opt/cloudlab', str(installed), 1)
+                    selected.append(task)
+            playbook = root / 'install.yml'
+            playbook.write_text(yaml.safe_dump([{'hosts': 'all', 'gather_facts': False, 'tasks': selected}]))
+            config = root / 'ansible.cfg'
+            config.write_text('[defaults]\ninterpreter_python=auto_silent\n')
+            environment = dict(os.environ, ANSIBLE_CONFIG=str(config))
+            environment.pop('PYTHONPATH', None)
+            result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            probe = '''import json,sys,types
+sys.path.insert(0,sys.argv[1])
+from playbooks.previews.tests import viewer_runtime as viewer
+for name in ('playbooks.istio','playbooks.istio.files','playbooks.istio.files.kube'):
+ module=types.ModuleType(name);module.__path__=[];sys.modules[name]=module
+kube=sys.modules['playbooks.istio.files.kube']
+kube.get=lambda *args:None
+kube.kube=lambda *args:'' if args[1]=='secrets' else json.dumps({'items':[]})
+viewer.client_baseline=lambda request:{}
+result=viewer.baseline({'instances':[]})
+from playbooks.previews.files import contract
+assert set(result['states'])=={contract.STATE,contract.IDENTITY_STATE}
+assert contract.__file__.startswith(sys.argv[1]+'/')
+assert viewer.__file__.startswith(sys.argv[1]+'/')
+'''
+            result = subprocess.run([sys.executable, '-I', '-c', probe, str(installed)], cwd=root,
+                env=environment, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            installed.joinpath('playbooks/previews/files/contract.py').unlink()
+            result = subprocess.run([sys.executable, '-I', '-c', probe, str(installed)], cwd=root,
+                env=environment, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("No module named 'playbooks.previews.files.contract'", result.stderr)
 
     def test_secret_baseline_captures_only_metadata_and_keeps_values_out(self):
         from playbooks.istio.files import kube
