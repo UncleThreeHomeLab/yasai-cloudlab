@@ -28,14 +28,28 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ .Values.name }}
-  labels: {cloudlab.io/owner: {{ .Values.owner | quote }}}
+  labels:
+    cloudlab.io/owner: {{ .Values.owner | quote }}
+    {{- with .Values.previewIdentity }}
+    cloudlab.io/preview-instance: {{ .instance | quote }}
+    {{- end }}
+  {{- with .Values.previewIdentity }}
+  annotations: {cloudlab.io/approval-digest: {{ .approvalDigest | quote }}, cloudlab.io/runtime-state-uid: {{ .runtimeStateUID | quote }}}
+  {{- end }}
 automountServiceAccountToken: false
 ---
 apiVersion: {{ if .Values.rollouts.enabled }}argoproj.io/v1alpha1{{ else }}apps/v1{{ end }}
 kind: {{ if .Values.rollouts.enabled }}Rollout{{ else }}Deployment{{ end }}
 metadata:
   name: {{ .Values.name }}
-  labels: {cloudlab.io/owner: {{ .Values.owner | quote }}}
+  labels:
+    cloudlab.io/owner: {{ .Values.owner | quote }}
+    {{- with .Values.previewIdentity }}
+    cloudlab.io/preview-instance: {{ .instance | quote }}
+    {{- end }}
+  {{- with .Values.previewIdentity }}
+  annotations: {cloudlab.io/approval-digest: {{ .approvalDigest | quote }}, cloudlab.io/runtime-state-uid: {{ .runtimeStateUID | quote }}}
+  {{- end }}
 spec:
   replicas: {{ .Values.replicas }}
   revisionHistoryLimit: 2
@@ -203,7 +217,21 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.name }}
+  {{- if .Values.previewWaypoint | default false }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.name }}
+    cloudlab.io/owner: {{ .Values.owner | quote }}
+    {{- with .Values.previewIdentity }}
+    cloudlab.io/preview-instance: {{ .instance | quote }}
+    {{- end }}
+    istio.io/use-waypoint: preview-waypoint
+    istio.io/ingress-use-waypoint: 'true'
+  {{- else }}
   labels: {app.kubernetes.io/name: {{ .Values.name }}}
+  {{- end }}
+  {{- with .Values.previewIdentity }}
+  annotations: {cloudlab.io/approval-digest: {{ .approvalDigest | quote }}, cloudlab.io/runtime-state-uid: {{ .runtimeStateUID | quote }}}
+  {{- end }}
 spec:
   type: ClusterIP
   selector: {app.kubernetes.io/name: {{ .Values.name }}}

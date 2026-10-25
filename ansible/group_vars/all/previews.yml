@@ -1,0 +1,2 @@
+---
+previews_enabled: "{{ (lookup('file', '/workspace/gitops/roots/public/values.yaml') | from_yaml).previews.enabled }}"

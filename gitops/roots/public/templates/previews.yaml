@@ -1,0 +1,51 @@
+{{- if .Values.previews.enabled }}
+{{- if or (not .Values.identity.enabled) (not .Values.identity.argo) }}{{ fail "Previews require the accepted private identity and configuration source" }}{{ end }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: cloudlab-previews, namespace: argocd}
+spec:
+  description: Platform-controlled private preview lifecycle and admission.
+  sourceRepos: [{{ .Values.repository | quote }}, {{ .Values.identity.argo.valuesRepository | quote }}]
+  destinations:
+    - {server: 'https://kubernetes.default.svc', namespace: argocd}
+    - {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
+  clusterResourceWhitelist:
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+    - {group: admissionregistration.k8s.io, kind: ValidatingAdmissionPolicy}
+    - {group: admissionregistration.k8s.io, kind: ValidatingAdmissionPolicyBinding}
+  namespaceResourceWhitelist:
+    - {group: '', kind: ServiceAccount}
+    - {group: '', kind: ConfigMap}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+    - {group: batch, kind: CronJob}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudlab-previews-source
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-previews-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata: {labels: {argocd.argoproj.io/secret-type: repository}}
+      data:
+        type: git
+        url: {{ .Values.identity.argo.valuesRepository | quote }}
+        project: cloudlab-previews
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+{{- end }}

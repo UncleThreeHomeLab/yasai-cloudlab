@@ -126,3 +126,7 @@ distributed transaction; failed native state upload requires the existing protec
 state-recovery procedure before publication resumes.
 
 The pinned Kyverno legacy verifier omits Fulcio intermediate certificates. Public artifact policies therefore pin the public Fulcio roots and intermediate from Cosign-verified Sigstore TUF material; `platform/delivery/services/sigstore-fulcio.lock.json` records its source and checksums. Update these anchors with verification before upstream certificate rotation. Exact GitHub issuer, workflow identity, repository, main ref, SCT and Rekor verification remain required.
+
+The preview owner alone supplies `previewWaypoint` and `previewIdentity` for
+namespace-local waypoint enrollment and immutable cleanup metadata. Ordinary
+services retain their existing routing and identity behavior.

@@ -37,6 +37,14 @@ rules:
   - apiGroups: ['']
     resources: [pods]
     verbs: [list]
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [cloudlab-preview-identity-state]
+    verbs: [get, update]
+  # Runtime state is created once; collection POST has no resourceNames constraint.
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [create]
   - apiGroups: [k8s.keycloak.org]
     resources: [keycloaks]
     resourceNames: [cloudlab-keycloak]
@@ -49,6 +57,21 @@ metadata:
 subjects: [{kind: ServiceAccount, name: identity-writer}]
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: identity-writer}
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: identity-preview-observer, namespace: argocd}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [cloudlab-preview-approvals, cloudlab-preview-state]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: identity-preview-observer, namespace: argocd}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: identity-preview-observer}
+subjects: [{kind: ServiceAccount, name: identity-writer, namespace: cloudlab-identity}]
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -58,6 +81,10 @@ data:
 {{ .Files.Get "runtime/configuration.py" | indent 4 }}
   lease.py: |
 {{ .Files.Get "runtime/lease.py" | indent 4 }}
+  preview_clients.py: |
+{{ .Files.Get "runtime/preview_clients.py" | indent 4 }}
+  preview_contract.py: |
+{{ .Files.Get "runtime/preview_contract.py" | indent 4 }}
   config-cli.properties: |
 {{ .Files.Get "config-cli.properties" | indent 4 }}
 {{- $pod := dict }}

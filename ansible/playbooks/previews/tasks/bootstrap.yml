@@ -1,0 +1,44 @@
+---
+- name: Resolve the complete committed private preview catalog
+  ansible.builtin.command: python -m playbooks.previews.files.payload
+  args: {chdir: /workspace}
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: preview_payload
+
+- name: Create the bounded preview operation directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/playbooks/previews/files
+    state: directory
+    mode: '0700'
+
+- name: Install versioned preview operations and checks
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/previews/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/previews/files/{{ item }}'
+    mode: '0600'
+  loop: [bootstrap.py, admission.py, contract.py, resources.py, images.lock.json, sigstore-fulcio.crt, verify.py, credentials_remote.py]
+
+- name: Ensure the scoped operational private discovery lease without delivering App keys
+  ansible.builtin.command: python -m playbooks.previews.files.credentials ensure
+  args:
+    chdir: /workspace
+    stdin: '{{ preview_payload.stdout }}'
+  delegate_to: localhost
+  become: false
+  no_log: true
+  register: preview_credentials
+  changed_when: (preview_credentials.stdout | from_json).changed
+
+- name: Qualify native admission before enabling preview controller permissions
+  ansible.builtin.command: python3 /opt/cloudlab/playbooks/previews/files/bootstrap.py
+  args: {stdin: '{{ preview_payload.stdout }}'}
+  no_log: true
+  register: preview_configured
+  changed_when: (preview_configured.stdout | from_json).changed
+
+- name: Report bounded preview configuration
+  ansible.builtin.debug:
+    msg: '{{ preview_configured.stdout | from_json }}'

@@ -34,6 +34,7 @@ argo-cd:
   notifications:
     enabled: false
   applicationSet:
+    extraArgs: [--policy=create-update, --enable-policy-override=false]
     replicas: 1
     resources:
       requests:

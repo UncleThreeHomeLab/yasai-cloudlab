@@ -46,6 +46,8 @@
   ansible.builtin.import_playbook: keycloak/050-retained.yml
 - name: Configure direct Git application delivery
   ansible.builtin.import_playbook: services/010-bootstrap.yml
+- name: Configure private preview lifecycle
+  ansible.builtin.import_playbook: previews/010-bootstrap.yml
 - name: Run observability/010-bootstrap.yml
   ansible.builtin.import_playbook: observability/010-bootstrap.yml
 - name: Run observability/020-converge.yml

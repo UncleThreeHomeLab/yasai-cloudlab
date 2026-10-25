@@ -1,0 +1,66 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-preview-approvals
+  namespace: argocd
+  labels: {cloudlab.io/owner: cloudlab-previews}
+data:
+  catalog.json: {{ .Values.catalog | toJson | quote }}
+  platformRepository: {{ .Values.platformRepository | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-preview-code
+  namespace: argocd
+  labels: {cloudlab.io/owner: cloudlab-previews}
+data:
+{{- range $path, $content := .Files.Glob "runtime/*" }}
+  {{ base $path }}: |
+{{ $content | toString | indent 4 }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudlab-previews
+  namespace: argocd
+  labels: {cloudlab.io/owner: cloudlab-previews}
+spec:
+  suspend: {{ not .Values.permissionsEnabled }}
+  schedule: '* * * * *'
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 55
+      ttlSecondsAfterFinished: 3600
+      backoffLimit: 0
+      template:
+        metadata:
+          labels: {cloudlab.io/preview-controller: 'true'}
+        spec:
+          serviceAccountName: cloudlab-previews
+          restartPolicy: Never
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+          containers:
+            - name: reconcile
+              image: python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+              command: [python, /code/controller.py]
+              env: [{name: PYTHONDONTWRITEBYTECODE, value: '1'}]
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {cpu: 100m, memory: 128Mi}}
+              volumeMounts:
+                - {name: code, mountPath: /code, readOnly: true}
+                {{- if .Values.catalog.privateDiscovery }}
+                - {name: discovery, mountPath: /discovery, readOnly: true}
+                {{- end }}
+          volumes:
+            - {name: code, configMap: {name: cloudlab-preview-code}}
+            {{- if .Values.catalog.privateDiscovery }}
+            - {name: discovery, secret: {secretName: github-preview-discovery, optional: true, defaultMode: 0440}}
+            {{- end }}
+{{- end }}

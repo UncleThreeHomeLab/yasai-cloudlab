@@ -40,6 +40,10 @@
           "ISTIO_META_ENABLE_HBONE": "true"
         }
       }
+    },
+    "env": {
+      "ENABLE_INGRESS_WAYPOINT_ROUTING": "true",
+      "PILOT_JWT_ENABLE_REMOTE_JWKS": "false"
     }
   }
 }

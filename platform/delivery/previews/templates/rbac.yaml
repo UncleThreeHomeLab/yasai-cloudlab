@@ -1,0 +1,98 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: cloudlab-previews, namespace: argocd}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: cloudlab-preview-inventory}
+rules:
+  - {apiGroups: ['*'], resources: ['*'], verbs: [list]}
+  - {apiGroups: [''], resources: [configmaps], resourceNames: [preview-waypoint-options], verbs: [get]}
+  - {apiGroups: [''], resources: [services, serviceaccounts], resourceNames: [preview, preview-waypoint], verbs: [get]}
+  - {apiGroups: [''], resources: [resourcequotas, limitranges], resourceNames: [budget], verbs: [get]}
+  - {apiGroups: [apps], resources: [deployments], resourceNames: [preview, preview-waypoint], verbs: [get]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], resourceNames: [default-deny, waypoint, application], verbs: [get]}
+  - {apiGroups: [gateway.networking.k8s.io], resources: [gateways, httproutes], resourceNames: [preview, preview-waypoint], verbs: [get]}
+  - {apiGroups: [security.istio.io], resources: [authorizationpolicies, peerauthentications, requestauthentications], resourceNames: [strict, waypoint-only, identity], verbs: [get]}
+  - {apiGroups: [kyverno.io], resources: [policies], resourceNames: [preview-artifacts], verbs: [get]}
+  - {apiGroups: [rbac.authorization.k8s.io], resources: [rolebindings], resourceNames: [preview-inventory], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: cloudlab-previews}
+{{- if not .Values.permissionsEnabled }}
+rules: []
+{{- else }}
+rules:
+  {{- if .Values.catalog.ownership }}
+  - apiGroups: ['']
+    resources: [namespaces]
+    verbs: [get, delete]
+    resourceNames: {{ keys .Values.catalog.ownership | sortAlpha | toJson }}
+  {{- end }}
+  # Kubernetes cannot constrain collection POST; fail-closed admission does.
+  - {apiGroups: [''], resources: [namespaces], verbs: [create]}
+  - {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [cloudlab-preview-inventory], verbs: [bind]}
+  - {apiGroups: [rbac.authorization.k8s.io], resources: [rolebindings], verbs: [create]}
+  - {apiGroups: [''], resources: [configmaps, resourcequotas, limitranges], verbs: [create, update, delete]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [create, update, delete]}
+  - {apiGroups: [gateway.networking.k8s.io], resources: [gateways, httproutes], verbs: [create, update, delete]}
+  - {apiGroups: [security.istio.io], resources: [authorizationpolicies, peerauthentications, requestauthentications], verbs: [create, update, delete]}
+  - {apiGroups: [kyverno.io], resources: [policies], verbs: [create, update, delete]}
+  - {apiGroups: [''], resources: [services, serviceaccounts], resourceNames: [preview], verbs: [delete]}
+  - {apiGroups: [apps], resources: [deployments], resourceNames: [preview], verbs: [delete]}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: cloudlab-previews}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cloudlab-previews}
+subjects: [{kind: ServiceAccount, name: cloudlab-previews, namespace: argocd}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cloudlab-previews, namespace: argocd}
+{{- if not .Values.permissionsEnabled }}
+rules: []
+{{- else }}
+rules:
+  - {apiGroups: [''], resources: [configmaps], resourceNames: [cloudlab-preview-approvals, cloudlab-preview-state], verbs: [get]}
+  - {apiGroups: [''], resources: [configmaps], resourceNames: [cloudlab-preview-state], verbs: [update]}
+  {{- if .Values.catalog.ownership }}
+  - apiGroups: [argoproj.io]
+    resources: [applicationsets, appprojects]
+    verbs: [get, update, delete]
+    resourceNames:
+      {{- range $namespace, $authorization := .Values.catalog.ownership }}
+      - {{ printf "preview-%s" (first (splitList ":" $authorization)) }}
+      {{- end }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, delete]
+    resourceNames:
+      {{- range $namespace, $authorization := .Values.catalog.ownership }}
+      - {{ printf "preview-%s" (first (splitList ":" $authorization)) }}
+      {{- end }}
+  {{- end }}
+  - {apiGroups: [argoproj.io], resources: [applicationsets, appprojects], verbs: [create]}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cloudlab-previews, namespace: argocd}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cloudlab-previews}
+subjects: [{kind: ServiceAccount, name: cloudlab-previews, namespace: argocd}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: preview-identity-observer, namespace: cloudlab-identity}
+rules:
+  - {apiGroups: [''], resources: [configmaps], resourceNames: [cloudlab-preview-identity-state], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: preview-identity-observer, namespace: cloudlab-identity}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: preview-identity-observer}
+subjects: [{kind: ServiceAccount, name: cloudlab-previews, namespace: argocd}]
+{{- end }}

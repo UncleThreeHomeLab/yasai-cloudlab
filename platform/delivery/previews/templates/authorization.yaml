@@ -1,0 +1,114 @@
+{{- if .Values.enabled }}
+{{- range $type := list "namespaces" "rolebindings" "objects" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-preview-{{ $type }}
+  annotations: {argocd.argoproj.io/sync-wave: '-20'}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['*']
+        apiVersions: ['*']
+        operations: [CREATE, UPDATE, DELETE]
+        resources: {{ if eq $type "namespaces" }}['namespaces', 'namespaces/*']{{ else if eq $type "rolebindings" }}['rolebindings']{{ else }}['*']{{ end }}
+  matchConditions:
+    - name: preview-controller
+      expression: "request.userInfo.username == 'system:serviceaccount:argocd:cloudlab-previews'"
+    {{- if eq $type "objects" }}
+    - name: separately-guarded-resources
+      expression: request.resource.resource != 'namespaces' && request.resource.resource != 'rolebindings'
+    {{- end }}
+  variables:
+    - name: authorization
+      expression: {{ $.Values.catalog.ownership | toJson | quote }}
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: meta
+      expression: variables.target.metadata
+    - name: state
+      expression: "request.namespace == 'argocd' && request.resource.resource == 'configmaps' && request.name == 'cloudlab-preview-state'"
+    - name: targetNamespace
+      expression: {{ if eq $type "namespaces" }}"request.name"{{ else if eq $type "objects" }}"request.namespace == 'argocd' ? 'cloudlab-' + request.name : request.namespace"{{ else }}"request.namespace"{{ end }}
+    - name: owned
+      expression: >-
+        has(variables.meta.labels) && has(variables.meta.annotations) &&
+        'cloudlab.io/owner' in variables.meta.labels && variables.meta.labels['cloudlab.io/owner'] == 'cloudlab-previews' &&
+        'cloudlab.io/preview-instance' in variables.meta.labels &&
+        'cloudlab.io/approval-digest' in variables.meta.annotations &&
+        variables.targetNamespace in variables.authorization &&
+        variables.authorization[variables.targetNamespace] == variables.meta.labels['cloudlab.io/preview-instance'] + ':' + variables.meta.annotations['cloudlab.io/approval-digest'] &&
+        variables.targetNamespace == 'cloudlab-preview-' + variables.meta.labels['cloudlab.io/preview-instance']
+  validations:
+    {{- if eq $type "namespaces" }}
+    - expression: >-
+        variables.owned && (!has(request.subResource) || request.subResource == '') && request.operation in ['CREATE', 'DELETE'] &&
+        (request.operation == 'DELETE' ?
+          (has(request.options.preconditions) && has(request.options.preconditions.uid) && request.options.preconditions.uid == oldObject.metadata.uid) :
+          (variables.meta.labels['pod-security.kubernetes.io/enforce'] == 'restricted' &&
+           variables.meta.labels['pod-security.kubernetes.io/enforce-version'] == 'v1.36' &&
+           variables.meta.labels['istio.io/dataplane-mode'] == 'ambient' &&
+           variables.meta.labels['istio.io/use-waypoint'] == 'preview-waypoint' &&
+           variables.meta.labels['cloudlab.io/gateway'] == 'private'))
+      message: Preview namespace operations require exact administrator authorization and deletion UID.
+    {{- else if eq $type "rolebindings" }}
+    - expression: >-
+        variables.owned && request.operation == 'CREATE' && request.name == 'preview-inventory' &&
+        object.roleRef.apiGroup == 'rbac.authorization.k8s.io' && object.roleRef.kind == 'ClusterRole' &&
+        object.roleRef.name == 'cloudlab-preview-inventory' && size(object.subjects) == 1 &&
+        object.subjects[0].kind == 'ServiceAccount' && object.subjects[0].name == 'cloudlab-previews' &&
+        object.subjects[0].namespace == 'argocd' && namespaceObject != null &&
+        has(namespaceObject.metadata.labels) && has(namespaceObject.metadata.annotations) &&
+        namespaceObject.metadata.labels['cloudlab.io/owner'] == 'cloudlab-previews' &&
+        namespaceObject.metadata.labels['cloudlab.io/preview-instance'] == variables.meta.labels['cloudlab.io/preview-instance'] &&
+        namespaceObject.metadata.annotations['cloudlab.io/approval-digest'] == variables.meta.annotations['cloudlab.io/approval-digest'] &&
+        namespaceObject.metadata.annotations['cloudlab.io/runtime-state-uid'] == variables.meta.annotations['cloudlab.io/runtime-state-uid']
+      message: Preview inventory binding is restricted to its exact namespace, role and service account.
+    {{- else }}
+    - expression: >-
+        variables.state ?
+          (request.operation != 'DELETE' && has(variables.meta.labels) && variables.meta.labels['cloudlab.io/owner'] == 'cloudlab-previews' &&
+           (request.operation == 'CREATE' || oldObject.metadata.labels['cloudlab.io/owner'] == 'cloudlab-previews')) :
+          (variables.owned && (request.namespace != 'argocd' || request.resource.resource in ['applications', 'applicationsets', 'appprojects']) &&
+           (request.operation == 'CREATE' ||
+             (has(oldObject.metadata.labels) && oldObject.metadata.labels['cloudlab.io/owner'] == 'cloudlab-previews' &&
+              oldObject.metadata.labels['cloudlab.io/preview-instance'] == variables.meta.labels['cloudlab.io/preview-instance'])))
+      message: Preview writes cannot change administrator inputs or other namespaces.
+    - expression: "request.resource.resource != 'applications' || request.operation == 'DELETE'"
+      message: Preview lifecycle cannot author or modify generated Applications.
+    - expression: >-
+        request.operation == 'DELETE' || request.resource.resource != 'appprojects' ||
+        (object.spec.sourceRepos == [{{ $.Values.platformRepository | quote }}] &&
+         size(object.spec.destinations) == 1 && object.spec.destinations[0].server == 'https://kubernetes.default.svc' &&
+         object.spec.destinations[0].namespace == variables.targetNamespace &&
+         size(object.spec.clusterResourceWhitelist) == 0 && size(object.spec.namespaceResourceWhitelist) == 3 &&
+         object.spec.namespaceResourceWhitelist.all(entry,
+           (entry.group == '' && entry.kind in ['Service', 'ServiceAccount']) || (entry.group == 'apps' && entry.kind == 'Deployment')) &&
+         (!has(object.spec.roles) || size(object.spec.roles) == 0))
+      message: Preview projects cannot grant cluster resources or another destination.
+    - expression: >-
+        request.operation == 'DELETE' || request.resource.resource != 'applicationsets' ||
+        (object.spec.template.spec.project == request.name && object.spec.template.metadata.name == request.name &&
+         object.spec.template.spec.destination.server == 'https://kubernetes.default.svc' &&
+         object.spec.template.spec.destination.namespace == variables.targetNamespace &&
+         has(object.spec.template.spec.source) && !has(object.spec.template.spec.sources) &&
+         object.spec.template.spec.source.repoURL == {{ $.Values.platformRepository | quote }} &&
+         object.spec.template.spec.source.path == 'charts/service' &&
+         object.spec.template.spec.source.targetRevision.matches('^[a-f0-9]{40}$') &&
+         !has(object.spec.template.spec.source.plugin) && !has(object.spec.template.spec.source.helm.valueFiles) &&
+         !has(object.spec.template.spec.source.helm.parameters) && !has(object.spec.template.spec.source.helm.fileParameters))
+      message: Preview templates cannot select another chart, project or destination.
+    {{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-preview-{{ $type }}
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+spec:
+  policyName: cloudlab-preview-{{ $type }}
+  validationActions: [Deny]
+{{- end }}
+{{- end }}

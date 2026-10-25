@@ -23,6 +23,9 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(any('*' in x for x in project['sourceRepos']))
 
     def test_source_failure_or_application_removal_cannot_prune(self):
+        controller = next(x for x in self.data['operator'] if x['kind'] == 'Deployment' and x['metadata']['name'] == 'argocd-applicationset-controller')
+        self.assertIn('--policy=create-update', controller['spec']['template']['spec']['containers'][0]['args'])
+        self.assertIn('--enable-policy-override=false', controller['spec']['template']['spec']['containers'][0]['args'])
         for app in [x for x in self.data['roots'] if x['kind'] == 'Application']:
             self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
             self.assertNotIn('finalizers', app['metadata'])

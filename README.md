@@ -77,6 +77,9 @@ services only with a reviewed catalog in the designated private configuration re
 Argo reads approved service changes directly from Git; external provisioning and
 retirement retain their explicit owner operations.
 
+Optional [private previews](ansible/playbooks/previews/README.md) bind exact PR
+revisions, immutable artifacts and isolated clients to bounded disposable namespaces.
+
 Monitoring uses the [monitoring contract](platform/observability/contract.json).
 Keep `CloudLab/uptimerobot-management/API_KEY` in 1Password. Run `lab observe
 external-check` before `external-apply`; verify outage and recovery email delivery
@@ -233,6 +236,7 @@ Deployment still depends on inputs and verification.
 | Policy | Kyverno + Pod Security | Enforce workload digest, resource and token rules; restricted application pods | Enforced |
 | GitOps | ApplicationSet | Admin-approved app deployments and scoped data requests | Available |
 | Releases | Argo Rollouts | HTTPRoute canaries with per-revision Prometheus analysis | Available |
+| Previews | ApplicationSet + Istio waypoint | Exact-revision private previews with close/expiry cleanup | Opt-in |
 | Metrics | Prometheus + Alertmanager | Metrics, SLOs and alerts | Available |
 | Logs | Grafana Alloy + Loki | Collect and store redacted logs | Available |
 | Traces | OpenTelemetry + Tempo | Collect and store traces | Available |

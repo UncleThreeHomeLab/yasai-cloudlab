@@ -1,0 +1,4 @@
+enabled: false
+permissionsEnabled: false
+platformRepository: https://github.com/example/platform.git
+catalog: {}

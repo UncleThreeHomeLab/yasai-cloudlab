@@ -172,6 +172,32 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "previewWaypoint": {
+          "type": "boolean"
+        },
+        "previewIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "instance": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "approvalDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "runtimeStateUID": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,64}$"
+            }
+          },
+          "required": [
+            "instance",
+            "approvalDigest",
+            "runtimeStateUID"
+          ]
+        },
         "name": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]{0,40}$",

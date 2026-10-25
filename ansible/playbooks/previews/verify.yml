@@ -1,0 +1,27 @@
+---
+- name: Verify the private preview lifecycle owner
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Resolve committed preview verification inputs
+      ansible.builtin.command: python -m playbooks.previews.files.payload
+      args: {chdir: /workspace}
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: preview_payload
+      when: previews_enabled | bool
+    - name: Verify actual native retention, identity and scheduler boundaries
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/previews/files/verify.py
+      args: {stdin: '{{ preview_payload.stdout }}'}
+      changed_when: false
+      no_log: true
+      register: preview_verified
+      when: previews_enabled | bool
+    - name: Report sanitized preview verification
+      ansible.builtin.debug:
+        msg: '{{ preview_verified.stdout | from_json }}'
+      when: previews_enabled | bool

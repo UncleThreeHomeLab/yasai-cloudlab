@@ -32,6 +32,10 @@ def check():
     for filename in ('configuration.py', 'lease.py', 'health.py'):
         if (BASE / 'runtime' / filename).read_bytes() != (ROOT / 'ansible/playbooks/keycloak/files' / filename).read_bytes():
             raise ValueError('Packaged identity runtime differs from owning module')
+    if (BASE / 'runtime/preview_clients.py').read_bytes() != (ROOT / 'ansible/playbooks/keycloak/files/preview_clients.py').read_bytes():
+        raise ValueError('Packaged preview identity runtime differs from owning module')
+    if (BASE / 'runtime/preview_contract.py').read_bytes() != (ROOT / 'ansible/playbooks/previews/files/contract.py').read_bytes():
+        raise ValueError('Packaged preview identity contract differs from owning module')
     if render():
         raise ValueError('Identity must remain inactive until explicitly enabled')
     try:

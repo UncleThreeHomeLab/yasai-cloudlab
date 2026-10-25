@@ -62,6 +62,9 @@ configuration. External publication, identity and retirement remain explicit.
 `playbooks/services/repair-source-owner.yml` requires `services_source_recovery_file` in
 `/recovery/`; it restores only the recorded fixture-created sources field conflict.
 
+[Previews](playbooks/previews/) owns exact-revision approval, private namespace
+budgets, lifecycle cleanup and bounded transient identity intent.
+
 [Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
 redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installation,
 scoped registry credentials and coordinated recovery. Its host schedules use the
