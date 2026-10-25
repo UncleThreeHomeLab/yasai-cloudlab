@@ -22,6 +22,14 @@ def configuration(payload):
         raise ValueError('Private DNS labels are invalid or ambiguous')
     if {'ns1', 'ns2'} & set(names):
         raise ValueError('Private DNS nameserver labels are reserved')
+    preview = payload.get('preview_dns')
+    if preview is not None:
+        if (not isinstance(preview, dict) or set(preview) != {'prefix', 'zone'} or preview['zone'] != zone or
+                not isinstance(preview['prefix'], str) or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?', preview['prefix']) or
+                preview['prefix'] not in names or len(preview['prefix'] + '-' + '0' * 32 + '.' + zone) > 253):
+            raise ValueError('Preview DNS requires its declared bounded private prefix and exact zone')
+        if any(re.fullmatch(re.escape(preview['prefix']) + '-[a-f0-9]{32}', name) for name in names):
+            raise ValueError('Ordinary private labels cannot occupy reserved preview origins')
     tailnet = address(payload['tailnet_address'], '100.64.0.0/10')
     host = address(payload['host_address'], '10.44.0.0/30')
     gateway = address(payload['cluster_gateway'], '10.43.0.0/16')
@@ -37,6 +45,8 @@ def configuration(payload):
         if not ipaddress.ip_address(value).is_global:
             raise ValueError('Retained upstream resolver is not independent of the lab')
     record_data = {'zone': zone, 'names': sorted(names), 'gateway': gateway, 'vip': vip, 'servers': servers}
+    if preview is not None:
+        record_data['preview_dns'] = preview
     serial = int(hashlib.sha256(json.dumps(record_data, sort_keys=True).encode()).hexdigest()[:8], 16) or 1
     header = f'$ORIGIN {zone}.\n$TTL 30\n@ IN SOA ns1.{zone}. hostmaster.{zone}. {serial} 60 30 86400 30\n@ IN NS ns1.{zone}.\n@ IN NS ns2.{zone}.\n'
     files = {}
@@ -44,6 +54,22 @@ def configuration(payload):
         ns = servers if view == 'tailnet' else ['10.44.0.1', '10.44.0.2']
         files[view + '.zone'] = header + ''.join(f'ns{i+1} IN A {value}\n' for i, value in enumerate(ns)) + ''.join(
             f'{name} IN A {target}\n' for name in sorted(names))
+    def preview_template(target):
+        if preview is None:
+            return ''
+        pattern = '^' + re.escape(preview['prefix']) + '-[a-f0-9]{32}[.]' + zone.replace('.', '[.]') + '[.]$'
+        # A terminal catch-all type returns authoritative NODATA for this existing name.
+        return f'''    template IN A {zone} {{
+        match {pattern}
+        answer "{{{{ .Name }}}} 30 IN A {target}"
+        fallthrough
+    }}
+    template IN ANY {zone} {{
+        match {pattern}
+        authority "{zone}. 30 IN SOA ns1.{zone}. hostmaster.{zone}. {serial} 60 30 86400 30"
+        fallthrough
+    }}
+'''
     # Files are relative to the service WorkingDirectory; validation uses the same bytes.
     files['Corefile'] = f'''{zone}:53 {{
     bind {tailnet}
@@ -51,7 +77,7 @@ def configuration(payload):
         allow net 100.64.0.0/10
         block
     }}
-    file tailnet.zone {zone} {{
+{preview_template(vip)}    file tailnet.zone {zone} {{
         reload 0
     }}
 }}
@@ -61,7 +87,7 @@ def configuration(payload):
         allow net 127.0.0.1/32 10.44.0.0/30 10.42.0.0/16
         block
     }}
-    file internal.zone {zone} {{
+{preview_template(gateway)}    file internal.zone {zone} {{
         reload 0
     }}
 }}

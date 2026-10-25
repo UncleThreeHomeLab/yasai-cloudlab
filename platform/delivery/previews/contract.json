@@ -33,7 +33,7 @@
   },
   "sourceBinding": "Exact same-repository PR SHA and exact source blob digest; platform approval separately binds immutable image and chart revision.",
   "applicationArtifacts": "Public immutable artifacts require an approved signer, issuer, source repository and signed githubWorkflowSha equal to the approved source SHA. Private registry credentials are not supported.",
-  "identity": "Distinct public PKCE client and audience per instance. Exact callback and empty health/callback exceptions; no production credentials.",
+  "identity": "Distinct private browser origin, public PKCE client and audience per instance. Exact callback and empty health/callback exceptions; legacy shared origins retire before execution or repair; no production credentials.",
   "deletion": "Only inventoried disposable preview objects and clients. UID/version guards and complete namespace inventory precede cascading deletion. Unexpected storage, retention or ownership blocks deletion.",
   "persistentResources": "ApplicationSet create-update and resource preservation remain effective. Git failures never authorize persistent application or private-source pruning.",
   "privateMaximumLifetimeSeconds": 3000

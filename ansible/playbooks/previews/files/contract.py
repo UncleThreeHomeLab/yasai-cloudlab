@@ -14,6 +14,7 @@ PRIVATE_MAX_LIFETIME = 3000
 LEASE_MARGIN = 300
 GENERATED_CONFIGMAPS = ('kube-root-ca.crt', 'istio-ca-root-cert', 'istio-ca-crl')
 ANONYMOUS_INTERVAL = 900
+ORIGIN_VERSION = 2
 IMAGE = 'python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed'
 
 
@@ -151,7 +152,9 @@ def _catalog(value, validate):
 
 
 def catalog(value):
-    return _catalog(value, approval)
+    result = _catalog(value, approval)
+    hostname({'instance': '0' * 32}, value)
+    return result
 
 
 def runtime_catalog(value):
@@ -177,12 +180,25 @@ def names(row):
             'client': 'preview-' + row['instance'], 'path': '/previews/' + row['instance'] + '/'}
 
 
+def hostname(row, settings):
+    origin(settings)
+    instance = row.get('instance')
+    if not isinstance(instance, str) or not re.fullmatch('[a-f0-9]{32}', instance):
+        raise ValueError('Preview origin requires its immutable instance')
+    prefix, zone = settings['hostname'].split('.', 1)
+    host = prefix + '-' + instance + '.' + zone
+    if len(prefix) > 30 or len(host) > 253:
+        raise ValueError('Preview origin exceeds DNS label or hostname limits')
+    return host
+
+
 def client(row, settings):
     approval(row)
     origin(settings)
     n = names(row)
+    browser_origin = 'https://' + hostname(row, settings)
     return {'id': n['client'], 'audience': n['client'], 'public': True,
-            'callbacks': ['https://' + settings['hostname'] + n['path'] + 'callback'],
+            'callbacks': [browser_origin + n['path'] + 'callback'], 'web_origins': [browser_origin],
             'roles': [], 'scopes': ['profile', 'email']}
 
 

@@ -19,12 +19,14 @@ def name_end(data, offset):
     raise ValueError('Unbounded DNS response name')
 
 
-def query(address, name, *, port=53, source=None, tcp=False):
+def query(address, name, *, port=53, source=None, tcp=False, record_type=1):
     identity = secrets.randbelow(65536)
     labels = name.rstrip('.').encode('ascii').split(b'.')
     if not labels or any(not label or len(label) > 63 for label in labels):
         raise ValueError('Invalid DNS query name')
-    request = struct.pack('!6H', identity, 0x100, 1, 0, 0, 0) + b''.join(bytes([len(x)]) + x for x in labels) + b'\0\0\1\0\1'
+    if type(record_type) is not int or record_type not in (1, 16, 28):
+        raise ValueError('Unsupported bounded DNS query type')
+    request = struct.pack('!6H', identity, 0x100, 1, 0, 0, 0) + b''.join(bytes([len(x)]) + x for x in labels) + b'\0' + struct.pack('!HH', record_type, 1)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM) as connection:
         connection.settimeout(3)
         if source:
@@ -60,7 +62,14 @@ def query(address, name, *, port=53, source=None, tcp=False):
         if kind == 1 and family == 1 and size == 4:
             addresses.append(socket.inet_ntoa(data[offset:offset + 4]))
         offset += size
-    return {'rcode': flags & 15, 'authoritative': bool(flags & 0x400), 'addresses': addresses}
+    return {'rcode': flags & 15, 'authoritative': bool(flags & 0x400), 'addresses': addresses,
+            **({'answer_count': answers} if record_type != 1 else {})}
+
+
+def nodata_answer(address, name, **kwargs):
+    if query(address, name, record_type=28, **kwargs) != {
+            'rcode': 0, 'authoritative': True, 'addresses': [], 'answer_count': 0}:
+        raise RuntimeError('Existing private preview name did not return authoritative AAAA NODATA')
 
 
 def private_answer(address, name, expected, **kwargs):

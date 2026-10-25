@@ -5,13 +5,13 @@ import time
 from pathlib import Path
 
 try:
-    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, approval, obsolete, runtime_catalog, canonical, digest, names, validate_pull, verify_blob
+    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
     from .github import GitHub
     from .kube import Kubernetes, APIError, identity
     from .lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
     from .resources import resources, workload_keys, private_route
 except ImportError:
-    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, approval, obsolete, runtime_catalog, canonical, digest, names, validate_pull, verify_blob
+    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
     from github import GitHub
     from kube import Kubernetes, APIError, identity
     from lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
@@ -53,6 +53,8 @@ class Controller:
         row = record['approval']
         approval(row)
         record_approval(row['instance'], record)
+        if record.get('originVersion') != ORIGIN_VERSION:
+            raise ValueError('Historical preview origins cannot regain execution')
         key = identity(desired)
         receipt = next((r for r in record['resources'] if r['key'] == list(key)), None)
         if receipt is None:
@@ -142,7 +144,7 @@ class Controller:
         import urllib.request
         import urllib.error
         try:
-            with urllib.request.urlopen('https://' + settings['hostname'] + n['path'], timeout=10):
+            with urllib.request.urlopen('https://' + hostname(row, settings) + n['path'], timeout=10):
                 raise ValueError('Preview ingress accepted an unauthenticated application request')
         except urllib.error.HTTPError as error:
             if error.code not in (401, 403):
@@ -246,7 +248,8 @@ class Controller:
                 continue
             try:
                 row = record_approval(instance, record)
-                reason = (retirement(row, desired.get(instance), None, self.now) if desired is not None
+                reason = ('origin-changed' if record.get('originVersion') != ORIGIN_VERSION else
+                          retirement(row, desired.get(instance), None, self.now) if desired is not None
                           else 'platform-image-changed' if obsolete(row) else 'expired' if self.now >= row['expiresAt'] else None)
                 if reason or record['phase'] == 'retiring':
                     record.update(phase='retiring', reason=record.get('reason', reason))
@@ -368,7 +371,7 @@ class Controller:
                     if obj['kind'] != 'ApplicationSet':
                         self.materialize(record, obj)
                 client = (identity_state or {}).get('entries', {}).get(instance)
-                if (client and client.get('phase') == 'active' and client.get('approvalDigest') == record['approvalDigest'] and
+                if (client and client.get('originVersion') == ORIGIN_VERSION and client.get('phase') == 'active' and client.get('approvalDigest') == record['approvalDigest'] and
                         type(client.get('verifiedAt')) is int and 0 <= self.now - client['verifiedAt'] <= 600 and self.waypoint_ready(row)):
                     for obj in declarations:
                         if obj['kind'] == 'ApplicationSet':

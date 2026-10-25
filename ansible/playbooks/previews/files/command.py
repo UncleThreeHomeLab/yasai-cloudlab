@@ -79,10 +79,24 @@ def playbook(name):
         raise RuntimeError('Scoped preview operation failed')
 
 
+def published():
+    from playbooks.argocd.files.render import committed_payload
+    committed_payload()
+
+
+def vm_environment(values):
+    for prefix in ('VM', 'VM2'):
+        for suffix in ('_HOST', '_USER', '_PASSWORD'):
+            if not values.get(prefix + suffix):
+                raise ValueError('Scoped preview operation requires both VM credential sets')
+        for suffix in ('_HOST', '_USER', '_PASSWORD', '_PORT', '_BECOME_PASSWORD'):
+            os.environ[prefix + suffix] = values.get(prefix + suffix) or ('22' if suffix == '_PORT' else values[prefix + '_PASSWORD'] if suffix == '_BECOME_PASSWORD' else '')
+
+
 def main(arguments=None):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('check', 'prepare', 'catalog-propose', 'bootstrap', 'verify', 'prove', 'credentials-retire'))
+    parser.add_argument('action', choices=('check', 'prepare', 'catalog-propose', 'dns', 'withdraw', 'bootstrap', 'verify', 'prove', 'credentials-retire'))
     parser.add_argument('input', nargs='?')
     args = parser.parse_args(arguments)
     if args.action == 'check':
@@ -92,12 +106,14 @@ def main(arguments=None):
     if args.action in ('prepare', 'catalog-propose'):
         if not args.input:
             raise ValueError('Preview review requires an ignored private input file')
+        published()
         value = read(args.input)
         if args.action == 'prepare':
             result = prepare(value)
         else:
-            if not isinstance(value, dict) or set(value) != {'catalog'}:
-                raise ValueError('Preview publication requires one complete catalog')
+            if (not isinstance(value, dict) or set(value) != {'catalog', 'expectedBase'} or
+                    not isinstance(value['expectedBase'], str) or not re.fullmatch('[a-f0-9]{40}', value['expectedBase'])):
+                raise ValueError('Preview publication requires a complete catalog and inspected expectedBase')
             catalog(value['catalog'])
             from playbooks.argocd.files.github_setup import GitHub
             from playbooks.argocd.files.repository_tokens import issue, revoke
@@ -106,10 +122,19 @@ def main(arguments=None):
             os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
             lease = issue(values, 'private-config', {'contents': 'write', 'pull_requests': 'write'})
             try:
-                result = publish(GitHub(lease['token']), values, {'previews/catalog.json': json.dumps(value, sort_keys=True, indent=2) + '\n'}, scope='previews')
+                result = publish(GitHub(lease['token']), values, {'previews/catalog.json': json.dumps(
+                    {'catalog': value['catalog']}, sort_keys=True, indent=2) + '\n'}, scope='previews', expected_base=value['expectedBase'])
             finally:
                 revoke(lease)
         print(json.dumps(result, sort_keys=True))
+        return
+    if args.action == 'withdraw':
+        if not args.input:
+            raise ValueError('Withdrawal requires its ignored journaled request')
+        request = read(args.input)
+        vm_environment(dotenv_values(ROOT / '.env', interpolate=False))
+        os.environ['CLOUDLAB_PREVIEW_WITHDRAW_REQUEST'] = json.dumps(request)
+        playbook('withdraw.yml')
         return
     if args.input:
         raise ValueError('Scoped preview setup does not accept ad-hoc input overrides')
@@ -121,12 +146,20 @@ def main(arguments=None):
     if not yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['previews']['enabled']:
         raise ValueError('Enable previews in the reviewed public root before scoped setup or proof')
     values = dotenv_values(ROOT / '.env', interpolate=False)
-    for prefix in ('VM', 'VM2'):
-        for suffix in ('_HOST', '_USER', '_PASSWORD'):
-            if not values.get(prefix + suffix):
-                raise ValueError('Scoped preview operation requires both VM credential sets')
-        for suffix in ('_HOST', '_USER', '_PASSWORD', '_PORT', '_BECOME_PASSWORD'):
-            os.environ[prefix + suffix] = values.get(prefix + suffix) or ('22' if suffix == '_PORT' else values[prefix + '_PASSWORD'] if suffix == '_BECOME_PASSWORD' else '')
+    if args.action == 'dns':
+        published()
+        for key, value in values.items():
+            if value is not None:
+                os.environ[key] = value
+        from playbooks.services.files.inputs import private_dns_names
+        private_names = json.loads(values.get('PRIVATE_ACCESS_HOSTS') or '[]')
+        os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(sorted(set(private_names + private_dns_names())))
+        from playbooks.keycloak.files.access_inputs import runtime
+        runtime(os.environ, yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text()))
+    vm_environment(values)
+    if args.action == 'dns':
+        playbook('../access/preview-dns.yml')
+        return
     sequence = ('bootstrap',) if args.action == 'bootstrap' else ('verify',) if args.action == 'verify' else ('bootstrap', 'bootstrap', 'verify')
     for index, name in enumerate(sequence):
         playbook('010-bootstrap.yml' if name == 'bootstrap' else 'verify.yml')

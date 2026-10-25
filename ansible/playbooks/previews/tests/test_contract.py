@@ -6,10 +6,30 @@ from unittest.mock import patch
 from fixtures import approval, catalog, pull, source_responses
 from playbooks.previews.files import contract
 from playbooks.previews.files.github import GitHub
-from playbooks.previews.files.resources import resources, workload
+from playbooks.previews.files.resources import resources, workload, private_route
 
 
 class ApprovalTests(unittest.TestCase):
+    def test_unique_bounded_browser_origins_and_exact_callbacks(self):
+        first, settings = approval(), catalog()
+        second = dict(first, instance='b' * 32)
+        origins = [contract.hostname(row, settings) for row in (first, second)]
+        self.assertNotEqual(*origins)
+        for row, host in zip((first, second), origins):
+            declaration = contract.client(row, settings)
+            self.assertEqual(declaration['callbacks'], ['https://' + host + '/previews/' + row['instance'] + '/callback'])
+            from playbooks.keycloak.files.preview_clients import representation
+            value = representation(row, settings)
+            self.assertEqual(value['webOrigins'], ['https://' + host])
+            route = private_route(row, settings, 'state')
+            self.assertEqual(route['spec']['hostnames'], [host])
+            self.assertEqual(workload(row, settings)['environment']['OIDC_REDIRECT_URI'], declaration['callbacks'][0])
+        contract.hostname(first, dict(settings, hostname='a' * 30 + '.internal.example.invalid'))
+        for host in ('a' * 31 + '.internal.example.invalid', 'preview.public.example.invalid', '*.internal.example.invalid'):
+            with self.assertRaises(ValueError):
+                contract.hostname(first, dict(settings, hostname=host))
+
+
     def test_historical_rows_remain_structural_but_never_authorize_new_execution(self):
         old = approval()
         with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):

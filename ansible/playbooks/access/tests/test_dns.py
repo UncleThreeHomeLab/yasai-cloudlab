@@ -54,6 +54,50 @@ class DNSTests(unittest.TestCase):
                             host_address='10.44.0.1', cluster_gateway='10.43.0.10', tailnet_gateway='100.100.0.1',
                             nameservers=['100.64.0.1', '100.64.0.2'], upstreams=['1.1.1.1'])
 
+    def test_preview_prefix_is_bounded_declared_and_changes_generation(self):
+        from playbooks.access.files.dns_catalog import declaration
+        settings = {'hostname': 'preview.internal.example.invalid', 'issuer': 'https://login.example.invalid/realms/applications'}
+        with self.assertRaises(ValueError):
+            declaration(settings, ['app'])
+        declared = declaration(settings, ['app', 'preview'])
+        payload = dict(self.payload, names=['app', 'preview'])
+        original = configuration(payload)
+        enabled = configuration(dict(payload, preview_dns=declared))
+        self.assertNotEqual(original['internal.zone'], enabled['internal.zone'])
+        self.assertEqual(enabled['Corefile'].count('template IN A '), 2)
+        for invalid in ({'prefix': 'other', 'zone': self.payload['zone']},
+                        {'prefix': 'preview', 'zone': 'internal.other.invalid'},
+                        {'prefix': '*', 'zone': self.payload['zone']}):
+            with self.assertRaises(ValueError):
+                configuration(dict(payload, preview_dns=invalid))
+        with self.assertRaises(ValueError):
+            configuration(dict(payload, preview_dns=declared, names=['preview', 'preview-' + 'a' * 32]))
+        with self.assertRaises(ValueError):
+            declaration(settings, ['preview', 'preview-' + 'b' * 32])
+
+    def test_enabled_preview_dns_requires_catalog_and_refuses_service_collision(self):
+        from unittest.mock import patch
+        from playbooks.access.files import dns_catalog
+        settings = {'hostname': 'preview.internal.example.invalid', 'issuer': 'https://login.example.invalid/realms/applications'}
+        with patch.object(dns_catalog.yaml, 'safe_load', return_value={'previews': {'enabled': True}}), \
+                patch('playbooks.previews.files.source.read', return_value=(settings, 'c' * 40, {'PRIVATE_ACCESS_HOSTS': '["preview"]'})), \
+                patch('playbooks.services.files.inputs.private_dns_names', return_value=[]):
+            self.assertEqual(dns_catalog.read(), {'preview_dns': {'prefix': 'preview', 'zone': 'internal.example.invalid'}})
+        with patch.object(dns_catalog.yaml, 'safe_load', return_value={'previews': {'enabled': True}}), \
+                patch('playbooks.previews.files.source.read', return_value=(settings, 'c' * 40, {'PRIVATE_ACCESS_HOSTS': '["preview"]'})), \
+                patch('playbooks.services.files.inputs.private_dns_names', return_value=['preview']):
+            with self.assertRaises(ValueError): dns_catalog.read()
+        with patch.object(dns_catalog.yaml, 'safe_load', return_value={'previews': {'enabled': True}}), \
+                patch('playbooks.previews.files.source.read', side_effect=ValueError('missing catalog')):
+            with self.assertRaises(ValueError): dns_catalog.read()
+
+    def test_disabled_preview_dns_does_not_read_catalog_or_credentials(self):
+        from unittest.mock import patch
+        from playbooks.access.files import dns_catalog
+        with patch.object(dns_catalog.yaml, 'safe_load', return_value={'previews': {'enabled': False}}), \
+                patch('playbooks.previews.files.source.read', side_effect=AssertionError('disabled catalog read')):
+            self.assertEqual(dns_catalog.read(), {})
+
     def test_repeat_is_deterministic_with_distinct_routable_answers(self):
         files = configuration(self.payload)
         self.assertEqual(files, configuration(self.payload))

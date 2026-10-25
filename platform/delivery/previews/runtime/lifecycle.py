@@ -2,9 +2,9 @@
 import copy
 
 try:
-    from .contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, approval, stored_approval, obsolete, canonical, digest, names
+    from .contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, ORIGIN_VERSION, approval, stored_approval, obsolete, canonical, digest, names
 except ImportError:
-    from contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, approval, stored_approval, obsolete, canonical, digest, names
+    from contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, ORIGIN_VERSION, approval, stored_approval, obsolete, canonical, digest, names
 
 
 def retirement(row, desired, pull, now):
@@ -55,7 +55,7 @@ def enroll(state, row, now):
     if len(state['entries']) >= 256:
         raise ValueError('Preview tombstone capacity reached; explicit owner maintenance required')
     state['entries'][row['instance']] = {'approval': row, 'approvalDigest': digest(canonical(row)),
-        'phase': 'pending', 'resources': [], 'createdAt': now}
+        'phase': 'pending', 'resources': [], 'createdAt': now, 'originVersion': ORIGIN_VERSION}
     return state
 
 

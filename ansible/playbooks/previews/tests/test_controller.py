@@ -54,7 +54,7 @@ class Cluster:
         value = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
             'name': IDENTITY_STATE, 'namespace': 'cloudlab-identity', 'labels': {'cloudlab.io/owner': 'cloudlab-preview-identity'}},
             'data': {'state.json': json.dumps({'format': 1, 'entries': {row['instance']: {
-                'phase': phase, 'verifiedAt': 1500, 'approvalDigest': digest(canonical(row))}}})}}
+                'phase': phase, 'originVersion': 2, 'verifiedAt': 1500, 'approvalDigest': digest(canonical(row))}}})}}
         if key in self.objects:
             value['metadata'].update(self.objects[key]['metadata'])
             self.replace(value)
@@ -82,6 +82,21 @@ class Git:
 
 
 class ControllerTests(unittest.TestCase):
+    def test_legacy_origin_retires_before_discovery_with_any_input(self):
+        for mode in ('valid', 'missing', 'invalid'):
+            controller, row, settings, cluster, git = self.active()
+            del controller.state['entries'][row['instance']]['originVersion']
+            cluster.identity_phase(row, 'retired')
+            with patch.object(git, 'pull', side_effect=AssertionError('legacy discovery forbidden')):
+                for _ in range(30):
+                    if mode == 'missing':
+                        controller.unavailable_input()
+                    else:
+                        controller.run(settings if mode == 'valid' else {'malformed': True}, 'https://github.com/example/platform.git')
+            self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+            self.assertFalse(any(key[1] == 'Namespace' and key[3] == names(row)['namespace'] for key in cluster.objects))
+
+
     def test_image_update_retires_stored_preview_with_valid_missing_or_malformed_catalog(self):
         from playbooks.previews.files import contract
         for available in ('valid', 'missing', 'malformed'):

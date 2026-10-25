@@ -11,10 +11,10 @@ import time
 
 try:
     from .dns import configuration
-    from .dns_wire import absent_answer, private_answer, query
+    from .dns_wire import absent_answer, private_answer, query, nodata_answer
 except ImportError:
     from dns import configuration
-    from dns_wire import absent_answer, private_answer, query
+    from dns_wire import absent_answer, private_answer, query, nodata_answer
 
 BASE = Path('/etc/cloudlab-dns')
 STATE = Path('/var/lib/cloudlab/private-dns')
@@ -45,6 +45,11 @@ def validate_answers(payload, port=53):
         for address, expected, source in [('127.0.0.1', payload['cluster_gateway'], None),
                                          (payload['tailnet_address'], payload['tailnet_gateway'], payload['tailnet_address'])]:
             private_answer(address, name, expected, port=port, source=source, tcp=tcp)
+            if payload.get('preview_dns'):
+                preview = payload['preview_dns']['prefix'] + '-' + 'a' * 32 + '.' + payload['zone']
+                private_answer(address, preview, expected, port=port, source=source, tcp=tcp)
+                private_answer(address, preview.upper(), expected, port=port, source=source, tcp=tcp)
+                nodata_answer(address, preview, port=port, source=source, tcp=tcp)
             if payload.get('identity_host'):
                 private_answer(address, payload['identity_host'], expected, port=port, source=source, tcp=tcp)
             absent_answer(address, 'nonexistent-cloudlab-proof.' + payload['zone'], port=port, source=source, tcp=tcp)
@@ -145,6 +150,10 @@ def activate():
     for address in ('10.44.0.1', '10.44.0.2'):
         for tcp in (False, True):
             private_answer(address, payload['names'][0] + '.' + payload['zone'], payload['cluster_gateway'], tcp=tcp)
+            if payload.get('preview_dns'):
+                name = payload['preview_dns']['prefix'] + '-' + 'a' * 32 + '.' + payload['zone']
+                private_answer(address, name, payload['cluster_gateway'], tcp=tcp)
+                nodata_answer(address, name, tcp=tcp)
             if payload.get('identity_host'):
                 private_answer(address, payload['identity_host'], payload['cluster_gateway'], tcp=tcp)
             absent_answer(address, 'nonexistent-cloudlab-proof.' + payload['zone'], tcp=tcp)

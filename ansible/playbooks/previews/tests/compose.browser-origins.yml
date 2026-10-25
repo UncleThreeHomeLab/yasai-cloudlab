@@ -1,0 +1,23 @@
+name: cloudlab-preview-browser-origins
+services:
+  browser:
+    platform: linux/amd64
+    build: ../../keycloak/tests/browser
+    entrypoint: [node, /fixture/browser-origins.mjs]
+    network_mode: none
+    stdin_open: true
+    read_only: true
+    user: '1000:1000'
+    environment:
+      HOME: /tmp
+    volumes:
+      - ./browser-origins.mjs:/fixture/browser-origins.mjs:ro
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+      - /dev/shm:mode=1777,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.0
+    init: true
