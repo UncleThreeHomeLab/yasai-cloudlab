@@ -20,6 +20,18 @@
         state: directory
         mode: '0700'
       no_log: true
+    - name: Create the preview contract owner directory before preactivation
+      ansible.builtin.file:
+        path: /opt/cloudlab/playbooks/previews/files
+        state: directory
+        mode: '0700'
+      no_log: true
+    - name: Install the published preview contract required by baseline observation
+      ansible.builtin.copy:
+        src: /workspace/ansible/playbooks/previews/files/contract.py
+        dest: /opt/cloudlab/playbooks/previews/files/contract.py
+        mode: '0600'
+      no_log: true
     - name: Install the source-owned viewer dispatcher
       ansible.builtin.copy:
         src: /workspace/ansible/playbooks/previews/tests/viewer_runtime.py
