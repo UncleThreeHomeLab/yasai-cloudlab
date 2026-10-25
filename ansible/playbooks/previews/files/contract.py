@@ -73,7 +73,7 @@ def repository(value):
     return value
 
 
-def approval(value):
+def stored_approval(value):
     fields = {'instance', 'repository', 'repositoryId', 'pullRequest', 'sourceSha', 'sourcePath', 'image',
               'sourceDigest', 'definition', 'platformRevision', 'createdAt', 'expiresAt'}
     if not isinstance(value, dict) or set(value) != fields:
@@ -93,19 +93,30 @@ def approval(value):
         raise ValueError('Preview source path is platform controlled')
     source(canonical(value['definition']))
     if (not isinstance(value['image'], str) or len(value['image']) > 512 or not re.fullmatch(
-            r'[a-z0-9][a-z0-9.-]*(?:/[a-z0-9_./-]+)?(?::[a-zA-Z0-9_.-]+)?@sha256:[a-f0-9]{64}', value['image']) or
-            (value['definition']['profile'] == 'synthetic' and value['image'] != IMAGE)):
+            r'[a-z0-9][a-z0-9.-]*(?:/[a-z0-9_./-]+)?(?::[a-zA-Z0-9_.-]+)?@sha256:[a-f0-9]{64}', value['image'])):
         raise ValueError('Preview approval requires an immutable approved image')
     return value
 
 
-def catalog(value):
+def obsolete(row):
+    stored_approval(row)
+    return row['definition']['profile'] == 'synthetic' and row['image'] != IMAGE
+
+
+def approval(value):
+    stored_approval(value)
+    if obsolete(value):
+        raise ValueError('Preview approval requires the current immutable synthetic image')
+    return value
+
+
+def _catalog(value, validate):
     if not isinstance(value, dict) or set(value) != {'hostname', 'issuer', 'approvals', 'privateDiscovery', 'ownership', 'artifacts'}:
         raise ValueError('Preview catalog requires exact private access and approvals')
     origin(value)
     if type(value['privateDiscovery']) is not bool or not isinstance(value['approvals'], list) or len(value['approvals']) > 20:
         raise ValueError('Preview approval catalog exceeds its bound')
-    rows = [approval(row) for row in value['approvals']]
+    rows = [validate(row) for row in value['approvals']]
     if value['privateDiscovery'] and (len({row['repository'] for row in rows}) > 1 or
             any(row['expiresAt'] - row['createdAt'] > PRIVATE_MAX_LIFETIME for row in rows)):
         raise ValueError('Private previews require one repository and a bounded credential lifetime')
@@ -139,6 +150,14 @@ def catalog(value):
     return value
 
 
+def catalog(value):
+    return _catalog(value, approval)
+
+
+def runtime_catalog(value):
+    return _catalog(value, stored_approval)
+
+
 def origin(value):
     host = value['hostname']
     if (not isinstance(host, str) or len(host) > 253 or
@@ -152,13 +171,14 @@ def origin(value):
 
 
 def names(row):
-    approval(row)
+    stored_approval(row)
     # Nonce prevents namespace reuse; full revisions remain in immutable inventory.
     return {'name': 'preview-' + row['instance'], 'namespace': 'cloudlab-preview-' + row['instance'],
             'client': 'preview-' + row['instance'], 'path': '/previews/' + row['instance'] + '/'}
 
 
 def client(row, settings):
+    approval(row)
     origin(settings)
     n = names(row)
     return {'id': n['client'], 'audience': n['client'], 'public': True,

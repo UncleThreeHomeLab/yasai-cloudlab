@@ -16,6 +16,23 @@ def object_for(kind, name):
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_bootstrap_obsolete_only_catalog_skips_positive_but_keeps_native_denials(self):
+        import tempfile
+        from pathlib import Path
+        from playbooks.previews.files import bootstrap, contract
+        settings = catalog()
+        payload = {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+                   'privateRepository': 'https://github.com/example/config.git', 'privateRevision': 'b' * 40,
+                   'catalog': settings}
+        with tempfile.TemporaryDirectory() as directory, patch.object(bootstrap, 'BASE', Path(directory)), \
+                patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64), \
+                patch.object(bootstrap, 'get', return_value=None), patch.object(bootstrap, 'wait'), \
+                patch.object(bootstrap, 'kube'), patch.object(bootstrap, 'native') as native_check, \
+                patch('playbooks.previews.files.resources.resources', side_effect=AssertionError('obsolete row creates no namespace')):
+            self.assertTrue(bootstrap.configure(payload)['controller_enabled'])
+        native_check.assert_called_once()
+        self.assertIsNone(native_check.call_args.args[2])
+
     def test_rbac_failure_cannot_count_as_native_admission_proof(self):
         with patch('playbooks.previews.files.admission.subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'Forbidden by RBAC')):
             with self.assertRaises(RuntimeError): native(object_for, catalog())

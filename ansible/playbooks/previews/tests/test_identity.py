@@ -14,8 +14,73 @@ from playbooks.keycloak.files import preview_clients as identity
 
 
 class IdentityTests(unittest.TestCase):
+    def test_obsolete_client_is_disabled_then_uuid_deleted_with_or_without_catalog(self):
+        from playbooks.previews.files import contract
+        for available in (True, False):
+            row, settings, api = approval(), catalog(), Keycloak()
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            state = {'format': 1, 'entries': {}}
+            identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
+            with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
+                identity.reconcile(settings if available else None, intent if available else None,
+                                   state, api, lambda value: None, 1501, set(), input_available=available)
+                self.assertFalse(api.rows['owned-client-uuid']['enabled'])
+                self.assertEqual(state['entries'][row['instance']]['approvalDigest'], digest(canonical(row)))
+                identity.reconcile(settings if available else None, intent, state, api, lambda value: None,
+                                   2101, set(), input_available=available)
+            self.assertEqual(api.deleted, ['owned-client-uuid'])
+            self.assertEqual(state['entries'][row['instance']]['phase'], 'retired')
+
+    def test_expired_or_retiring_client_cleanup_ignores_new_callback_hostname(self):
+        for phase, now in (('active', 2000), ('retiring', 1501)):
+            row, settings, api = approval(), catalog(), Keycloak()
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            state = {'format': 1, 'entries': {}}
+            identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
+            settings['hostname'] = 'changed.internal.example.invalid'
+            with self.assertRaises(ValueError):
+                identity.reconcile(settings, intent, state, api, lambda value: None, 1501, set())
+            state['entries'][row['instance']]['phase'] = phase
+            identity.reconcile(settings, intent, state, api, lambda value: None, now, set())
+            self.assertFalse(api.rows['owned-client-uuid']['enabled'])
+            identity.reconcile(settings, intent, state, api, lambda value: None, now + 600, set())
+            self.assertEqual(api.deleted, ['owned-client-uuid'])
+
+    def test_obsolete_new_or_creating_row_never_creates_or_reactivates_client(self):
+        from playbooks.previews.files import contract
+        row, settings, api = approval(), catalog(), Keycloak()
+        intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+        state = {'format': 1, 'entries': {}}
+        with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
+            identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
+            self.assertEqual(state['entries'], {})
+            self.assertEqual(api.rows, {})
+        identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
+        state['entries'][row['instance']]['phase'] = 'creating'
+        api.rows.clear()
+        with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
+            identity.reconcile(None, None, state, api, lambda value: None, 1501, set(), input_available=False)
+        self.assertEqual(api.rows, {})
+        self.assertEqual(state['entries'][row['instance']]['phase'], 'retired')
+
+    def test_image_change_keeps_client_uuid_and_persistent_collision_vetoes(self):
+        from playbooks.previews.files import contract
+        for change in ('uuid', 'persistent'):
+            row, settings, api = approval(), catalog(), Keycloak()
+            intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
+            state = {'format': 1, 'entries': {}}
+            identity.reconcile(settings, intent, state, api, lambda value: None, 1500, set())
+            if change == 'uuid':
+                api.rows['owned-client-uuid']['id'] = 'replacement-client'
+            persistent = {names(row)['client']} if change == 'persistent' else set()
+            with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64), self.assertRaises(ValueError):
+                identity.reconcile(None, None, state, api, lambda value: None, 1501, persistent, input_available=False)
+            self.assertTrue(api.rows['owned-client-uuid']['enabled'])
+            self.assertEqual(api.deleted, [])
+
     def test_runtime_adapter_retains_then_expires_clients_when_approval_input_disappears(self):
-        for corrupt in (False, True):
+        from playbooks.previews.files import contract
+        for corrupt, image_changed in ((False, False), (True, False), (False, True), (True, True)):
             row, settings, api = approval(), catalog(), Keycloak()
             intent = {'format': 1, 'entries': {row['instance']: {'phase': 'pending', 'approvalDigest': digest(canonical(row))}}}
             state = {'format': 1, 'entries': {}}
@@ -42,11 +107,12 @@ class IdentityTests(unittest.TestCase):
                 return json.dumps({'realms': {}}) if str(path) == '/private/desired_state' else 'synthetic-writer-secret'
             with patch.dict(sys.modules, {'lease': SimpleNamespace(api_request=kube),
                     'configuration': SimpleNamespace(private_request=lambda *args, **kwargs: {'access_token': 'synthetic'})}), \
-                    patch.object(identity, 'reconcile', side_effect=reconcile), patch.object(Path, 'read_text', read):
+                    patch.object(identity, 'reconcile', side_effect=reconcile), patch.object(Path, 'read_text', read), \
+                    patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64 if image_changed else contract.IMAGE):
                 for now in (1501, 2000, 2600):
                     with patch.object(identity.time, 'time', return_value=now), self.assertRaises(RuntimeError):
                         identity.run('identity-admin.internal.example.invalid')
-                    if now == 1501: self.assertTrue(api.rows['owned-client-uuid']['enabled'])
+                    if now == 1501: self.assertEqual(api.rows['owned-client-uuid']['enabled'], not image_changed)
             self.assertEqual(api.deleted, ['owned-client-uuid'])
             self.assertEqual(set(api.rows), {'unrelated'})
 

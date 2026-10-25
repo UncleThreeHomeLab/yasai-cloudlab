@@ -10,11 +10,11 @@ from urllib.parse import quote
 
 try:
     from playbooks.previews.files.contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, catalog, canonical, digest, client, names, MAX_ACTIVE)
+        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE)
     from playbooks.keycloak.files.configuration import client as compile_client
 except ImportError:
     from preview_contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, catalog, canonical, digest, client, names, MAX_ACTIVE)
+        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE)
     from configuration import client as compile_client
 
 IDENTITY_OWNER = 'cloudlab-preview-identity'
@@ -22,6 +22,7 @@ GRACE = 600
 
 
 def representation(row, settings):
+    approval(row)
     value = compile_client(client(row, settings), {})
     value['attributes'].update({'cloudlab.preview.instance': row['instance'],
                                 'cloudlab.preview.approval': digest(canonical(row))})
@@ -40,7 +41,7 @@ def matching(observed, record):
 def reconcile(settings, intent, state, api, save, now, persistent, *, input_available=True):
     """Called only after acquiring the existing identity Lease. Never waits for grace."""
     if settings is not None:
-        catalog(settings)
+        runtime_catalog(settings)
     if (not isinstance(state, dict) or set(state) != {'format', 'entries'} or state['format'] != 1 or
             not isinstance(state['entries'], dict) or len(state['entries']) > 256):
         raise ValueError('Preview identity inventory is invalid')
@@ -52,6 +53,9 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
         existing = records.get(instance)
         if existing and existing['approvalDigest'] != digest(canonical(row)):
             raise ValueError('Preview identity instance cannot be reused')
+        if obsolete(row):
+            continue
+        approval(row)
         lifecycle = (intent or {}).get('entries', {}).get(instance)
         if existing or not lifecycle or lifecycle.get('phase') not in ('pending', 'active'):
             continue
@@ -71,10 +75,13 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
     for instance, record in records.items():
         if record['phase'] == 'retired':
             continue
-        row = approval(record['approval'])
+        row = stored_approval(record['approval'])
         if (instance != row['instance'] or record['clientId'] != names(row)['client'] or record['clientId'] in persistent or
                 record['approvalDigest'] != digest(canonical(row)) or record['phase'] not in ('creating', 'active', 'retiring', 'disabled')):
             raise ValueError('Preview client runtime inventory identity differs')
+        if obsolete(row) and record['phase'] in ('creating', 'active'):
+            record['phase'] = 'retiring'
+            save(state)
         current = desired.get(instance)
         lifecycle = (intent or {}).get('entries', {}).get(instance)
         if not input_available and record['phase'] in ('creating', 'active'):
@@ -83,13 +90,13 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
             current = row
             if lifecycle is None:
                 lifecycle = {'approvalDigest': record['approvalDigest'], 'phase': 'active'}
-        wants_active = (current is not None and lifecycle is not None and
+        wants_active = (not obsolete(row) and current is not None and lifecycle is not None and
             lifecycle.get('approvalDigest') == record['approvalDigest'] and
             lifecycle.get('phase') in ('pending', 'active') and row['createdAt'] <= now < row['expiresAt'])
-        if current is not None and settings and record['settings'] != {key: settings[key] for key in ('hostname', 'issuer')}:
-            raise ValueError('Preview identity callback contract changed')
         if record['phase'] in ('retiring', 'disabled'):
             wants_active = False
+        if wants_active and settings and record['settings'] != {key: settings[key] for key in ('hostname', 'issuer')}:
+            raise ValueError('Preview identity callback contract changed')
         rows = api('find', record['clientId'])
         if not isinstance(rows, list) or len(rows) > 1 or any(not matching(item, record) for item in rows):
             raise ValueError('Preview client UUID or ownership changed')
@@ -166,7 +173,7 @@ def run(admin_host):
     settings, input_available = None, False
     try:
         if document and document.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') == OWNER:
-            settings = catalog(json.loads(document['data']['catalog.json']))
+            settings = runtime_catalog(json.loads(document['data']['catalog.json']))
             if admin_host != 'identity-admin.internal.' + settings['hostname'].split('.internal.', 1)[1]:
                 raise ValueError('Preview issuer differs from the accepted identity owner')
             input_available = True

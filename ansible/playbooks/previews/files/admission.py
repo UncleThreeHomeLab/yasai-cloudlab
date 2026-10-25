@@ -3,14 +3,14 @@ import copy
 import json
 import subprocess
 
-from playbooks.previews.files.contract import catalog
+from playbooks.previews.files.contract import runtime_catalog
 
 CONTROLLER = 'system:serviceaccount:argocd:cloudlab-previews'
 POLICIES = ('namespaces', 'rolebindings', 'objects')
 
 
 def native(get, settings, namespace_object=None):
-    catalog(settings)
+    runtime_catalog(settings)
     for suffix in POLICIES:
         name = 'cloudlab-preview-' + suffix
         policy = get('validatingadmissionpolicy', name)

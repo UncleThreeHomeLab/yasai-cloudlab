@@ -6,7 +6,7 @@ import urllib.request
 
 sys.path.insert(0, '/opt/cloudlab')
 from playbooks.istio.files.kube import get, kube, wait
-from playbooks.previews.files.contract import OWNER, STATE, catalog, names
+from playbooks.previews.files.contract import OWNER, STATE, runtime_catalog, names
 from playbooks.previews.files.admission import CONTROLLER, native
 
 
@@ -20,7 +20,7 @@ def collection(kind, namespace):
 
 
 def verify(payload):
-    settings = catalog(payload['catalog'])
+    settings = runtime_catalog(payload['catalog'])
     native(lambda kind, name: get(kind, name), settings)
     controller = get('deployment', 'argocd-applicationset-controller', 'argocd')
     args = controller['spec']['template']['spec']['containers'][0].get('args', [])

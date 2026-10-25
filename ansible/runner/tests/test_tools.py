@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import tarfile
+import re
 import unittest
 import zipfile
 from pathlib import Path
@@ -41,7 +42,14 @@ class BootstrapToolTests(unittest.TestCase):
                 context = build if isinstance(build, str) else build.get('context', '.')
                 dockerfile = 'Dockerfile' if isinstance(build, str) else build.get('dockerfile', 'Dockerfile')
                 with self.subTest(compose=path.relative_to(root), service=name):
-                    self.assertTrue((path.parent / context / dockerfile).is_file())
+                    # Staged maintenance builds use a public copy of this exact owner context.
+                    staged = re.fullmatch(r'\$\{DEPENDENCY_WORK_DIR:-[^}]+\}/candidate/(ansible/runner|platform/delivery/ci|ansible/playbooks/keycloak/tests/browser)', context)
+                    directory = root / staged[1] if staged else path.parent / context
+                    self.assertTrue(directory.is_dir())
+                    if isinstance(build, dict) and 'dockerfile_inline' in build:
+                        self.assertTrue(build['dockerfile_inline'].startswith('FROM '))
+                    else:
+                        self.assertTrue((directory / dockerfile).is_file())
 
     def test_archive_formats_preserve_exact_checked_binary(self):
         payload = b'synthetic-bootstrap-binary'

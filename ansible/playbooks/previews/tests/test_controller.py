@@ -82,6 +82,71 @@ class Git:
 
 
 class ControllerTests(unittest.TestCase):
+    def test_image_update_retires_stored_preview_with_valid_missing_or_malformed_catalog(self):
+        from playbooks.previews.files import contract
+        for available in ('valid', 'missing', 'malformed'):
+            controller, row, settings, cluster, git = self.active()
+            cluster.identity_phase(row, 'retired')
+            git.offline = True
+            with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64), \
+                    patch.object(git, 'pull', side_effect=AssertionError('obsolete preview must retire before discovery')):
+                for _ in range(30):
+                    if available == 'valid':
+                        controller.run(settings, 'https://github.com/example/platform.git')
+                    elif available == 'missing':
+                        controller.unavailable_input()
+                    else:
+                        controller.run({'malformed': True}, 'https://github.com/example/platform.git')
+            self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+            self.assertFalse(any(key[1] == 'Namespace' and key[3] == names(row)['namespace']
+                                 for key in cluster.objects))
+
+    def test_changed_stored_digest_or_instance_blocks_cleanup_after_image_update(self):
+        from playbooks.previews.files import contract
+        for change in ('digest', 'instance'):
+            controller, row, settings, cluster, git = self.active()
+            cluster.identity_phase(row, 'retired')
+            before = copy.deepcopy(cluster.objects)
+            record = controller.state['entries'][row['instance']]
+            if change == 'digest':
+                record['approvalDigest'] = 'e' * 64
+            else:
+                record['approval']['instance'] = 'e' * 32
+            with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
+                result = controller.unavailable_input()
+            self.assertGreater(result['failures'], 0)
+            self.assertFalse(cluster.deleted)
+            self.assertEqual({key: value for key, value in cluster.objects.items() if key[3] != 'cloudlab-preview-state'},
+                             {key: value for key, value in before.items() if key[3] != 'cloudlab-preview-state'})
+
+    def test_obsolete_new_row_cannot_create_any_execution_authority(self):
+        from playbooks.previews.files import contract
+        from playbooks.previews.files.resources import resources, workload
+        row, settings, cluster, git = approval(), catalog(), Cluster(), Git()
+        controller = Controller(cluster, git, 1500)
+        with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64), \
+                patch.object(git, 'pull', side_effect=AssertionError('obsolete row must not request discovery')):
+            controller.run(settings, 'https://github.com/example/platform.git')
+            for create in (lambda: resources(row, settings, 'https://github.com/example/platform.git', 'state'),
+                           lambda: workload(row, settings), lambda: private_route(row, settings, 'state')):
+                with self.assertRaises(ValueError):
+                    create()
+        self.assertEqual(controller.state['entries'], {})
+        self.assertFalse(any(key[1] in ('Namespace', 'ApplicationSet', 'Deployment') for key in cluster.objects))
+
+    def test_image_change_does_not_authorize_deleting_a_replaced_namespace_uid(self):
+        from playbooks.previews.files import contract
+        controller, row, settings, cluster, git = self.active()
+        cluster.identity_phase(row, 'retired')
+        key = next(key for key in cluster.objects if key[1] == 'Namespace' and key[3] == names(row)['namespace'])
+        cluster.objects[key]['metadata']['uid'] = 'replacement-namespace'
+        with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
+            result = controller.unavailable_input()
+        self.assertGreater(result['failures'], 0)
+        self.assertEqual(cluster.objects[key]['metadata']['uid'], 'replacement-namespace')
+        self.assertFalse(any(deleted == key for deleted, _ in cluster.deleted))
+        self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retiring')
+
     def active(self):
         row, settings, cluster, git = approval(), catalog(), Cluster(), Git()
         settings['privateDiscovery'] = True

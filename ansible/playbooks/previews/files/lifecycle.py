@@ -2,12 +2,15 @@
 import copy
 
 try:
-    from .contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, approval, canonical, digest, names
+    from .contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, approval, stored_approval, obsolete, canonical, digest, names
 except ImportError:
-    from contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, approval, canonical, digest, names
+    from contract import OWNER, MAX_ACTIVE, GENERATED_CONFIGMAPS, approval, stored_approval, obsolete, canonical, digest, names
 
 
 def retirement(row, desired, pull, now):
+    stored_approval(row)
+    if obsolete(row):
+        return 'platform-image-changed'
     if now >= row['expiresAt']:
         return 'expired'
     if desired is None:
@@ -28,6 +31,13 @@ def retirement(row, desired, pull, now):
             pull.get('draft') is not False):
         return 'revision-unapproved'
     return None
+
+
+def record_approval(instance, record):
+    row = stored_approval(record['approval'])
+    if instance != row['instance'] or record['approvalDigest'] != digest(canonical(row)):
+        raise ValueError('Stored preview instance or approval digest changed')
+    return row
 
 
 def enroll(state, row, now):

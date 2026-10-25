@@ -13,7 +13,7 @@ import tempfile
 
 import yaml
 
-from playbooks.ci.files.chart import POOL, ROOT, render
+from playbooks.ci.files.chart import POOL, ROOT, controller_version, render
 from playbooks.harbor.files.transport import hostname
 from playbooks.harbor.files.recovery import atomic
 from playbooks.infrastructure.files import harbor as api
@@ -44,7 +44,7 @@ def bundle(references, namespace):
               'cloudlab.io/ci-role': 'qualification'}
     controller_repository, controller_digest = references['controller'].split('@')
     rendered = render({'network': {'enforce': False}, 'arc': {'image': {'repository': controller_repository,
-                                        'tag': '0.15.0@' + controller_digest}}})
+                                        'tag': controller_version() + '@' + controller_digest}}})
     pull = next(row for row in rendered if row['kind'] == 'ExternalSecret')
     pull['metadata'] = {'name': 'harbor-tools-pull', 'namespace': namespace, 'labels': labels}
     pool = render({'arc': {'githubConfigUrl': 'https://github.com/example/qualification',

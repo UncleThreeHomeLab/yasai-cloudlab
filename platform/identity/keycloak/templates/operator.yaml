@@ -16,7 +16,7 @@
 {{- $_ := set $obj.spec.template.spec "securityContext" (dict "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault")) }}
 {{- range $container := $obj.spec.template.spec.containers }}
 {{- $_ := set $container "image" $lock.images.operator }}
-{{- $_ := set $container "resources" (dict "requests" (dict "cpu" "100m" "memory" "256Mi") "limits" (dict "cpu" "300m" "memory" "450Mi")) }}
+{{- $_ := set $container "resources" (dict "requests" (dict "cpu" "100m" "memory" "256Mi") "limits" (dict "cpu" "700m" "memory" "450Mi")) }}
 {{- $_ := set $container "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL"))) }}
 {{- range $env := $container.env }}
 {{- if has $env.name (list "kc.operator.keycloak.image" "RELATED_IMAGE_KEYCLOAK") }}

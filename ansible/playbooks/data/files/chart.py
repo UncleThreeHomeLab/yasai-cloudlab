@@ -65,6 +65,9 @@ def check():
         raise ValueError('SeaweedFS must persist master, filer and object state explicitly')
     config = render('configuration')
     cluster = next(obj for obj in config if obj['kind'] == 'Cluster')
+    cnpg = json.loads((ROOT / 'platform/data/cnpg/artifact.lock.json').read_text())
+    if cluster['spec']['imageName'] != cnpg['postgres_image']:
+        raise ValueError('PostgreSQL image differs from its explicit artifact lock')
     if cluster['spec']['instances'] != 1 or cluster['spec']['storage']['storageClass'] != 'cloudlab-data' or cluster['spec'].get('backup'):
         raise ValueError('CNPG topology or no-WAL policy changed')
     storage = next(obj for obj in config if obj['kind'] == 'StorageClass')

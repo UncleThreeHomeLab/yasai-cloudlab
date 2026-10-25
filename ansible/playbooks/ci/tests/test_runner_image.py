@@ -19,7 +19,7 @@ class RunnerImageTests(unittest.TestCase):
         dockerfile = (CONTEXT / 'Dockerfile').read_text()
         tools = json.loads((CONTEXT / 'tools/source.lock.json').read_text())
         external = [image for image in re.findall(r'^FROM (\S+)', dockerfile, re.M)
-                    if image not in ('source', 'compiler', 'scratch')]
+                    if image not in ('source', 'source-inputs', 'compiler', 'scratch')]
         self.assertEqual(set(external), {lock['sdk'], tools['compiler'],
                                         lock['qualification_builder'], *lock['images'].values(),
                                         *tools['images'].values()})
@@ -74,6 +74,12 @@ class RunnerImageTests(unittest.TestCase):
     def test_all_native_projects_pin_package_contents_and_the_security_fixes(self):
         lock = json.loads((OWNER / 'source.lock.json').read_text())
         projects = list((OWNER / 'nuget').glob('*/packages.lock.json'))
+        self.assertEqual(lock['nuget'], {path.parent.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                        for path in projects})
+        self.assertEqual(set(lock['overlays']), {'runner.patch', 'TrustedWorkflow.cs', 'TrustedTemplate.cs',
+                                                'health.py', 'tests/Fixtures.cs', 'tests/TrustedWorkflowL0.cs'})
+        for relative, sha256 in lock['overlays'].items():
+            self.assertEqual(hashlib.sha256((OWNER / relative).read_bytes()).hexdigest(), sha256)
         self.assertEqual({path.parent.name for path in projects}, {
             'Sdk', 'Runner.Common', 'Runner.Sdk', 'Runner.Listener', 'Runner.Worker',
             'Runner.PluginHost', 'Runner.Plugins', 'Test'})
