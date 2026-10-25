@@ -1,0 +1,3252 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "onboarding": false,
+  "requireConfig": "ignored",
+  "inheritConfig": false,
+  "autodiscover": false,
+  "platform": "github",
+  "endpoint": "https://api.github.com/",
+  "allowedCommands": [],
+  "allowedUnsafeExecutions": [],
+  "allowScripts": false,
+  "allowPlugins": false,
+  "allowShellExecutorForPostUpgradeCommands": false,
+  "exposeAllEnv": false,
+  "binarySource": "global",
+  "force": {
+    "onboarding": false,
+    "requireConfig": "ignored",
+    "draftPR": true,
+    "automerge": false,
+    "platformAutomerge": false,
+    "dependencyDashboard": false,
+    "labels": [],
+    "addLabels": [],
+    "assignees": [],
+    "reviewers": [],
+    "autoApprove": false,
+    "statusCheckNames": {
+      "artifactError": null,
+      "configValidation": null,
+      "mergeConfidence": null,
+      "minimumReleaseAge": null
+    },
+    "prCreation": "immediate",
+    "ignoreScripts": true,
+    "ignorePlugins": true,
+    "skipArtifactsUpdate": true,
+    "forkProcessing": "disabled",
+    "branchPrefix": "cloudlab-maintenance/",
+    "hashedBranchLength": 70,
+    "pruneStaleBranches": false,
+    "pruneBranchAfterAutomerge": false,
+    "enabledManagers": [
+      "dockerfile",
+      "terraform",
+      "custom.regex",
+      "helmv3",
+      "pip_requirements",
+      "docker-compose",
+      "npm"
+    ],
+    "ignorePaths": [
+      ".github/**",
+      "docs/**",
+      "infra/cloudflare/**",
+      "infra/harbor/**",
+      "ansible/playbooks/harbor/tests/provider-fixture/**",
+      "apps/releases/**"
+    ],
+    "postUpgradeTasks": {
+      "commands": [],
+      "fileFilters": [],
+      "executionMode": "branch"
+    },
+    "packageRules": [
+      {
+        "matchPackageNames": [
+          "*"
+        ],
+        "enabled": false
+      },
+      {
+        "matchPackageNames": [
+          "python",
+          "docker.io/library/python",
+          "docker.io/library/golang",
+          "docker.io/grafana/k6",
+          "docker.io/aquasec/trivy",
+          "cgr.dev/chainguard/cosign",
+          "reg.kyverno.io/kyverno/kyverno-cli",
+          "docker.io/moby/buildkit",
+          "ghcr.io/actions/actions-runner",
+          "ghcr.io/actions/gha-runner-scale-set-controller",
+          "mcr.microsoft.com/dotnet/sdk",
+          "ghcr.io/renovatebot/renovate"
+        ],
+        "enabled": true,
+        "automerge": false,
+        "draftPR": true,
+        "pinDigests": true,
+        "matchManagers": [
+          "dockerfile"
+        ]
+      },
+      {
+        "matchFileNames": [
+          "ansible/runner/**"
+        ],
+        "groupName": "bootstrap runner"
+      },
+      {
+        "matchFileNames": [
+          "platform/delivery/ci/**"
+        ],
+        "groupName": "CI execution"
+      },
+      {
+        "matchFileNames": [
+          "infra/github/**"
+        ],
+        "groupName": "GitHub native provider"
+      },
+      {
+        "matchPackageNames": [
+          "opentofu/opentofu"
+        ],
+        "allowedVersions": ">=1.13.0 <1.14.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/delivery/argocd/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "argo-cd"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://argoproj.github.io/argo-helm"
+        ],
+        "groupName": "argocd",
+        "allowedVersions": ">=10.9.0 <10.10.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/delivery/rollouts/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "argo-rollouts"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://argoproj.github.io/argo-helm"
+        ],
+        "groupName": "rollouts",
+        "allowedVersions": ">=2.43.0 <2.44.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/secrets/external-secrets/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "external-secrets"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://charts.external-secrets.io"
+        ],
+        "groupName": "external-secrets",
+        "allowedVersions": ">=2.11.0 <2.12.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "longhorn"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://charts.longhorn.io"
+        ],
+        "groupName": "longhorn",
+        "allowedVersions": ">=1.13.0 <1.14.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/certificates/cert-manager/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "cert-manager"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://charts.jetstack.io"
+        ],
+        "groupName": "certificates",
+        "allowedVersions": ">=1.21.0 <1.22.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/data/cnpg/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "cloudnative-pg"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://cloudnative-pg.github.io/charts"
+        ],
+        "groupName": "data",
+        "allowedVersions": ">=0.29.0 <0.30.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/data/seaweedfs/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "seaweedfs"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://seaweedfs.github.io/seaweedfs/helm"
+        ],
+        "groupName": "data",
+        "allowedVersions": ">=4.48.0 <4.49.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/observability/prometheus/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "kube-prometheus-stack"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://prometheus-community.github.io/helm-charts"
+        ],
+        "groupName": "observability",
+        "allowedVersions": ">=92.3.0 <92.4.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/observability/loki/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "loki"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://grafana.github.io/helm-charts"
+        ],
+        "groupName": "observability",
+        "allowedVersions": ">=7.3.0 <7.4.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/observability/tempo/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "tempo"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://grafana-community.github.io/helm-charts"
+        ],
+        "groupName": "observability",
+        "allowedVersions": ">=3.1.0 <3.2.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/observability/alloy/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "alloy"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://grafana.github.io/helm-charts"
+        ],
+        "groupName": "observability",
+        "allowedVersions": ">=1.13.0 <1.14.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/observability/kiali/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "kiali-server"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://kiali.org/helm-charts"
+        ],
+        "groupName": "observability",
+        "allowedVersions": ">=2.33.0 <2.34.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/delivery/admission/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "kyverno"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://kyverno.github.io/kyverno"
+        ],
+        "groupName": "admission",
+        "allowedVersions": ">=3.9.0 <3.10.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/tailscale-operator/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "tailscale-operator"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://pkgs.tailscale.com/helmcharts"
+        ],
+        "groupName": "access",
+        "allowedVersions": ">=1.102.0 <1.103.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/base/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "base"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://istio-release.storage.googleapis.com/charts"
+        ],
+        "groupName": "mesh",
+        "allowedVersions": ">=1.31.0 <1.32.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/istiod/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "istiod"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://istio-release.storage.googleapis.com/charts"
+        ],
+        "groupName": "mesh",
+        "allowedVersions": ">=1.31.0 <1.32.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/cni/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "cni"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://istio-release.storage.googleapis.com/charts"
+        ],
+        "groupName": "mesh",
+        "allowedVersions": ">=1.31.0 <1.32.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/ztunnel/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "ztunnel"
+        ],
+        "enabled": true,
+        "registryUrls": [
+          "https://istio-release.storage.googleapis.com/charts"
+        ],
+        "groupName": "mesh",
+        "allowedVersions": ">=1.31.0 <1.32.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "opentofu/opentofu",
+          "restic/restic"
+        ],
+        "enabled": true
+      },
+      {
+        "matchManagers": [
+          "terraform"
+        ],
+        "matchPackageNames": [
+          "integrations/github"
+        ],
+        "registryUrls": [
+          "https://registry.opentofu.org"
+        ],
+        "allowedVersions": ">=6.13.0 <6.14.0",
+        "enabled": true
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "cloudflare/terraform-provider-cloudflare"
+        ],
+        "enabled": true,
+        "groupName": "cloudflare-provider",
+        "allowedVersions": ">=5.27.0 <5.28.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "goharbor/terraform-provider-harbor"
+        ],
+        "enabled": true,
+        "groupName": "harbor-provider",
+        "allowedVersions": ">=3.11.0 <3.12.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "actions/runner"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=2.338.0 <3.0.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "helm/helm"
+        ],
+        "enabled": true,
+        "groupName": "bootstrap runner",
+        "allowedVersions": ">=4.3.0 <4.4.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "tailscale/tailscale"
+        ],
+        "enabled": true,
+        "groupName": "access",
+        "allowedVersions": ">=1.102.0 <1.103.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "k3s-io/k3s"
+        ],
+        "enabled": true,
+        "groupName": "Kubernetes",
+        "allowedVersions": "/^v?1[.]36[.][0-9]+[+]k3s[0-9]+$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "moby/buildkit"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=0.34.0 <0.35.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "sigstore/cosign"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=3.1.0 <3.2.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "google/go-containerregistry"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=0.22.0 <0.23.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "opencontainers/runc"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=1.5.0 <1.6.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "rootless-containers/rootlesskit"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=3.2.0 <3.3.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "actions/actions-runner-controller"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=0.15.0 <0.16.0"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/harbor/server/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "harbor"
+        ],
+        "registryUrls": [
+          "https://helm.goharbor.io"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=1.19.0 <1.20.0",
+        "groupName": "harbor"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/controller/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "gha-runner-scale-set-controller",
+          "ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller"
+        ],
+        "registryUrls": [
+          "https://ghcr.io"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=0.15.0 <0.16.0",
+        "groupName": "CI execution"
+      },
+      {
+        "matchManagers": [
+          "helmv3"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/pool/Chart.yaml"
+        ],
+        "matchPackageNames": [
+          "gha-runner-scale-set",
+          "ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
+        ],
+        "registryUrls": [
+          "https://ghcr.io"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=0.15.0 <0.16.0",
+        "groupName": "CI execution"
+      },
+      {
+        "matchManagers": [
+          "terraform"
+        ],
+        "matchPackageNames": [
+          "cyrilgdn/postgresql"
+        ],
+        "registryUrls": [
+          "https://registry.opentofu.org"
+        ],
+        "enabled": true,
+        "groupName": "provider postgresql",
+        "allowedVersions": ">=1.27.0 <1.28.0"
+      },
+      {
+        "matchManagers": [
+          "terraform"
+        ],
+        "matchPackageNames": [
+          "tailscale/tailscale"
+        ],
+        "registryUrls": [
+          "https://registry.opentofu.org"
+        ],
+        "enabled": true,
+        "groupName": "provider tailscale",
+        "allowedVersions": ">=0.29.0 <0.30.0"
+      },
+      {
+        "matchManagers": [
+          "terraform"
+        ],
+        "matchPackageNames": [
+          "grafana/grafana"
+        ],
+        "registryUrls": [
+          "https://registry.opentofu.org"
+        ],
+        "enabled": true,
+        "groupName": "provider grafana",
+        "allowedVersions": ">=4.49.0 <4.50.0"
+      },
+      {
+        "matchManagers": [
+          "terraform"
+        ],
+        "matchPackageNames": [
+          "keycloak/keycloak"
+        ],
+        "registryUrls": [
+          "https://registry.opentofu.org"
+        ],
+        "enabled": true,
+        "groupName": "provider keycloak",
+        "allowedVersions": ">=5.10.0 <5.11.0"
+      },
+      {
+        "matchManagers": [
+          "terraform"
+        ],
+        "matchPackageNames": [
+          "hashicorp/aws"
+        ],
+        "registryUrls": [
+          "https://registry.opentofu.org"
+        ],
+        "enabled": true,
+        "groupName": "provider s3",
+        "allowedVersions": ">=6.68.0 <6.69.0"
+      },
+      {
+        "matchManagers": [
+          "pip_requirements"
+        ],
+        "matchPackageNames": [
+          "ansible-compat",
+          "ansible-core",
+          "ansible-lint",
+          "attrs",
+          "black",
+          "bracex",
+          "certifi",
+          "cffi",
+          "charset-normalizer",
+          "click",
+          "cryptography",
+          "distro",
+          "filelock",
+          "googleapis-common-protos",
+          "idna",
+          "jinja2",
+          "jsonschema",
+          "jsonschema-specifications",
+          "lz4",
+          "markupsafe",
+          "mypy-extensions",
+          "opentelemetry-api",
+          "opentelemetry-exporter-http-transport",
+          "opentelemetry-exporter-otlp-common",
+          "opentelemetry-exporter-otlp-proto-common",
+          "opentelemetry-exporter-otlp-proto-http",
+          "opentelemetry-proto",
+          "opentelemetry-sdk",
+          "opentelemetry-semantic-conventions",
+          "packaging",
+          "pathspec",
+          "platformdirs",
+          "prometheus-client",
+          "protobuf",
+          "psycopg",
+          "psycopg-binary",
+          "pycparser",
+          "python-dotenv",
+          "pytokens",
+          "pyyaml",
+          "referencing",
+          "requests",
+          "resolvelib",
+          "rpds-py",
+          "ruamel-yaml",
+          "subprocess-tee",
+          "typing-extensions",
+          "urllib3",
+          "wcmatch",
+          "yamllint"
+        ],
+        "enabled": true,
+        "groupName": "Python wheel requirements",
+        "registryUrls": [
+          "https://pypi.org/simple"
+        ]
+      },
+      {
+        "matchManagers": [
+          "pip_requirements"
+        ],
+        "matchUpdateTypes": [
+          "major",
+          "minor"
+        ],
+        "enabled": false
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/data/tests/compose.provider-proof.yaml"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/cloudnative-pg/postgresql"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/data/tests/compose.provider-proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
+        ],
+        "matchPackageNames": [
+          "chrislusf/seaweedfs"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml"
+        ],
+        "matchPackageNames": [
+          "rancher/k3s"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
+        ],
+        "matchPackageNames": [
+          "cloudflare/cloudflared",
+          "ghcr.io/cloudnative-pg/postgresql",
+          "quay.io/adorsys/keycloak-config-cli",
+          "quay.io/keycloak/keycloak"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/observability/tests/compose.proof.yaml"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/alloy",
+          "docker.io/grafana/loki",
+          "docker.io/grafana/tempo",
+          "quay.io/prometheus/alertmanager",
+          "quay.io/prometheus/prometheus"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/observability/tests/compose.proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/observability/tests/compose.provider-proof.yaml"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/grafana"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/observability/tests/compose.provider-proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/observability/tests/compose.sso-proof.yaml"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/grafana",
+          "quay.io/keycloak/keycloak"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/observability/tests/compose.sso-proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "docker-compose"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/services/compose.proof.yaml"
+        ],
+        "matchPackageNames": [
+          "python"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "pin:ansible/playbooks/services/compose.proof.yaml"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/istio/pilot"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "mesh",
+        "allowedVersions": "/^v?1[.]31(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/istio/proxyv2"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "mesh",
+        "allowedVersions": "/^v?1[.]31(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/istio/install-cni"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "mesh",
+        "allowedVersions": "/^v?1[.]31(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/istio/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/istio/ztunnel"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "mesh",
+        "allowedVersions": "/^v?1[.]31(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/prometheus-operator/prometheus-operator"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?0[.]94(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/prometheus-operator/prometheus-config-reloader"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?0[.]94(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/prometheus/prometheus"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?3[.]15(?:[.][0-9]+)?-distroless$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/prometheus/alertmanager"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?0[.]34(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/grafana"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?13[.]2(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "registry.k8s.io/kube-state-metrics/kube-state-metrics"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?2[.]20(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/prometheus/node-exporter"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?1[.]12(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/loki"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?3[.]6(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/tempo"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?3[.]1(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/alloy"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?1[.]20(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/kiali/kiali"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?2[.]33(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/observability/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/k6"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "observability",
+        "allowedVersions": "/^v?2[.]3(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/nginx-photon"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/harbor-portal"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/harbor-core"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/harbor-jobservice"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/registry-photon"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/harbor-registryctl"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/harbor-db"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/goharbor/valkey-photon"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?2[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/oauth2-proxy/oauth2-proxy"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "harbor",
+        "allowedVersions": "/^v?7[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/access/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "cloudflare/cloudflared"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "access",
+        "allowedVersions": "/^v?2026[.]9(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/access/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "tailscale/tailscale"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "access",
+        "allowedVersions": "/^v?1[.]102(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/access/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "tailscale/k8s-proxy"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "access",
+        "allowedVersions": "/^v?1[.]102(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/connectivity/access/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "tailscale/k8s-operator"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "access",
+        "allowedVersions": "/^v?1[.]102(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/admission/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "reg.kyverno.io/kyverno/kyverno"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "admission",
+        "allowedVersions": "/^v?1[.]19(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/admission/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "reg.kyverno.io/kyverno/kyvernopre"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "admission",
+        "allowedVersions": "/^v?1[.]19(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/admission/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "reg.kyverno.io/kyverno/reports-controller"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "admission",
+        "allowedVersions": "/^v?1[.]19(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/admission/images.lock.json"
+        ],
+        "matchPackageNames": [
+          "reg.kyverno.io/kyverno/kyverno-cli"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "admission",
+        "allowedVersions": "/^v?1[.]19(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/argocd/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "quay.io/argoproj/argocd"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "argocd",
+        "allowedVersions": "/^v?3[.]5(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/argocd/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/library/redis"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "argocd",
+        "allowedVersions": "/^v?8[.]6(?:[.][0-9]+)?-alpine$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/backing-image-manager"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?1[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/csi-attacher"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?4[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/csi-node-driver-registrar"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?2[.]18(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/csi-provisioner"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?6[.]3(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/csi-resizer"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?2[.]2(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/csi-snapshotter"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?8[.]6(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/livenessprobe"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?2[.]20(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/longhorn-engine"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?1[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/longhorn-instance-manager"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?1[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/longhorn-manager"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?1[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/longhorn-share-manager"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?1[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/longhorn-ui"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?1[.]13(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/storage/longhorn/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/longhornio/support-bundle-kit"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "longhorn",
+        "allowedVersions": "/^v?0[.]0(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/secrets/external-secrets/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/external-secrets/external-secrets"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "secrets",
+        "allowedVersions": "/^v?2[.]11(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/runner/source.lock.json"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/actions/actions-runner"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "ci",
+        "allowedVersions": "/^v?2[.]338(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/runner/source.lock.json"
+        ],
+        "matchPackageNames": [
+          "docker.io/aquasec/trivy"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "ci",
+        "allowedVersions": "/^v?0[.]76(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/identity/keycloak/artifact.lock.json"
+        ],
+        "matchPackageNames": [
+          "python"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "bootstrap runner",
+        "allowedVersions": "/^v?3[.]13(?:[.][0-9]+)?-slim-bookworm$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "ansible/runner/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "docker.io/grafana/k6"
+        ],
+        "allowedVersions": "/^v?2[.]3(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "ansible/runner/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "docker.io/aquasec/trivy"
+        ],
+        "allowedVersions": "/^v?0[.]76(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "ansible/runner/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "reg.kyverno.io/kyverno/kyverno-cli"
+        ],
+        "allowedVersions": "/^v?1[.]19(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "ansible/runner/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "python",
+          "docker.io/library/python"
+        ],
+        "allowedVersions": "/^v?3[.]13(?:[.][0-9]+)?-slim-bookworm$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "ansible/runner/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "python",
+          "docker.io/library/python"
+        ],
+        "allowedVersions": "/^v?3[.]13(?:[.][0-9]+)?-slim-bookworm$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "docker.io/library/golang"
+        ],
+        "allowedVersions": "/^v?1[.]27(?:[.][0-9]+)?-bookworm$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/actions/gha-runner-scale-set-controller"
+        ],
+        "allowedVersions": "/^v?0[.]15(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "docker.io/moby/buildkit"
+        ],
+        "allowedVersions": "/^v?0[.]34(?:[.][0-9]+)?-rootless$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "mcr.microsoft.com/dotnet/sdk"
+        ],
+        "allowedVersions": "/^v?8[.]0(?:[.][0-9]+)?-bookworm-slim$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "docker.io/aquasec/trivy"
+        ],
+        "allowedVersions": "/^v?0[.]76(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "dockerfile"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/Dockerfile"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/actions/actions-runner"
+        ],
+        "allowedVersions": "/^v?2[.]338(?:[.][0-9]+)?$/"
+      },
+      {
+        "matchManagers": [
+          "npm"
+        ],
+        "matchFileNames": [
+          "ansible/playbooks/keycloak/tests/browser/package.json"
+        ],
+        "matchPackageNames": [
+          "playwright"
+        ],
+        "enabled": true,
+        "groupName": "identity-browser",
+        "registryUrls": [
+          "https://registry.npmjs.org/"
+        ],
+        "allowedVersions": ">=1.64.0 <1.65.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "System.Security.Cryptography.Pkcs"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "registryUrls": [
+          "https://api.nuget.org/v3/index.json"
+        ],
+        "allowedVersions": ">=10.0.0 <10.1.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "System.Formats.Asn1"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "registryUrls": [
+          "https://api.nuget.org/v3/index.json"
+        ],
+        "allowedVersions": ">=10.0.0 <10.1.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "dotnet/runtime"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "allowedVersions": ">=8.0.0 <8.1.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/harbor/cosign.lock.json"
+        ],
+        "matchPackageNames": [
+          "cgr.dev/chainguard/cosign"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "bootstrap runner",
+        "allowedVersions": "/^latest$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchFileNames": [
+          "platform/delivery/ci/scan.lock.json"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/aquasecurity/trivy-db"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "CI execution",
+        "allowedVersions": "/^2$/"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/renovatebot/renovate"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "groupName": "dependency maintenance",
+        "allowedVersions": ">=44.181.0 <44.182.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "oauth2-proxy/oauth2-proxy"
+        ],
+        "enabled": true,
+        "groupName": "Harbor browser fixture",
+        "allowedVersions": ">=7.15.0 <7.16.0"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=0.17.0 <0.18.0",
+        "groupName": "rollouts Gateway API plugin"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "kubernetes-sigs/gateway-api"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=1.6.0 <1.7.0",
+        "groupName": "Gateway API"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "coredns/coredns"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=1.14.0 <1.15.0",
+        "groupName": "private DNS"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "keycloak/keycloak"
+        ],
+        "matchCurrentVersion": "/^26\\.6[.]/",
+        "enabled": true,
+        "allowedVersions": ">=26.6.0 <26.7.0",
+        "groupName": "identity Keycloak"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "keycloak/keycloak"
+        ],
+        "matchCurrentVersion": "/^26\\.8[.]/",
+        "enabled": true,
+        "allowedVersions": ">=26.8.0 <26.9.0",
+        "groupName": "identity Keycloak"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "adorsys/keycloak-config-cli"
+        ],
+        "matchCurrentVersion": "/^6\\.5[.]/",
+        "enabled": true,
+        "allowedVersions": ">=6.5.0 <6.6.0",
+        "groupName": "identity Keycloak"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "keycloak/keycloak"
+        ],
+        "matchCurrentVersion": "/^26\\.5[.]/",
+        "enabled": true,
+        "allowedVersions": ">=26.5.0 <26.6.0",
+        "groupName": "identity Keycloak"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "cert-manager/cmctl"
+        ],
+        "enabled": true,
+        "allowedVersions": ">=2.6.0 <2.7.0",
+        "groupName": "certificate renewal tool"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/cloudnative-pg/cloudnative-pg"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^1[.]30[.][0-9]+$/",
+        "groupName": "data images"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "ghcr.io/cloudnative-pg/postgresql"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^18[.][0-9]+-standard-trixie$/",
+        "groupName": "data images"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "chrislusf/seaweedfs"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^4[.]48(?:[.][0-9]+)?$/",
+        "groupName": "data images"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "quay.io/jetstack/cert-manager-controller"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^v1[.]21[.][0-9]+$/",
+        "groupName": "certificates"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "quay.io/jetstack/cert-manager-webhook"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^v1[.]21[.][0-9]+$/",
+        "groupName": "certificates"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "quay.io/jetstack/cert-manager-cainjector"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^v1[.]21[.][0-9]+$/",
+        "groupName": "certificates"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "quay.io/jetstack/cert-manager-acmesolver"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^v1[.]21[.][0-9]+$/",
+        "groupName": "certificates"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "quay.io/argoproj/argo-rollouts"
+        ],
+        "enabled": true,
+        "pinDigests": true,
+        "allowedVersions": "/^v1[.]10[.][0-9]+$/",
+        "groupName": "rollouts"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
+          "restic/restic"
+        ],
+        "allowedVersions": ">=0.19.0 <0.20.0"
+      }
+    ],
+    "customManagers": [
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/runner/tools\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"tofu\"\\s*:\\s*\\{\\s*\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "opentofu/opentofu",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/runner/tools\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"restic\"\\s*:\\s*\\{\\s*\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "restic/restic",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/runner/cloudflare-provider\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)-cloudlab[.]"
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "cloudflare/terraform-provider-cloudflare",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/runner/harbor-provider\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)-cloudlab[.]"
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "goharbor/terraform-provider-harbor",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"runner_version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "actions/runner",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/runner/helm\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>v?[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "helm/helm",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/playbooks/tailscale/files/release\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "tailscale/tailscale",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/playbooks/k3s/vars\\.yml$/"
+        ],
+        "matchStrings": [
+          "k3s_version:\\s*(?<currentValue>v1[.]36[.][0-9]+[+]k3s[0-9]+)"
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "k3s-io/k3s",
+        "extractVersionTemplate": "^(?<version>v.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/tools/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"name\"\\s*:\\s*\"buildkit\"\\s*,\\s*\"version\"\\s*:\\s*\"(?<currentValue>[^\"\\s]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "moby/buildkit",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/tools/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"name\"\\s*:\\s*\"cosign\"\\s*,\\s*\"version\"\\s*:\\s*\"(?<currentValue>[^\"\\s]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "sigstore/cosign",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/tools/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"name\"\\s*:\\s*\"crane\"\\s*,\\s*\"version\"\\s*:\\s*\"(?<currentValue>[^\"\\s]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "google/go-containerregistry",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/tools/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"name\"\\s*:\\s*\"runc\"\\s*,\\s*\"version\"\\s*:\\s*\"(?<currentValue>[^\"\\s]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "opencontainers/runc",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/tools/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"name\"\\s*:\\s*\"rootlesskit\"\\s*,\\s*\"version\"\\s*:\\s*\"(?<currentValue>[^\"\\s]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "rootless-containers/rootlesskit",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/tools/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"name\"\\s*:\\s*\"arc\"\\s*,\\s*\"version\"\\s*:\\s*\"gha-runner-scale-set-(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "actions/actions-runner-controller",
+        "extractVersionTemplate": "^gha-runner-scale-set-(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/istio/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"pilot\"\\s*:\\s*\"docker\\.io/istio/pilot:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/istio/pilot",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/istio/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"proxyv2\"\\s*:\\s*\"docker\\.io/istio/proxyv2:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/istio/proxyv2",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/istio/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"install-cni\"\\s*:\\s*\"docker\\.io/istio/install-cni:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/istio/install-cni",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/istio/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"ztunnel\"\\s*:\\s*\"docker\\.io/istio/ztunnel:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/istio/ztunnel",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"operator\"\\s*:\\s*\"quay\\.io/prometheus-operator/prometheus-operator:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/prometheus-operator/prometheus-operator",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"reloader\"\\s*:\\s*\"quay\\.io/prometheus-operator/prometheus-config-reloader:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/prometheus-operator/prometheus-config-reloader",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"prometheus\"\\s*:\\s*\"quay\\.io/prometheus/prometheus:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/prometheus/prometheus",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"alertmanager\"\\s*:\\s*\"quay\\.io/prometheus/alertmanager:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/prometheus/alertmanager",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"grafana\"\\s*:\\s*\"docker\\.io/grafana/grafana:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/grafana/grafana",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"ksm\"\\s*:\\s*\"registry\\.k8s\\.io/kube-state-metrics/kube-state-metrics:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "registry.k8s.io/kube-state-metrics/kube-state-metrics",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"node\"\\s*:\\s*\"quay\\.io/prometheus/node-exporter:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/prometheus/node-exporter",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"loki\"\\s*:\\s*\"docker\\.io/grafana/loki:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/grafana/loki",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"tempo\"\\s*:\\s*\"docker\\.io/grafana/tempo:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/grafana/tempo",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"alloy\"\\s*:\\s*\"docker\\.io/grafana/alloy:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/grafana/alloy",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"kiali\"\\s*:\\s*\"quay\\.io/kiali/kiali:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/kiali/kiali",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/observability/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"k6\"\\s*:\\s*\"docker\\.io/grafana/k6:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/grafana/k6",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"nginx-photon\"\\s*:\\s*\"docker\\.io/goharbor/nginx-photon:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/nginx-photon",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"harbor-portal\"\\s*:\\s*\"docker\\.io/goharbor/harbor-portal:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/harbor-portal",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"harbor-core\"\\s*:\\s*\"docker\\.io/goharbor/harbor-core:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/harbor-core",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"harbor-jobservice\"\\s*:\\s*\"docker\\.io/goharbor/harbor-jobservice:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/harbor-jobservice",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"registry-photon\"\\s*:\\s*\"docker\\.io/goharbor/registry-photon:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/registry-photon",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"harbor-registryctl\"\\s*:\\s*\"docker\\.io/goharbor/harbor-registryctl:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/harbor-registryctl",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"harbor-db\"\\s*:\\s*\"docker\\.io/goharbor/harbor-db:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/harbor-db",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"valkey-photon\"\\s*:\\s*\"docker\\.io/goharbor/valkey-photon:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/goharbor/valkey-photon",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"browser-gate\"\\s*:\\s*\"quay\\.io/oauth2-proxy/oauth2-proxy:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/oauth2-proxy/oauth2-proxy",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/access/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"cloudflared\"\\s*:\\s*\"cloudflare/cloudflared:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "cloudflare/cloudflared",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/access/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"ingress\"\\s*:\\s*\"tailscale/tailscale:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "tailscale/tailscale",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/access/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"api\"\\s*:\\s*\"tailscale/k8s-proxy:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "tailscale/k8s-proxy",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/access/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"operator\"\\s*:\\s*\"tailscale/k8s-operator:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "tailscale/k8s-operator",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/admission/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"kyverno\"\\s*:\\s*\"reg\\.kyverno\\.io/kyverno/kyverno:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "reg.kyverno.io/kyverno/kyverno",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/admission/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"kyvernopre\"\\s*:\\s*\"reg\\.kyverno\\.io/kyverno/kyvernopre:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "reg.kyverno.io/kyverno/kyvernopre",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/admission/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"reports-controller\"\\s*:\\s*\"reg\\.kyverno\\.io/kyverno/reports-controller:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "reg.kyverno.io/kyverno/reports-controller",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/admission/images\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"kyverno-cli\"\\s*:\\s*\"reg\\.kyverno\\.io/kyverno/kyverno-cli:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "reg.kyverno.io/kyverno/kyverno-cli",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/argocd/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"quay\\.io/argoproj/argocd:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "quay.io/argoproj/argocd",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/argocd/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/library/redis:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/library/redis",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/backing-image-manager:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/backing-image-manager",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/csi-attacher:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/csi-attacher",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/csi-node-driver-registrar:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/csi-node-driver-registrar",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/csi-provisioner:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/csi-provisioner",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/csi-resizer:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/csi-resizer",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/csi-snapshotter:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/csi-snapshotter",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/livenessprobe:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/livenessprobe",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/longhorn-engine:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/longhorn-engine",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/longhorn-instance-manager:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/longhorn-instance-manager",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/longhorn-manager:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/longhorn-manager",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/longhorn-share-manager:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/longhorn-share-manager",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/longhorn-ui:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/longhorn-ui",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/storage/longhorn/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"docker\\.io/longhornio/support-bundle-kit:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/longhornio/support-bundle-kit",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/secrets/external-secrets/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"ghcr\\.io/external-secrets/external-secrets:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "ghcr.io/external-secrets/external-secrets",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"base\"\\s*:\\s*\"ghcr\\.io/actions/actions-runner:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "ghcr.io/actions/actions-runner",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"trivy\"\\s*:\\s*\"docker\\.io/aquasec/trivy:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "docker.io/aquasec/trivy",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/identity/keycloak/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"python\"\\s*:\\s*\"python:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "python",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"System\\.Security\\.Cryptography\\.Pkcs\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "nuget",
+        "depNameTemplate": "System.Security.Cryptography.Pkcs"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"System\\.Formats\\.Asn1\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "nuget",
+        "depNameTemplate": "System.Formats.Asn1"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"runtime_version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "dotnet/runtime",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/harbor/cosign\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"image\"\\s*:\\s*\"cgr\\.dev/chainguard/cosign(?::latest)?@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "currentValueTemplate": "latest",
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "cgr.dev/chainguard/cosign",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/scan\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"database\"\\s*:\\s*\"ghcr\\.io/aquasecurity/trivy-db(?::2)?@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "currentValueTemplate": "2",
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "ghcr.io/aquasecurity/trivy-db",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/dependencies/image\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"image\"\\s*:\\s*\"ghcr[.]io/renovatebot/renovate:(?<currentValue>[0-9.]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "datasourceTemplate": "docker",
+        "depNameTemplate": "ghcr.io/renovatebot/renovate",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^ansible/playbooks/harbor/tests/browser-proof\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "github-releases",
+        "depNameTemplate": "oauth2-proxy/oauth2-proxy",
+        "extractVersionTemplate": "^v(?<version>.*)$"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/rollouts/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"plugin\"\\s*:\\s*\\{\\s*\"version\"\\s*:\\s*\"(?<currentValue>v?[0-9.]+)\""
+        ],
+        "depNameTemplate": "argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/gateway-api/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "kubernetes-sigs/gateway-api",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/connectivity/private-dns/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "coredns/coredns",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/identity/keycloak/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"operator_version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "keycloak/keycloak",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/identity/keycloak/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"server_version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "keycloak/keycloak",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/identity/keycloak/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"config_cli_version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "adorsys/keycloak-config-cli",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/identity/keycloak/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"config_cli_build_server\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "keycloak/keycloak",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/certificates/cert-manager/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"renewal_tool\"\\s*:\\s*\\{\\s*\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "depNameTemplate": "cert-manager/cmctl",
+        "datasourceTemplate": "github-releases",
+        "versioningTemplate": "semver"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/data/cnpg/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"ghcr\\.io/cloudnative-pg/cloudnative-pg:(?<currentValue>[^\"@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "ghcr.io/cloudnative-pg/cloudnative-pg",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/data/cnpg/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"ghcr\\.io/cloudnative-pg/postgresql:(?<currentValue>[^\"@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "ghcr.io/cloudnative-pg/postgresql",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/data/seaweedfs/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"chrislusf/seaweedfs:(?<currentValue>[^\"@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "chrislusf/seaweedfs",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/certificates/cert-manager/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"quay\\.io/jetstack/cert-manager-controller:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "quay.io/jetstack/cert-manager-controller",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/certificates/cert-manager/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"quay\\.io/jetstack/cert-manager-webhook:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "quay.io/jetstack/cert-manager-webhook",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/certificates/cert-manager/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"quay\\.io/jetstack/cert-manager-cainjector:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "quay.io/jetstack/cert-manager-cainjector",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/certificates/cert-manager/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"quay\\.io/jetstack/cert-manager-acmesolver:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "quay.io/jetstack/cert-manager-acmesolver",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/rollouts/artifact\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"quay\\.io/argoproj/argo-rollouts:(?<currentValue>[^\"\\s]+)\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        ],
+        "depNameTemplate": "quay.io/argoproj/argo-rollouts",
+        "datasourceTemplate": "docker",
+        "versioningTemplate": "docker"
+      }
+    ],
+    "helmv3": {
+      "managerFilePatterns": [
+        "/^platform/delivery/argocd/Chart\\.yaml$/",
+        "/^platform/delivery/rollouts/Chart\\.yaml$/",
+        "/^platform/secrets/external-secrets/Chart\\.yaml$/",
+        "/^platform/storage/longhorn/Chart\\.yaml$/",
+        "/^platform/certificates/cert-manager/Chart\\.yaml$/",
+        "/^platform/data/cnpg/Chart\\.yaml$/",
+        "/^platform/data/seaweedfs/Chart\\.yaml$/",
+        "/^platform/observability/prometheus/Chart\\.yaml$/",
+        "/^platform/observability/loki/Chart\\.yaml$/",
+        "/^platform/observability/tempo/Chart\\.yaml$/",
+        "/^platform/observability/alloy/Chart\\.yaml$/",
+        "/^platform/observability/kiali/Chart\\.yaml$/",
+        "/^platform/delivery/admission/Chart\\.yaml$/",
+        "/^platform/connectivity/tailscale-operator/Chart\\.yaml$/",
+        "/^platform/connectivity/istio/base/Chart\\.yaml$/",
+        "/^platform/connectivity/istio/istiod/Chart\\.yaml$/",
+        "/^platform/connectivity/istio/cni/Chart\\.yaml$/",
+        "/^platform/connectivity/istio/ztunnel/Chart\\.yaml$/",
+        "/^platform/harbor/server/Chart\\.yaml$/",
+        "/^platform/delivery/ci/controller/Chart\\.yaml$/",
+        "/^platform/delivery/ci/pool/Chart\\.yaml$/"
+      ]
+    },
+    "skipInstalls": true,
+    "pip_requirements": {
+      "managerFilePatterns": [
+        "/^ansible/runner/requirements\\.txt$/",
+        "/^apps/notes/requirements\\.txt$/",
+        "/^apps/notes/telemetry-requirements\\.txt$/",
+        "/^ansible/playbooks/observability/tests/requirements\\.txt$/"
+      ]
+    },
+    "docker-compose": {
+      "managerFilePatterns": [
+        "/^ansible/playbooks/data/tests/compose\\.provider-proof\\.yaml$/",
+        "/^ansible/playbooks/data/tests/compose\\.s3-provider-proof\\.yaml$/",
+        "/^ansible/playbooks/keycloak/tests/compose\\.identity-operator-proof\\.yaml$/",
+        "/^ansible/playbooks/keycloak/tests/compose\\.identity-proof\\.yaml$/",
+        "/^ansible/playbooks/observability/tests/compose\\.proof\\.yaml$/",
+        "/^ansible/playbooks/observability/tests/compose\\.provider-proof\\.yaml$/",
+        "/^ansible/playbooks/observability/tests/compose\\.sso-proof\\.yaml$/",
+        "/^ansible/playbooks/services/compose\\.proof\\.yaml$/"
+      ]
+    },
+    "npm": {
+      "managerFilePatterns": [
+        "/^ansible/playbooks/keycloak/tests/browser/package\\.json$/"
+      ]
+    },
+    "npmrc": "registry=https://registry.npmjs.org/\nignore-scripts=true\n",
+    "npmrcMerge": false,
+    "vulnerabilityAlerts": {
+      "enabled": false
+    },
+    "osvVulnerabilityAlerts": false
+  },
+  "internalHostAccess": "block",
+  "detectGlobalManagerConfig": false,
+  "detectHostRulesFromEnv": false,
+  "persistRepoData": false,
+  "repositoryCache": "disabled",
+  "allowedEnv": [],
+  "allowedHeaders": [],
+  "exitCodeForErrors": true
+}

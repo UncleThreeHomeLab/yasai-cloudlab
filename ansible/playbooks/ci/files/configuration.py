@@ -12,7 +12,7 @@ import yaml
 
 from playbooks.argocd.files.github_setup import MARKER, inputs, inspect, repository
 from playbooks.ci.files.qualification import images, profile_fingerprint
-from playbooks.ci.files.chart import POOL
+from playbooks.ci.files.chart import POOL, controller_version
 from playbooks.harbor.files.recovery import atomic
 from playbooks.infrastructure.files import harbor as harbor_api
 
@@ -153,7 +153,7 @@ def application_configuration(qualified, application, current, workflows=(), tem
         'manageSystemNamespace': False, 'arc': {
             'fullnameOverride': controller, 'serviceAccount': {'name': controller},
             'flags': {'watchSingleNamespace': namespace},
-            'image': {'repository': image_repository, 'tag': '0.15.0@' + image_digest}}}}}
+            'image': {'repository': image_repository, 'tag': controller_version() + '@' + image_digest}}}}}
     if workflows and templates:
         raise ValueError('Choose exact revisions or reviewed workflow templates')
     if exact_reusable and (scope != 'private' or not workflows or templates or any(

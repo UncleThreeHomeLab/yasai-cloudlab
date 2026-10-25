@@ -41,7 +41,9 @@ RUN python /opt/runner/install_helm.py
 COPY tools.lock.json install_tools.py /opt/runner/
 RUN python /opt/runner/install_tools.py
 COPY --from=provider-build /provider-mirror /opt/providers
+COPY --from=ci-source tools/source.lock.json /opt/runner/ci-tools.lock.json
 COPY providers.tfrc /opt/runner/providers.tfrc
+COPY Dockerfile /opt/runner/Dockerfile
 COPY run.py /opt/runner/run.py
 ENV ANSIBLE_CONFIG=/workspace/ansible/ansible.cfg \
     PYTHONDONTWRITEBYTECODE=1 \

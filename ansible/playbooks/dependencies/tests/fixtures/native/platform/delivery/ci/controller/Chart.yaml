@@ -1,0 +1,8 @@
+apiVersion: v2
+name: cloudlab-native-oci-fixture
+version: 0.1.0
+dependencies:
+  - name: gha-runner-scale-set-controller
+    alias: arc
+    version: 0.15.0
+    repository: oci://ghcr.io/actions/actions-runner-controller-charts

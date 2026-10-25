@@ -3,9 +3,9 @@ import json
 from pathlib import Path
 
 try:
-    from .contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, canonical, digest, names, catalog
+    from .contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, approval, canonical, digest, names, runtime_catalog
 except ImportError:
-    from contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, canonical, digest, names, catalog
+    from contract import OWNER, IMAGE, ANONYMOUS_INTERVAL, approval, canonical, digest, names, runtime_catalog
 
 
 def metadata(row, state_uid, name, namespace=None):
@@ -16,6 +16,7 @@ def metadata(row, state_uid, name, namespace=None):
 
 
 def workload(row, settings, state_uid='render-only'):
+    approval(row)
     definition = row['definition']
     n = names(row)
     fixture = definition['profile'] == 'synthetic'
@@ -58,7 +59,8 @@ HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()''']
 
 
 def resources(row, settings, platform_repository, state_uid):
-    catalog(settings)
+    runtime_catalog(settings)
+    approval(row)
     n = names(row)
     ns = n['namespace']
     port = 8080 if row['definition']['profile'] == 'synthetic' else row['definition']['port']
@@ -178,6 +180,7 @@ def resources(row, settings, platform_repository, state_uid):
 
 
 def private_route(row, settings, state_uid):
+    approval(row)
     n = names(row)
     port = 8080 if row['definition']['profile'] == 'synthetic' else row['definition']['port']
     return {'apiVersion': 'gateway.networking.k8s.io/v1', 'kind': 'HTTPRoute',

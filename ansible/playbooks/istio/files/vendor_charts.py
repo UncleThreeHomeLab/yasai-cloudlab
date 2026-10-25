@@ -7,8 +7,9 @@ from pathlib import Path
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[4] / 'platform/connectivity/istio'
-VERSION = '1.31.1'
-RELEASE_SHA256 = 'cb4af2e8a099acfc51368c1d15d4deab8321ae628554d4ee5c74f62ebe775857'
+_LOCK = json.loads((ROOT / 'base/artifact.lock.json').read_text())
+VERSION = _LOCK['version']
+RELEASE_SHA256 = _LOCK['source_release_sha256']
 PATHS = {'base': 'base', 'istiod': 'istio-control/istio-discovery', 'cni': 'istio-cni', 'ztunnel': 'ztunnel'}
 MARKER = b'{{$asDict | toYaml }}'
 ANNOTATION = (b'{{- $_ := set $asDict.metadata "annotations" (merge '
@@ -27,10 +28,10 @@ def archive(files):
     return output.getvalue()
 
 
-def from_release(raw, component):
-    if hashlib.sha256(raw).hexdigest() != RELEASE_SHA256:
+def from_release(raw, component, *, version=None, sha256=None):
+    if hashlib.sha256(raw).hexdigest() != (sha256 or RELEASE_SHA256):
         raise ValueError('Istio release archive checksum mismatch')
-    prefix = 'istio-' + VERSION + '/manifests/charts/' + PATHS[component] + '/'
+    prefix = 'istio-' + (version or VERSION) + '/manifests/charts/' + PATHS[component] + '/'
     files = {}
     with tarfile.open(fileobj=io.BytesIO(raw)) as source:
         for member in source:

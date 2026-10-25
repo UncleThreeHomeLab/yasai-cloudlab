@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, '/opt/cloudlab')
 from playbooks.istio.files.kube import kube, get, wait, contains
-from playbooks.previews.files.contract import OWNER, catalog
+from playbooks.previews.files.contract import OWNER, approval, obsolete, runtime_catalog
 from playbooks.previews.files.admission import native
 
 APP = 'cloudlab-previews'
@@ -14,7 +14,7 @@ BASE = Path('/var/lib/cloudlab/previews')
 
 
 def application(payload, permissions):
-    catalog(payload['catalog'])
+    runtime_catalog(payload['catalog'])
     return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': {
         'name': APP, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}},
         'spec': {'project': APP, 'sources': [
@@ -51,9 +51,11 @@ def configure(payload):
             wait(lambda: converged(False), 'preview admission staging', timeout=600)
             # No controller privilege is enabled until native policy compilation and dry-run denials pass.
             namespace = None
-            if payload['catalog']['approvals']:
+            positive = next((row for row in payload['catalog']['approvals'] if not obsolete(row)), None)
+            if positive is not None:
+                approval(positive)
                 from playbooks.previews.files.resources import resources
-                namespace = resources(payload['catalog']['approvals'][0], payload['catalog'], payload['repository'], 'admission-proof')[0]
+                namespace = resources(positive, payload['catalog'], payload['repository'], 'admission-proof')[0]
                 if get('namespace', namespace['metadata']['name']):
                     namespace = None
             native(lambda kind, name: get(kind, name), payload['catalog'], namespace)

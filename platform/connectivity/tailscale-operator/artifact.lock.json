@@ -1,5 +1,6 @@
 {
   "version": "1.102.4",
+  "archive": "charts/tailscale-operator-1.102.4.tgz",
   "upstream_url": "https://pkgs.tailscale.com/helmcharts/tailscale-operator-1.102.4-1789680537-f298a860775749037dd6f42bf764369bbe2865bdfff0289e864851a4bc90c1e2.tgz",
   "upstream_sha256": "f298a860775749037dd6f42bf764369bbe2865bdfff0289e864851a4bc90c1e2",
   "sha256": "a673900922c0d49a7881d6b6f0bf15ba68369dc76c69b816b458995b4a6e098a",

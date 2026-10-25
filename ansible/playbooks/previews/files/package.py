@@ -29,6 +29,11 @@ def check():
     for name, raw in artifacts().items():
         if (ROOT / 'platform/delivery/previews/runtime' / name).read_bytes() != raw:
             raise ValueError('Packaged preview runtime differs from its owning source')
+    if (ROOT / 'platform/identity/keycloak/runtime/preview_contract.py').read_bytes() != artifacts()['contract.py']:
+        raise ValueError('Packaged Keycloak preview contract differs from its owning source')
+    if (ROOT / 'platform/identity/keycloak/runtime/preview_clients.py').read_bytes() != (
+            ROOT / 'ansible/playbooks/keycloak/files/preview_clients.py').read_bytes().replace(b'\r\n', b'\n'):
+        raise ValueError('Packaged Keycloak preview client owner differs from its source')
 
 
 if __name__ == '__main__':

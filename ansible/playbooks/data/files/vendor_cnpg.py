@@ -8,11 +8,11 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[4] / 'platform/data/cnpg'
-UPSTREAM_SHA256 = 'b53d3991fe84bcf38767e7702cae78666265427a127a26fff168ab4207d2b1df'
+UPSTREAM_SHA256 = json.loads((ROOT / 'artifact.lock.json').read_text())['upstream_sha256']
 
 
-def patched(raw):
-    if hashlib.sha256(raw).hexdigest() != UPSTREAM_SHA256:
+def patched(raw, *, expected_sha256=None):
+    if hashlib.sha256(raw).hexdigest() != (expected_sha256 or UPSTREAM_SHA256):
         raise ValueError('CNPG upstream checksum mismatch')
     output = io.BytesIO()
     changed = 0
@@ -40,7 +40,7 @@ def patched(raw):
 
 if __name__ == '__main__':
     data = patched((ROOT / 'upstream.tgz').read_bytes())
-    target = ROOT / 'charts/cloudnative-pg-0.29.1.tgz'
+    target = ROOT / json.loads((ROOT / 'artifact.lock.json').read_text())['archive']
     if sys.argv[1:] == ['--write']:
         target.write_bytes(data)
     elif target.read_bytes() != data:

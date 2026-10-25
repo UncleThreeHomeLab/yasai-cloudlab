@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 from playbooks.argocd.files.repository_tokens import issue, revoke
 from playbooks.argocd.files.github_setup import repository
-from playbooks.previews.files.contract import catalog, discovery_lease, LEASE_MARGIN
+from playbooks.previews.files.contract import runtime_catalog, obsolete, discovery_lease, LEASE_MARGIN
 from playbooks.previews.files.credentials_remote import owned
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -33,14 +33,14 @@ def identity(value):
 
 
 def ensure(settings, values, *, now=None):
-    catalog(settings)
+    runtime_catalog(settings)
     if not settings['privateDiscovery']:
         return {'changed': False, 'private_discovery': False}
     repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
     if any(row['repository'] != repo for row in settings['approvals']):
         raise ValueError('Private previews must use the designated configuration repository')
     now = int(time.time()) if now is None else now
-    eligible = [row for row in settings['approvals'] if row['expiresAt'] > now]
+    eligible = [row for row in settings['approvals'] if row['expiresAt'] > now and not obsolete(row)]
     required = max((row['expiresAt'] + LEASE_MARGIN for row in eligible), default=now)
     current = remote({'action': 'inspect'})
     if current:

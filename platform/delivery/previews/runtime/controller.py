@@ -5,16 +5,16 @@ import time
 from pathlib import Path
 
 try:
-    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, catalog, canonical, digest, names, validate_pull, verify_blob
+    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, approval, obsolete, runtime_catalog, canonical, digest, names, validate_pull, verify_blob
     from .github import GitHub
     from .kube import Kubernetes, APIError, identity
-    from .lifecycle import enroll, retirement, owned, namespace_disposable
+    from .lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
     from .resources import resources, workload_keys, private_route
 except ImportError:
-    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, catalog, canonical, digest, names, validate_pull, verify_blob
+    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, approval, obsolete, runtime_catalog, canonical, digest, names, validate_pull, verify_blob
     from github import GitHub
     from kube import Kubernetes, APIError, identity
-    from lifecycle import enroll, retirement, owned, namespace_disposable
+    from lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
     from resources import resources, workload_keys, private_route
 
 
@@ -51,6 +51,8 @@ class Controller:
 
     def materialize(self, record, desired):
         row = record['approval']
+        approval(row)
+        record_approval(row['instance'], record)
         key = identity(desired)
         receipt = next((r for r in record['resources'] if r['key'] == list(key)), None)
         if receipt is None:
@@ -243,18 +245,19 @@ class Controller:
             if record['phase'] == 'retired':
                 continue
             try:
-                row = record['approval']
+                row = record_approval(instance, record)
                 reason = (retirement(row, desired.get(instance), None, self.now) if desired is not None
-                          else 'expired' if self.now >= row['expiresAt'] else None)
+                          else 'platform-image-changed' if obsolete(row) else 'expired' if self.now >= row['expiresAt'] else None)
                 if reason or record['phase'] == 'retiring':
                     record.update(phase='retiring', reason=record.get('reason', reason))
             except ValueError:
                 failures += 1
         self.save()
-        for record in self.state['entries'].values():
+        for instance, record in self.state['entries'].items():
             if record['phase'] != 'retiring':
                 continue
             try:
+                record_approval(instance, record)
                 self.retiring_digest, self.retiring_expiry = record['approvalDigest'], record['approval']['expiresAt']
                 self.retire(record, identity_state)
             except (ValueError, RuntimeError):
@@ -269,7 +272,7 @@ class Controller:
 
     def run(self, settings, platform_repository):
         try:
-            catalog(settings)
+            runtime_catalog(settings)
             binding = {key: settings[key] for key in ('hostname', 'issuer')}
             if self.state.get('settings', binding) != binding:
                 return self.unavailable_input()
@@ -292,6 +295,9 @@ class Controller:
         discovery_budget = MAX_ACTIVE if self.now - self.state.get('providerCheckAt', 0) >= interval else 0
         candidate_budget = MAX_ACTIVE - sum(record['phase'] != 'retired' for record in self.state['entries'].values())
         for row in settings['approvals']:
+            if obsolete(row):
+                continue
+            approval(row)
             if not discovery_budget or candidate_budget <= 0 or row['instance'] in self.state['entries']:
                 continue
             if not row['createdAt'] <= self.now < row['expiresAt']:
@@ -323,7 +329,7 @@ class Controller:
                     continue
                 if record['phase'] == 'retiring':
                     continue
-                row = record['approval']
+                row = record_approval(instance, record)
                 pull = observations.get(instance)
                 if record['phase'] != 'retiring' and self.now < row['expiresAt'] and instance in desired:
                     if pull is None and self.now - self.state['checks'].get(instance, 0) >= interval:
@@ -387,7 +393,7 @@ def run():
     if not approval_obj or approval_obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
         return controller.unavailable_input()
     try:
-        settings = catalog(json.loads(approval_obj['data']['catalog.json']))
+        settings = runtime_catalog(json.loads(approval_obj['data']['catalog.json']))
         platform_repository = approval_obj['data']['platformRepository']
     except (ValueError, TypeError, KeyError):
         return controller.unavailable_input()

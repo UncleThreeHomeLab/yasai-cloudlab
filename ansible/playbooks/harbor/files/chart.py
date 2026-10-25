@@ -35,6 +35,8 @@ def check():
             json.loads((BASE / 'server/values.json').read_text()) != {'harbor': values()}):
         raise ValueError('Harbor artifacts or compiled values changed')
     image_lock = json.loads((BASE / 'images.lock.json').read_text())
+    if not re.fullmatch(r'2[.]15[.][0-9]+', lock['app_version']):
+        raise ValueError('Harbor leaves its tested server minor')
     pins = {image for name, image in image_lock.items() if name != 'browser-gate'}
     actual_images, cpu, memory = set(), 0, 0
     for obj in render():
@@ -54,7 +56,7 @@ def check():
             for kind in ('containers', 'initContainers'):
                 for container in pod.get(kind, []):
                     pin = container['image']
-                    if pin not in pins or not re.fullmatch(r'docker.io/goharbor/[a-z-]+:v2[.]15[.]4@sha256:[a-f0-9]{64}', pin):
+                    if pin not in pins or not re.fullmatch(r'docker.io/goharbor/[a-z-]+:v' + re.escape(lock['app_version']) + r'@sha256:[a-f0-9]{64}', pin):
                         raise ValueError('Harbor bootstrap image must have an independent immutable upstream pin')
                     actual_images.add(pin)
                     profile = container.get('securityContext', {})
@@ -77,7 +79,7 @@ def check():
     browser = next(obj for obj in configuration if obj['kind'] == 'Deployment')
     container = browser['spec']['template']['spec']['containers'][0]
     if container['image'] != image_lock['browser-gate'] or not re.fullmatch(
-            r'quay.io/oauth2-proxy/oauth2-proxy:v7[.]15[.]5@sha256:[a-f0-9]{64}', container['image']):
+            r'quay.io/oauth2-proxy/oauth2-proxy:v7[.]15[.][0-9]+@sha256:[a-f0-9]{64}', container['image']):
         raise ValueError('Browser gate requires its independent immutable upstream pin')
     cpu += int(container['resources']['limits']['cpu'].removesuffix('m'))
     memory += int(container['resources']['limits']['memory'].removesuffix('Mi'))

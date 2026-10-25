@@ -1,0 +1,495 @@
+name: cloudlab-dependencies
+x-sandbox: &sandbox
+  platform: linux/amd64
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  mem_limit: 2g
+  cpus: 2
+  tmpfs: ['/tmp:mode=1777,size=2g,exec']
+  working_dir: /workspace
+  environment: {PYTHONPATH: '/workspace/ansible:/workspace', PYTHONDONTWRITEBYTECODE: '1', HOME: '/tmp/home', ANSIBLE_REMOTE_TMP: '/tmp/ansible-remote'}
+x-toolchain: &toolchain
+  <<: *sandbox
+  image: cloudlab-maintenance-toolchain:local
+  build:
+    context: ../../runner
+    additional_contexts: {ci-source: '../../../platform/delivery/ci'}
+x-public-source: &public-source
+  - ../../:/workspace/ansible:ro
+  - ../../../platform:/workspace/platform:ro
+  - ../../../infra:/workspace/infra:ro
+  - ../../../apps:/workspace/apps:ro
+  - ../../../charts:/workspace/charts:ro
+  - ../../../gitops:/workspace/gitops:ro
+  - ../../../verification:/workspace/verification:ro
+  - ../../../.github:/workspace/.github:ro
+  - ../../../compose.yaml:/workspace/compose.yaml:ro
+  - ../../../.gitattributes:/workspace/.gitattributes:ro
+  - ../../../.gitignore:/workspace/.gitignore:ro
+  - ../../../.env.example:/workspace/.env.example:ro
+x-native: &native
+  image: ghcr.io/renovatebot/renovate:44.181.5@sha256:611eac05a6ee11c06d23157ae2ca11364f5b4a096c12d7f82a65aec2b6ec8a48
+  platform: linux/amd64
+  user: '0:0'
+  network_mode: none
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  mem_limit: 2g
+  cpus: 2
+  tmpfs: ['/tmp:mode=1777,size=2g,exec']
+services:
+  renovate:
+    <<: *native
+    entrypoint: [node, /trusted/handoff.cjs]
+    network_mode: bridge
+    volumes:
+      - ../../../platform/delivery/dependencies:/trusted:ro
+      - handoff:/handoff
+
+  renovate-validate:
+    <<: *native
+    entrypoint: [node, /trusted/validate.cjs]
+    network_mode: none
+    stdin_open: false
+    volumes:
+      - ../../../platform/delivery/dependencies:/trusted:ro
+
+  renovate-extract:
+    <<: *native
+    entrypoint: [node, /trusted/extract.cjs]
+    network_mode: none
+    stdin_open: false
+    volumes:
+      - ../../../platform/delivery/dependencies:/trusted:ro
+      - ./tests/fixtures/native:/fixture:ro
+
+  renovate-qualification:
+    <<: *native
+    image: ${DEPENDENCY_RENOVATE_IMAGE:-ghcr.io/renovatebot/renovate:44.181.5@sha256:611eac05a6ee11c06d23157ae2ca11364f5b4a096c12d7f82a65aec2b6ec8a48}
+    entrypoint: [node, /trusted/qualify.cjs]
+    environment: {DEPENDENCY_RENOVATE_IMAGE: '${DEPENDENCY_RENOVATE_IMAGE:-unrecorded}'}
+    volumes:
+      - ../../../platform/delivery/dependencies:/trusted:ro
+      - ./tests/fixtures/native:/fixture:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/toolchain.json:/toolchain.json:ro
+      - native_results:/results
+
+  verify-renovate:
+    <<: *toolchain
+    network_mode: none
+    entrypoint: [python, -m, playbooks.dependencies.files.renovate_receipt]
+    depends_on: {renovate-qualification: {condition: service_completed_successfully}}
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/toolchain.json:/toolchain.json:ro
+      - native_results:/results:ro
+      - proof_results:/proof-results
+
+  checks:
+    <<: *toolchain
+    network_mode: none
+    entrypoint: [python, -m, unittest, discover, -s, /workspace/ansible/playbooks/dependencies/tests]
+    working_dir: /workspace
+    volumes: *public-source
+
+  control:
+    <<: *toolchain
+    network_mode: bridge
+    stdin_open: true
+    entrypoint: [python, -m, playbooks.dependencies.files.control]
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ../../../infra:/workspace/infra:ro
+      - ../../../apps:/workspace/apps:ro
+      - ../../../charts:/workspace/charts:ro
+      - ../../../gitops:/workspace/gitops:ro
+      - ../../../.github:/workspace/.github:ro
+      - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ../../../.env:/workspace/.env:ro
+      - ../../../.git:/workspace/.git:ro
+      - writer_lock:/writer-lock
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control:/control
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - handoff:/handoff
+
+  propose:
+    extends: {service: control}
+    command: [propose]
+    depends_on: {renovate: {condition: service_started}}
+
+  candidate-check:
+    <<: *sandbox
+    image: ${DEPENDENCY_VERIFIED_IMAGE_ID:-cloudlab-maintenance-candidate:local}
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.files.check]
+    environment:
+      PYTHONPATH: /trusted/ansible
+      PYTHONDONTWRITEBYTECODE: '1'
+      DEPENDENCY_VERIFIED_IMAGE_ID: ${DEPENDENCY_VERIFIED_IMAGE_ID:-unrecorded}
+    volumes:
+      - ./files:/trusted/ansible/playbooks/dependencies/files:ro
+      - ../longhorn/files/vendor_chart.py:/trusted/ansible/playbooks/longhorn/files/vendor_chart.py:ro
+      - ../certificates/files/vendor_chart.py:/trusted/ansible/playbooks/certificates/files/vendor_chart.py:ro
+      - ../access/files/vendor_operator.py:/trusted/ansible/playbooks/access/files/vendor_operator.py:ro
+      - ../data/files/vendor_cnpg.py:/trusted/ansible/playbooks/data/files/vendor_cnpg.py:ro
+      - ../harbor/files/package.py:/trusted/ansible/playbooks/harbor/files/package.py:ro
+      - ../observability/files/package.py:/trusted/ansible/playbooks/observability/files/package.py:ro
+      - ../istio/files/vendor_charts.py:/trusted/ansible/playbooks/istio/files/vendor_charts.py:ro
+      - ../../../platform/data/cnpg/artifact.lock.json:/trusted/platform/data/cnpg/artifact.lock.json:ro
+      - ../../../platform/connectivity/istio/base/artifact.lock.json:/trusted/platform/connectivity/istio/base/artifact.lock.json:ro
+      - ../../../platform/observability/policy.json:/trusted/platform/observability/policy.json:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/workspace:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/toolchain.json:/toolchain.json:ro
+      - results:/results
+
+  verify:
+    <<: *toolchain
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.files.receipt]
+    depends_on: {candidate-check: {condition: service_completed_successfully}}
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ../../../infra:/workspace/infra:ro
+      - ../../../apps:/workspace/apps:ro
+      - ../../../charts:/workspace/charts:ro
+      - ../../../gitops:/workspace/gitops:ro
+      - ../../../.github:/workspace/.github:ro
+      - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control:/control
+      - results:/results:ro
+      - proof_results:/proof-results:ro
+
+  maintain:
+    <<: *toolchain
+    network_mode: bridge
+    stdin_open: true
+    entrypoint: [python, -m, playbooks.dependencies.files.command]
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ../../../infra:/workspace/infra:ro
+      - ../../../apps:/workspace/apps:ro
+      - ../../../charts:/workspace/charts:ro
+      - ../../../gitops:/workspace/gitops:ro
+      - ../../../.github:/workspace/.github:ro
+      - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+      - module_cache:/cache
+
+  record-toolchain:
+    extends: {service: maintain}
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.files.toolchain]
+    stdin_open: true
+    environment:
+      PYTHONPATH: /workspace/ansible:/workspace
+      PYTHONDONTWRITEBYTECODE: '1'
+      DEPENDENCY_WORK_DIR: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}
+    volumes:
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control:/control
+
+  maintain-actions:
+    <<: *toolchain
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.files.local, stage]
+    stdin_open: true
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ../../../infra:/workspace/infra:ro
+      - ../../../apps:/workspace/apps:ro
+      - ../../../charts:/workspace/charts:ro
+      - ../../../gitops:/workspace/gitops:ro
+      - ../../../verification:/workspace/verification:ro
+      - ../../../.github:/workspace/.github:ro
+      - ../../../.git:/workspace/.git:ro
+      - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ../../../.gitattributes:/workspace/.gitattributes:ro
+      - ../../../.gitignore:/workspace/.gitignore:ro
+      - ../../../.env.example:/workspace/.env.example:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control:/control
+
+  verify-actions:
+    <<: *toolchain
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.files.local, export]
+    depends_on: {candidate-check: {condition: service_completed_successfully}}
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ../../../infra:/workspace/infra:ro
+      - ../../../apps:/workspace/apps:ro
+      - ../../../charts:/workspace/charts:ro
+      - ../../../gitops:/workspace/gitops:ro
+      - ../../../.github:/workspace/.github:ro
+      - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control:/control
+      - results:/results:ro
+
+  candidate-runner:
+    image: cloudlab-maintenance-candidate:local
+    platform: linux/amd64
+    network_mode: none
+    build:
+      context: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate/ansible/runner
+      additional_contexts:
+        ci-source: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate/platform/delivery/ci
+
+  finalize-helm:
+    <<: *sandbox
+    image: cloudlab-maintenance-candidate:local
+    network_mode: none
+    stdin_open: true
+    entrypoint: [python, -m, playbooks.dependencies.files.command]
+    command: [finalize, helm]
+    environment: {PYTHONPATH: '/trusted/ansible:/workspace/ansible', PYTHONDONTWRITEBYTECODE: '1'}
+    volumes:
+      - ./files:/trusted/ansible/playbooks/dependencies/files:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+
+  finalize-cosign:
+    extends: {service: finalize-helm}
+    command: [finalize, cosign]
+
+  review-cloudflare-provider:
+    image: cloudlab-maintenance-cloudflare-review:local
+    platform: linux/amd64
+    network_mode: bridge
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:mode=1777,size=1g,exec']
+    build: &provider-review
+      context: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate/ansible/runner
+      additional_contexts: {maintenance: ./files}
+      args: {PROVIDER: cloudflare}
+      dockerfile_inline: |
+        FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed AS review
+        ARG PROVIDER
+        COPY debian.sources /etc/apt/sources.list.d/debian.sources
+        RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+        COPY build_cloudflare.py build_harbor.py cloudflare-provider.lock.json harbor-provider.lock.json cloudflare-legacy.patch harbor-quota.patch /opt/provider-build/
+        RUN test "$$PROVIDER" = cloudflare || test "$$PROVIDER" = harbor
+        RUN --mount=type=cache,target=/root/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build python /opt/provider-build/build_$${PROVIDER}.py --review
+        RUN mkdir /review && cp /opt/provider-build/$${PROVIDER}-provider.lock.json /review/source.lock.json
+        FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+        COPY install_tools.py tools.lock.json /opt/tools/
+        RUN python /opt/tools/install_tools.py
+        COPY providers.tfrc /opt/runner/providers.tfrc
+        COPY --from=review /provider-mirror /opt/providers
+        COPY --from=review /review /review
+        COPY --from=maintenance . /trusted/ansible/playbooks/dependencies/files/
+        ENV PYTHONPATH=/trusted/ansible PYTHONDONTWRITEBYTECODE=1
+        ENTRYPOINT ["python", "-m", "playbooks.dependencies.files.providers"]
+    command: [cloudflare]
+    volumes:
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+
+  review-harbor-provider:
+    extends: {service: review-cloudflare-provider}
+    image: cloudlab-maintenance-harbor-review:local
+    build:
+      <<: *provider-review
+      args: {PROVIDER: harbor}
+    command: [harbor]
+
+  candidate-ci-controller:
+    image: cloudlab-maintenance-ci-controller:local
+    platform: linux/amd64
+    network_mode: none
+    build: &ci-build
+      context: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate/platform/delivery/ci
+      target: controller
+      additional_contexts:
+        cloudlab-bootstrap: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate/ansible/runner
+
+  candidate-ci-builder:
+    extends: {service: candidate-ci-controller}
+    image: cloudlab-maintenance-ci-builder:local
+    build:
+      <<: *ci-build
+      target: builder
+
+  candidate-ci-runner:
+    extends: {service: candidate-ci-controller}
+    image: cloudlab-maintenance-ci-runner:local
+    build:
+      <<: *ci-build
+      target: runner
+
+  refresh-ci-runner:
+    extends: {service: candidate-ci-controller}
+    image: cloudlab-maintenance-ci-refresh:local
+    build:
+      <<: *ci-build
+      target: refresh-locks
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        cmp /source/maintenance-source.lock.json /candidate/platform/delivery/ci/runner/source.lock.json
+        cmp /tmp/runner.patch /candidate/platform/delivery/ci/runner/runner.patch
+        for project in Sdk Runner.Common Runner.Sdk Runner.Listener Runner.Worker Runner.PluginHost Runner.Plugins Test; do
+          test -f /source/runner/src/$$project/packages.lock.json
+          cp /source/runner/src/$$project/packages.lock.json /candidate/platform/delivery/ci/runner/nuget/$$project/packages.lock.json
+        done
+        printf '%s\n' '{"status":"pending-build","next":"maintain finalize ci-runner"}'
+    volumes:
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+
+  ci-build-proof:
+    image: cloudlab-maintenance-ci-proof:local
+    platform: linux/amd64
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    build:
+      context: ./files
+      additional_contexts:
+        controller: docker-image://cloudlab-maintenance-ci-controller:local
+        builder: docker-image://cloudlab-maintenance-ci-builder:local
+        runner: docker-image://cloudlab-maintenance-ci-runner:local
+      dockerfile_inline: |
+        FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+        COPY --from=controller /usr/share/doc/cloudlab-ci/ /proof/controller/
+        COPY --from=builder /usr/share/doc/cloudlab-ci/ /proof/builder/
+        COPY --from=runner /usr/share/doc/cloudlab-ci/ /proof/runner/
+        COPY . /trusted/ansible/playbooks/dependencies/files/
+        ENV PYTHONPATH=/trusted/ansible PYTHONDONTWRITEBYTECODE=1
+        ENTRYPOINT ["python", "-m", "playbooks.dependencies.files.build_proof"]
+    volumes:
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - proof_results:/proof-results
+
+  ci-scan:
+    <<: *toolchain
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.files.ci_scan]
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ../../../infra:/workspace/infra:ro
+      - ../../../apps:/workspace/apps:ro
+      - ../../../charts:/workspace/charts:ro
+      - ../../../gitops:/workspace/gitops:ro
+      - ../../../.github:/workspace/.github:ro
+      - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/archives:/archives:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/images:/image-records:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+      - proof_results:/proof-results
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/reports:/reports
+
+  qualification-cluster:
+    image: ${DEPENDENCY_K3S_IMAGE:-rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb}
+    platform: linux/amd64
+    hostname: cluster
+    network_mode: bridge
+    privileged: true
+    pids_limit: 4096
+    mem_limit: 3g
+    cpus: 2
+    labels: {cloudlab.maintenance.operation: '${DEPENDENCY_OPERATION:-unrecorded}'}
+    command: [server, '--disable=traefik,servicelb,local-storage,metrics-server', --tls-san=cluster,
+              --write-kubeconfig=/fixture/kubeconfig, --write-kubeconfig-mode=600]
+    tmpfs: [/run, /var/lib/rancher/k3s]
+    volumes: [identity_fixture:/fixture]
+
+  keycloak-proof:
+    <<: *sandbox
+    image: ${DEPENDENCY_VERIFIED_IMAGE_ID:-cloudlab-maintenance-candidate:local}
+    network_mode: service:qualification-cluster
+    depends_on: {qualification-cluster: {condition: service_started}}
+    entrypoint: [python, -m, playbooks.dependencies.files.keycloak, prove]
+    environment:
+      PYTHONPATH: /trusted/ansible
+      PYTHONDONTWRITEBYTECODE: '1'
+      DEPENDENCY_VERIFIED_IMAGE_ID: ${DEPENDENCY_VERIFIED_IMAGE_ID:-unrecorded}
+    volumes:
+      - ./files:/trusted/ansible/playbooks/dependencies/files:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/workspace:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/toolchain.json:/toolchain.json:ro
+      - identity_fixture:/fixture:ro
+      - results:/results
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/reports:/reports
+
+  qualify-keycloak:
+    <<: *toolchain
+    network_mode: none
+    entrypoint: [python, -m, playbooks.dependencies.files.keycloak, accept]
+    depends_on: {keycloak-proof: {condition: service_completed_successfully}}
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ../../../platform:/workspace/platform:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/control/check-plan.json:ro
+      - results:/results:ro
+      - proof_results:/proof-results
+
+  identity-browser:
+    image: cloudlab-maintenance-identity-browser:local
+    platform: linux/amd64
+    network_mode: none
+    build:
+      context: ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate/ansible/playbooks/keycloak/tests/browser
+
+  browser-check:
+    <<: *sandbox
+    image: ${DEPENDENCY_BROWSER_IMAGE_ID:-cloudlab-maintenance-identity-browser:local}
+    working_dir: /proof
+    network_mode: none
+    user: '1000:1000'
+    entrypoint: [node, /trusted/browser-proof.cjs]
+    environment: {DEPENDENCY_BROWSER_IMAGE_ID: '${DEPENDENCY_BROWSER_IMAGE_ID:-unrecorded}'}
+    volumes:
+      - ./files/browser-proof.cjs:/trusted/browser-proof.cjs:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/images/identity-browser.json:/browser-toolchain.json:ro
+      - browser_results:/results
+
+  verify-browser:
+    <<: *toolchain
+    network_mode: none
+    entrypoint: [python, -m, playbooks.dependencies.files.browser_receipt]
+    depends_on: {browser-check: {condition: service_completed_successfully}}
+    volumes:
+      - ../../:/workspace/ansible:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/check-plan.json:/plan.json:ro
+      - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control/images/identity-browser.json:/browser-toolchain.json:ro
+      - browser_results:/results:ro
+      - proof_results:/proof-results
+
+volumes:
+  handoff:
+  results:
+  proof_results:
+  browser_results:
+  native_results:
+  module_cache:
+  identity_fixture:
+    name: cloudlab-dependencies-identity-${DEPENDENCY_OPERATION:-unrecorded}
+  writer_lock:
+    name: cloudlab-dependency-writer-lock

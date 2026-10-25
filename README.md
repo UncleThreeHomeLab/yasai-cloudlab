@@ -80,6 +80,10 @@ retirement retain their explicit owner operations.
 Optional [private previews](ansible/playbooks/previews/README.md) bind exact PR
 revisions, immutable artifacts and isolated clients to bounded disposable namespaces.
 
+[Dependency maintenance](ansible/playbooks/dependencies/README.md) runs locally
+through Compose, including when lab CI is unavailable. Updates remain drafts until
+their final revision passes existing checks; platform merging stays manual.
+
 Monitoring uses the [monitoring contract](platform/observability/contract.json).
 Keep `CloudLab/uptimerobot-management/API_KEY` in 1Password. Run `lab observe
 external-check` before `external-apply`; verify outage and recovery email delivery
@@ -266,7 +270,7 @@ volume.
 | Docker Compose | Run the pinned automation environment | Available |
 | OpenTofu | Manage external resources locally through Compose | Available |
 | GitHub Actions | Trusted application builds through ARC | Planned |
-| Renovate | Reviewed dependency updates | Planned |
+| [Renovate](ansible/playbooks/dependencies/README.md) | Local draft proposals and verified dependency updates | Available |
 
 ## Detailed flows
 

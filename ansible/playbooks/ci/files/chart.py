@@ -3,12 +3,20 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import re
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 CONTROLLER = ROOT / 'platform/delivery/ci/controller'
 POOL = ROOT / 'platform/delivery/ci/pool'
+
+
+def controller_version():
+    version = json.loads((CONTROLLER / 'artifact.lock.json').read_bytes())['version']
+    if not re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', version):
+        raise ValueError('CI controller requires its exact locked chart version')
+    return version
 
 
 def render(values=None, *, chart=CONTROLLER, parameters=None, namespace=None, release='cloudlab-arc-controller', include_crds=True):
@@ -33,7 +41,7 @@ def check():
         raise ValueError('CI controller chart differs from its upstream checksum')
     # Schema validation uses an unreachable example; live inputs require accepted bootstrap digests.
     image = {'repository': 'registry.example.invalid/cloudlab-public/ci-controller',
-             'tag': '0.15.0@sha256:' + 'a' * 64}
+             'tag': controller_version() + '@sha256:' + 'a' * 64}
     objects = render({'network': {'enforce': False}, 'arc': {'image': image}})
     deployments = [row for row in objects if row['kind'] == 'Deployment']
     if len(deployments) != 1:

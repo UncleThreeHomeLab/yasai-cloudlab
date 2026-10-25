@@ -26,6 +26,15 @@ def secret(value=None):
 
 
 class CredentialTests(unittest.TestCase):
+    def test_obsolete_only_catalog_never_mints_a_discovery_token(self):
+        from playbooks.previews.files import contract
+        settings = catalog()
+        settings['privateDiscovery'] = True
+        with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64), \
+                patch.object(credentials, 'remote', return_value=None), patch.object(credentials, 'issue') as issue:
+            self.assertFalse(credentials.ensure(settings, {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/platform.git'}, now=1500)['changed'])
+        issue.assert_not_called()
+
     def test_token_request_is_exact_and_validation_failure_revokes(self):
         issuer, reader = Mock(), Mock()
         issued = {'token': lease()['token'], 'expires_at': '1970-01-01T01:15:00Z', 'permissions': lease()['permissions']}

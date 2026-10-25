@@ -8,7 +8,7 @@ from playbooks.argocd.files.github_app import app_token, verify_installation
 from playbooks.argocd.files.github_setup import GitHub, repository
 from playbooks.keycloak.files.private_source import decode_contents
 from playbooks.secrets.files.vault import fields
-from playbooks.previews.files.contract import catalog
+from playbooks.previews.files.contract import runtime_catalog
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -30,6 +30,6 @@ def read():
         value = json.loads(decode_contents(blob))
         if not isinstance(value, dict) or set(value) != {'catalog'}:
             raise ValueError('Preview private values require one complete catalog')
-        return catalog(value['catalog']), revision, values
+        return runtime_catalog(value['catalog']), revision, values
     finally:
         reader.request('DELETE', 'installation/token')

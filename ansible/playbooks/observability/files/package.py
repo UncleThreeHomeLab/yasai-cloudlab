@@ -82,9 +82,9 @@ def kiali_declarative(raw):
 {{- join "," $namespaces -}}
 {{- end -}}
 '''
-                        from playbooks.observability.files.configuration import POLICY
+                        policy = json.loads((BASE / 'policy.json').read_bytes())
                         replacement = replacement.replace(b'__KIALI_NAMESPACES__',
-                            ' '.join(json.dumps(name) for name in POLICY['kiali']['namespaces']).encode())
+                            ' '.join(json.dumps(name) for name in policy['kiali']['namespaces']).encode())
                         data = data[:start] + replacement + data[end:]
                         changes += 1
                     if original.name == 'kiali-server/templates/role-viewer.yaml':

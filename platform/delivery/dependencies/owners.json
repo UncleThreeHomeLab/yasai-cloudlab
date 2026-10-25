@@ -1,0 +1,3033 @@
+{
+  "schema": 1,
+  "owners": {
+    "runner": {
+      "sources": [
+        "ansible/runner/Dockerfile",
+        "ansible/runner/debian.sources",
+        "ansible/runner/helm.lock.json",
+        "ansible/runner/requirements.txt",
+        "ansible/runner/tools.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf",
+        "ansible/playbooks/harbor/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf",
+        "ansible/runner/cloudflare-provider.lock.json",
+        "ansible/runner/harbor-provider.lock.json",
+        "infra/cloudflare/versions.tf",
+        "infra/github/versions.tf",
+        "infra/harbor/versions.tf"
+      ],
+      "group": "runner",
+      "updater": "tool",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "ansible/runner/tests/test_validate.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf",
+        "ansible/playbooks/harbor/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf",
+        "ansible/runner/Dockerfile",
+        "ansible/runner/cloudflare-provider.lock.json",
+        "ansible/runner/debian.sources",
+        "ansible/runner/harbor-provider.lock.json",
+        "ansible/runner/helm.lock.json",
+        "ansible/runner/requirements.txt",
+        "ansible/runner/tools.lock.json",
+        "infra/cloudflare/versions.tf",
+        "infra/github/versions.tf",
+        "infra/harbor/versions.tf"
+      ],
+      "nativeDependencies": [
+        "python",
+        "docker.io/library/python",
+        "docker.io/grafana/k6",
+        "docker.io/aquasec/trivy",
+        "reg.kyverno.io/kyverno/kyverno-cli",
+        "cgr.dev/chainguard/cosign",
+        "opentofu/opentofu",
+        "restic/restic",
+        "helm/helm"
+      ]
+    },
+    "cloudflare-provider": {
+      "sources": [
+        "ansible/runner/cloudflare-provider.lock.json"
+      ],
+      "companions": [
+        "infra/cloudflare/.terraform.lock.hcl",
+        "infra/cloudflare/versions.tf"
+      ],
+      "group": "cloudflare-provider",
+      "updater": "provider",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "ansible/playbooks/infrastructure/tests/test_cloudflare_qualification.py",
+        "ansible/playbooks/infrastructure/tests/test_native_command.py",
+        "native:cloudflare"
+      ],
+      "writePaths": [
+        "ansible/runner/cloudflare-provider.lock.json",
+        "infra/cloudflare/.terraform.lock.hcl",
+        "infra/cloudflare/versions.tf"
+      ],
+      "nativeDependencies": [
+        "cloudflare/terraform-provider-cloudflare"
+      ]
+    },
+    "harbor-provider": {
+      "sources": [
+        "ansible/runner/harbor-provider.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/harbor/tests/provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/harbor/tests/provider-fixture/versions.tf",
+        "infra/harbor/.terraform.lock.hcl",
+        "infra/harbor/versions.tf"
+      ],
+      "group": "harbor-provider",
+      "updater": "provider",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "ansible/playbooks/harbor/tests/test_artifacts.py",
+        "ansible/playbooks/harbor/tests/test_scopes.py",
+        "native:harbor"
+      ],
+      "writePaths": [
+        "ansible/playbooks/harbor/tests/provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/harbor/tests/provider-fixture/versions.tf",
+        "ansible/runner/harbor-provider.lock.json",
+        "infra/harbor/.terraform.lock.hcl",
+        "infra/harbor/versions.tf"
+      ],
+      "nativeDependencies": [
+        "goharbor/terraform-provider-harbor"
+      ]
+    },
+    "chart:certificates/cert-manager": {
+      "sources": [
+        "platform/certificates/cert-manager/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/certificates/cert-manager/Chart.yaml",
+        "platform/certificates/cert-manager/charts/cert-manager-v1.21.2.tgz",
+        "platform/certificates/cert-manager/upstream.tgz",
+        "platform/certificates/cert-manager/values.json"
+      ],
+      "group": "certificates",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/certificates/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/certificates/cert-manager/Chart.yaml",
+        "platform/certificates/cert-manager/artifact.lock.json",
+        "platform/certificates/cert-manager/charts/cert-manager-v1.21.2.tgz",
+        "platform/certificates/cert-manager/upstream.tgz",
+        "platform/certificates/cert-manager/values.json"
+      ],
+      "nativeDependencies": [
+        "cert-manager"
+      ]
+    },
+    "chart:connectivity/gateway-api": {
+      "sources": [
+        "platform/connectivity/gateway-api/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/gateway-api/Chart.yaml",
+        "platform/connectivity/gateway-api/upstream.yaml"
+      ],
+      "group": "mesh",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/istio/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/gateway-api/Chart.yaml",
+        "platform/connectivity/gateway-api/artifact.lock.json",
+        "platform/connectivity/gateway-api/upstream.yaml"
+      ],
+      "nativeDependencies": [
+        "kubernetes-sigs/gateway-api"
+      ]
+    },
+    "chart:connectivity/istio/base": {
+      "sources": [
+        "platform/connectivity/istio/base/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/istio/base/Chart.yaml",
+        "platform/connectivity/istio/base/charts/base-1.31.1.tgz",
+        "platform/connectivity/istio/base/upstream.tgz",
+        "platform/connectivity/istio/base/values.json"
+      ],
+      "group": "mesh",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/istio/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/istio/base/Chart.yaml",
+        "platform/connectivity/istio/base/artifact.lock.json",
+        "platform/connectivity/istio/base/charts/base-1.31.1.tgz",
+        "platform/connectivity/istio/base/upstream.tgz",
+        "platform/connectivity/istio/base/values.json"
+      ],
+      "nativeDependencies": [
+        "base"
+      ]
+    },
+    "chart:connectivity/istio/cni": {
+      "sources": [
+        "platform/connectivity/istio/cni/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/istio/cni/Chart.yaml",
+        "platform/connectivity/istio/cni/charts/cni-1.31.1.tgz",
+        "platform/connectivity/istio/cni/upstream.tgz",
+        "platform/connectivity/istio/cni/values.json"
+      ],
+      "group": "mesh",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/istio/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/istio/cni/Chart.yaml",
+        "platform/connectivity/istio/cni/artifact.lock.json",
+        "platform/connectivity/istio/cni/charts/cni-1.31.1.tgz",
+        "platform/connectivity/istio/cni/upstream.tgz",
+        "platform/connectivity/istio/cni/values.json"
+      ],
+      "nativeDependencies": [
+        "cni"
+      ]
+    },
+    "chart:connectivity/istio/istiod": {
+      "sources": [
+        "platform/connectivity/istio/istiod/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/istio/istiod/Chart.yaml",
+        "platform/connectivity/istio/istiod/charts/istiod-1.31.1.tgz",
+        "platform/connectivity/istio/istiod/upstream.tgz",
+        "platform/connectivity/istio/istiod/values.json"
+      ],
+      "group": "mesh",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/istio/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/istio/istiod/Chart.yaml",
+        "platform/connectivity/istio/istiod/artifact.lock.json",
+        "platform/connectivity/istio/istiod/charts/istiod-1.31.1.tgz",
+        "platform/connectivity/istio/istiod/upstream.tgz",
+        "platform/connectivity/istio/istiod/values.json"
+      ],
+      "nativeDependencies": [
+        "istiod"
+      ]
+    },
+    "chart:connectivity/istio/ztunnel": {
+      "sources": [
+        "platform/connectivity/istio/ztunnel/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/istio/ztunnel/Chart.yaml",
+        "platform/connectivity/istio/ztunnel/charts/ztunnel-1.31.1.tgz",
+        "platform/connectivity/istio/ztunnel/upstream.tgz",
+        "platform/connectivity/istio/ztunnel/values.json"
+      ],
+      "group": "mesh",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/istio/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/istio/ztunnel/Chart.yaml",
+        "platform/connectivity/istio/ztunnel/artifact.lock.json",
+        "platform/connectivity/istio/ztunnel/charts/ztunnel-1.31.1.tgz",
+        "platform/connectivity/istio/ztunnel/upstream.tgz",
+        "platform/connectivity/istio/ztunnel/values.json"
+      ],
+      "nativeDependencies": [
+        "ztunnel"
+      ]
+    },
+    "chart:connectivity/private-dns": {
+      "sources": [
+        "platform/connectivity/private-dns/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/private-dns/Chart.yaml",
+        "platform/connectivity/private-dns/values.yaml"
+      ],
+      "group": "access",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/access/tests/test_chart.py",
+        "module:playbooks.access.files.dns_check"
+      ],
+      "writePaths": [
+        "platform/connectivity/private-dns/Chart.yaml",
+        "platform/connectivity/private-dns/artifact.lock.json",
+        "platform/connectivity/private-dns/values.yaml"
+      ],
+      "nativeDependencies": [
+        "coredns/coredns"
+      ]
+    },
+    "chart:connectivity/tailscale-operator": {
+      "sources": [
+        "platform/connectivity/tailscale-operator/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/tailscale-operator/Chart.lock",
+        "platform/connectivity/tailscale-operator/Chart.yaml",
+        "platform/connectivity/tailscale-operator/charts/tailscale-operator-1.102.4.tgz",
+        "platform/connectivity/tailscale-operator/upstream.tgz",
+        "platform/connectivity/tailscale-operator/values.yaml"
+      ],
+      "group": "access",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/access/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/tailscale-operator/Chart.lock",
+        "platform/connectivity/tailscale-operator/Chart.yaml",
+        "platform/connectivity/tailscale-operator/artifact.lock.json",
+        "platform/connectivity/tailscale-operator/charts/tailscale-operator-1.102.4.tgz",
+        "platform/connectivity/tailscale-operator/upstream.tgz",
+        "platform/connectivity/tailscale-operator/values.yaml"
+      ],
+      "nativeDependencies": [
+        "tailscale-operator"
+      ]
+    },
+    "chart:data/cnpg": {
+      "sources": [
+        "platform/data/cnpg/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/data/cnpg/Chart.yaml",
+        "platform/data/cnpg/charts/cloudnative-pg-0.29.1.tgz",
+        "platform/data/cnpg/upstream.tgz",
+        "platform/data/cnpg/values.yaml"
+      ],
+      "group": "data",
+      "updater": "chart",
+      "checks": [
+        "module:playbooks.data.files.chart"
+      ],
+      "writePaths": [
+        "platform/data/cnpg/Chart.yaml",
+        "platform/data/cnpg/artifact.lock.json",
+        "platform/data/cnpg/charts/cloudnative-pg-0.29.1.tgz",
+        "platform/data/cnpg/upstream.tgz",
+        "platform/data/cnpg/values.yaml"
+      ],
+      "nativeDependencies": [
+        "cloudnative-pg"
+      ]
+    },
+    "chart:data/seaweedfs": {
+      "sources": [
+        "platform/data/seaweedfs/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/data/seaweedfs/Chart.yaml",
+        "platform/data/seaweedfs/charts/seaweedfs-4.48.0.tgz",
+        "platform/data/seaweedfs/values.yaml"
+      ],
+      "group": "data",
+      "updater": "chart",
+      "checks": [
+        "module:playbooks.data.files.chart"
+      ],
+      "writePaths": [
+        "platform/data/seaweedfs/Chart.yaml",
+        "platform/data/seaweedfs/artifact.lock.json",
+        "platform/data/seaweedfs/charts/seaweedfs-4.48.0.tgz",
+        "platform/data/seaweedfs/values.yaml"
+      ],
+      "nativeDependencies": [
+        "seaweedfs"
+      ]
+    },
+    "chart:delivery/admission": {
+      "sources": [
+        "platform/delivery/admission/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/admission/Chart.yaml",
+        "platform/delivery/admission/charts/kyverno-3.9.1.tgz",
+        "platform/delivery/admission/images.lock.json",
+        "platform/delivery/admission/policies/Chart.yaml",
+        "platform/delivery/admission/values.json"
+      ],
+      "group": "admission",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/admission/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/delivery/admission/Chart.yaml",
+        "platform/delivery/admission/artifact.lock.json",
+        "platform/delivery/admission/charts/kyverno-3.9.1.tgz",
+        "platform/delivery/admission/images.lock.json",
+        "platform/delivery/admission/policies/Chart.yaml",
+        "platform/delivery/admission/values.json"
+      ],
+      "nativeDependencies": [
+        "kyverno"
+      ]
+    },
+    "chart:delivery/argocd": {
+      "sources": [
+        "platform/delivery/argocd/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/argocd/Chart.lock",
+        "platform/delivery/argocd/Chart.yaml",
+        "platform/delivery/argocd/charts/argo-cd-10.9.6.tgz",
+        "platform/delivery/argocd/values.yaml"
+      ],
+      "group": "argocd",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/argocd/tests/test_controller_recovery.py",
+        "ansible/playbooks/argocd/tests/test_render.py"
+      ],
+      "writePaths": [
+        "platform/delivery/argocd/Chart.lock",
+        "platform/delivery/argocd/Chart.yaml",
+        "platform/delivery/argocd/artifact.lock.json",
+        "platform/delivery/argocd/charts/argo-cd-10.9.6.tgz",
+        "platform/delivery/argocd/values.yaml"
+      ],
+      "nativeDependencies": [
+        "argo-cd"
+      ]
+    },
+    "chart:delivery/ci/controller": {
+      "sources": [
+        "platform/delivery/ci/controller/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/ci/controller/Chart.yaml",
+        "platform/delivery/ci/controller/charts/gha-runner-scale-set-controller-0.15.0.tgz",
+        "platform/delivery/ci/controller/values.json"
+      ],
+      "group": "ci",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_controller_chart.py",
+        "ansible/playbooks/ci/tests/test_pool_chart.py"
+      ],
+      "writePaths": [
+        "platform/delivery/ci/controller/Chart.yaml",
+        "platform/delivery/ci/controller/artifact.lock.json",
+        "platform/delivery/ci/controller/charts/gha-runner-scale-set-controller-0.15.0.tgz",
+        "platform/delivery/ci/controller/values.json"
+      ],
+      "nativeDependencies": [
+        "gha-runner-scale-set-controller",
+        "ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller"
+      ]
+    },
+    "chart:delivery/ci/pool": {
+      "sources": [
+        "platform/delivery/ci/pool/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/ci/pool/Chart.yaml",
+        "platform/delivery/ci/pool/charts/gha-runner-scale-set-0.15.0.tgz",
+        "platform/delivery/ci/pool/values.json"
+      ],
+      "group": "ci",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_controller_chart.py",
+        "ansible/playbooks/ci/tests/test_pool_chart.py"
+      ],
+      "writePaths": [
+        "platform/delivery/ci/pool/Chart.yaml",
+        "platform/delivery/ci/pool/artifact.lock.json",
+        "platform/delivery/ci/pool/charts/gha-runner-scale-set-0.15.0.tgz",
+        "platform/delivery/ci/pool/values.json"
+      ],
+      "nativeDependencies": [
+        "gha-runner-scale-set",
+        "ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
+      ]
+    },
+    "chart:delivery/rollouts": {
+      "sources": [
+        "platform/delivery/rollouts/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/rollouts/Chart.yaml",
+        "platform/delivery/rollouts/charts/argo-rollouts-2.43.8.tgz",
+        "platform/delivery/rollouts/values.yaml"
+      ],
+      "group": "rollouts",
+      "updater": "chart",
+      "checks": [
+        "module:playbooks.rollouts.files.check"
+      ],
+      "writePaths": [
+        "platform/delivery/rollouts/Chart.yaml",
+        "platform/delivery/rollouts/artifact.lock.json",
+        "platform/delivery/rollouts/charts/argo-rollouts-2.43.8.tgz",
+        "platform/delivery/rollouts/values.yaml"
+      ],
+      "nativeDependencies": [
+        "argo-rollouts"
+      ]
+    },
+    "chart:harbor/server": {
+      "sources": [
+        "platform/harbor/server/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/harbor/server/Chart.yaml",
+        "platform/harbor/server/charts/harbor-1.19.4.tgz",
+        "platform/harbor/server/upstream.tgz",
+        "platform/harbor/server/values.json"
+      ],
+      "group": "harbor",
+      "updater": "chart",
+      "checks": [
+        "module:playbooks.harbor.files.chart"
+      ],
+      "writePaths": [
+        "platform/harbor/server/Chart.yaml",
+        "platform/harbor/server/artifact.lock.json",
+        "platform/harbor/server/charts/harbor-1.19.4.tgz",
+        "platform/harbor/server/upstream.tgz",
+        "platform/harbor/server/values.json"
+      ],
+      "nativeDependencies": [
+        "harbor"
+      ]
+    },
+    "chart:identity/keycloak": {
+      "sources": [
+        "platform/identity/keycloak/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/identity/keycloak/Chart.yaml",
+        "platform/identity/keycloak/upstream/keycloakrealmimports.k8s.keycloak.org-v1.yml",
+        "platform/identity/keycloak/upstream/keycloaks.k8s.keycloak.org-v1.yml",
+        "platform/identity/keycloak/upstream/kubernetes.yml",
+        "platform/identity/keycloak/values.yaml"
+      ],
+      "group": "keycloak",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/keycloak/tests/test_access_canary.py",
+        "module:playbooks.keycloak.files.chart"
+      ],
+      "writePaths": [
+        "platform/identity/keycloak/artifact.lock.json",
+        "platform/identity/keycloak/Chart.yaml",
+        "platform/identity/keycloak/upstream/keycloakrealmimports.k8s.keycloak.org-v1.yml",
+        "platform/identity/keycloak/upstream/keycloaks.k8s.keycloak.org-v1.yml",
+        "platform/identity/keycloak/upstream/kubernetes.yml",
+        "platform/identity/keycloak/values.yaml"
+      ],
+      "nativeDependencies": [
+        "keycloak/keycloak",
+        "adorsys/keycloak-config-cli"
+      ]
+    },
+    "chart:observability/alloy": {
+      "sources": [
+        "platform/observability/alloy/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/observability/alloy/Chart.yaml",
+        "platform/observability/alloy/charts/alloy-1.13.1.tgz",
+        "platform/observability/alloy/values.json"
+      ],
+      "group": "observability",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/observability/alloy/Chart.yaml",
+        "platform/observability/alloy/artifact.lock.json",
+        "platform/observability/alloy/charts/alloy-1.13.1.tgz",
+        "platform/observability/alloy/values.json"
+      ],
+      "nativeDependencies": [
+        "alloy"
+      ]
+    },
+    "chart:observability/kiali": {
+      "sources": [
+        "platform/observability/kiali/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/observability/kiali/Chart.yaml",
+        "platform/observability/kiali/charts/kiali-server-2.33.0.tgz",
+        "platform/observability/kiali/upstream.tgz",
+        "platform/observability/kiali/values.json"
+      ],
+      "group": "observability",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/observability/kiali/Chart.yaml",
+        "platform/observability/kiali/artifact.lock.json",
+        "platform/observability/kiali/charts/kiali-server-2.33.0.tgz",
+        "platform/observability/kiali/upstream.tgz",
+        "platform/observability/kiali/values.json"
+      ],
+      "nativeDependencies": [
+        "kiali-server"
+      ]
+    },
+    "chart:observability/loki": {
+      "sources": [
+        "platform/observability/loki/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/observability/loki/Chart.yaml",
+        "platform/observability/loki/charts/loki-7.3.0.tgz",
+        "platform/observability/loki/values.json"
+      ],
+      "group": "observability",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/observability/loki/Chart.yaml",
+        "platform/observability/loki/artifact.lock.json",
+        "platform/observability/loki/charts/loki-7.3.0.tgz",
+        "platform/observability/loki/values.json"
+      ],
+      "nativeDependencies": [
+        "loki"
+      ]
+    },
+    "chart:observability/prometheus": {
+      "sources": [
+        "platform/observability/prometheus/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/observability/prometheus/Chart.yaml",
+        "platform/observability/prometheus/charts/kube-prometheus-stack-92.3.1.tgz",
+        "platform/observability/prometheus/upstream.tgz",
+        "platform/observability/prometheus/values.json"
+      ],
+      "group": "observability",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/observability/prometheus/Chart.yaml",
+        "platform/observability/prometheus/artifact.lock.json",
+        "platform/observability/prometheus/charts/kube-prometheus-stack-92.3.1.tgz",
+        "platform/observability/prometheus/upstream.tgz",
+        "platform/observability/prometheus/values.json"
+      ],
+      "nativeDependencies": [
+        "kube-prometheus-stack"
+      ]
+    },
+    "chart:observability/tempo": {
+      "sources": [
+        "platform/observability/tempo/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/observability/tempo/Chart.yaml",
+        "platform/observability/tempo/charts/tempo-3.1.0.tgz",
+        "platform/observability/tempo/upstream.tgz",
+        "platform/observability/tempo/values.json"
+      ],
+      "group": "observability",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/observability/tempo/Chart.yaml",
+        "platform/observability/tempo/artifact.lock.json",
+        "platform/observability/tempo/charts/tempo-3.1.0.tgz",
+        "platform/observability/tempo/upstream.tgz",
+        "platform/observability/tempo/values.json"
+      ],
+      "nativeDependencies": [
+        "tempo"
+      ]
+    },
+    "chart:secrets/external-secrets": {
+      "sources": [
+        "platform/secrets/external-secrets/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/secrets/external-secrets/Chart.lock",
+        "platform/secrets/external-secrets/Chart.yaml",
+        "platform/secrets/external-secrets/charts/external-secrets-2.11.0.tgz",
+        "platform/secrets/external-secrets/values.json"
+      ],
+      "group": "secrets",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/secrets/tests/test_chart.py"
+      ],
+      "writePaths": [
+        "platform/secrets/external-secrets/Chart.lock",
+        "platform/secrets/external-secrets/Chart.yaml",
+        "platform/secrets/external-secrets/artifact.lock.json",
+        "platform/secrets/external-secrets/charts/external-secrets-2.11.0.tgz",
+        "platform/secrets/external-secrets/values.json"
+      ],
+      "nativeDependencies": [
+        "external-secrets"
+      ]
+    },
+    "chart:storage/longhorn": {
+      "sources": [
+        "platform/storage/longhorn/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/storage/longhorn/Chart.lock",
+        "platform/storage/longhorn/Chart.yaml",
+        "platform/storage/longhorn/charts/longhorn-1.13.0.tgz",
+        "platform/storage/longhorn/upstream.tgz",
+        "platform/storage/longhorn/values.json"
+      ],
+      "group": "longhorn",
+      "updater": "chart",
+      "checks": [
+        "ansible/playbooks/longhorn/tests/test_chart.py",
+        "ansible/playbooks/longhorn/tests/test_vendor_chart.py"
+      ],
+      "writePaths": [
+        "platform/storage/longhorn/Chart.lock",
+        "platform/storage/longhorn/Chart.yaml",
+        "platform/storage/longhorn/artifact.lock.json",
+        "platform/storage/longhorn/charts/longhorn-1.13.0.tgz",
+        "platform/storage/longhorn/upstream.tgz",
+        "platform/storage/longhorn/values.json"
+      ],
+      "nativeDependencies": [
+        "longhorn"
+      ]
+    },
+    "ci-tools": {
+      "sources": [
+        "platform/delivery/ci/tools/source.lock.json"
+      ],
+      "companions": [
+        "ansible/runner/Dockerfile",
+        "platform/delivery/ci/Dockerfile",
+        "platform/delivery/ci/runner.values.yaml",
+        "platform/delivery/ci/runner/source.lock.json",
+        "platform/delivery/ci/tools/arc/go.mod",
+        "platform/delivery/ci/tools/arc/go.sum",
+        "platform/delivery/ci/tools/buildkit/go.mod",
+        "platform/delivery/ci/tools/buildkit/go.sum",
+        "platform/delivery/ci/tools/cosign/go.mod",
+        "platform/delivery/ci/tools/cosign/go.sum",
+        "platform/delivery/ci/tools/crane/go.mod",
+        "platform/delivery/ci/tools/crane/go.sum",
+        "platform/delivery/ci/tools/rootlesskit/go.mod",
+        "platform/delivery/ci/tools/rootlesskit/go.sum",
+        "platform/delivery/ci/tools/runc/go.mod",
+        "platform/delivery/ci/tools/runc/go.sum"
+      ],
+      "group": "ci",
+      "updater": "ci-tools",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_runner_image.py"
+      ],
+      "writePaths": [
+        "ansible/runner/Dockerfile",
+        "platform/delivery/ci/Dockerfile",
+        "platform/delivery/ci/runner.values.yaml",
+        "platform/delivery/ci/runner/source.lock.json",
+        "platform/delivery/ci/tools/arc/go.mod",
+        "platform/delivery/ci/tools/arc/go.sum",
+        "platform/delivery/ci/tools/buildkit/go.mod",
+        "platform/delivery/ci/tools/buildkit/go.sum",
+        "platform/delivery/ci/tools/cosign/go.mod",
+        "platform/delivery/ci/tools/cosign/go.sum",
+        "platform/delivery/ci/tools/crane/go.mod",
+        "platform/delivery/ci/tools/crane/go.sum",
+        "platform/delivery/ci/tools/rootlesskit/go.mod",
+        "platform/delivery/ci/tools/rootlesskit/go.sum",
+        "platform/delivery/ci/tools/runc/go.mod",
+        "platform/delivery/ci/tools/runc/go.sum",
+        "platform/delivery/ci/tools/source.lock.json"
+      ],
+      "nativeDependencies": [
+        "moby/buildkit",
+        "sigstore/cosign",
+        "google/go-containerregistry",
+        "opencontainers/runc",
+        "rootless-containers/rootlesskit",
+        "actions/actions-runner-controller",
+        "docker.io/library/golang"
+      ]
+    },
+    "ci-runner": {
+      "sources": [
+        "platform/delivery/ci/runner/source.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/ci/Dockerfile",
+        "platform/delivery/ci/runner.values.yaml",
+        "platform/delivery/ci/runner/nuget/Runner.Common/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Listener/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.PluginHost/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Plugins/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Sdk/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Worker/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Sdk/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Test/packages.lock.json",
+        "platform/delivery/ci/runner/runner.patch"
+      ],
+      "group": "ci",
+      "updater": "ci-runner",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_runner_image.py"
+      ],
+      "writePaths": [
+        "platform/delivery/ci/Dockerfile",
+        "platform/delivery/ci/runner.values.yaml",
+        "platform/delivery/ci/runner/nuget/Runner.Common/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Listener/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.PluginHost/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Plugins/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Sdk/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Runner.Worker/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Sdk/packages.lock.json",
+        "platform/delivery/ci/runner/nuget/Test/packages.lock.json",
+        "platform/delivery/ci/runner/runner.patch",
+        "platform/delivery/ci/runner/source.lock.json"
+      ],
+      "nativeDependencies": [
+        "actions/runner",
+        "mcr.microsoft.com/dotnet/sdk",
+        "ghcr.io/actions/actions-runner",
+        "dotnet/runtime",
+        "System.Security.Cryptography.Pkcs",
+        "System.Formats.Asn1"
+      ]
+    },
+    "actions": {
+      "sources": [
+        ".github/workflows/application-publish.yaml",
+        ".github/workflows/application-test.yaml"
+      ],
+      "companions": [],
+      "group": "actions",
+      "updater": "actions",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_application_workflows.py"
+      ],
+      "writePaths": [
+        ".github/workflows/application-publish.yaml",
+        ".github/workflows/application-test.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "buildkit-profile": {
+      "sources": [
+        "ansible/playbooks/buildkit/files/profiles.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/buildkit/files/buildkit-seccomp.json",
+        "ansible/playbooks/buildkit/files/cloudlab-buildkit"
+      ],
+      "group": "ci",
+      "updater": "profile",
+      "checks": [
+        "ansible/playbooks/buildkit/tests/test_profile.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/buildkit/files/buildkit-seccomp.json",
+        "ansible/playbooks/buildkit/files/cloudlab-buildkit",
+        "ansible/playbooks/buildkit/files/profiles.lock.json"
+      ],
+      "nativeDependencies": []
+    },
+    "k3s": {
+      "sources": [
+        "ansible/playbooks/k3s/vars.yml"
+      ],
+      "companions": [
+        "ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml",
+        "ansible/playbooks/dependencies/compose.yaml"
+      ],
+      "group": "mesh",
+      "updater": "tool",
+      "checks": [
+        "ansible/runner/tests/test_validate.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/k3s/vars.yml",
+        "ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml",
+        "ansible/playbooks/dependencies/compose.yaml"
+      ],
+      "nativeDependencies": [
+        "k3s-io/k3s"
+      ]
+    },
+    "tailscale": {
+      "sources": [
+        "ansible/playbooks/tailscale/files/release.json"
+      ],
+      "companions": [],
+      "group": "access",
+      "updater": "tool",
+      "checks": [
+        "ansible/playbooks/tailscale/tests/test_access.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/tailscale/files/release.json"
+      ],
+      "nativeDependencies": [
+        "tailscale/tailscale"
+      ]
+    },
+    "notes-package": {
+      "sources": [
+        "apps/notes/artifact.lock.json",
+        "apps/notes/Chart.yaml",
+        "apps/notes/requirements.txt",
+        "apps/notes/telemetry-requirements.txt"
+      ],
+      "companions": [
+        "apps/notes/charts/service-0.1.0.tgz",
+        "apps/notes/lib.zip"
+      ],
+      "group": "notes-package",
+      "updater": "package",
+      "checks": [
+        "ansible/playbooks/services/tests/test_artifacts.py",
+        "module:playbooks.services.files.package"
+      ],
+      "writePaths": [
+        "apps/notes/artifact.lock.json",
+        "apps/notes/charts/service-0.1.0.tgz",
+        "apps/notes/lib.zip"
+      ],
+      "disposition": "first-party-package; application releases retain signed promotion ownership",
+      "nativeDependencies": []
+    },
+    "preview-package": {
+      "sources": [
+        "ansible/playbooks/previews/files/images.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/previews/Chart.yaml",
+        "platform/delivery/previews/runtime/images.lock.json"
+      ],
+      "group": "mesh",
+      "updater": "package",
+      "checks": [
+        "ansible/playbooks/previews/tests/test_inventory.py",
+        "module:playbooks.previews.files.package"
+      ],
+      "writePaths": [
+        "ansible/playbooks/previews/files/images.lock.json",
+        "platform/delivery/previews/Chart.yaml",
+        "platform/delivery/previews/runtime/images.lock.json"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/data/tests/compose.provider-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/data/tests/compose.provider-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/data/tests/compose.provider-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/data/tests/test_cloud_window.py",
+        "ansible/playbooks/data/tests/test_configuration.py",
+        "ansible/playbooks/data/tests/test_data.py",
+        "ansible/playbooks/data/tests/test_deployment.py",
+        "ansible/playbooks/data/tests/test_notes_seed.py",
+        "ansible/playbooks/data/tests/test_public_ca.py",
+        "ansible/playbooks/data/tests/test_requests.py",
+        "ansible/playbooks/data/tests/test_service_proof.py",
+        "ansible/playbooks/data/tests/test_service_requests.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/compose.provider-proof.yaml"
+      ],
+      "nativeDependencies": [
+        "ghcr.io/cloudnative-pg/postgresql"
+      ],
+      "selectors": [
+        "ghcr.io/cloudnative-pg/postgresql"
+      ]
+    },
+    "pin:ansible/playbooks/data/tests/compose.s3-provider-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/data/tests/compose.s3-provider-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/data/tests/test_cloud_window.py",
+        "ansible/playbooks/data/tests/test_configuration.py",
+        "ansible/playbooks/data/tests/test_data.py",
+        "ansible/playbooks/data/tests/test_deployment.py",
+        "ansible/playbooks/data/tests/test_notes_seed.py",
+        "ansible/playbooks/data/tests/test_public_ca.py",
+        "ansible/playbooks/data/tests/test_requests.py",
+        "ansible/playbooks/data/tests/test_service_proof.py",
+        "ansible/playbooks/data/tests/test_service_requests.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
+      ],
+      "nativeDependencies": [
+        "chrislusf/seaweedfs"
+      ],
+      "selectors": [
+        "chrislusf/seaweedfs"
+      ]
+    },
+    "pin:ansible/playbooks/data/tests/provider-fixture/.terraform.lock.hcl": {
+      "sources": [
+        "ansible/playbooks/data/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "companions": [
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf"
+      ],
+      "group": "provider postgresql",
+      "updater": "native",
+      "checks": [
+        "native:postgresql"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf"
+      ],
+      "nativeDependencies": [
+        "cyrilgdn/postgresql"
+      ]
+    },
+    "pin:ansible/playbooks/data/tests/provider-fixture/versions.tf": {
+      "sources": [
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf"
+      ],
+      "companions": [
+        "ansible/playbooks/data/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "group": "provider postgresql",
+      "updater": "native",
+      "checks": [
+        "native:postgresql"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/data/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "nativeDependencies": [
+        "cyrilgdn/postgresql"
+      ]
+    },
+    "pin:ansible/playbooks/data/tests/s3-provider-fixture/.terraform.lock.hcl": {
+      "sources": [
+        "ansible/playbooks/data/tests/s3-provider-fixture/.terraform.lock.hcl"
+      ],
+      "companions": [
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf"
+      ],
+      "group": "provider s3",
+      "updater": "native",
+      "checks": [
+        "native:s3"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/s3-provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf"
+      ],
+      "nativeDependencies": [
+        "hashicorp/aws"
+      ]
+    },
+    "pin:ansible/playbooks/data/tests/s3-provider-fixture/versions.tf": {
+      "sources": [
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf"
+      ],
+      "companions": [
+        "ansible/playbooks/data/tests/s3-provider-fixture/.terraform.lock.hcl"
+      ],
+      "group": "provider s3",
+      "updater": "native",
+      "checks": [
+        "native:s3"
+      ],
+      "writePaths": [
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf",
+        "ansible/playbooks/data/tests/s3-provider-fixture/.terraform.lock.hcl"
+      ],
+      "nativeDependencies": [
+        "hashicorp/aws"
+      ]
+    },
+    "pin:ansible/playbooks/harbor/tests/browser-proof.lock.json": {
+      "sources": [
+        "ansible/playbooks/harbor/tests/browser-proof.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/harbor/tests/browser-proof.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/harbor/tests/test_api_policy.py",
+        "ansible/playbooks/harbor/tests/test_artifacts.py",
+        "ansible/playbooks/harbor/tests/test_bootstrap.py",
+        "ansible/playbooks/harbor/tests/test_custody.py",
+        "ansible/playbooks/harbor/tests/test_deployments.py",
+        "ansible/playbooks/harbor/tests/test_independent.py",
+        "ansible/playbooks/harbor/tests/test_installation.py",
+        "ansible/playbooks/harbor/tests/test_node_pull.py",
+        "ansible/playbooks/harbor/tests/test_preflight.py",
+        "ansible/playbooks/harbor/tests/test_recovery.py",
+        "ansible/playbooks/harbor/tests/test_registry.py",
+        "ansible/playbooks/harbor/tests/test_scopes.py",
+        "ansible/playbooks/harbor/tests/test_sessions.py",
+        "ansible/playbooks/harbor/tests/test_signatures.py",
+        "ansible/playbooks/harbor/tests/test_transport.py",
+        "ansible/playbooks/harbor/tests/test_verification.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/harbor/tests/browser-proof.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "tool:oauth2-proxy"
+    },
+    "pin:ansible/playbooks/harbor/tests/compose.browser-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/harbor/tests/compose.browser-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/harbor/tests/compose.browser-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/harbor/tests/test_api_policy.py",
+        "ansible/playbooks/harbor/tests/test_artifacts.py",
+        "ansible/playbooks/harbor/tests/test_bootstrap.py",
+        "ansible/playbooks/harbor/tests/test_custody.py",
+        "ansible/playbooks/harbor/tests/test_deployments.py",
+        "ansible/playbooks/harbor/tests/test_independent.py",
+        "ansible/playbooks/harbor/tests/test_installation.py",
+        "ansible/playbooks/harbor/tests/test_node_pull.py",
+        "ansible/playbooks/harbor/tests/test_preflight.py",
+        "ansible/playbooks/harbor/tests/test_recovery.py",
+        "ansible/playbooks/harbor/tests/test_registry.py",
+        "ansible/playbooks/harbor/tests/test_scopes.py",
+        "ansible/playbooks/harbor/tests/test_sessions.py",
+        "ansible/playbooks/harbor/tests/test_signatures.py",
+        "ansible/playbooks/harbor/tests/test_transport.py",
+        "ansible/playbooks/harbor/tests/test_verification.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/harbor/tests/compose.browser-proof.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/harbor/tests/compose.provider-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/harbor/tests/compose.provider-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/harbor/tests/compose.provider-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/harbor/tests/test_api_policy.py",
+        "ansible/playbooks/harbor/tests/test_artifacts.py",
+        "ansible/playbooks/harbor/tests/test_bootstrap.py",
+        "ansible/playbooks/harbor/tests/test_custody.py",
+        "ansible/playbooks/harbor/tests/test_deployments.py",
+        "ansible/playbooks/harbor/tests/test_independent.py",
+        "ansible/playbooks/harbor/tests/test_installation.py",
+        "ansible/playbooks/harbor/tests/test_node_pull.py",
+        "ansible/playbooks/harbor/tests/test_preflight.py",
+        "ansible/playbooks/harbor/tests/test_recovery.py",
+        "ansible/playbooks/harbor/tests/test_registry.py",
+        "ansible/playbooks/harbor/tests/test_scopes.py",
+        "ansible/playbooks/harbor/tests/test_sessions.py",
+        "ansible/playbooks/harbor/tests/test_signatures.py",
+        "ansible/playbooks/harbor/tests/test_transport.py",
+        "ansible/playbooks/harbor/tests/test_verification.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/harbor/tests/compose.provider-proof.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/harbor/tests/compose.sessions.yaml": {
+      "sources": [
+        "ansible/playbooks/harbor/tests/compose.sessions.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/harbor/tests/compose.sessions.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/harbor/tests/test_api_policy.py",
+        "ansible/playbooks/harbor/tests/test_artifacts.py",
+        "ansible/playbooks/harbor/tests/test_bootstrap.py",
+        "ansible/playbooks/harbor/tests/test_custody.py",
+        "ansible/playbooks/harbor/tests/test_deployments.py",
+        "ansible/playbooks/harbor/tests/test_independent.py",
+        "ansible/playbooks/harbor/tests/test_installation.py",
+        "ansible/playbooks/harbor/tests/test_node_pull.py",
+        "ansible/playbooks/harbor/tests/test_preflight.py",
+        "ansible/playbooks/harbor/tests/test_recovery.py",
+        "ansible/playbooks/harbor/tests/test_registry.py",
+        "ansible/playbooks/harbor/tests/test_scopes.py",
+        "ansible/playbooks/harbor/tests/test_sessions.py",
+        "ansible/playbooks/harbor/tests/test_signatures.py",
+        "ansible/playbooks/harbor/tests/test_transport.py",
+        "ansible/playbooks/harbor/tests/test_verification.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/harbor/tests/compose.sessions.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/keycloak/tests/browser/Dockerfile": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/browser/Dockerfile"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/keycloak/tests/browser/Dockerfile",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/keycloak/tests/test_access_canary.py",
+        "ansible/playbooks/keycloak/tests/test_access_cutover.py",
+        "ansible/playbooks/keycloak/tests/test_audit_window.py",
+        "ansible/playbooks/keycloak/tests/test_consumer_contract.py",
+        "ansible/playbooks/keycloak/tests/test_deployment.py",
+        "ansible/playbooks/keycloak/tests/test_emergency.py",
+        "ansible/playbooks/keycloak/tests/test_identity.py",
+        "ansible/playbooks/keycloak/tests/test_job_retention.py",
+        "ansible/playbooks/keycloak/tests/test_owner_enrollment.py",
+        "ansible/playbooks/keycloak/tests/test_proof_user.py",
+        "ansible/playbooks/keycloak/tests/test_rotation.py",
+        "ansible/playbooks/keycloak/tests/test_session_acceptance.py",
+        "ansible/playbooks/keycloak/tests/test_session_access.py",
+        "ansible/playbooks/keycloak/tests/test_session_setup.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/browser/Dockerfile"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "identity-browser"
+    },
+    "pin:ansible/playbooks/keycloak/tests/browser/package-lock.json": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/browser/package-lock.json"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/keycloak/tests/browser/package-lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/keycloak/tests/test_access_canary.py",
+        "ansible/playbooks/keycloak/tests/test_access_cutover.py",
+        "ansible/playbooks/keycloak/tests/test_audit_window.py",
+        "ansible/playbooks/keycloak/tests/test_consumer_contract.py",
+        "ansible/playbooks/keycloak/tests/test_deployment.py",
+        "ansible/playbooks/keycloak/tests/test_emergency.py",
+        "ansible/playbooks/keycloak/tests/test_identity.py",
+        "ansible/playbooks/keycloak/tests/test_job_retention.py",
+        "ansible/playbooks/keycloak/tests/test_owner_enrollment.py",
+        "ansible/playbooks/keycloak/tests/test_proof_user.py",
+        "ansible/playbooks/keycloak/tests/test_rotation.py",
+        "ansible/playbooks/keycloak/tests/test_session_acceptance.py",
+        "ansible/playbooks/keycloak/tests/test_session_access.py",
+        "ansible/playbooks/keycloak/tests/test_session_setup.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/browser/package-lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "identity-browser"
+    },
+    "pin:ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/keycloak/tests/test_access_canary.py",
+        "ansible/playbooks/keycloak/tests/test_access_cutover.py",
+        "ansible/playbooks/keycloak/tests/test_audit_window.py",
+        "ansible/playbooks/keycloak/tests/test_consumer_contract.py",
+        "ansible/playbooks/keycloak/tests/test_deployment.py",
+        "ansible/playbooks/keycloak/tests/test_emergency.py",
+        "ansible/playbooks/keycloak/tests/test_identity.py",
+        "ansible/playbooks/keycloak/tests/test_job_retention.py",
+        "ansible/playbooks/keycloak/tests/test_owner_enrollment.py",
+        "ansible/playbooks/keycloak/tests/test_proof_user.py",
+        "ansible/playbooks/keycloak/tests/test_rotation.py",
+        "ansible/playbooks/keycloak/tests/test_session_acceptance.py",
+        "ansible/playbooks/keycloak/tests/test_session_access.py",
+        "ansible/playbooks/keycloak/tests/test_session_setup.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml"
+      ],
+      "nativeDependencies": [
+        "rancher/k3s"
+      ],
+      "selectors": [
+        "rancher/k3s"
+      ]
+    },
+    "pin:ansible/playbooks/keycloak/tests/compose.identity-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/keycloak/tests/compose.identity-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/keycloak/tests/test_access_canary.py",
+        "ansible/playbooks/keycloak/tests/test_access_cutover.py",
+        "ansible/playbooks/keycloak/tests/test_audit_window.py",
+        "ansible/playbooks/keycloak/tests/test_consumer_contract.py",
+        "ansible/playbooks/keycloak/tests/test_deployment.py",
+        "ansible/playbooks/keycloak/tests/test_emergency.py",
+        "ansible/playbooks/keycloak/tests/test_identity.py",
+        "ansible/playbooks/keycloak/tests/test_job_retention.py",
+        "ansible/playbooks/keycloak/tests/test_owner_enrollment.py",
+        "ansible/playbooks/keycloak/tests/test_proof_user.py",
+        "ansible/playbooks/keycloak/tests/test_rotation.py",
+        "ansible/playbooks/keycloak/tests/test_session_acceptance.py",
+        "ansible/playbooks/keycloak/tests/test_session_access.py",
+        "ansible/playbooks/keycloak/tests/test_session_setup.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
+      ],
+      "nativeDependencies": [
+        "cloudflare/cloudflared",
+        "ghcr.io/cloudnative-pg/postgresql",
+        "quay.io/adorsys/keycloak-config-cli",
+        "quay.io/keycloak/keycloak"
+      ],
+      "selectors": [
+        "cloudflare/cloudflared",
+        "ghcr.io/cloudnative-pg/postgresql",
+        "quay.io/adorsys/keycloak-config-cli",
+        "quay.io/keycloak/keycloak"
+      ]
+    },
+    "pin:ansible/playbooks/keycloak/tests/compose.provider-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/compose.provider-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/keycloak/tests/compose.provider-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/keycloak/tests/test_access_canary.py",
+        "ansible/playbooks/keycloak/tests/test_access_cutover.py",
+        "ansible/playbooks/keycloak/tests/test_audit_window.py",
+        "ansible/playbooks/keycloak/tests/test_consumer_contract.py",
+        "ansible/playbooks/keycloak/tests/test_deployment.py",
+        "ansible/playbooks/keycloak/tests/test_emergency.py",
+        "ansible/playbooks/keycloak/tests/test_identity.py",
+        "ansible/playbooks/keycloak/tests/test_job_retention.py",
+        "ansible/playbooks/keycloak/tests/test_owner_enrollment.py",
+        "ansible/playbooks/keycloak/tests/test_proof_user.py",
+        "ansible/playbooks/keycloak/tests/test_rotation.py",
+        "ansible/playbooks/keycloak/tests/test_session_acceptance.py",
+        "ansible/playbooks/keycloak/tests/test_session_access.py",
+        "ansible/playbooks/keycloak/tests/test_session_setup.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/compose.provider-proof.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/keycloak/tests/provider-fixture/.terraform.lock.hcl": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "companions": [
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf"
+      ],
+      "group": "provider keycloak",
+      "updater": "native",
+      "checks": [
+        "native:keycloak"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf"
+      ],
+      "nativeDependencies": [
+        "keycloak/keycloak"
+      ]
+    },
+    "pin:ansible/playbooks/keycloak/tests/provider-fixture/versions.tf": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf"
+      ],
+      "companions": [
+        "ansible/playbooks/keycloak/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "group": "provider keycloak",
+      "updater": "native",
+      "checks": [
+        "native:keycloak"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/keycloak/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "nativeDependencies": [
+        "keycloak/keycloak"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/compose.baseline.yaml": {
+      "sources": [
+        "ansible/playbooks/observability/tests/compose.baseline.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/observability/tests/compose.baseline.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_baseline.py",
+        "ansible/playbooks/observability/tests/test_bootstrap.py",
+        "ansible/playbooks/observability/tests/test_chart.py",
+        "ansible/playbooks/observability/tests/test_configuration.py",
+        "ansible/playbooks/observability/tests/test_credentials.py",
+        "ansible/playbooks/observability/tests/test_dashboards.py",
+        "ansible/playbooks/observability/tests/test_identity.py",
+        "ansible/playbooks/observability/tests/test_kiali.py",
+        "ansible/playbooks/observability/tests/test_payload.py",
+        "ansible/playbooks/observability/tests/test_runtime.py",
+        "ansible/playbooks/observability/tests/test_slo.py",
+        "ansible/playbooks/observability/tests/test_uptimerobot.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/compose.baseline.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/observability/tests/compose.proof.yaml": {
+      "sources": [
+        "ansible/playbooks/observability/tests/compose.proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/observability/tests/compose.proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_baseline.py",
+        "ansible/playbooks/observability/tests/test_bootstrap.py",
+        "ansible/playbooks/observability/tests/test_chart.py",
+        "ansible/playbooks/observability/tests/test_configuration.py",
+        "ansible/playbooks/observability/tests/test_credentials.py",
+        "ansible/playbooks/observability/tests/test_dashboards.py",
+        "ansible/playbooks/observability/tests/test_identity.py",
+        "ansible/playbooks/observability/tests/test_kiali.py",
+        "ansible/playbooks/observability/tests/test_payload.py",
+        "ansible/playbooks/observability/tests/test_runtime.py",
+        "ansible/playbooks/observability/tests/test_slo.py",
+        "ansible/playbooks/observability/tests/test_uptimerobot.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/compose.proof.yaml"
+      ],
+      "nativeDependencies": [
+        "docker.io/grafana/alloy",
+        "docker.io/grafana/loki",
+        "docker.io/grafana/tempo",
+        "quay.io/prometheus/alertmanager",
+        "quay.io/prometheus/prometheus"
+      ],
+      "selectors": [
+        "docker.io/grafana/alloy",
+        "docker.io/grafana/loki",
+        "docker.io/grafana/tempo",
+        "quay.io/prometheus/alertmanager",
+        "quay.io/prometheus/prometheus"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/compose.provider-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/observability/tests/compose.provider-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/observability/tests/compose.provider-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_baseline.py",
+        "ansible/playbooks/observability/tests/test_bootstrap.py",
+        "ansible/playbooks/observability/tests/test_chart.py",
+        "ansible/playbooks/observability/tests/test_configuration.py",
+        "ansible/playbooks/observability/tests/test_credentials.py",
+        "ansible/playbooks/observability/tests/test_dashboards.py",
+        "ansible/playbooks/observability/tests/test_identity.py",
+        "ansible/playbooks/observability/tests/test_kiali.py",
+        "ansible/playbooks/observability/tests/test_payload.py",
+        "ansible/playbooks/observability/tests/test_runtime.py",
+        "ansible/playbooks/observability/tests/test_slo.py",
+        "ansible/playbooks/observability/tests/test_uptimerobot.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/compose.provider-proof.yaml"
+      ],
+      "nativeDependencies": [
+        "docker.io/grafana/grafana"
+      ],
+      "selectors": [
+        "docker.io/grafana/grafana"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/compose.sso-proof.yaml": {
+      "sources": [
+        "ansible/playbooks/observability/tests/compose.sso-proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/observability/tests/compose.sso-proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_baseline.py",
+        "ansible/playbooks/observability/tests/test_bootstrap.py",
+        "ansible/playbooks/observability/tests/test_chart.py",
+        "ansible/playbooks/observability/tests/test_configuration.py",
+        "ansible/playbooks/observability/tests/test_credentials.py",
+        "ansible/playbooks/observability/tests/test_dashboards.py",
+        "ansible/playbooks/observability/tests/test_identity.py",
+        "ansible/playbooks/observability/tests/test_kiali.py",
+        "ansible/playbooks/observability/tests/test_payload.py",
+        "ansible/playbooks/observability/tests/test_runtime.py",
+        "ansible/playbooks/observability/tests/test_slo.py",
+        "ansible/playbooks/observability/tests/test_uptimerobot.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/compose.sso-proof.yaml"
+      ],
+      "nativeDependencies": [
+        "docker.io/grafana/grafana",
+        "quay.io/keycloak/keycloak"
+      ],
+      "selectors": [
+        "docker.io/grafana/grafana",
+        "quay.io/keycloak/keycloak"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/proof.Dockerfile": {
+      "sources": [
+        "ansible/playbooks/observability/tests/proof.Dockerfile"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/observability/tests/proof.Dockerfile",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_baseline.py",
+        "ansible/playbooks/observability/tests/test_bootstrap.py",
+        "ansible/playbooks/observability/tests/test_chart.py",
+        "ansible/playbooks/observability/tests/test_configuration.py",
+        "ansible/playbooks/observability/tests/test_credentials.py",
+        "ansible/playbooks/observability/tests/test_dashboards.py",
+        "ansible/playbooks/observability/tests/test_identity.py",
+        "ansible/playbooks/observability/tests/test_kiali.py",
+        "ansible/playbooks/observability/tests/test_payload.py",
+        "ansible/playbooks/observability/tests/test_runtime.py",
+        "ansible/playbooks/observability/tests/test_slo.py",
+        "ansible/playbooks/observability/tests/test_uptimerobot.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/proof.Dockerfile"
+      ],
+      "nativeDependencies": [
+        "python"
+      ],
+      "selectors": [
+        "python"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/provider-fixture/.terraform.lock.hcl": {
+      "sources": [
+        "ansible/playbooks/observability/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "companions": [
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf"
+      ],
+      "group": "provider grafana",
+      "updater": "native",
+      "checks": [
+        "native:grafana"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf"
+      ],
+      "nativeDependencies": [
+        "grafana/grafana"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/provider-fixture/versions.tf": {
+      "sources": [
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf"
+      ],
+      "companions": [
+        "ansible/playbooks/observability/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "group": "provider grafana",
+      "updater": "native",
+      "checks": [
+        "native:grafana"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/observability/tests/provider-fixture/.terraform.lock.hcl"
+      ],
+      "nativeDependencies": [
+        "grafana/grafana"
+      ]
+    },
+    "pin:ansible/playbooks/observability/tests/requirements.txt": {
+      "sources": [
+        "ansible/playbooks/observability/tests/requirements.txt"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/observability/tests/requirements.txt",
+      "updater": "requirements",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_baseline.py",
+        "ansible/playbooks/observability/tests/test_bootstrap.py",
+        "ansible/playbooks/observability/tests/test_chart.py",
+        "ansible/playbooks/observability/tests/test_configuration.py",
+        "ansible/playbooks/observability/tests/test_credentials.py",
+        "ansible/playbooks/observability/tests/test_dashboards.py",
+        "ansible/playbooks/observability/tests/test_identity.py",
+        "ansible/playbooks/observability/tests/test_kiali.py",
+        "ansible/playbooks/observability/tests/test_payload.py",
+        "ansible/playbooks/observability/tests/test_runtime.py",
+        "ansible/playbooks/observability/tests/test_slo.py",
+        "ansible/playbooks/observability/tests/test_uptimerobot.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/requirements.txt"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "python-requirements"
+    },
+    "pin:ansible/playbooks/services/compose.proof.yaml": {
+      "sources": [
+        "ansible/playbooks/services/compose.proof.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/services/compose.proof.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/services/tests/test_artifacts.py",
+        "ansible/playbooks/services/tests/test_command.py",
+        "ansible/playbooks/services/tests/test_contract.py",
+        "ansible/playbooks/services/tests/test_credentials.py",
+        "ansible/playbooks/services/tests/test_direct_git.py",
+        "ansible/playbooks/services/tests/test_examples.py",
+        "ansible/playbooks/services/tests/test_external.py",
+        "ansible/playbooks/services/tests/test_fixture.py",
+        "ansible/playbooks/services/tests/test_inputs.py",
+        "ansible/playbooks/services/tests/test_lifecycle.py",
+        "ansible/playbooks/services/tests/test_notes.py",
+        "ansible/playbooks/services/tests/test_owners.py",
+        "ansible/playbooks/services/tests/test_publication.py",
+        "ansible/playbooks/services/tests/test_readiness.py",
+        "ansible/playbooks/services/tests/test_retention.py",
+        "ansible/playbooks/services/tests/test_source_repair.py",
+        "ansible/playbooks/services/tests/test_transport.py",
+        "ansible/playbooks/services/tests/test_verify.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/services/compose.proof.yaml"
+      ],
+      "nativeDependencies": [
+        "python"
+      ],
+      "selectors": [
+        "python"
+      ]
+    },
+    "pin:ansible/playbooks/tailscale/compose.provider-check.yaml": {
+      "sources": [
+        "ansible/playbooks/tailscale/compose.provider-check.yaml"
+      ],
+      "companions": [],
+      "group": "pin:ansible/playbooks/tailscale/compose.provider-check.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/tailscale/tests/test_access.py",
+        "ansible/playbooks/tailscale/tests/test_control.py",
+        "ansible/playbooks/tailscale/tests/test_firewall.py",
+        "ansible/playbooks/tailscale/tests/test_lifecycle.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/tailscale/compose.provider-check.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:ansible/playbooks/tailscale/provider-fixture/.terraform.lock.hcl": {
+      "sources": [
+        "ansible/playbooks/tailscale/provider-fixture/.terraform.lock.hcl"
+      ],
+      "companions": [
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf"
+      ],
+      "group": "provider tailscale",
+      "updater": "native",
+      "checks": [
+        "native:tailscale"
+      ],
+      "writePaths": [
+        "ansible/playbooks/tailscale/provider-fixture/.terraform.lock.hcl",
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf"
+      ],
+      "nativeDependencies": [
+        "tailscale/tailscale"
+      ]
+    },
+    "pin:ansible/playbooks/tailscale/provider-fixture/versions.tf": {
+      "sources": [
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf"
+      ],
+      "companions": [
+        "ansible/playbooks/tailscale/provider-fixture/.terraform.lock.hcl"
+      ],
+      "group": "provider tailscale",
+      "updater": "native",
+      "checks": [
+        "native:tailscale"
+      ],
+      "writePaths": [
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf",
+        "ansible/playbooks/tailscale/provider-fixture/.terraform.lock.hcl"
+      ],
+      "nativeDependencies": [
+        "tailscale/tailscale"
+      ]
+    },
+    "pin:charts/service/Chart.yaml": {
+      "sources": [
+        "charts/service/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:charts/service/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:compose.yaml": {
+      "sources": [
+        "compose.yaml"
+      ],
+      "companions": [],
+      "group": "pin:compose.yaml",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "compose.yaml"
+      ],
+      "nativeDependencies": []
+    },
+    "pin:gitops/roots/public/Chart.yaml": {
+      "sources": [
+        "gitops/roots/public/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:gitops/roots/public/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:infra/github/.terraform.lock.hcl": {
+      "sources": [
+        "infra/github/.terraform.lock.hcl"
+      ],
+      "companions": [
+        "infra/github/versions.tf"
+      ],
+      "group": "provider github",
+      "updater": "native",
+      "checks": [
+        "native:github"
+      ],
+      "writePaths": [
+        "infra/github/.terraform.lock.hcl",
+        "infra/github/versions.tf"
+      ],
+      "nativeDependencies": [
+        "integrations/github"
+      ]
+    },
+    "pin:infra/github/versions.tf": {
+      "sources": [
+        "infra/github/versions.tf"
+      ],
+      "companions": [
+        "infra/github/.terraform.lock.hcl"
+      ],
+      "group": "provider github",
+      "updater": "native",
+      "checks": [
+        "native:github"
+      ],
+      "writePaths": [
+        "infra/github/versions.tf",
+        "infra/github/.terraform.lock.hcl"
+      ],
+      "nativeDependencies": [
+        "integrations/github"
+      ]
+    },
+    "pin:platform/certificates/configuration/Chart.yaml": {
+      "sources": [
+        "platform/certificates/configuration/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/certificates/configuration/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/connectivity/access/Chart.yaml": {
+      "sources": [
+        "platform/connectivity/access/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/connectivity/access/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/connectivity/access/images.lock.json": {
+      "sources": [
+        "platform/connectivity/access/images.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/connectivity/access/images.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/access/images.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:access"
+    },
+    "pin:platform/connectivity/gateways/Chart.yaml": {
+      "sources": [
+        "platform/connectivity/gateways/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/connectivity/gateways/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/connectivity/istio/images.lock.json": {
+      "sources": [
+        "platform/connectivity/istio/images.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/connectivity/istio/images.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/connectivity/istio/images.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:istio"
+    },
+    "pin:platform/data/configuration/Chart.yaml": {
+      "sources": [
+        "platform/data/configuration/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/data/configuration/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/delivery/ci/scan.lock.json": {
+      "sources": [
+        "platform/delivery/ci/scan.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/delivery/ci/scan.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/delivery/ci/scan.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:ci-scan"
+    },
+    "pin:platform/delivery/services/Chart.yaml": {
+      "sources": [
+        "platform/delivery/services/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/delivery/services/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/delivery/services/sigstore-fulcio.lock.json": {
+      "sources": [
+        "platform/delivery/services/sigstore-fulcio.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/delivery/services/sigstore-fulcio.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/delivery/services/sigstore-fulcio.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "sigstore-roots"
+    },
+    "pin:platform/harbor/Chart.yaml": {
+      "sources": [
+        "platform/harbor/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/harbor/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/harbor/cosign.lock.json": {
+      "sources": [
+        "platform/harbor/cosign.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/harbor/cosign.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/harbor/cosign.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:cosign"
+    },
+    "pin:platform/harbor/images.lock.json": {
+      "sources": [
+        "platform/harbor/images.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/harbor/images.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/harbor/images.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:harbor"
+    },
+    "pin:platform/observability/Chart.yaml": {
+      "sources": [
+        "platform/observability/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/observability/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/observability/images.lock.json": {
+      "sources": [
+        "platform/observability/images.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/observability/images.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [
+        "platform/observability/images.lock.json"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:observability"
+    },
+    "pin:platform/storage/longhorn-backup/Chart.yaml": {
+      "sources": [
+        "platform/storage/longhorn-backup/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/storage/longhorn-backup/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
+    "pin:platform/storage/longhorn-backup/render.lock.json": {
+      "sources": [
+        "platform/storage/longhorn-backup/render.lock.json"
+      ],
+      "companions": [],
+      "group": "pin:platform/storage/longhorn-backup/render.lock.json",
+      "updater": "image",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "historical"
+    },
+    "dependency-maintenance": {
+      "sources": [
+        "platform/delivery/dependencies/image.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/dependencies/compose.yaml"
+      ],
+      "writePaths": [
+        "platform/delivery/dependencies/image.lock.json",
+        "ansible/playbooks/dependencies/compose.yaml"
+      ],
+      "group": "dependency-maintenance",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/dependencies/tests/test_security.py",
+        "ansible/playbooks/dependencies/tests/test_gate.py"
+      ],
+      "nativeDependencies": [],
+      "aliasFor": "image:maintenance"
+    },
+    "native-extraction-fixture": {
+      "sources": [
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/runner/Dockerfile",
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/runner/tools.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/infra/github/versions.tf",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/delivery/argocd/Chart.yaml"
+      ],
+      "companions": [
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/runner/cloudflare-provider.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/runner/harbor-provider.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/runner/helm.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/delivery/ci/tools/source.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/delivery/ci/runner/source.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/delivery/ci/controller/Chart.yaml",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/harbor/server/Chart.yaml",
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/playbooks/keycloak/tests/browser/package.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/ansible/runner/requirements.txt",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/connectivity/gateway-api/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/connectivity/private-dns/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/delivery/rollouts/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/identity/keycloak/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/certificates/cert-manager/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/data/cnpg/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/platform/data/seaweedfs/artifact.lock.json",
+        "ansible/playbooks/dependencies/tests/fixtures/native/renovate.json"
+      ],
+      "writePaths": [],
+      "group": "fixture",
+      "updater": "package",
+      "checks": [
+        "ansible/playbooks/dependencies/tests/test_security.py"
+      ],
+      "disposition": "qualification-fixture",
+      "nativeDependencies": []
+    },
+    "tool:tofu": {
+      "sources": [
+        "ansible/runner/tools.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf",
+        "ansible/playbooks/harbor/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf",
+        "infra/cloudflare/versions.tf",
+        "infra/github/versions.tf",
+        "infra/harbor/versions.tf"
+      ],
+      "writePaths": [
+        "ansible/runner/tools.lock.json",
+        "ansible/playbooks/data/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/data/tests/s3-provider-fixture/versions.tf",
+        "ansible/playbooks/harbor/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/keycloak/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/observability/tests/provider-fixture/versions.tf",
+        "ansible/playbooks/tailscale/provider-fixture/versions.tf",
+        "infra/cloudflare/versions.tf",
+        "infra/github/versions.tf",
+        "infra/harbor/versions.tf"
+      ],
+      "group": "bootstrap runner",
+      "updater": "tool",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "ansible/playbooks/infrastructure/tests/test_native_command.py",
+        "native:github",
+        "native:keycloak",
+        "native:postgresql",
+        "native:s3",
+        "native:grafana",
+        "native:tailscale",
+        "native:cloudflare",
+        "native:harbor"
+      ],
+      "nativeDependencies": [
+        "opentofu/opentofu"
+      ]
+    },
+    "tool:restic": {
+      "sources": [
+        "ansible/runner/tools.lock.json"
+      ],
+      "companions": [],
+      "writePaths": [
+        "ansible/runner/tools.lock.json"
+      ],
+      "group": "bootstrap runner",
+      "updater": "tool",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "ansible/playbooks/infrastructure/tests/test_native_command.py"
+      ],
+      "nativeDependencies": [
+        "restic/restic"
+      ]
+    },
+    "image:istio": {
+      "sources": [
+        "platform/connectivity/istio/images.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/previews/files/images.lock.json",
+        "platform/connectivity/gateways/values.json",
+        "platform/connectivity/gateways/values.schema.json",
+        "platform/connectivity/istio/cni/values.json",
+        "platform/connectivity/istio/istiod/values.json",
+        "platform/connectivity/istio/ztunnel/values.json",
+        "platform/delivery/previews/runtime/images.lock.json"
+      ],
+      "writePaths": [
+        "ansible/playbooks/previews/files/images.lock.json",
+        "platform/connectivity/gateways/values.json",
+        "platform/connectivity/gateways/values.schema.json",
+        "platform/connectivity/istio/cni/values.json",
+        "platform/connectivity/istio/images.lock.json",
+        "platform/connectivity/istio/istiod/values.json",
+        "platform/connectivity/istio/ztunnel/values.json",
+        "platform/delivery/previews/runtime/images.lock.json"
+      ],
+      "group": "mesh",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/istio/tests/test_chart.py"
+      ],
+      "nativeDependencies": [
+        "docker.io/istio/install-cni",
+        "docker.io/istio/pilot",
+        "docker.io/istio/proxyv2",
+        "docker.io/istio/ztunnel"
+      ],
+      "selectors": [
+        "pilot",
+        "proxyv2",
+        "install-cni",
+        "ztunnel"
+      ]
+    },
+    "image:observability": {
+      "sources": [
+        "platform/observability/images.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/observability/tests/compose.proof.yaml",
+        "ansible/playbooks/observability/tests/compose.provider-proof.yaml",
+        "ansible/playbooks/observability/tests/compose.sso-proof.yaml",
+        "ansible/runner/Dockerfile",
+        "platform/observability/alloy/values.json",
+        "platform/observability/kiali/values.json",
+        "platform/observability/loki/values.json",
+        "platform/observability/prometheus/values.json",
+        "platform/observability/tempo/values.json"
+      ],
+      "writePaths": [
+        "ansible/playbooks/observability/tests/compose.proof.yaml",
+        "ansible/playbooks/observability/tests/compose.provider-proof.yaml",
+        "ansible/playbooks/observability/tests/compose.sso-proof.yaml",
+        "ansible/runner/Dockerfile",
+        "platform/observability/alloy/values.json",
+        "platform/observability/images.lock.json",
+        "platform/observability/kiali/values.json",
+        "platform/observability/loki/values.json",
+        "platform/observability/prometheus/values.json",
+        "platform/observability/tempo/values.json"
+      ],
+      "group": "observability",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/observability/tests/test_chart.py"
+      ],
+      "nativeDependencies": [
+        "docker.io/grafana/alloy",
+        "docker.io/grafana/grafana",
+        "docker.io/grafana/k6",
+        "docker.io/grafana/loki",
+        "docker.io/grafana/tempo",
+        "quay.io/kiali/kiali",
+        "quay.io/prometheus/alertmanager",
+        "quay.io/prometheus/node-exporter",
+        "quay.io/prometheus/prometheus",
+        "quay.io/prometheus-operator/prometheus-config-reloader",
+        "quay.io/prometheus-operator/prometheus-operator",
+        "registry.k8s.io/kube-state-metrics/kube-state-metrics"
+      ],
+      "selectors": [
+        "operator",
+        "reloader",
+        "prometheus",
+        "alertmanager",
+        "grafana",
+        "ksm",
+        "node",
+        "loki",
+        "tempo",
+        "alloy",
+        "kiali",
+        "k6"
+      ]
+    },
+    "image:harbor": {
+      "sources": [
+        "platform/harbor/images.lock.json"
+      ],
+      "companions": [
+        "platform/harbor/server/values.json"
+      ],
+      "writePaths": [
+        "platform/harbor/images.lock.json",
+        "platform/harbor/server/values.json"
+      ],
+      "group": "harbor",
+      "updater": "image",
+      "checks": [
+        "module:playbooks.harbor.files.chart"
+      ],
+      "nativeDependencies": [
+        "docker.io/goharbor/harbor-core",
+        "docker.io/goharbor/harbor-db",
+        "docker.io/goharbor/harbor-jobservice",
+        "docker.io/goharbor/harbor-portal",
+        "docker.io/goharbor/harbor-registryctl",
+        "docker.io/goharbor/nginx-photon",
+        "docker.io/goharbor/registry-photon",
+        "docker.io/goharbor/valkey-photon",
+        "quay.io/oauth2-proxy/oauth2-proxy"
+      ],
+      "selectors": [
+        "nginx-photon",
+        "harbor-portal",
+        "harbor-core",
+        "harbor-jobservice",
+        "registry-photon",
+        "harbor-registryctl",
+        "harbor-db",
+        "valkey-photon",
+        "browser-gate"
+      ]
+    },
+    "image:access": {
+      "sources": [
+        "platform/connectivity/access/images.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml",
+        "platform/connectivity/access/values.schema.json",
+        "platform/connectivity/access/values.yaml",
+        "platform/connectivity/tailscale-operator/artifact.lock.json",
+        "platform/connectivity/tailscale-operator/values.yaml"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml",
+        "platform/connectivity/access/images.lock.json",
+        "platform/connectivity/access/values.schema.json",
+        "platform/connectivity/access/values.yaml",
+        "platform/connectivity/tailscale-operator/artifact.lock.json",
+        "platform/connectivity/tailscale-operator/values.yaml"
+      ],
+      "group": "access",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/access/tests/test_chart.py"
+      ],
+      "nativeDependencies": [
+        "cloudflare/cloudflared",
+        "tailscale/k8s-operator",
+        "tailscale/k8s-proxy",
+        "tailscale/tailscale"
+      ],
+      "selectors": [
+        "cloudflared",
+        "ingress",
+        "api",
+        "operator"
+      ]
+    },
+    "image:admission": {
+      "sources": [
+        "platform/delivery/admission/images.lock.json"
+      ],
+      "companions": [
+        "ansible/runner/Dockerfile",
+        "platform/delivery/admission/values.json"
+      ],
+      "writePaths": [
+        "ansible/runner/Dockerfile",
+        "platform/delivery/admission/images.lock.json",
+        "platform/delivery/admission/values.json"
+      ],
+      "group": "admission",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/admission/tests/test_chart.py"
+      ],
+      "nativeDependencies": [
+        "reg.kyverno.io/kyverno/kyverno",
+        "reg.kyverno.io/kyverno/kyverno-cli",
+        "reg.kyverno.io/kyverno/kyvernopre",
+        "reg.kyverno.io/kyverno/reports-controller"
+      ],
+      "selectors": [
+        "kyverno",
+        "kyvernopre",
+        "reports-controller",
+        "kyverno-cli"
+      ]
+    },
+    "image:argocd": {
+      "sources": [
+        "platform/delivery/argocd/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/argocd/values.yaml"
+      ],
+      "writePaths": [
+        "platform/delivery/argocd/artifact.lock.json",
+        "platform/delivery/argocd/values.yaml"
+      ],
+      "group": "argocd",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/argocd/tests/test_render.py"
+      ],
+      "nativeDependencies": [
+        "docker.io/library/redis",
+        "quay.io/argoproj/argocd"
+      ],
+      "selectors": [
+        "quay.io/argoproj/argocd:v3.5.3",
+        "docker.io/library/redis:8.6.4-alpine"
+      ]
+    },
+    "image:longhorn": {
+      "sources": [
+        "platform/storage/longhorn/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/storage/longhorn/values.json"
+      ],
+      "writePaths": [
+        "platform/storage/longhorn/artifact.lock.json",
+        "platform/storage/longhorn/values.json"
+      ],
+      "group": "longhorn",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/longhorn/tests/test_chart.py",
+        "ansible/playbooks/longhorn/tests/test_vendor_chart.py"
+      ],
+      "nativeDependencies": [
+        "docker.io/longhornio/backing-image-manager",
+        "docker.io/longhornio/csi-attacher",
+        "docker.io/longhornio/csi-node-driver-registrar",
+        "docker.io/longhornio/csi-provisioner",
+        "docker.io/longhornio/csi-resizer",
+        "docker.io/longhornio/csi-snapshotter",
+        "docker.io/longhornio/livenessprobe",
+        "docker.io/longhornio/longhorn-engine",
+        "docker.io/longhornio/longhorn-instance-manager",
+        "docker.io/longhornio/longhorn-manager",
+        "docker.io/longhornio/longhorn-share-manager",
+        "docker.io/longhornio/longhorn-ui",
+        "docker.io/longhornio/support-bundle-kit"
+      ],
+      "selectors": [
+        "docker.io/longhornio/backing-image-manager:v1.13.0",
+        "docker.io/longhornio/csi-attacher:v4.13.0",
+        "docker.io/longhornio/csi-node-driver-registrar:v2.18.0",
+        "docker.io/longhornio/csi-provisioner:v6.3.0",
+        "docker.io/longhornio/csi-resizer:v2.2.1",
+        "docker.io/longhornio/csi-snapshotter:v8.6.0",
+        "docker.io/longhornio/livenessprobe:v2.20.0",
+        "docker.io/longhornio/longhorn-engine:v1.13.0",
+        "docker.io/longhornio/longhorn-instance-manager:v1.13.0",
+        "docker.io/longhornio/longhorn-manager:v1.13.0",
+        "docker.io/longhornio/longhorn-share-manager:v1.13.0",
+        "docker.io/longhornio/longhorn-ui:v1.13.0",
+        "docker.io/longhornio/support-bundle-kit:v0.0.98"
+      ]
+    },
+    "image:external-secrets": {
+      "sources": [
+        "platform/secrets/external-secrets/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/secrets/external-secrets/values.json"
+      ],
+      "writePaths": [
+        "platform/secrets/external-secrets/artifact.lock.json",
+        "platform/secrets/external-secrets/values.json"
+      ],
+      "group": "secrets",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/secrets/tests/test_chart.py"
+      ],
+      "nativeDependencies": [
+        "ghcr.io/external-secrets/external-secrets"
+      ],
+      "selectors": [
+        "ghcr.io/external-secrets/external-secrets:v2.11.0"
+      ]
+    },
+    "image:ci-runner": {
+      "sources": [
+        "platform/delivery/ci/runner/source.lock.json"
+      ],
+      "companions": [
+        "ansible/runner/Dockerfile",
+        "platform/delivery/ci/Dockerfile",
+        "platform/delivery/ci/runner.values.yaml"
+      ],
+      "writePaths": [
+        "ansible/runner/Dockerfile",
+        "platform/delivery/ci/Dockerfile",
+        "platform/delivery/ci/runner.values.yaml",
+        "platform/delivery/ci/runner/source.lock.json"
+      ],
+      "group": "ci",
+      "updater": "ci-runner",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_runner_image.py"
+      ],
+      "nativeDependencies": [
+        "docker.io/aquasec/trivy",
+        "ghcr.io/actions/actions-runner"
+      ],
+      "selectors": [
+        "base",
+        "trivy"
+      ]
+    },
+    "image:python": {
+      "sources": [
+        "platform/identity/keycloak/artifact.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/admission/files/verify.py",
+        "ansible/playbooks/dependencies/compose.yaml",
+        "ansible/playbooks/harbor/files/restore.py",
+        "ansible/playbooks/keycloak/files/vendor.py",
+        "ansible/playbooks/observability/tests/proof.Dockerfile",
+        "ansible/playbooks/previews/files/contract.py",
+        "ansible/playbooks/services/compose.proof.yaml",
+        "ansible/runner/Dockerfile",
+        "platform/delivery/previews/runtime/contract.py",
+        "platform/delivery/previews/templates/controller.yaml",
+        "platform/identity/keycloak/runtime/preview_contract.py"
+      ],
+      "writePaths": [
+        "ansible/playbooks/admission/files/verify.py",
+        "ansible/playbooks/dependencies/compose.yaml",
+        "ansible/playbooks/harbor/files/restore.py",
+        "ansible/playbooks/keycloak/files/vendor.py",
+        "ansible/playbooks/observability/tests/proof.Dockerfile",
+        "ansible/playbooks/previews/files/contract.py",
+        "ansible/playbooks/services/compose.proof.yaml",
+        "ansible/runner/Dockerfile",
+        "platform/delivery/previews/runtime/contract.py",
+        "platform/delivery/previews/templates/controller.yaml",
+        "platform/identity/keycloak/artifact.lock.json",
+        "platform/identity/keycloak/runtime/preview_contract.py"
+      ],
+      "group": "bootstrap runner",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/previews/tests/test_contract.py",
+        "ansible/playbooks/previews/tests/test_controller.py",
+        "ansible/playbooks/previews/tests/test_identity.py",
+        "module:playbooks.previews.files.package",
+        "module:playbooks.keycloak.files.chart"
+      ],
+      "nativeDependencies": [
+        "python"
+      ],
+      "selectors": [
+        "python"
+      ]
+    },
+    "python-requirements": {
+      "sources": [
+        "ansible/runner/requirements.txt",
+        "apps/notes/requirements.txt",
+        "apps/notes/telemetry-requirements.txt",
+        "ansible/playbooks/observability/tests/requirements.txt"
+      ],
+      "companions": [
+        "apps/notes/lib.zip",
+        "apps/notes/artifact.lock.json"
+      ],
+      "writePaths": [
+        "ansible/runner/requirements.txt",
+        "apps/notes/requirements.txt",
+        "apps/notes/telemetry-requirements.txt",
+        "ansible/playbooks/observability/tests/requirements.txt"
+      ],
+      "group": "Python wheel requirements",
+      "updater": "requirements",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "module:playbooks.services.files.package"
+      ],
+      "nativeDependencies": [
+        "ansible-compat",
+        "ansible-core",
+        "ansible-lint",
+        "attrs",
+        "black",
+        "bracex",
+        "certifi",
+        "cffi",
+        "charset-normalizer",
+        "click",
+        "cryptography",
+        "distro",
+        "filelock",
+        "googleapis-common-protos",
+        "idna",
+        "jinja2",
+        "jsonschema",
+        "jsonschema-specifications",
+        "lz4",
+        "markupsafe",
+        "mypy-extensions",
+        "opentelemetry-api",
+        "opentelemetry-exporter-http-transport",
+        "opentelemetry-exporter-otlp-common",
+        "opentelemetry-exporter-otlp-proto-common",
+        "opentelemetry-exporter-otlp-proto-http",
+        "opentelemetry-proto",
+        "opentelemetry-sdk",
+        "opentelemetry-semantic-conventions",
+        "packaging",
+        "pathspec",
+        "platformdirs",
+        "prometheus-client",
+        "protobuf",
+        "psycopg",
+        "psycopg-binary",
+        "pycparser",
+        "python-dotenv",
+        "pytokens",
+        "pyyaml",
+        "referencing",
+        "requests",
+        "resolvelib",
+        "rpds-py",
+        "ruamel.yaml",
+        "subprocess-tee",
+        "typing-extensions",
+        "urllib3",
+        "wcmatch",
+        "yamllint"
+      ]
+    },
+    "identity-browser": {
+      "sources": [
+        "ansible/playbooks/keycloak/tests/browser/package.json"
+      ],
+      "companions": [
+        "ansible/playbooks/keycloak/tests/browser/Dockerfile",
+        "ansible/playbooks/keycloak/tests/browser/package-lock.json"
+      ],
+      "writePaths": [
+        "ansible/playbooks/keycloak/tests/browser/Dockerfile",
+        "ansible/playbooks/keycloak/tests/browser/package.json",
+        "ansible/playbooks/keycloak/tests/browser/package-lock.json"
+      ],
+      "group": "identity-browser",
+      "updater": "package",
+      "checks": [
+        "ansible/playbooks/dependencies/tests/test_browser.py"
+      ],
+      "nativeDependencies": [
+        "playwright"
+      ]
+    },
+    "tool:helm": {
+      "sources": [
+        "ansible/runner/helm.lock.json"
+      ],
+      "companions": [
+        "platform/connectivity/istio/base/artifact.lock.json",
+        "platform/connectivity/istio/cni/artifact.lock.json",
+        "platform/connectivity/istio/istiod/artifact.lock.json",
+        "platform/connectivity/istio/ztunnel/artifact.lock.json",
+        "platform/certificates/cert-manager/artifact.lock.json",
+        "platform/storage/longhorn/artifact.lock.json",
+        "platform/secrets/external-secrets/artifact.lock.json",
+        "platform/delivery/argocd/artifact.lock.json"
+      ],
+      "writePaths": [
+        "ansible/runner/helm.lock.json",
+        "platform/connectivity/istio/base/artifact.lock.json",
+        "platform/connectivity/istio/cni/artifact.lock.json",
+        "platform/connectivity/istio/istiod/artifact.lock.json",
+        "platform/connectivity/istio/ztunnel/artifact.lock.json",
+        "platform/certificates/cert-manager/artifact.lock.json",
+        "platform/storage/longhorn/artifact.lock.json",
+        "platform/secrets/external-secrets/artifact.lock.json",
+        "platform/delivery/argocd/artifact.lock.json"
+      ],
+      "updater": "tool",
+      "group": "bootstrap runner",
+      "checks": [
+        "ansible/runner/tests/test_tools.py",
+        "ansible/playbooks/istio/tests/test_chart.py",
+        "ansible/playbooks/certificates/tests/test_chart.py",
+        "ansible/playbooks/longhorn/tests/test_chart.py",
+        "ansible/playbooks/secrets/tests/test_chart.py",
+        "ansible/playbooks/argocd/tests/test_render.py"
+      ],
+      "nativeDependencies": [
+        "helm/helm"
+      ]
+    },
+    "tool:op": {
+      "sources": [
+        "ansible/runner/tools.lock.json"
+      ],
+      "companions": [],
+      "writePaths": [
+        "ansible/runner/tools.lock.json"
+      ],
+      "updater": "tool",
+      "group": "bootstrap runner",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "nativeDependencies": []
+    },
+    "tool:debian": {
+      "sources": [
+        "ansible/runner/debian.sources"
+      ],
+      "companions": [],
+      "writePaths": [
+        "ansible/runner/debian.sources"
+      ],
+      "updater": "tool",
+      "group": "bootstrap runner",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "nativeDependencies": []
+    },
+    "image:cosign": {
+      "sources": [
+        "platform/harbor/cosign.lock.json"
+      ],
+      "companions": [
+        "ansible/runner/Dockerfile"
+      ],
+      "writePaths": [
+        "platform/harbor/cosign.lock.json",
+        "ansible/runner/Dockerfile"
+      ],
+      "selectors": [
+        "image"
+      ],
+      "digestChannel": "latest",
+      "group": "bootstrap runner",
+      "updater": "image",
+      "checks": [
+        "native:cosign",
+        "ansible/playbooks/harbor/tests/test_signatures.py"
+      ],
+      "nativeDependencies": [
+        "cgr.dev/chainguard/cosign"
+      ]
+    },
+    "image:ci-scan": {
+      "sources": [
+        "platform/delivery/ci/scan.lock.json"
+      ],
+      "companions": [],
+      "writePaths": [
+        "platform/delivery/ci/scan.lock.json"
+      ],
+      "selectors": [
+        "database"
+      ],
+      "digestChannel": "2",
+      "group": "CI execution",
+      "updater": "ci-runner",
+      "checks": [
+        "ansible/playbooks/ci/tests/test_bootstrap.py"
+      ],
+      "nativeDependencies": [
+        "ghcr.io/aquasecurity/trivy-db"
+      ]
+    },
+    "sigstore-roots": {
+      "sources": [
+        "platform/delivery/services/sigstore-fulcio.lock.json",
+        "platform/delivery/services/sigstore-fulcio.crt"
+      ],
+      "companions": [
+        "ansible/playbooks/previews/files/sigstore-fulcio.crt",
+        "platform/delivery/previews/runtime/sigstore-fulcio.crt"
+      ],
+      "writePaths": [
+        "platform/delivery/services/sigstore-fulcio.lock.json",
+        "platform/delivery/services/sigstore-fulcio.crt",
+        "ansible/playbooks/previews/files/sigstore-fulcio.crt",
+        "platform/delivery/previews/runtime/sigstore-fulcio.crt"
+      ],
+      "group": "public artifact trust",
+      "updater": "package",
+      "checks": [
+        "ansible/playbooks/services/tests/test_artifacts.py",
+        "module:playbooks.previews.files.package",
+        "native:sigstore-roots"
+      ],
+      "nativeDependencies": []
+    },
+    "image:maintenance": {
+      "sources": [
+        "platform/delivery/dependencies/image.lock.json"
+      ],
+      "companions": [
+        "ansible/playbooks/dependencies/compose.yaml"
+      ],
+      "writePaths": [
+        "platform/delivery/dependencies/image.lock.json",
+        "ansible/playbooks/dependencies/compose.yaml"
+      ],
+      "selectors": [
+        "image"
+      ],
+      "group": "dependency maintenance",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/dependencies/tests/test_security.py"
+      ],
+      "nativeDependencies": [
+        "ghcr.io/renovatebot/renovate"
+      ]
+    },
+    "policy:application-releases": {
+      "sources": [
+        "apps/releases/notes.json"
+      ],
+      "companions": [],
+      "writePaths": [],
+      "group": "signed application release",
+      "updater": "native",
+      "disposition": "existing-owner",
+      "owner": "playbooks.services.files.release",
+      "checks": [
+        "ansible/playbooks/services/tests/test_publication.py",
+        "ansible/playbooks/services/tests/test_artifacts.py"
+      ],
+      "nativeDependencies": []
+    },
+    "tool:oauth2-proxy": {
+      "sources": [
+        "ansible/playbooks/harbor/tests/browser-proof.lock.json"
+      ],
+      "companions": [],
+      "writePaths": [
+        "ansible/playbooks/harbor/tests/browser-proof.lock.json"
+      ],
+      "group": "Harbor browser fixture",
+      "updater": "tool",
+      "checks": [
+        "native:oauth2-proxy",
+        "ansible/playbooks/harbor/tests/test_sessions.py"
+      ],
+      "nativeDependencies": [
+        "oauth2-proxy/oauth2-proxy"
+      ]
+    },
+    "tool:gateway-api-plugin": {
+      "sources": [
+        "platform/delivery/rollouts/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/rollouts/values.yaml"
+      ],
+      "writePaths": [
+        "platform/delivery/rollouts/artifact.lock.json",
+        "platform/delivery/rollouts/values.yaml"
+      ],
+      "group": "rollouts Gateway API plugin",
+      "updater": "tool",
+      "checks": [
+        "module:playbooks.rollouts.files.check"
+      ],
+      "nativeDependencies": [
+        "argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi"
+      ]
+    },
+    "tool:cmctl": {
+      "sources": [
+        "platform/certificates/cert-manager/artifact.lock.json"
+      ],
+      "companions": [],
+      "writePaths": [
+        "platform/certificates/cert-manager/artifact.lock.json"
+      ],
+      "group": "certificate renewal tool",
+      "updater": "tool",
+      "checks": [
+        "native:cmctl",
+        "ansible/playbooks/certificates/tests/test_chart.py"
+      ],
+      "nativeDependencies": [
+        "cert-manager/cmctl"
+      ]
+    },
+    "image:certificates": {
+      "sources": [
+        "platform/certificates/cert-manager/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/certificates/cert-manager/values.json"
+      ],
+      "writePaths": [
+        "platform/certificates/cert-manager/artifact.lock.json",
+        "platform/certificates/cert-manager/values.json"
+      ],
+      "group": "certificates",
+      "updater": "image",
+      "checks": [
+        "ansible/playbooks/certificates/tests/test_chart.py"
+      ],
+      "selectors": [
+        "quay.io/jetstack/cert-manager-controller:v1.21.2",
+        "quay.io/jetstack/cert-manager-webhook:v1.21.2",
+        "quay.io/jetstack/cert-manager-cainjector:v1.21.2",
+        "quay.io/jetstack/cert-manager-acmesolver:v1.21.2"
+      ],
+      "nativeDependencies": [
+        "quay.io/jetstack/cert-manager-controller",
+        "quay.io/jetstack/cert-manager-webhook",
+        "quay.io/jetstack/cert-manager-cainjector",
+        "quay.io/jetstack/cert-manager-acmesolver"
+      ]
+    },
+    "image:rollouts": {
+      "sources": [
+        "platform/delivery/rollouts/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/delivery/rollouts/values.yaml"
+      ],
+      "writePaths": [
+        "platform/delivery/rollouts/artifact.lock.json",
+        "platform/delivery/rollouts/values.yaml"
+      ],
+      "group": "rollouts",
+      "updater": "image",
+      "checks": [
+        "module:playbooks.rollouts.files.check"
+      ],
+      "selectors": [
+        "quay.io/argoproj/argo-rollouts:v1.10.1"
+      ],
+      "nativeDependencies": [
+        "quay.io/argoproj/argo-rollouts"
+      ]
+    },
+    "image:cnpg": {
+      "sources": [
+        "platform/data/cnpg/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/data/cnpg/values.yaml"
+      ],
+      "writePaths": [
+        "platform/data/cnpg/artifact.lock.json",
+        "platform/data/cnpg/values.yaml"
+      ],
+      "group": "cnpg",
+      "updater": "image",
+      "checks": [
+        "module:playbooks.data.files.chart"
+      ],
+      "selectors": [
+        "image"
+      ],
+      "nativeDependencies": [
+        "ghcr.io/cloudnative-pg/cloudnative-pg"
+      ]
+    },
+    "image:postgresql": {
+      "sources": [
+        "platform/data/cnpg/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/data/configuration/values.yaml",
+        "platform/data/configuration/values.schema.json",
+        "ansible/playbooks/data/tests/compose.provider-proof.yaml",
+        "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
+      ],
+      "writePaths": [
+        "platform/data/cnpg/artifact.lock.json",
+        "platform/data/configuration/values.yaml",
+        "platform/data/configuration/values.schema.json",
+        "ansible/playbooks/data/tests/compose.provider-proof.yaml",
+        "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
+      ],
+      "group": "postgresql",
+      "updater": "image",
+      "checks": [
+        "module:playbooks.data.files.chart"
+      ],
+      "selectors": [
+        "postgres_image"
+      ],
+      "nativeDependencies": [
+        "ghcr.io/cloudnative-pg/postgresql"
+      ]
+    },
+    "image:seaweedfs": {
+      "sources": [
+        "platform/data/seaweedfs/artifact.lock.json"
+      ],
+      "companions": [
+        "platform/data/seaweedfs/values.yaml",
+        "ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
+      ],
+      "writePaths": [
+        "platform/data/seaweedfs/artifact.lock.json",
+        "platform/data/seaweedfs/values.yaml",
+        "ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
+      ],
+      "group": "seaweedfs",
+      "updater": "image",
+      "checks": [
+        "module:playbooks.data.files.chart"
+      ],
+      "selectors": [
+        "image"
+      ],
+      "nativeDependencies": [
+        "chrislusf/seaweedfs"
+      ]
+    }
+  },
+  "historical": [],
+  "historicalFields": [
+    "semantic_sha256",
+    "migration_baseline_revision"
+  ]
+}

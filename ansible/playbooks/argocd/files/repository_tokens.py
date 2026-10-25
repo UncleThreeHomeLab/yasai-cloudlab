@@ -1,5 +1,6 @@
 """Issue short-lived, single-repository tokens from accepted local release Apps."""
 from datetime import datetime
+import re
 import time
 
 from playbooks.argocd.files.github_app import app_token
@@ -17,7 +18,7 @@ def revoke(lease):
             raise
 
 
-def issue(values, role, permissions):
+def issue(values, role, permissions, *, include_requester=False):
     if (role not in ('public-platform', 'private-config') or
             set(permissions) != {'contents', 'pull_requests'} or
             any(level not in ('read', 'write') for level in permissions.values())):
@@ -28,6 +29,11 @@ def issue(values, role, permissions):
     credentials = fields(title, ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
     verify_app(credentials, {repo: private}, APPS[title][1])
     issuer = GitHub(app_token(credentials))
+    if include_requester:
+        app = issuer.request('GET', 'app')
+        if (str(app.get('id')) != credentials['APP_ID'] or
+                not re.fullmatch(r'[A-Za-z0-9-]+', app.get('slug', ''))):
+            raise ValueError('Repository App identity differs')
     issued = issuer.request('POST', 'app/installations/' + credentials['INSTALLATION_ID'] + '/access_tokens',
         {'repositories': [repo.split('/')[1]], 'permissions': permissions})
     lease = {'token': issued['token']}
@@ -46,6 +52,8 @@ def issue(values, role, permissions):
                 any(rows[0].get(key) for key in ('fork', 'archived', 'disabled'))):
             raise ValueError('Issued repository token selection differs')
         lease.update(repository=repo, repositoryId=rows[0]['id'], permissions=expected, expiresAt=expires)
+        if include_requester:
+            lease['requester'] = app['slug'] + '[bot]'
         return lease
     except Exception:
         revoke(lease)

@@ -37,7 +37,9 @@ def patched(raw):
 def verify():
     lock = json.loads((ROOT / 'artifact.lock.json').read_text())
     original = (ROOT / 'upstream.tgz').read_bytes()
-    archive = ROOT / 'charts/tailscale-operator-1.102.4.tgz'
+    archive = ROOT / lock['archive']
+    if not archive.resolve().is_relative_to(ROOT.resolve()):
+        raise ValueError('Tailscale archive escapes its module')
     vendored = archive.read_bytes()
     if hashlib.sha256(original).hexdigest() != lock['upstream_sha256']:
         raise ValueError('Tailscale upstream checksum mismatch')

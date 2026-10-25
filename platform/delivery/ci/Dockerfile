@@ -74,6 +74,9 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 FROM ghcr.io/actions/gha-runner-scale-set-controller:0.15.0@sha256:162dfb5bfbda9e7e49fbed67d428994c9ced55b41a37a18b75b46dab0aa98d37 AS controller
 COPY --from=arc /out/manager /out/ghalistener /out/github-webhook-server /out/actions-metrics-server /out/sleep /
 COPY --from=arc /source/LICENSE /usr/share/doc/cloudlab-arc/LICENSE
+COPY Dockerfile /usr/share/doc/cloudlab-ci/Dockerfile
+COPY tools/source.lock.json /usr/share/doc/cloudlab-ci/tools.lock.json
+COPY runner/source.lock.json /usr/share/doc/cloudlab-ci/runner.lock.json
 
 FROM scratch AS tools
 COPY --from=buildkit /out/ /usr/local/bin/
@@ -96,9 +99,12 @@ RUN apk add --no-network /tmp/libexpat.apk \
       /usr/bin/buildkit-cni-host-local /usr/bin/buildkit-cni-loopback
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildkitd /usr/local/bin/buildkit-runc /usr/local/bin/rootlesskit /usr/bin/
 COPY --from=tools /usr/share/doc/ /usr/share/doc/
+COPY Dockerfile /usr/share/doc/cloudlab-ci/Dockerfile
+COPY tools/source.lock.json /usr/share/doc/cloudlab-ci/tools.lock.json
+COPY runner/source.lock.json /usr/share/doc/cloudlab-ci/runner.lock.json
 USER 1000:1000
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0.426-bookworm-slim@sha256:f7e28a0a3f6f9235929ec19274fd0ddf8534e9159f99fac602ac73304f1ce99f AS source
+FROM mcr.microsoft.com/dotnet/sdk:8.0.426-bookworm-slim@sha256:f7e28a0a3f6f9235929ec19274fd0ddf8534e9159f99fac602ac73304f1ce99f AS source-inputs
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 WORKDIR /source/runner
 RUN curl -fsSL --retry 3 https://codeload.github.com/actions/runner/tar.gz/refs/tags/v2.338.0 -o /tmp/runner.tgz \
@@ -120,6 +126,13 @@ RUN git init -q \
     && GIT_AUTHOR_DATE='2000-01-01T00:00:00Z' GIT_COMMITTER_DATE='2000-01-01T00:00:00Z' git commit -qm 'Pinned runner source with reviewed local changes'
 WORKDIR /source/runner/src
 RUN dotnet msbuild dir.proj -t:GenerateConstant -p:RunnerVersion=2.338.0 -p:PackageRuntime=linux-x64
+
+FROM source-inputs AS refresh-locks
+COPY runner/source.lock.json /source/maintenance-source.lock.json
+RUN dotnet restore Test/Test.csproj --runtime linux-x64 --force-evaluate \
+    -p:RuntimeIdentifiers=linux-x64 -p:RestorePackagesWithLockFile=true -p:RestoreLockedMode=false
+
+FROM source-inputs AS source
 RUN dotnet restore Test/Test.csproj --runtime linux-x64 --locked-mode -p:RuntimeIdentifiers=linux-x64
 
 FROM source AS test
@@ -155,6 +168,9 @@ COPY --from=tools /usr/local/bin/cosign /usr/local/bin/cosign
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
 COPY --from=tools /usr/local/bin/crane /usr/local/bin/crane
 COPY --chmod=0444 runner/health.py /usr/local/libexec/cloudlab-ci-health.py
+COPY Dockerfile /usr/share/doc/cloudlab-ci/Dockerfile
+COPY tools/source.lock.json /usr/share/doc/cloudlab-ci/tools.lock.json
+COPY runner/source.lock.json /usr/share/doc/cloudlab-ci/runner.lock.json
 ENV FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true
 USER runner
 WORKDIR /home/runner

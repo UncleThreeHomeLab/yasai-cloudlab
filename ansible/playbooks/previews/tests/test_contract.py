@@ -10,6 +10,28 @@ from playbooks.previews.files.resources import resources, workload
 
 
 class ApprovalTests(unittest.TestCase):
+    def test_historical_rows_remain_structural_but_never_authorize_new_execution(self):
+        old = approval()
+        with patch.object(contract, 'IMAGE', 'python:3.13-slim-bookworm@sha256:' + 'd' * 64):
+            current = copy.deepcopy(old)
+            current.update(instance='e' * 32, image=contract.IMAGE)
+            settings = catalog([old, current])
+            contract.runtime_catalog(settings)
+            contract.stored_approval(old)
+            with self.assertRaises(ValueError):
+                contract.catalog(settings)
+            for image in (old['image'], 'evil/public:v1@sha256:' + 'a' * 64):
+                row = dict(old, image=image)
+                with self.assertRaises(ValueError):
+                    contract.approval(row)
+                with self.assertRaises(ValueError):
+                    contract.client(row, settings)
+            self.assertTrue(resources(current, settings, 'https://github.com/example/platform.git', 'state'))
+            changed = copy.deepcopy(settings)
+            changed['ownership'][contract.names(old)['namespace']] = old['instance'] + ':' + 'f' * 64
+            with self.assertRaises(ValueError):
+                contract.runtime_catalog(changed)
+
     def test_exact_blob_not_revision_label_authorizes_source(self):
         row = approval()
         contract.catalog(catalog())
