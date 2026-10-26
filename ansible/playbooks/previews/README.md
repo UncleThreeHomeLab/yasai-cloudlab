@@ -115,9 +115,23 @@ Use `inspect`, then `viewer-provision`, `viewer-stage`, `viewer-propose`,
 stages. `viewer-observe`, `offboard-propose`, `offboard-merge`, `viewer-offboard`
 retain the viewer tombstone and vault item. Synthetic PR stages are `pr-create`,
 `pr-advance` and `pr-cleanup`, with `--slot a|b|c|d`. No PR merges release code.
+An interrupted `approval-prepare` may use `approval-abandon` after its saved
+preparations expire. Original records remain immutable; the journal then permits
+only observation and cleanup that reduces authority. Offboarding and closing owned
+source PRs need no activation proof. Catalog ownership still requires actual absence.
 Each invocation requires clean published main and a serialized private journal;
 the original platform revision must remain its ancestor. Runtime viewer changes
 use the versioned fixture Ansible entry point and existing identity owners.
+
+`approval-prepare --batch ab|cd --lifetime <seconds>` reserves immutable private
+approvals and artifacts after fresh owner/viewer checks. `catalog-prepare` accepts
+the same batch with `--mode approve|withdraw|cleanup|finalize`; publication requires
+separate `catalog-propose`, `catalog-review` and `catalog-merge` stages. Stale bases
+use `catalog-reprepare`, preserving old proposal receipts. `lifecycle-observe`
+records exact resource/client identities, confirmed disable time and final absence;
+cleanup cannot remove ownership before that evidence. `catalog-retire` closes and
+atomically deletes only proposal refs with recorded creation intents. Historical
+unjournaled refs remain retained. Approval retries never extend expiry.
 
 The explicit `browser` stage uses `tests/compose.browser-live.yml`: start its
 `browser` service, then run `controller --nonce <32hex> --live`. Only controller

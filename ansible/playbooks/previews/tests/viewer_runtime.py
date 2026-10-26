@@ -8,6 +8,10 @@ sys.path.insert(0, '/opt/cloudlab')
 
 
 def validate(request):
+    if isinstance(request, dict) and request.get('action') == 'lifecycle':
+        from playbooks.previews.tests.evidence_runtime import validate as evidence_validate
+        evidence_validate(request)
+        return {key: request[key] for key in ('nonce', 'realm')}
     from playbooks.keycloak.files.session_fixture import scope
     if not isinstance(request, dict) or set(request) - {'action', 'nonce', 'realm', 'revision', 'identity', 'instances'}:
         raise ValueError('Invalid viewer operation')
@@ -144,6 +148,9 @@ def client_baseline(request):
 def run(request):
     identity = validate(request)
     action = request['action']
+    if action == 'lifecycle':
+        from playbooks.previews.tests.evidence_runtime import run as evidence
+        return evidence(request)
     if action in ('stage', 'enroll'):
         from playbooks.keycloak.files.session_fixture import enroll
         return enroll(identity, stage=action == 'stage')
@@ -164,8 +171,8 @@ def run(request):
 
 if __name__ == '__main__':
     try:
-        raw = sys.stdin.buffer.read(8193)
-        if len(raw) > 8192:
+        raw = sys.stdin.buffer.read(65537)
+        if len(raw) > 65536:
             raise ValueError('Viewer request exceeds its bound')
         print(json.dumps(run(json.loads(raw))))
     except Exception:

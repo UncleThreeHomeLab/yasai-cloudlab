@@ -15,7 +15,8 @@ from playbooks.previews.files.contract import digest
 
 ROOT = Path(__file__).resolve().parents[4]
 ACTIONS = ('inspect', 'viewer-provision', 'viewer-stage', 'viewer-propose', 'viewer-merge', 'viewer-enroll',
-           'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup', 'browser')
+           'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup', 'browser',
+           'approval-prepare', 'approval-abandon', 'catalog-prepare', 'catalog-reprepare', 'catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire', 'lifecycle-observe')
 
 
 class Parser(argparse.ArgumentParser):
@@ -47,7 +48,11 @@ def publication(api, values, state, save, *, offboard=False):
         state[key] = {'snapshot': snapshot, 'prepared': prepared}
         save()
     record = state[key]
-    result = session.propose(api, values, record['snapshot'], record['prepared'])
+    from playbooks.previews.tests.approval_fixture import Publication
+    from playbooks.argocd.files.github_setup import repository
+    wrapped = Publication(api, repository(values['PRIVATE_CONFIG_REPOSITORY']), record, save,
+        'identity', record['prepared'], record['snapshot']['revision'])
+    result = session.propose(wrapped, values, record['snapshot'], record['prepared'])
     if result['private_source_changed']:
         number = result['private_pull_request']
         from playbooks.argocd.files.github_setup import repository
@@ -66,9 +71,35 @@ def publication_merge(api, values, state, save, *, offboard=False):
         save()
 
 
-def prerequisites(action, state, slot):
+def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='approve'):
     if action != 'inspect' and 'baseline' not in state:
         raise ValueError('Inspect and journal the private/cluster baseline first')
+    if state.get('abandonedPreparation'):
+        permitted = ('inspect', 'approval-abandon', 'viewer-observe', 'lifecycle-observe', 'offboard-propose',
+                     'offboard-merge', 'viewer-offboard', 'pr-cleanup', 'catalog-retire')
+        if action.startswith('catalog-') and action != 'catalog-retire':
+            from playbooks.previews.tests.approval_fixture import current
+            reducing = (mode if action == 'catalog-prepare' else current(state)['mode']) in ('withdraw', 'cleanup', 'finalize')
+        else:
+            reducing = False
+        if action not in permitted and not reducing:
+            raise ValueError('Abandoned preparation permits only observation and authority-reducing cleanup')
+    if action == 'approval-prepare':
+        if (batch not in ('ab', 'cd') or type(lifetime) is not int or not 60 <= lifetime <= 3000 or
+                not state.get('enrolled') or 'offboarding' in state or any(
+                    not state.get('pulls', {}).get(value, {}).get('head') for value in batch)):
+            raise ValueError('Prepare only the exact enrolled owned PR pair and bounded lifetime')
+    if action.startswith('catalog-'):
+        from playbooks.previews.tests.approval_fixture import current
+        if action == 'catalog-prepare':
+            if batch not in ('ab', 'cd') or mode not in ('approve', 'withdraw', 'cleanup', 'finalize'):
+                raise ValueError('Catalog transition requires a fixed batch and mode')
+            if mode != 'finalize' and any('row' not in state.get('approvals', {}).get(value, {}) for value in batch):
+                raise ValueError('Prepare the exact owned approval pair first')
+        elif action != 'catalog-retire':
+            current(state)
+    if action == 'lifecycle-observe' and not state.get('approvals'):
+        raise ValueError('Prepare owned approvals before lifecycle observation')
     if action == 'browser' and (not state.get('enrolled') or 'offboarding' in state or
             not isinstance(state.get('browserApprovals'), dict) or set(state['browserApprovals']) != {'a', 'b'}):
         raise ValueError('Browser proof requires its enrolled viewer and explicit A/B approval receipts')
@@ -117,13 +148,28 @@ def execution_source(state, revision):
     state['executionPlatform'] = revision
 
 
-def execute(action, values, state, save, slot=None):
+def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000, mode='approve'):
     request = state['viewer']
-    prerequisites(action, state, slot)
+    prerequisites(action, state, slot, batch=batch, lifetime=lifetime, mode=mode)
+    if action == 'approval-abandon':
+        from playbooks.previews.tests.approval_fixture import abandon_preparation
+        abandon_preparation(state, save)
+        return
     intent = {'action': action, 'slot': slot}
+    if action == 'approval-prepare':
+        intent.update(batch=batch, lifetime=lifetime)
+    if action == 'catalog-prepare':
+        intent.update(batch=batch, mode=mode)
+    stale_catalog = False
+    if action == 'catalog-reprepare' and state.get('intent') in (
+            {'action': name, 'slot': None} for name in ('catalog-propose', 'catalog-review', 'catalog-merge')):
+        from playbooks.previews.tests.approval_fixture import reprepare_check
+        with session.private_context(values) as api:
+            reprepare_check(api, values, state)
+        stale_catalog = True
     interrupted_browser = (action == 'offboard-propose' and slot is None and
         state.get('browserAttempted') is True and state.get('intent') == {'action': 'browser', 'slot': None})
-    if state.get('intent') not in (None, intent) and not interrupted_browser:
+    if state.get('intent') not in (None, intent) and not interrupted_browser and not stale_catalog:
         raise ValueError('Resume the journaled operation before beginning another fixture stage')
     if interrupted_browser:
         state['browserFailed'] = True
@@ -148,6 +194,35 @@ def execute(action, values, state, save, slot=None):
         if 'baseline' not in state:
             state['baseline'] = {'catalog': inspected, 'identity': identity, 'cluster': observed}
         state['inspection'] = {'catalog': inspected, 'identity': identity, 'cluster': observed}
+    elif action == 'approval-prepare':
+        from playbooks.previews.tests.approval_fixture import prepare
+        observed = remote(values, dict(request, action='observe'))
+        if observed != state.get('identity') or observed.get('enabled') is not True:
+            raise ValueError('Fresh enrolled viewer identity changed before approval preparation')
+        remote(values, dict(request, action='lifecycle', approvals=[], expected={}, revision=state['executionPlatform']))
+        prepare(values, state, save, batch, lifetime)
+    elif action.startswith('catalog-'):
+        from playbooks.previews.tests import approval_fixture as approval
+        removing = ((action == 'catalog-prepare' and mode in ('cleanup', 'finalize')) or
+                    (action in ('catalog-review', 'catalog-merge') and approval.current(state)['mode'] in ('cleanup', 'finalize')))
+        if removing and approval.rows(state):
+            observed = remote(values, dict(request, action='lifecycle', approvals=list(approval.rows(state).values()),
+                expected=state.get('evidence', {}), revision=state['executionPlatform']))
+            approval.remember(state, observed, save)
+        operations = {'catalog-prepare': lambda api: approval.catalog_prepare(api, values, state, save, batch, mode),
+            'catalog-reprepare': lambda api: approval.reprepare(api, values, state, save),
+            'catalog-propose': lambda api: approval.propose(api, values, state, save),
+            'catalog-review': lambda api: approval.review(api, values, state, save),
+            'catalog-merge': lambda api: approval.merge(api, values, state, save),
+            'catalog-retire': lambda api: approval.retire_proposals(api, values, state, save)}
+        with session.private_context(values, write=action in ('catalog-propose', 'catalog-merge', 'catalog-retire')) as api:
+            operations[action](api)
+    elif action == 'lifecycle-observe':
+        from playbooks.previews.tests import approval_fixture as approval
+        observed = remote(values, dict(request, action='lifecycle', approvals=list(approval.rows(state).values()), expected=state.get('evidence', {}), revision=state['executionPlatform']))
+        approval.remember(state, observed, save)
+        baseline = remote(values, dict(request, action='baseline', instances=state.get('instances', [])))
+        approval.preserve_baseline(state, baseline)
     elif action == 'viewer-provision':
         from playbooks.keycloak.files.session_fixture import provision
         provision(request)
@@ -224,6 +299,9 @@ def main(arguments=None):
     parser.add_argument('action', choices=ACTIONS)
     parser.add_argument('--nonce', required=True)
     parser.add_argument('--slot', choices=('a', 'b', 'c', 'd'))
+    parser.add_argument('--batch', choices=('ab', 'cd'), default='ab')
+    parser.add_argument('--lifetime', type=int, default=3000)
+    parser.add_argument('--mode', choices=('approve', 'withdraw', 'cleanup', 'finalize'), default='approve')
     parser.add_argument('--live', action='store_true')
     args = parser.parse_args(arguments)
     if not args.live or not re.fullmatch('[a-f0-9]{32}', args.nonce):
@@ -253,7 +331,7 @@ def main(arguments=None):
         execution_source(state, platform['revision'])
         values = dotenv_values(ROOT / '.env', interpolate=False)
         os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
-        execute(args.action, values, state, save, args.slot)
+        execute(args.action, values, state, save, args.slot, batch=args.batch, lifetime=args.lifetime, mode=args.mode)
     finally:
         os.close(lock)
     print(json.dumps({'fixture_stage_completed': True, 'live_acceptance_complete': False}))
