@@ -213,6 +213,8 @@ def run(values, state, observe, begin_enrollment):
         for slot, row in zip(('a', 'b'), rows):
             contract.validate_pull(row, fixture.verified_pull(api, state['pulls'][slot], request['nonce'], slot))
     remaining(rows)
+    from playbooks.previews.tests.probe_transport import handoff
+    probe = handoff(state, rows, [])
     proof = fields('keycloak-proof-' + request['nonce'], ['username', 'password', 'email', 'ownership_id'])
     if (proof['ownership_id'] != request['nonce'] or proof['username'] != observed['username'] or
             proof['email'] != observed['email'] or not isinstance(proof['password'], str) or not 1 <= len(proof['password']) <= 4096):
@@ -241,6 +243,7 @@ def run(values, state, observe, begin_enrollment):
                 'code': code, 'code_verifier': verifier})
             tokens.append(claims(response, jwks, issuer, client, nonce, observed['user_id']))
         protected(rows, settings, gateway, tokens)
+        dataplane = handoff(state, rows, tokens, probe, browser_deadline=wire.deadline)
         for bad in (callbacks[1], callbacks[0] + '/changed'):
             state_value, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
             wire.send({'action': 'reject', 'authorization': authorization(issuer, clients[0], bad, state_value, nonce, verifier),
@@ -250,5 +253,5 @@ def run(values, state, observe, begin_enrollment):
         wire.send({'action': 'origins', 'callbacks': callbacks})
         if wire.read({'origins', 'storage', 'dom', 'cors'}) != dict.fromkeys(('origins', 'storage', 'dom', 'cors'), True):
             refused()
-    return {'authentication': True, 'audiences': True, 'callbacks': True, 'origins': True,
+    return {'authentication': True, 'audiences': True, 'callbacks': True, 'origins': True, 'dataplane': dataplane,
             'platform': state['executionPlatform'], 'approvals': copy.deepcopy(state['browserApprovals'])}

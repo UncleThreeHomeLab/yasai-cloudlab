@@ -43,6 +43,7 @@ class AccessTests(unittest.TestCase):
                 process.return_value.stdout = 'inspected'
                 self.assertEqual(ssh('VM', 'example.invalid', 'hostname'), 'inspected')
                 command = process.call_args.args[0]
+                self.assertIn('-T', command)
                 self.assertEqual(command[command.index('-p') + 1], expected)
                 self.assertNotIn('fixture-secret', command)
                 self.assertEqual(process.call_args.kwargs['env']['SSHPASS'], 'fixture-secret')

@@ -1,0 +1,59 @@
+---
+- name: Run one bounded synthetic preview resource operation
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Validate the fixed resource dispatch before host changes
+      ansible.builtin.assert:
+        that:
+          - preview_resource.nonce is match('^[a-f0-9]{32}$')
+          - preview_resource.revision is match('^[a-f0-9]{40}$')
+          - preview_resource.action in ['probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete', 'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup']
+      vars:
+        preview_resource: "{{ lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json }}"
+      no_log: true
+    - name: Create canonical fixture module directories
+      ansible.builtin.file:
+        path: '/opt/cloudlab/playbooks/{{ item }}'
+        state: directory
+        mode: '0700'
+      loop: [previews/tests, previews/files, istio/files, argocd/files, access/files, tailscale/files]
+      no_log: true
+    - name: Install published resource and read-only probe closure
+      ansible.builtin.copy:
+        src: '/workspace/ansible/playbooks/{{ item }}'
+        dest: '/opt/cloudlab/playbooks/{{ item }}'
+        mode: '0600'
+      loop:
+        - previews/tests/resource_runtime.py
+        - previews/tests/probe_inspection.py
+        - previews/tests/probe_state.py
+        - previews/tests/probe_program.py
+        - previews/files/contract.py
+        - previews/files/kube.py
+        - previews/files/lifecycle.py
+        - previews/files/resources.py
+        - previews/files/images.lock.json
+        - previews/files/sigstore-fulcio.crt
+        - istio/files/kube.py
+        - argocd/files/source_revision.py
+        - access/files/traffic.py
+        - tailscale/files/ssh_channel.py
+      no_log: true
+    - name: Invoke only the fixed resource owner
+      ansible.builtin.command: python3 -B /opt/cloudlab/playbooks/previews/tests/resource_runtime.py
+      args:
+        stdin: "{{ lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') }}"
+      register: preview_resource_result
+      changed_when: (lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json).action not in ['probe-observe', 'retained-observe', 'outage-observe']
+      no_log: true
+    - name: Retain bounded private resource observation
+      ansible.builtin.copy:
+        content: '{{ preview_resource_result.stdout }}'
+        dest: "/recovery/previews/{{ (lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json).nonce }}/resource-result.json"
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+      no_log: true

@@ -1,0 +1,14 @@
+{{- if not (regexMatch "^[a-f0-9]{32}$" .Values.nonce) }}
+{{- fail "An exact synthetic fixture nonce is required" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: persistent-proof
+  labels:
+    cloudlab.io/owner: cloudlab-preview-fixture
+    cloudlab.io/fixture: {{ .Values.nonce | quote }}
+  annotations:
+    cloudlab.io/retention: retain
+data:
+  synthetic: {{ printf "persistent-%s" .Values.nonce | quote }}

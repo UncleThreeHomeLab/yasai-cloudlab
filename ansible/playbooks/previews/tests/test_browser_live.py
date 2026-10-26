@@ -229,6 +229,7 @@ class BrowserTests(unittest.TestCase):
                 patch('playbooks.previews.files.github.GitHub.blob', side_effect=lambda reader,row: contract.canonical(row['definition'])), \
                 patch('playbooks.access.files.verify.remote', return_value=runtime), \
                 patch.object(proof, 'bindings', return_value=(rows, '100.64.0.1')), patch.object(proof, 'active'), \
+                patch('playbooks.previews.tests.probe_transport.handoff', side_effect=lambda *args: events.append('probe-preflight')), \
                 patch.object(proof.time, 'time', return_value=1200), \
                 patch('playbooks.secrets.files.vault.fields', side_effect=credentials) as vault, \
                 patch('playbooks.keycloak.files.health.json_get', return_value={}), \
@@ -238,7 +239,7 @@ class BrowserTests(unittest.TestCase):
             values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
             with self.assertRaises(RuntimeError):
                 proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
-            self.assertEqual(events, ['credentials', 'connection', 'begin', 'frame'])
+            self.assertEqual(events, ['probe-preflight', 'credentials', 'connection', 'begin', 'frame'])
             events.clear()
             with patch.object(proof.time, 'time', return_value=1700):
                 with self.assertRaises(ValueError): proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
@@ -246,7 +247,7 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(vault.call_count, 1)
             with patch.object(proof.time, 'time', side_effect=[1200, 1200, 1700]):
                 with self.assertRaises(ValueError): proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
-            self.assertEqual(events, ['credentials', 'connection'])
+            self.assertEqual(events, ['probe-preflight', 'credentials', 'connection'])
             self.assertEqual(vault.call_count, 2)
 
     def test_runtime_requires_active_current_owned_controller_and_identity_records(self):
@@ -265,3 +266,35 @@ class BrowserTests(unittest.TestCase):
             state['entries'][rows[0]['instance']]['phase'] = 'retiring'
             changed['states'][name]['data']['state.json'] = json.dumps(state)
             with self.assertRaises(ValueError): proof.active(rows, changed, 1250)
+
+    def test_access_probe_uses_same_browser_budget_and_never_sends_tokens_to_browser(self):
+        from unittest.mock import MagicMock
+        state,settings,identity,runtime=self.fixture();rows=settings['approvals'];events=[]
+        tokens=['synthetic-access-a','synthetic-access-b'];preflight_context={'approved':True}
+        wire=MagicMock();wire.deadline=proof.time.monotonic()+240
+        wire.read.side_effect=[{'ready':True},{'callback':'synthetic'},{'callback':'synthetic'},
+            {'rejected':True},{'rejected':True},dict.fromkeys(('origins','storage','dom','cors'),True)]
+        def handoff(*args,**kwargs):
+            if not args[2]:events.append('preflight');return preflight_context
+            events.append('access');self.assertEqual(args[2],tokens);self.assertIs(args[3],preflight_context)
+            self.assertEqual(kwargs,{'browser_deadline':wire.deadline})
+            return {'result':{'protected':True}}
+        def credentials(*args):
+            events.append('credentials')
+            return dict(username=identity['username'],email=identity['email'],password='synthetic-password',ownership_id=state['viewer']['nonce'])
+        with patch('playbooks.keycloak.tests.scoped_session.private_context'), \
+                patch('playbooks.previews.tests.catalog_fixture.inspect',return_value={'catalog':settings}), \
+                patch('playbooks.previews.tests.catalog_fixture.verified_pull',side_effect=lambda api,receipt,*args:
+                      fixtures.pull(next(row for row in rows if row['pullRequest']==receipt['number']))), \
+                patch('playbooks.previews.files.github.GitHub.blob',side_effect=lambda reader,row:contract.canonical(row['definition'])), \
+                patch('playbooks.access.files.verify.remote',return_value=runtime),patch.object(proof,'bindings',return_value=(rows,'100.64.0.1')), \
+                patch.object(proof,'active'),patch.object(proof.time,'time',return_value=1200), \
+                patch('playbooks.previews.tests.probe_transport.handoff',side_effect=handoff), \
+                patch('playbooks.secrets.files.vault.fields',side_effect=credentials),patch('playbooks.keycloak.files.health.json_get',return_value={}), \
+                patch.object(proof.socket,'create_connection'),patch.object(proof,'Channel',return_value=wire), \
+                patch.object(proof,'callback',return_value='synthetic-code'),patch.object(proof,'claims',side_effect=tokens), \
+                patch.object(proof,'protected'):
+            result=proof.run({'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'},state,lambda *args:identity,lambda:None)
+        self.assertEqual(events,['preflight','credentials','access'])
+        for token in tokens:
+            self.assertNotIn(token,str(wire.send.call_args_list));self.assertNotIn(token,json.dumps(result))

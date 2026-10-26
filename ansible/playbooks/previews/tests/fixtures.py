@@ -244,3 +244,138 @@ def lifecycle_observation():
         'labels': {'app.kubernetes.io/name': 'preview'}, 'ownerReferences': [{'kind': 'ReplicaSet', 'uid': 'replica'}]},
         'spec': {'automountServiceAccountToken': False}, 'status': {'phase': 'Running'}}]}
     return row, settings, lifecycle, identity, objects, client, platform
+
+
+class ResourceAPI:
+    """Bounded native-object fixture, with server rejection and lost write replies."""
+    def __init__(self):
+        self.objects, self.writes, self.fail = {}, [], None
+
+    def get(self, key):
+        return copy.deepcopy(self.objects.get(tuple(key)))
+
+    def create(self, desired):
+        from playbooks.previews.files.kube import identity, APIError
+        key = identity(desired)
+        if key in self.objects: raise APIError(409)
+        self.writes.append(('create', key))
+        actual = copy.deepcopy(desired)
+        actual['metadata'].update(uid='uid-' + str(len(self.writes)), resourceVersion='1')
+        self.objects[key] = actual
+        if self.fail == 'create': self.fail = None; raise RuntimeError('lost reply')
+        return copy.deepcopy(actual)
+
+    def replace(self, actual):
+        from playbooks.previews.files.kube import identity
+        key = identity(actual); previous = self.objects[key]
+        if previous['metadata']['resourceVersion'] != actual['metadata']['resourceVersion']: raise ValueError('changed version')
+        self.writes.append(('replace', key)); self.objects[key] = copy.deepcopy(actual)
+        self.objects[key]['metadata']['resourceVersion'] = str(int(actual['metadata']['resourceVersion']) + 1)
+        if self.fail == 'replace': self.fail = None; raise RuntimeError('lost reply')
+        return self.get(key)
+
+    def delete(self, key, uid, version, *, orphan=False):
+        actual = self.objects[key]
+        if actual['metadata']['uid'] != uid or actual['metadata']['resourceVersion'] != version: raise ValueError('changed delete precondition')
+        self.writes.append(('delete', tuple(key))); del self.objects[key]
+        if self.fail == 'delete': self.fail = None; raise RuntimeError('lost reply')
+
+    def namespace_inventory(self, namespace):
+        return [copy.deepcopy(actual) for key, actual in self.objects.items() if key[2] == namespace]
+
+
+def probe_observation():
+    from playbooks.previews.files import contract
+    from playbooks.previews.files.resources import workload
+    row, settings, lifecycle, _, objects, _, platform = lifecycle_observation()
+    ns=names(row)['namespace']
+    lifecycle['metadata']['labels']={'cloudlab.io/owner':contract.OWNER}
+    objects['configmap',contract.APPROVALS,'argocd']={'metadata':{'labels':{'cloudlab.io/owner':contract.OWNER}},
+        'data':{'catalog.json':json.dumps(settings)}}
+    objects['configmap',contract.STATE,'argocd']=lifecycle
+    objects['application.argoproj.io','cloudlab-previews','argocd']={'metadata':{'labels':{'cloudlab.io/owner':contract.OWNER}},
+        'spec':{'sources':[{'repoURL':platform,'targetRevision':row['platformRevision']}]},
+        'status':{'sync':{'revisions':[row['platformRevision']]},'health':{'status':'Healthy'}}}
+    objects['service','cloudlab-istio','cloudlab-gateway-private']={'metadata':{'uid':'gateway-service',
+        'ownerReferences':[{'kind':'Gateway','uid':'gateway-owner'}]},'spec':{'clusterIP':'10.43.0.1'}}
+    objects['gateway.gateway.networking.k8s.io','cloudlab','cloudlab-gateway-private']={
+        'metadata':{'uid':'gateway-owner'},'spec':{'gatewayClassName':'istio'}}
+    objects['service','preview',ns]['spec']={'selector':{'app.kubernetes.io/name':'preview'},'clusterIP':'10.43.0.2',
+        'ports':[{'port':8080,'targetPort':'http','protocol':'TCP'}]}
+    deployment=objects['deployment.apps','preview',ns]
+    deployment['spec']['template']['spec']['containers'][0]['command']=workload(row,settings)['command']
+    pod=objects['pods',None,ns]['items'][0]
+    pod['spec']=copy.deepcopy(deployment['spec']['template']['spec'])
+    pod['status'].update(podIP='10.42.0.5',conditions=[{'type':'Ready','status':'True'}])
+    objects['endpointslices.discovery.k8s.io',None,ns]={'items':[{'metadata':{'uid':'slice',
+        'labels':{'kubernetes.io/service-name':'preview'},'ownerReferences':[{'kind':'Service','uid':'Service-preview'}]},
+        'endpoints':[{'addresses':['10.42.0.5'],'conditions':{'ready':True},
+            'targetRef':{'uid':pod['metadata']['uid'],'kind':'Pod','namespace':ns}}],
+        'ports':[{'port':8080,'protocol':'TCP'}]}]}
+    return row,objects
+
+
+def probe_channel_child(mode='valid'):
+    """Local child runs the real host protocol with synthetic external observations."""
+    return 'MODE = ' + repr(mode) + '\n' + r'''
+import json,os,sys,time
+if MODE=='startup-refuse':raise SystemExit(23)
+if MODE in ('missing','partial','malformed','stderr','queued'):
+    request=json.loads(sys.stdin.buffer.readline(32769))
+    if MODE=='missing':time.sleep(10)
+    elif MODE=='partial':os.write(1,b'{"action":');time.sleep(10)
+    elif MODE=='malformed':os.write(1,b'{"ready":true}\n');time.sleep(10)
+    elif MODE=='stderr':os.write(2,b'private-diagnostic-sentinel'*1000);time.sleep(10)
+    else:
+        ready={'action':'ready','challenge':request['challenge'],'serverNonce':'d'*64,
+            'revision':request['revision'],'digests':request['digests'],'assurance':'b'*64,'bindings':'c'*64,
+            'namespaceUID':'namespace-uid','podUID':'pod-uid'}
+        os.write(1,(json.dumps(ready)+'\n'+json.dumps({'unexpected':True})+'\n').encode());time.sleep(10)
+    raise SystemExit(0)
+from playbooks.previews.tests import probe_inspection as helper
+probe={'Namespace':{'metadata':{'name':'synthetic','uid':'namespace-uid'}},
+       'Pod':{'metadata':{'uid':'pod-uid'}},'Service':{'spec':{'clusterIP':'10.43.0.1'}}}
+counter=[0];assurance_counter=[0]
+def context(request):
+    counter[0]+=1
+    changed=(MODE=='target-change' and counter[0]>1) or (MODE=='ready-target-change' and counter[0]>=3) or (MODE=='post-target-change' and counter[0]>=4)
+    return probe,[],('e'*64 if changed else 'c'*64)
+def assurance():
+    assurance_counter[0]+=1
+    if MODE=='assurance-refuse':raise ValueError('private-diagnostic-sentinel')
+    return 'e'*64 if MODE=='config-change' or MODE=='ready-assurance-change' and assurance_counter[0]>=3 else 'b'*64
+def execute(frame,namespace,deadline):
+    if frame['phase']=='preflight':
+        if MODE=='preflight-refuse':raise ValueError('private-diagnostic-sentinel')
+        assert frame['tokens']==[]
+        return {'preflight':True}
+    assert len(frame['tokens'])==2
+    if MODE in ('ready-target-change','ready-assurance-change'):
+        os.write(2,b'SECRET_PROBE_EXECUTED\n')
+    return {'targets':[dict(control=True,gateway=True,podProtected=True,serviceProtected=True,serviceMode='blocked')]*2}
+helper.context=context;helper.probe_state.assurance=assurance;helper.execute=execute
+try:helper.main()
+except Exception:raise SystemExit(1) from None
+'''
+
+
+def probe_assurance_observation(native='/usr/lib/openssh/sshd-session', pam='sshd', *, shell=False):
+    """Synthetic Debian root session and existing local K3s observations."""
+    server='forcecommand none\npermituserenvironment no\nloglevel INFO\nacceptenv LANG LC_* COLORTERM NO_COLOR\n'
+    if pam is not None:server+='pamservicename '+pam+'\n'
+    commands={('/usr/sbin/sshd','-T','-C','user=root,addr=100.64.0.1,laddr=100.64.0.2,lport=22'):server,
+        ('dpkg','--verify','openssh-server','libpam-modules','libpam-runtime','bash'):'',
+        ('dpkg-query','--search',native):'openssh-server: '+native+'\n',
+        ('systemctl','show','k3s','--property=ExecStart','--value'):'/usr/local/bin/k3s server',
+        ('systemctl','show','k3s','--property=MainPID','--value'):'500\n'}
+    files={'/etc/passwd':'root:x:0:0:root:/root:/bin/bash\n', '/root/.bashrc':'[ -z "$PS1" ] && return\nexport HISTCONTROL=ignoreboth\n',
+        '/etc/pam.d/sshd':'@include common-session\n','/etc/pam.d/common-session':'session required pam_unix.so\n',
+        '/etc/pam.d/common-session-noninteractive':'session required pam_unix.so\n',
+        '/etc/rancher/k3s/config.yaml':'write-kubeconfig-mode: "0600"\n',
+        '/etc/rancher/k3s/k3s.yaml':json.dumps({'clusters':[{'cluster':{'server':'https://127.0.0.1:6443',
+            'certificate-authority-data':'synthetic'}}],'users':[]}),'/proc/101/status':'PPid:\t100\n'}
+    executables={'/proc/100/exe':native,'/proc/101/exe':'/usr/bin/bash'}
+    cmdlines={'/proc/100/cmdline':b'sshd-session: root@notty\0','/proc/101/cmdline':
+        b'/bin/bash\0-c\0python3 /opt/cloudlab/playbooks/previews/tests/probe_inspection.py\0',
+        '/proc/500/cmdline':b'/usr/local/bin/k3s\0server\0'}
+    return {'commands':commands,'files':files,'executables':executables,'cmdlines':cmdlines,'parent':101 if shell else 100}

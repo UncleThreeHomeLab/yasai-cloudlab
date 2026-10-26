@@ -15,7 +15,7 @@ from playbooks.secrets.files.vault import fields
 from playbooks.access.files.cloudflare import API
 from playbooks.access.files.contract import host_rules, policy, private_names, tunnel_identity
 from playbooks.access.files.provider_http import open_request
-from verify_access import ssh
+from verify_access import ssh, ssh_channel
 
 
 HOST_AUDIT = '''import json, pathlib, subprocess

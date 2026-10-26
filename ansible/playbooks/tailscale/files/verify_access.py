@@ -6,7 +6,9 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import resource
 import socket
+import signal
 import subprocess
 import sys
 import tarfile
@@ -15,14 +17,39 @@ import time
 import urllib.request
 
 from control import API, HOST_TAG, TEST_TAG, policy
+try:
+    from .ssh_channel import PipeChannel
+except ImportError:
+    from ssh_channel import PipeChannel
+
+
+def _ssh_transport(prefix, host, command, known_hosts, strict):
+    env = dict(os.environ, SSHPASS=os.environ[prefix + '_PASSWORD'])
+    argv = ['sshpass', '-e', 'ssh', '-T', '-p', os.environ.get(prefix + '_PORT') or '22',
+        '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-o', 'PreferredAuthentications=password',
+        '-o', 'PubkeyAuthentication=no', '-o', 'StrictHostKeyChecking=' + strict,
+        '-o', 'UserKnownHostsFile=' + known_hosts, os.environ[prefix + '_USER'] + '@' + host, command]
+    return argv, env
+
+
+def ssh_channel(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *, deadline, frame_limit=32768, output_limit=65536):
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    argv, env = _ssh_transport(prefix, host, command, known_hosts, strict)
+    process = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
+    try:
+        return PipeChannel(process, deadline, frame_limit=frame_limit, output_limit=output_limit)
+    except Exception:
+        try: os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError: pass
+        process.wait(timeout=1)
+        for stream in (process.stdin, process.stdout, process.stderr): stream.close()
+        raise RuntimeError('Bounded SSH channel unavailable; diagnostics withheld') from None
 
 
 def ssh(prefix, host, command, known_hosts='/state/known_hosts', strict='yes', *, input=None, timeout=30, diagnostics=None):
-    env = dict(os.environ, SSHPASS=os.environ[prefix + '_PASSWORD'])
-    result = subprocess.run(['sshpass', '-e', 'ssh', '-p', os.environ.get(prefix + '_PORT') or '22',
-        '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-o', 'PreferredAuthentications=password',
-        '-o', 'PubkeyAuthentication=no', '-o', 'StrictHostKeyChecking=' + strict,
-        '-o', 'UserKnownHostsFile=' + known_hosts, os.environ[prefix + '_USER'] + '@' + host, command],
+    argv, env = _ssh_transport(prefix, host, command, known_hosts, strict)
+    result = subprocess.run(argv,
         env=env, input='' if input is None else input, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
         if diagnostics is not None:

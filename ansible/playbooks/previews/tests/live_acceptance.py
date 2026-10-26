@@ -16,12 +16,41 @@ from playbooks.previews.files.contract import digest
 ROOT = Path(__file__).resolve().parents[4]
 ACTIONS = ('inspect', 'viewer-provision', 'viewer-stage', 'viewer-propose', 'viewer-merge', 'viewer-enroll',
            'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup', 'browser',
-           'approval-prepare', 'approval-abandon', 'catalog-prepare', 'catalog-reprepare', 'catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire', 'lifecycle-observe')
+           'approval-prepare', 'approval-abandon', 'catalog-prepare', 'catalog-reprepare', 'catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire', 'lifecycle-observe',
+           'probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete',
+           'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup')
 
 
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         raise ValueError('Invalid fixture arguments; values withheld')
+
+
+def resource_remote(values, request):
+    from playbooks.previews.files.command import vm_environment
+    from playbooks.previews.tests.resource_runtime import validate
+    validate(request)
+    vm_environment(values)
+    environment = dict(os.environ, CLOUDLAB_PREVIEW_RESOURCE_REQUEST=json.dumps(request))
+    result = subprocess.run(['ansible-playbook', '-i', 'inventory.yml', 'playbooks/previews/tests/resources.yml'],
+        cwd=ROOT / 'ansible', env=environment, capture_output=True, timeout=900)
+    if result.returncode:
+        raise RuntimeError('Preview resource Ansible operation failed; diagnostics withheld')
+    target = fixture.JOURNALS / request['nonce'] / 'resource-result.json'
+    if target.is_symlink() or target.stat().st_size > 32768 or target.stat().st_mode & 0o077:
+        raise ValueError('Resource result is not private and bounded')
+    return json.loads(target.read_text())
+
+
+def resource_request(action, state):
+    from playbooks.previews.tests.resource_runtime import validate
+    slots = ('a', 'b') if action.startswith('probe-') else ('d',) if action.startswith('retained-') else ()
+    rows = [state.get('approvals', {}).get(slot, {}).get('row') for slot in slots]
+    if any(row is None for row in rows):
+        raise ValueError('Runtime fixture requires the exact journal-owned approval slots')
+    request = {'action': action, 'nonce': state['nonce'], 'revision': state['executionPlatform'], 'rows': rows}
+    validate(request)
+    return request
 
 
 def remote(values, request):
@@ -74,9 +103,14 @@ def publication_merge(api, values, state, save, *, offboard=False):
 def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='approve'):
     if action != 'inspect' and 'baseline' not in state:
         raise ValueError('Inspect and journal the private/cluster baseline first')
+    if action.startswith(('probe-', 'retained-', 'outage-')):
+        if slot is not None:
+            raise ValueError('Runtime fixture actions do not accept a PR slot')
+        resource_request(action, state)
     if state.get('abandonedPreparation'):
         permitted = ('inspect', 'approval-abandon', 'viewer-observe', 'lifecycle-observe', 'offboard-propose',
-                     'offboard-merge', 'viewer-offboard', 'pr-cleanup', 'catalog-retire')
+                     'offboard-merge', 'viewer-offboard', 'pr-cleanup', 'catalog-retire',
+                     'probe-observe', 'probe-cleanup', 'retained-observe', 'retained-delete', 'outage-observe', 'outage-restore', 'outage-cleanup')
         if action.startswith('catalog-') and action != 'catalog-retire':
             from playbooks.previews.tests.approval_fixture import current
             reducing = (mode if action == 'catalog-prepare' else current(state)['mode']) in ('withdraw', 'cleanup', 'finalize')
@@ -169,7 +203,13 @@ def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000
         stale_catalog = True
     interrupted_browser = (action == 'offboard-propose' and slot is None and
         state.get('browserAttempted') is True and state.get('intent') == {'action': 'browser', 'slot': None})
-    if state.get('intent') not in (None, intent) and not interrupted_browser and not stale_catalog:
+    resource_recovery = {'probe-cleanup': ('probe-prepare', 'probe-observe'),
+        'retained-delete': ('retained-create', 'retained-observe'),
+        'outage-restore': ('outage-prepare', 'outage-observe', 'outage-fault'),
+        'outage-cleanup': ('outage-prepare', 'outage-observe', 'outage-restore')}
+    reducing_resource = slot is None and state.get('intent') in (
+        {'action': previous, 'slot': None} for previous in resource_recovery.get(action, ()))
+    if state.get('intent') not in (None, intent) and not interrupted_browser and not stale_catalog and not reducing_resource:
         raise ValueError('Resume the journaled operation before beginning another fixture stage')
     if interrupted_browser:
         state['browserFailed'] = True
@@ -223,6 +263,12 @@ def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000
         approval.remember(state, observed, save)
         baseline = remote(values, dict(request, action='baseline', instances=state.get('instances', [])))
         approval.preserve_baseline(state, baseline)
+    elif action.startswith(('probe-', 'retained-', 'outage-')):
+        from playbooks.previews.tests.approval_fixture import preserve_baseline
+        observed = resource_remote(values, resource_request(action, state))
+        state.setdefault('resourceEvidence', {})[action] = observed
+        save()
+        preserve_baseline(state, remote(values, dict(request, action='baseline', instances=state.get('instances', []))))
     elif action == 'viewer-provision':
         from playbooks.keycloak.files.session_fixture import provision
         provision(request)
