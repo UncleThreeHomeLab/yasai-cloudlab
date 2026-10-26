@@ -281,6 +281,57 @@ def generated_application(appset):
     return obj
 
 
+def native_inventory_graph(namespace='cloudlab-preview-synthetic', root='native-root'):
+    def meta(name, uid, parent=None, kind='Gateway'):
+        value = {'name': name, 'namespace': namespace, 'uid': uid, 'resourceVersion': '1'}
+        if parent:
+            value['ownerReferences'] = [{'kind': kind, 'uid': parent}]
+        return value
+    pod = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': meta('native-pod', 'native-pod', 'native-rs', 'ReplicaSet'),
+        'status': {'podIP': '10.42.1.2', 'podIPs': [{'ip': '10.42.1.2'}, {'ip': 'fd00::2'}]}}
+    pod['metadata']['labels'] = {'app': 'native'}
+    service = {'apiVersion': 'v1', 'kind': 'Service', 'metadata': meta('native-service', 'native-service', root),
+        'spec': {'selector': {'app': 'native'}}}
+    endpoints = {'apiVersion': 'v1', 'kind': 'Endpoints', 'metadata': meta('native-service', 'native-endpoints'),
+        'subsets': [{'addresses': [{'ip': '10.42.1.2', 'targetRef': {'kind': 'Pod', 'name': 'native-pod',
+            'namespace': namespace, 'uid': 'native-pod'}}]}]}
+    endpoints['metadata']['labels'] = {'endpoints.kubernetes.io/managed-by': 'endpoint-controller'}
+    metrics = {'apiVersion': 'metrics.k8s.io/v1beta1', 'kind': 'PodMetrics', 'metadata': {'name': 'native-pod', 'namespace': namespace}}
+    return [metrics, endpoints, pod, service,
+        {'apiVersion': 'apps/v1', 'kind': 'ReplicaSet', 'metadata': meta('native-rs', 'native-rs', 'native-deployment', 'Deployment')},
+        {'apiVersion': 'apps/v1', 'kind': 'Deployment', 'metadata': meta('native-deployment', 'native-deployment', root)}]
+
+
+def inventory_responses(objects, namespace):
+    from playbooks.previews.files.kube import RESOURCES
+    versions = {'v1': []}; collections = {}
+    for obj in objects:
+        version, kind = obj['apiVersion'], obj['kind']
+        plural = RESOURCES.get((version, kind), {'Endpoints': 'endpoints', 'PodMetrics': 'pods'}.get(kind))
+        if plural is None:
+            raise ValueError('Synthetic native inventory kind is not declared')
+        resource = {'name': plural, 'kind': kind, 'namespaced': True, 'verbs': ['get', 'list']}
+        if resource not in versions.setdefault(version, []): versions[version].append(resource)
+        prefix = '/api/v1' if version == 'v1' else '/apis/' + version
+        collections.setdefault(prefix + '/namespaces/' + namespace + '/' + plural, []).append(copy.deepcopy(obj))
+    groups = {}
+    for version in versions:
+        if version != 'v1': groups.setdefault(version.split('/')[0], []).append({'groupVersion': version})
+    responses = {'/apis': {'groups': [{'versions': rows} for rows in groups.values()]}}
+    responses.update({('/api/v1' if version == 'v1' else '/apis/' + version): {'resources': rows} for version, rows in versions.items()})
+    responses.update({route: {'items': rows} for route, rows in collections.items()})
+    return responses
+
+
+def discovered_inventory(objects, namespace):
+    """Run actual inventory discovery over synthetic collection responses."""
+    from playbooks.previews.files.kube import Kubernetes
+    responses = inventory_responses(objects, namespace)
+    kube = object.__new__(Kubernetes)
+    kube.request = lambda method, route: copy.deepcopy(responses[route])
+    return kube.namespace_inventory(namespace)
+
+
 class ResourceAPI:
     """Bounded native-object fixture, with server rejection and lost write replies."""
     def __init__(self):

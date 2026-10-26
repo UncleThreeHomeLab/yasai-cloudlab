@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from playbooks.previews.files.kube import Kubernetes
 from playbooks.previews.files.lifecycle import namespace_disposable
 from playbooks.previews.tests.native_admission import REMOTE
+from playbooks.previews.tests.fixtures import native_inventory_graph, inventory_responses
 
 
 class InventoryTests(unittest.TestCase):
@@ -92,3 +93,92 @@ class InventoryTests(unittest.TestCase):
                             self.root + '/v1beta1/namespaces/' + self.namespace + '/referencegrants'):
                 with self.subTest(native=native, failure=failure), self.assertRaisesRegex(RuntimeError, 'API unavailable'):
                     self.run_inventory(native, failure)
+
+    def test_discovery_marks_only_exact_native_metrics_without_payload_authority(self):
+        graph = native_inventory_graph(self.namespace); responses = inventory_responses(graph, self.namespace)
+        graph[0]['pod_metrics'] = True
+        kube = object.__new__(Kubernetes)
+        with patch.object(kube, 'request', side_effect=lambda method,route:copy.deepcopy(responses[route])):
+            inventory = kube.namespace_inventory(self.namespace)
+        metrics = next(obj for obj in inventory if obj['kind'] == 'PodMetrics')
+        self.assertEqual(inventory.pod_metrics, {id(metrics)})
+        self.assertTrue(namespace_disposable(inventory, {'native-root'}, 'namespace'))
+        with self.assertRaises(ValueError): namespace_disposable(list(inventory), {'native-root'}, 'namespace')
+
+    def test_metrics_discovery_payload_and_backing_failures_stay_closed(self):
+        root = '/apis/metrics.k8s.io/v1beta1'; route = root + '/namespaces/' + self.namespace + '/pods'
+        for change in ('write-verbs', 'kind', 'not-namespaced', 'version', 'group', 'unknown-readonly',
+                       'payload-kind', 'payload-version', 'payload-namespace', 'metadata', 'missing-pod',
+                       'foreign-refs', 'pagination', 'limit', 'discovery-error', 'list-error'):
+            with self.subTest(change=change):
+                responses = inventory_responses(native_inventory_graph(self.namespace), self.namespace)
+                declaration = responses[root]['resources'][0]; obj = responses[route]['items'][0]
+                if change == 'write-verbs': declaration['verbs'].append('delete')
+                elif change == 'kind': declaration['kind'] = 'Pod'
+                elif change == 'not-namespaced': declaration['namespaced'] = False
+                elif change in ('version', 'group'):
+                    new = 'metrics.k8s.io/v1alpha1' if change == 'version' else 'foreign.example/v1beta1'
+                    for group in responses['/apis']['groups']:
+                        for version in group['versions']:
+                            if version['groupVersion'] == 'metrics.k8s.io/v1beta1': version['groupVersion'] = new
+                    for path in list(responses):
+                        if path.startswith(root): responses[path.replace(root, '/apis/' + new)] = responses.pop(path)
+                    obj['apiVersion'] = new
+                elif change == 'unknown-readonly':
+                    declaration.update(name='usage', kind='UsageProjection'); obj['kind'] = 'UsageProjection'
+                    responses[route.removesuffix('pods')+'usage'] = responses.pop(route)
+                elif change == 'payload-kind': obj['kind'] = 'Pod'
+                elif change == 'payload-version': obj['apiVersion'] = 'v1'
+                elif change == 'payload-namespace': obj['metadata']['namespace'] = 'foreign'
+                elif change == 'metadata': obj['metadata'] = None
+                elif change == 'missing-pod': obj['metadata']['name'] = 'foreign'
+                elif change == 'foreign-refs': obj['metadata']['ownerReferences'] = [{'uid': 'native-root'}]
+                elif change == 'pagination': responses[route]['metadata'] = {'continue': 'next'}
+                elif change == 'limit': responses[route]['items'] *= 501
+                def read(method, path):
+                    if path == (root if change == 'discovery-error' else route if change == 'list-error' else None):
+                        raise RuntimeError('API unavailable')
+                    return copy.deepcopy(responses[path])
+                kube = object.__new__(Kubernetes)
+                with patch.object(kube, 'request', side_effect=read), self.assertRaises((RuntimeError, ValueError)):
+                    namespace_disposable(kube.namespace_inventory(self.namespace), {'native-root'}, 'namespace')
+
+    def test_collection_payload_cannot_spoof_native_endpoints(self):
+        for collection in ('foreign', 'core-alias'):
+            with self.subTest(collection=collection):
+                responses = inventory_responses(native_inventory_graph(self.namespace), self.namespace)
+                source = '/api/v1/namespaces/' + self.namespace + '/endpoints'
+                forged = responses[source]['items'].pop()
+                resource = {'name': 'observations', 'kind': 'Observation', 'namespaced': True, 'verbs': ['get', 'list']}
+                if collection == 'foreign':
+                    version = 'foreign.example/v1'
+                    responses['/apis']['groups'].append({'versions': [{'groupVersion': version}]})
+                    responses['/apis/' + version] = {'resources': [resource]}
+                    route = '/apis/' + version + '/namespaces/' + self.namespace + '/observations'
+                else:
+                    resource['kind'] = 'Endpoints'
+                    responses['/api/v1']['resources'].append(resource)
+                    route = source.removesuffix('endpoints') + 'observations'
+                responses[route] = {'items': [forged]}
+                kube = object.__new__(Kubernetes)
+                with patch.object(kube, 'request', side_effect=lambda method,path:copy.deepcopy(responses[path])), self.assertRaises(RuntimeError):
+                    namespace_disposable(kube.namespace_inventory(self.namespace), {'native-root'}, 'namespace')
+
+    def test_explicit_collection_types_are_checked_but_omitted_types_are_normalized(self):
+        for change in ('omitted', 'version', 'kind', 'malformed'):
+            with self.subTest(change=change):
+                responses = inventory_responses(native_inventory_graph(self.namespace), self.namespace)
+                route = '/api/v1/namespaces/' + self.namespace + '/services'
+                if change == 'omitted':
+                    for value in responses.values():
+                        for obj in value.get('items', []):
+                            obj.pop('apiVersion'); obj.pop('kind')
+                elif change == 'version': responses[route]['items'][0]['apiVersion'] = 'foreign.example/v1'
+                elif change == 'kind': responses[route]['items'][0]['kind'] = 'Observation'
+                else: responses[route]['items'] = ['malformed']
+                kube = object.__new__(Kubernetes)
+                with patch.object(kube, 'request', side_effect=lambda method,path:copy.deepcopy(responses[path])):
+                    if change == 'omitted':
+                        self.assertTrue(namespace_disposable(kube.namespace_inventory(self.namespace), {'native-root'}, 'namespace'))
+                    else:
+                        with self.assertRaises(RuntimeError): kube.namespace_inventory(self.namespace)

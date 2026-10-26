@@ -1,6 +1,6 @@
 import copy
 import unittest
-from fixtures import approval, pull
+from fixtures import approval, pull, native_inventory_graph, discovered_inventory
 from playbooks.previews.files.lifecycle import enroll, retirement, owned, namespace_disposable
 from playbooks.previews.files.contract import canonical, digest, names, OWNER
 
@@ -58,3 +58,78 @@ class LifecycleTests(unittest.TestCase):
         foreign = copy.deepcopy(crl)
         foreign['metadata']['name'] = 'application-data'
         with self.assertRaises(ValueError): namespace_disposable([foreign], set(), 'namespace')
+
+    def test_native_leaves_follow_verified_graph_without_requiring_metrics_uid(self):
+        for field, version, address in (('addresses', None, '10.42.1.2'), ('notReadyAddresses', '', 'fd00::2'), ('addresses', 'v1', '10.42.1.2')):
+            with self.subTest(field=field, version=version):
+                graph = native_inventory_graph(); item = graph[1]['subsets'][0].pop('addresses')[0]
+                item['ip'] = address
+                if version is not None: item['targetRef']['apiVersion'] = version
+                graph[1]['subsets'][0][field] = [item]
+                inventory = discovered_inventory(graph, graph[0]['metadata']['namespace']); before = copy.deepcopy(list(inventory))
+                self.assertTrue(namespace_disposable(inventory, {'native-root'}, 'namespace'))
+                self.assertEqual(list(inventory), before)
+        graph = native_inventory_graph(); graph[1]['subsets'] = []
+        self.assertTrue(namespace_disposable(discovered_inventory(graph, graph[0]['metadata']['namespace']), {'native-root'}, 'namespace'))
+
+    def test_native_leaf_uids_never_authorize_unknown_descendants(self):
+        for leaf in ('Endpoints', 'PodMetrics'):
+            with self.subTest(leaf=leaf):
+                graph = native_inventory_graph(); obj = next(obj for obj in graph if obj['kind'] == leaf)
+                obj['metadata']['uid'] = 'leaf-uid'
+                graph.append({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
+                    'name': 'foreign-child', 'namespace': obj['metadata']['namespace'], 'uid': 'foreign-child',
+                    'ownerReferences': [{'kind': leaf, 'uid': 'leaf-uid'}]}})
+                with self.assertRaises(ValueError):
+                    namespace_disposable(discovered_inventory(graph, graph[0]['metadata']['namespace']), {'native-root'}, 'namespace')
+                with self.assertRaises(ValueError):
+                    namespace_disposable(discovered_inventory(graph, graph[0]['metadata']['namespace']), {'native-root', 'leaf-uid'}, 'namespace')
+                obj['metadata']['ownerReferences'] = [{'uid': 'native-root'}]
+                with self.assertRaises(ValueError):
+                    namespace_disposable(discovered_inventory(graph[:-1], graph[0]['metadata']['namespace']), {'native-root', 'leaf-uid'}, 'namespace')
+
+    def test_native_endpoints_refuse_spoofed_missing_or_changed_backing_graph(self):
+        cases = ('missing-service', 'foreign-service', 'duplicate-service', 'selectorless', 'selector-type', 'external',
+                 'marker', 'refs', 'uid', 'namespace', 'kind', 'name', 'target-uid', 'target-namespace', 'version',
+                 'ip', 'selector-mismatch', 'missing-pod', 'foreign-pod', 'subsets', 'addresses', 'target', 'pod-ips')
+        for change in cases:
+            with self.subTest(change=change):
+                graph = native_inventory_graph(); endpoints, pod, service = graph[1:4]
+                address = endpoints['subsets'][0]['addresses'][0]; target = address['targetRef']
+                if change == 'missing-service': graph.remove(service)
+                elif change == 'foreign-service': service['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif change == 'duplicate-service': graph.append(copy.deepcopy(service))
+                elif change == 'selectorless': service['spec']['selector'] = {}
+                elif change == 'selector-type': service['spec']['selector'] = []
+                elif change == 'external': service['spec']['type'] = 'ExternalName'
+                elif change == 'marker': endpoints['metadata']['labels']['endpoints.kubernetes.io/managed-by'] = 'forged'
+                elif change == 'refs': endpoints['metadata']['ownerReferences'] = [{'uid': 'native-root'}]
+                elif change == 'uid': endpoints['metadata'].pop('uid')
+                elif change == 'namespace': endpoints['metadata']['namespace'] = 'foreign'
+                elif change in ('kind', 'name', 'version', 'target-uid', 'target-namespace'):
+                    target[{'version': 'apiVersion', 'target-uid': 'uid', 'target-namespace': 'namespace'}.get(change, change)] = 'foreign'
+                elif change == 'ip': address['ip'] = '10.42.9.9'
+                elif change == 'selector-mismatch': pod['metadata']['labels']['app'] = 'foreign'
+                elif change == 'missing-pod': graph.remove(pod)
+                elif change == 'foreign-pod': pod['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif change == 'subsets': endpoints['subsets'] = {}
+                elif change == 'addresses': endpoints['subsets'][0]['addresses'] = {}
+                elif change == 'target': address['targetRef'] = None
+                elif change == 'pod-ips': pod['status']['podIPs'] = None
+                with self.assertRaises(ValueError):
+                    namespace_disposable(discovered_inventory(graph, 'cloudlab-preview-synthetic'), {'native-root'}, 'namespace')
+
+    def test_leaf_retention_and_finalizers_veto_even_when_uid_and_refs_look_known(self):
+        for kind in ('Endpoints', 'PodMetrics'):
+            for change in ('retention', 'keep', 'finalizer'):
+                with self.subTest(kind=kind, change=change):
+                    graph = native_inventory_graph(); meta = next(obj['metadata'] for obj in graph if obj['kind'] == kind)
+                    meta['uid'] = 'native-root'
+                    if change == 'finalizer': meta['finalizers'] = ['foreign']
+                    else: meta['annotations'] = {'cloudlab.io/retention': 'retain'} if change == 'retention' else {'helm.sh/resource-policy': 'keep'}
+                    with self.assertRaises(ValueError):
+                        namespace_disposable(discovered_inventory(graph, graph[0]['metadata']['namespace']), {'native-root'}, 'namespace')
+
+    def test_metrics_payload_cannot_self_authorize_without_discovery(self):
+        graph = native_inventory_graph(); graph[0]['pod_metrics'] = True; graph[0]['metadata']['uid'] = 'native-root'
+        with self.assertRaises(ValueError): namespace_disposable(graph, {'native-root'}, 'namespace')

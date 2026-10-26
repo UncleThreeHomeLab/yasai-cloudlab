@@ -59,7 +59,7 @@
         src: '/workspace/ansible/playbooks/previews/files/{{ item }}'
         dest: '/opt/cloudlab/playbooks/previews/files/{{ item }}'
         mode: '0600'
-      loop: [lifecycle.py, resources.py, images.lock.json, sigstore-fulcio.crt]
+      loop: [kube.py, lifecycle.py, resources.py, images.lock.json, sigstore-fulcio.crt]
       no_log: true
     - name: Install canonical identity and Kubernetes observation inputs
       ansible.builtin.copy:
