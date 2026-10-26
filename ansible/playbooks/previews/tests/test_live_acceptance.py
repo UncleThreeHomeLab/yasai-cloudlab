@@ -117,6 +117,8 @@ class AcceptanceTests(unittest.TestCase):
                     module = task.get('ansible.builtin.file', task.get('ansible.builtin.copy'))
                     field = 'path' if 'path' in module else 'dest'
                     module[field] = module[field].replace('/opt/cloudlab', str(installed), 1)
+                    if 'loop' in task:
+                        task['loop'] = [value.replace('/opt/cloudlab', str(installed), 1) for value in task['loop']]
                     selected.append(task)
             playbook = root / 'install.yml'
             playbook.write_text(yaml.safe_dump([{'hosts': 'all', 'gather_facts': False, 'tasks': selected}]))
@@ -135,12 +137,25 @@ for name in ('playbooks.istio','playbooks.istio.files','playbooks.istio.files.ku
 kube=sys.modules['playbooks.istio.files.kube']
 kube.get=lambda *args:None
 kube.kube=lambda *args:'' if args[1]=='secrets' else json.dumps({'items':[]})
+kube.contains=lambda *args:True
 viewer.client_baseline=lambda request:{}
 result=viewer.baseline({'instances':[]})
 from playbooks.previews.files import contract
 assert set(result['states'])=={contract.STATE,contract.IDENTITY_STATE}
 assert contract.__file__.startswith(sys.argv[1]+'/')
 assert viewer.__file__.startswith(sys.argv[1]+'/')
+from playbooks.previews.tests import evidence_runtime
+from playbooks.keycloak.files.preview_clients import representation
+row={'instance':'a'*32,'repository':'example/private','repositoryId':123,'pullRequest':7,'sourceSha':'b'*40,
+ 'platformRevision':'c'*40,'sourcePath':contract.SOURCE_PATH,'image':contract.IMAGE,'createdAt':1000,'expiresAt':2000,
+ 'definition':{'profile':'synthetic','message':'synthetic'},'sourceDigest':contract.digest(contract.canonical({'profile':'synthetic','message':'synthetic'}))}
+settings={'hostname':'preview.internal.example.invalid','issuer':'https://login.example.invalid/realms/applications',
+ 'privateDiscovery':False,'approvals':[],'ownership':{},'artifacts':{}}
+state={'metadata':{'uid':'state'},'data':{'state.json':json.dumps({'entries':{}})}}
+observed=evidence_runtime.inspect_row(row,settings,state,None,{},lambda *args:None,lambda *args:[],lambda *args:None,1200,'https://github.com/example/platform.git')
+assert observed['active'] is False
+assert representation(row,settings)['clientId']=='preview-'+'a'*32
+assert evidence_runtime.__file__.startswith(sys.argv[1]+'/')
 '''
             result = subprocess.run([sys.executable, '-I', '-c', probe, str(installed)], cwd=root,
                 env=environment, capture_output=True, text=True, timeout=30)

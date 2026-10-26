@@ -1,15 +1,30 @@
 import unittest
+import urllib.error
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from github_setup import GitHub, MARKER, inspect, repository
+from github_setup import GitHub, GitHubHTTPError, MARKER, inspect, repository
 import github_setup
 from publish_snapshot import validate_file
 import publish_snapshot
 
 
 class RepositorySetupTests(unittest.TestCase):
+    def test_http_rejection_keeps_status_and_runtime_error_compatibility(self):
+        api = GitHub('synthetic-token')
+        for status in (403, 409, 422):
+            with self.subTest(status=status), patch.object(api.opener, 'open', side_effect=urllib.error.HTTPError(
+                    'https://api.github.com/fixture', status, 'synthetic', {}, None)):
+                with self.assertRaises(GitHubHTTPError) as caught:
+                    api.request('POST', 'repos/example/private/pulls', {})
+                self.assertIsInstance(caught.exception, RuntimeError)
+                self.assertEqual(caught.exception.status, status)
+                self.assertEqual(str(caught.exception), 'GitHub repository operation failed: HTTP ' + str(status))
+        with patch.object(api.opener, 'open', side_effect=urllib.error.HTTPError(
+                'https://api.github.com/fixture', 404, 'synthetic', {}, None)):
+            self.assertIsNone(api.request('GET', 'fixture', missing=True))
+
     def test_successful_delete_accepts_empty_response_without_json_read(self):
         api = GitHub('synthetic-token')
         response = Mock(status=204)

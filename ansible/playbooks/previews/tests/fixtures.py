@@ -141,3 +141,106 @@ class PrivatePreviewGit:
         return {'number': self.number, 'state': 'closed' if self.closed else 'open', 'merged': False, 'draft': False,
                 'head': {'sha': self.head or self.last_head, 'ref': self.branch, 'repo': {'id': 123, 'fork': False}},
                 'base': {'ref': 'main', 'repo': {'id': 123}}}
+
+
+class CatalogGit:
+    """Native private publisher fixture with exact catalog blobs and lost replies."""
+    def __init__(self):
+        self.main, self.branch, self.head = '1' * 40, None, None
+        self.documents = {self.main: (json.dumps({'catalog': catalog([])}, sort_keys=True, indent=2) + '\n').encode()}
+        self.commits, self.blobs, self.trees = {}, {}, {}
+        self.number, self.merged, self.closed, self.fail = None, False, False, None
+        self.pull_body = None
+        self.writes = []
+
+    def request(self, method, path, body=None, missing=False):
+        import hashlib
+        from playbooks.argocd.files.github_setup import MARKER
+        if method != 'GET': self.writes.append((method, path, copy.deepcopy(body)))
+        def written(kind, result):
+            if self.fail == kind:
+                self.fail = None
+                raise RuntimeError('synthetic lost response')
+            return result
+        repo = {'id': 123, 'node_id': 'R_catalog', 'full_name': 'example/private', 'private': True,
+                'fork': False, 'default_branch': 'main', 'description': MARKER + 'private-config'}
+        if path == 'repos/example/private': return repo
+        if path.endswith('/git/ref/heads/main'): return {'object': {'sha': self.main}}
+        if '/git/ref/heads/' in path: return {'object': {'sha': self.head}} if self.head else None
+        if '/contents/' in path:
+            raw = self.documents.get(path.split('?ref=')[1])
+            if raw is None: return None
+            return {'type': 'file', 'encoding': 'base64', 'content': base64.b64encode(raw).decode(),
+                    'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()}
+        if path.endswith('/git/blobs'):
+            sha = format(len(self.blobs) + 10, '040x'); self.blobs[sha] = body['content'].encode(); return {'sha': sha}
+        if path.endswith('/git/trees'):
+            sha = format(len(self.trees) + 20, '040x'); self.trees[sha] = self.blobs[body['tree'][0]['sha']]; return {'sha': sha}
+        if path.endswith('/git/commits'):
+            sha = format(len(self.commits) + 30, '040x')
+            self.commits[sha] = {'sha': sha, 'parents': [{'sha': value} for value in body['parents']], 'tree': {'sha': body['tree']}}
+            self.documents[sha] = self.trees[body['tree']]; return {'sha': sha}
+        if '/git/commits/' in path: return self.commits.get(path.rsplit('/', 1)[1], {'tree': {'sha': 'base-tree'}})
+        if path.endswith('/git/refs'):
+            self.head, self.branch = body['sha'], body['ref'].removeprefix('refs/heads/')
+            return written('ref', {})
+        if '/compare/' in path: return {'total_commits': 1, 'files': [{'filename': 'previews/catalog.json', 'status': 'modified'}]}
+        if '/pulls?' in path: return [self.pull(repo)] if self.number and ('state=all' in path or not self.closed) else []
+        if path.endswith('/pulls'):
+            self.number, self.pull_body = 9, body['body']; return written('pull', self.pull(repo))
+        if path.endswith('/merge'):
+            self.merged = self.closed = True; self.main = self.head
+            return written('merge', {'merged': True, 'sha': self.main})
+        if '/files?' in path: return [{'filename': 'previews/catalog.json', 'status': 'modified'}]
+        if '/pulls/' in path:
+            if method == 'PATCH': self.closed = True
+            return self.pull(repo)
+        if path == 'graphql':
+            value = body['variables']['input']; update = value['refUpdates'][0]
+            if update['beforeOid'] != self.head: return {'errors': [{'message': 'changed'}]}
+            self.head = None
+            return written('delete', {'data': {'updateRefs': {'clientMutationId': value['clientMutationId']}}})
+        raise AssertionError('Unexpected synthetic catalog operation')
+
+    def pull(self, repo):
+        return {'number': self.number, 'state': 'closed' if self.closed else 'open', 'draft': False,
+            'body': self.pull_body,
+            'merged': self.merged, 'merge_commit_sha': self.main if self.merged else None,
+            'head': {'sha': self.head, 'ref': self.branch, 'repo': repo},
+            'base': {'sha': self.commits.get(self.head, {}).get('parents', [{'sha': self.main}])[0]['sha'], 'ref': 'main', 'repo': repo}}
+
+
+def lifecycle_observation():
+    from playbooks.previews.files.resources import resources, private_route
+    from playbooks.keycloak.files.preview_clients import representation
+    from playbooks.previews.tests.evidence_runtime import resource
+    row, platform = approval(), 'https://github.com/example/platform.git'
+    settings = catalog([row]); n = names(row); state_uid = 'runtime-state'
+    declarations = resources(row, settings, platform, state_uid) + [private_route(row, settings, state_uid)]
+    appset = next(obj for obj in declarations if obj['kind'] == 'ApplicationSet')
+    declarations.append({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+        'metadata': copy.deepcopy(appset['spec']['template']['metadata']), 'spec': copy.deepcopy(appset['spec']['template']['spec']),
+        'status': {'sync': {'status': 'Synced', 'revision': row['platformRevision']}, 'health': {'status': 'Healthy'}}})
+    declarations[-1]['metadata']['namespace'] = 'argocd'
+    common = copy.deepcopy(declarations[-1]['metadata']); common.update(name='preview', namespace=n['namespace'])
+    declarations.extend([
+        {'apiVersion': 'v1', 'kind': 'Service', 'metadata': copy.deepcopy(common)},
+        {'apiVersion': 'v1', 'kind': 'ServiceAccount', 'metadata': copy.deepcopy(common)},
+        {'apiVersion': 'apps/v1', 'kind': 'Deployment', 'metadata': copy.deepcopy(common), 'status': {'readyReplicas': 1},
+         'spec': {'template': {'spec': {'automountServiceAccountToken': False, 'containers': [{'image': IMAGE, 'env': [
+             {'name': 'CLOUDLAB_SOURCE_SHA', 'value': row['sourceSha']}, {'name': 'PREVIEW_MESSAGE', 'value': row['definition']['message']}]}]}}}}])
+    objects, receipts = {}, []
+    for obj in declarations:
+        meta = obj['metadata']; meta.update(uid=obj['kind']+'-'+meta['name'], resourceVersion='1')
+        objects[resource(obj['kind'], obj['apiVersion']), meta['name'], meta.get('namespace')] = obj
+        receipts.append({'key': [obj['apiVersion'], obj['kind'], meta.get('namespace', ''), meta['name']], 'uid': meta['uid']})
+    runtime = {'approval': row, 'approvalDigest': digest(canonical(row)), 'phase': 'active', 'resources': receipts}
+    lifecycle = {'metadata': {'uid': state_uid}, 'data': {'state.json': json.dumps({'entries': {row['instance']: runtime}})}}
+    client = dict(representation(row, settings), id='owned-client-uuid')
+    identity = {'data': {'state.json': json.dumps({'entries': {row['instance']: dict(runtime, uuid=client['id'])}})}}
+    objects['replicasets.apps', None, n['namespace']] = {'items': [{'metadata': {'uid': 'replica',
+        'ownerReferences': [{'kind': 'Deployment', 'uid': 'Deployment-preview'}]}}]}
+    objects['pods', None, n['namespace']] = {'items': [{'metadata': {'uid': 'pod', 'name': 'preview-pod',
+        'labels': {'app.kubernetes.io/name': 'preview'}, 'ownerReferences': [{'kind': 'ReplicaSet', 'uid': 'replica'}]},
+        'spec': {'automountServiceAccountToken': False}, 'status': {'phase': 'Running'}}]}
+    return row, settings, lifecycle, identity, objects, client, platform

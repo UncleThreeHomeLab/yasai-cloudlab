@@ -18,6 +18,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class GitHubHTTPError(RuntimeError):
+    def __init__(self, status):
+        self.status = status
+        super().__init__('GitHub repository operation failed: HTTP ' + str(status))
+
+
 class GitHub:
     def __init__(self, token):
         if not token or '\n' in token or '\r' in token:
@@ -36,7 +42,7 @@ class GitHub:
         except urllib.error.HTTPError as error:
             if missing and error.code == 404:
                 return None
-            raise RuntimeError('GitHub repository operation failed: HTTP ' + str(error.code)) from None
+            raise GitHubHTTPError(error.code) from None
         except (urllib.error.URLError, ValueError):
             raise RuntimeError('GitHub repository operation unavailable') from None
 

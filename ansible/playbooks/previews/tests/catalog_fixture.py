@@ -270,19 +270,29 @@ def cleanup_pull(api, receipt, nonce, slot, save):
                 raise RuntimeError('Fixture PR close did not converge')
         receipt['closed'] = True
         save()
-    route = prefix + '/git/ref/heads/' + quote(receipt['branch'], safe='/')
+    delete_branch(api, receipt['repository'], repository['node_id'], receipt['branch'], receipt['head'], receipt, save)
+
+
+def delete_branch(api, repository, node_id, branch, head, receipt, save):
+    """Delete only a bounded fixture/proposal ref with native expected-head CAS."""
+    validate_repository(repository)
+    if (not isinstance(node_id, str) or not node_id or not re.fullmatch('[a-f0-9]{40}', head) or
+            not re.fullmatch(r'(?:cloudlab-preview-fixture/[a-f0-9]{32}/[abcd]|(?:identity|previews)/desired-[a-f0-9]{20})', branch)):
+        raise ValueError('Fixture ref deletion requires exact scoped coordinates')
+    prefix = 'repos/' + repository
+    route = prefix + '/git/ref/heads/' + quote(branch, safe='/')
     current = api.request('GET', route, missing=True)
     if current is not None:
-        if current['object']['sha'] != receipt['head']:
+        if current['object']['sha'] != head:
             raise ValueError('Fixture cleanup head changed; branch deletion refused')
         receipt['deleteIntent'] = True
         save()
         # Native compare-and-swap rejects a push racing the inspection above.
-        mutation_id = digest(canonical({'repository': repository['node_id'], 'ref': receipt['branch'], 'head': receipt['head']}))
+        mutation_id = digest(canonical({'repository': node_id, 'ref': branch, 'head': head}))
         result = api.request('POST', 'graphql', {
             'query': 'mutation($input:UpdateRefsInput!){updateRefs(input:$input){clientMutationId}}',
-            'variables': {'input': {'repositoryId': repository['node_id'], 'clientMutationId': mutation_id,
-                'refUpdates': [{'name': 'refs/heads/' + receipt['branch'], 'beforeOid': receipt['head'],
+            'variables': {'input': {'repositoryId': node_id, 'clientMutationId': mutation_id,
+                'refUpdates': [{'name': 'refs/heads/' + branch, 'beforeOid': head,
                                 'afterOid': '0' * 40, 'force': False}]}}})
         if (not isinstance(result, dict) or ('errors' in result and result['errors'] != []) or not isinstance(result.get('data'), dict) or
                 not isinstance(result['data'].get('updateRefs'), dict) or

@@ -50,21 +50,32 @@ def prepare(request):
     return prepare_source(request, GitHub())
 
 
-def prepare_source(request, api):
+def verified_row(request, api, *, instance, created_at, verification_time):
+    """Build an immutable approval without artifact, clock or randomness side effects."""
+    if (not isinstance(instance, str) or not re.fullmatch('[a-f0-9]{32}', instance) or
+            type(created_at) is not int or type(verification_time) is not int or
+            not 0 < created_at <= verification_time or
+            not created_at <= verification_time < created_at + request['lifetimeSeconds']):
+        raise ValueError('Preview preparation requires its original identity and current verification time')
     pull = api.request('repos/' + request['repository'] + '/pulls/' + str(request['pullRequest']))
-    now = int(time.time())
-    row = {'instance': secrets.token_hex(16), 'repository': request['repository'],
+    row = {'instance': instance, 'repository': request['repository'],
         'repositoryId': pull['base']['repo']['id'], 'pullRequest': request['pullRequest'],
         'sourceSha': pull['head']['sha'], 'sourcePath': SOURCE_PATH,
         'image': request['image'], 'platformRevision': request['platformRevision'],
-        'createdAt': now, 'expiresAt': now + request['lifetimeSeconds']}
+        'createdAt': created_at, 'expiresAt': created_at + request['lifetimeSeconds']}
     from playbooks.previews.files.contract import validate_pull
     validate_pull(row, pull)
     raw = api.blob(row)
     row.update(sourceDigest=digest(raw), definition=source(raw))
     approval(row)
-    if not api.allows(row, now):
+    if not api.allows(row, verification_time):
         raise ValueError('Private approval lifetime exceeds its discovery lease')
+    return row
+
+
+def prepare_source(request, api):
+    now = int(time.time())
+    row = verified_row(request, api, instance=secrets.token_hex(16), created_at=now, verification_time=now)
     api.verified(row)
     target = Path('/recovery/preview-approval-' + row['instance'] + '.json')
     with target.open('x') as stream:
