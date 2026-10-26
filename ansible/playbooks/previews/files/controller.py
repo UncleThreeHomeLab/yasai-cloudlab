@@ -151,16 +151,28 @@ class Controller:
                 return False
         return True
 
+    def application_owner(self, record, app):
+        row, n = record['approval'], names(record['approval'])
+        owned(app, row, self.object['metadata']['uid'])
+        parents = [r for r in record['resources'] if r['key'] == [
+            'argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', n['name']]]
+        if len(parents) != 1 or not parents[0].get('uid'):
+            raise ValueError('Generated preview Application lacks its original parent receipt')
+        refs = app['metadata'].get('ownerReferences', [])
+        if refs == [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': n['name'],
+                     'uid': parents[0]['uid'], 'controller': True, 'blockOwnerDeletion': True}]:
+            return
+        captured = [r for r in record['resources'] if r['key'] == list(identity(app))]
+        if (refs != [] or record['phase'] != 'retiring' or len(captured) != 1 or
+                captured[0].get('generated') is not True or captured[0].get('uid') != app['metadata']['uid'] or
+                self.kube.get(tuple(parents[0]['key'])) is not None):
+            raise ValueError('Generated preview Application has an unexpected owner')
+
     def capture_workloads(self, record):
         row, n = record['approval'], names(record['approval'])
         app = self.kube.get(('argoproj.io/v1alpha1', 'Application', 'argocd', n['name']))
         if app:
-            owned(app, row, self.object['metadata']['uid'])
-            appset = next((r for r in record['resources'] if r['key'][1] == 'ApplicationSet'), None)
-            if not appset or app.get('metadata', {}).get('ownerReferences') != [{
-                    'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': n['name'],
-                    'uid': appset['uid'], 'controller': True, 'blockOwnerDeletion': True}]:
-                raise ValueError('Generated preview Application has an unexpected owner')
+            self.application_owner(record, app)
             self.capture(record, app)
         for key in workload_keys(row):
             obj = self.kube.get(key)
@@ -186,11 +198,11 @@ class Controller:
             return True
         if obj['metadata'].get('uid') != receipt['uid'] or not receipt['uid']:
             raise ValueError('Preview deletion target UID changed')
-        if receipt.get('generated'):
+        if receipt['key'][1] == 'Application':
+            self.application_owner(record, obj)
+        elif receipt.get('generated'):
             owned(obj, record['approval'], self.object['metadata']['uid'], receipt['uid'])
-            if receipt['key'][1] == 'Application':
-                owned(obj, record['approval'], self.object['metadata']['uid'], receipt['uid'])
-            elif not obj['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(names(record['approval'])['name'] + ':'):
+            if not obj['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith(names(record['approval'])['name'] + ':'):
                 raise ValueError('Preview workload source owner changed')
         else:
             owned(obj, record['approval'], self.object['metadata']['uid'], receipt['uid'])

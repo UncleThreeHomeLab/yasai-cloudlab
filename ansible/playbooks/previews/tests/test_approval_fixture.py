@@ -328,6 +328,95 @@ class ApprovalTests(unittest.TestCase):
         self.assertTrue(state['evidence'][instance]['absent'])
         with self.assertRaises(ValueError): approval.remember(state,{'entries':{}},Mock())
 
+    def test_cleanup_only_absence_removes_owned_catalog_but_never_becomes_acceptance(self):
+        api = fixtures.CatalogGit(); state = self.proposal(api)
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        api.documents[api.main] = json.dumps({'catalog': fixtures.catalog(list(approval.rows(state).values()))}).encode()
+        observed = {'entries': {instance: {'approvalDigest': contract.digest(contract.canonical(row)),
+            'observedAt': 3000, 'phase': 'retired', 'identityPhase': 'retired', 'uids': {},
+            'active': False, 'disabled': False, 'absent': False, 'cleanupOnlyAbsent': True}
+            for instance, row in approval.rows(state).items()}}
+        approval.remember(state, observed, Mock())
+        for evidence in state['evidence'].values():
+            self.assertNotIn('active', evidence); self.assertNotIn('disabled', evidence); self.assertNotIn('absent', evidence)
+            self.assertTrue(evidence['cleanupOnlyAbsent'])
+        with self.assertRaises(ValueError): approval.catalog_prepare(api, values, state, Mock(), 'ab', 'approve')
+        state.update(enrolled=True, identity={'enabled': True})
+        with self.assertRaisesRegex(ValueError, 'Prior preview pair'):
+            approval.prepare(values, state, Mock(), 'cd', 600)
+        approval.catalog_prepare(api, values, state, Mock(), 'ab', 'cleanup')
+        document = approval.current(state)['document']['catalog']
+        self.assertEqual(document['approvals'], []); self.assertEqual(document['ownership'], {})
+        with self.assertRaises(ValueError):
+            approval.remember({'approvals': state['approvals']}, {'entries': {
+                instance: dict(value, absent=True) for instance, value in observed['entries'].items()}}, Mock())
+
+    def test_orphan_d_native_prepare_reprepare_review_merge_preserves_c_and_unrelated_state(self):
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        api = fixtures.CatalogGit(); state = fixtures.orphan_pair(api)
+        original = json.loads(api.documents[api.main])['catalog']
+        unrelated = fixtures.approval('f'*32)
+        unrelated['repository'] = 'example/private'
+        original['approvals'].insert(1, unrelated)
+        original['ownership'][contract.names(unrelated)['namespace']] = unrelated['instance'] + ':' + contract.digest(contract.canonical(unrelated))
+        original['artifacts']['ghcr.io/example/app'] = {'public': True, 'sourceRepository': 'example/platform',
+            'issuer': 'https://token.actions.githubusercontent.com',
+            'subject': 'https://github.com/example/platform/.github/workflows/build.yml@refs/heads/main'}
+        api.documents[api.main] = json.dumps({'catalog': original}).encode()
+        saved = copy.deepcopy(state)
+        with patch.object(approval.time, 'time', return_value=1200):
+            approval.catalog_prepare(api, values, state, Mock(), 'cd', 'orphan-d')
+            old = approval.current(state)
+            expected = copy.deepcopy(original)
+            expected['approvals'] = [row for row in original['approvals'] if row['instance'] != 'd'*32]
+            self.assertEqual(old['document']['catalog'], expected)
+            api.main = 'f'*40; api.documents[api.main] = api.documents['1'*40]
+            approval.reprepare(api, values, state, Mock())
+        self.assertEqual(old['stage'], 'abandoned')
+        with patch.object(approval.time, 'time', return_value=1200):
+            approval.propose(api, values, state, Mock()); approval.review(api, values, state, Mock()); approval.merge(api, values, state, Mock())
+        self.assertEqual(json.loads(api.documents[api.main])['catalog'], expected)
+        self.assertEqual(state['approvals'], saved['approvals']); self.assertEqual(state['pulls'], saved['pulls'])
+        # The existing pair withdrawal still removes both approvals and retains ownership.
+        api = fixtures.CatalogGit(); state = fixtures.orphan_pair(api)
+        approval.catalog_prepare(api, values, state, Mock(), 'cd', 'withdraw')
+        withdrawn = approval.current(state)['document']['catalog']
+        self.assertEqual(withdrawn['approvals'], []); self.assertEqual(len(withdrawn['ownership']), 2)
+
+    def test_orphan_d_refuses_catalog_and_remote_source_drift_without_writes(self):
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        for change in ('c-row', 'c-ownership', 'd-missing', 'd-ownership', 'head', 'repository', 'expired'):
+            with self.subTest(change=change):
+                api = fixtures.CatalogGit(); state = fixtures.orphan_pair(api)
+                settings = json.loads(api.documents[api.main])['catalog']
+                if change == 'c-row':
+                    settings['approvals'][0]['expiresAt'] += 1
+                    settings['ownership']['cloudlab-preview-'+'c'*32] = 'c'*32 + ':' + contract.digest(contract.canonical(settings['approvals'][0]))
+                elif change == 'c-ownership': settings['ownership'].pop('cloudlab-preview-'+'c'*32)
+                elif change == 'd-missing': settings['approvals'].pop()
+                elif change == 'd-ownership': settings['ownership'].pop('cloudlab-preview-'+'d'*32)
+                elif change == 'head': api.source_pulls['repos/example/private/pulls/18']['head']['sha'] = 'f'*40
+                elif change == 'repository': values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/foreign/private.git'}
+                api.documents[api.main] = json.dumps({'catalog': settings}).encode()
+                save = Mock()
+                with patch.object(approval.time, 'time', return_value=2000 if change == 'expired' else 1200), self.assertRaises(ValueError):
+                    approval.catalog_prepare(api, values, state, save, 'cd', 'orphan-d')
+                self.assertEqual(api.writes, []); save.assert_not_called(); self.assertNotIn('catalogProposals', state)
+                values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+
+    def test_orphan_d_rechecks_exact_source_before_publication_and_merge(self):
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        for operation in (approval.propose, approval.review, approval.merge):
+            with self.subTest(operation=operation.__name__), patch.object(approval.time, 'time', return_value=1200):
+                api = fixtures.CatalogGit(); state = fixtures.orphan_pair(api)
+                approval.catalog_prepare(api, values, state, Mock(), 'cd', 'orphan-d')
+                if operation != approval.propose: approval.propose(api, values, state, Mock())
+                if operation == approval.merge: approval.review(api, values, state, Mock())
+                api.source_pulls['repos/example/private/pulls/18']['head']['sha'] = 'f'*40
+                writes = copy.deepcopy(api.writes); before = copy.deepcopy(state); save = Mock()
+                with self.assertRaises(ValueError): operation(api, values, state, save)
+                self.assertEqual(api.writes, writes); self.assertEqual(state, before); save.assert_not_called()
+
     def test_existing_baseline_is_subset_and_foreign_identity_loss_fails(self):
         baseline={'persistent':{'apps':{'identities':{'one':'uid'}}},'clients':{'applications':{'identities':{'one':'uuid'}}}}
         state={'baseline':{'cluster':baseline}}; observed=copy.deepcopy(baseline)

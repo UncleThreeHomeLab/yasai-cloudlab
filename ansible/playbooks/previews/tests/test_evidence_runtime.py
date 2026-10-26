@@ -54,12 +54,107 @@ class EvidenceTests(unittest.TestCase):
         client['enabled'] = False
         disabled = evidence.inspect_row(row, settings, lifecycle, identity, stored, get, lambda identifier:[client], lambda uuid:client, 1260, platform)
         self.assertTrue(disabled['disabled']); self.assertEqual(disabled['disabledAt'],1250)
+        stored['disabled'] = disabled
         for obj in (lifecycle, identity): obj['data']['state.json']=json.dumps({'entries':{row['instance']:{'phase':'retired','approvalDigest':first['approvalDigest']}}})
         objects.clear()
         absent=evidence.inspect_row(row,settings,lifecycle,identity,stored,get,lambda identifier:[],lambda uuid:None,1850,platform)
         self.assertTrue(absent['absent'])
+        self.assertTrue(absent['cleanupOnlyAbsent'])
         with self.assertRaises(ValueError): evidence.inspect_row(row,settings,lifecycle,identity,stored,get,lambda identifier:[],lambda uuid:client,1850,platform)
         with self.assertRaises(RuntimeError): evidence.inspect_row(row,settings,lifecycle,identity,stored,get,lambda identifier:[],Mock(side_effect=RuntimeError('403')),1850,platform)
+
+    def test_retired_absence_without_history_is_cleanup_only_not_grace_proof(self):
+        row, settings, lifecycle, identity, objects, client, platform = fixtures.lifecycle_observation()
+        for obj in (lifecycle, identity):
+            obj['data']['state.json'] = json.dumps({'entries': {row['instance']: {
+                'phase': 'retired', 'approvalDigest': fixtures.digest(fixtures.canonical(row))}}})
+        objects.clear(); by_uuid = Mock(return_value=None)
+        current = evidence.inspect_row(row, settings, lifecycle, identity, {}, lambda *args:None,
+            lambda identifier:[], by_uuid, 3000, platform)
+        self.assertTrue(current['cleanupOnlyAbsent']); self.assertFalse(current['absent'])
+        self.assertFalse(current['active']); self.assertFalse(current['disabled'])
+        self.assertNotIn('client', current); self.assertNotIn('disabledAt', current); by_uuid.assert_not_called()
+        expected = {'active': {'active': True, 'client': {'id': client['id']}}}
+        known = evidence.inspect_row(row, settings, lifecycle, identity, expected, lambda *args:None,
+            lambda identifier:[], by_uuid, 3000, platform)
+        self.assertTrue(known['cleanupOnlyAbsent']); self.assertFalse(known['absent'])
+        by_uuid.assert_called_once_with(client['id'])
+        with self.assertRaises(ValueError):
+            evidence.inspect_row(row, settings, lifecycle, identity, {'latest': {'client': {'id': client['id']}}},
+                lambda *args:None, lambda identifier:[], lambda uuid:client, 3000, platform)
+        with self.assertRaises(ValueError):
+            evidence.inspect_row(row, settings, lifecycle, identity, dict(expected, disabled={'client': {'id': 'another-uuid'}}),
+                lambda *args:None, lambda identifier:[], lambda uuid:None, 3000, platform)
+        for find, lookup in ((lambda identifier:[client,client], lambda uuid:None),
+                             (lambda identifier:[], lambda uuid:client),
+                             (lambda identifier:[], Mock(side_effect=RuntimeError('unavailable')))):
+            with self.assertRaises((ValueError, RuntimeError)):
+                evidence.inspect_row(row, settings, lifecycle, identity, expected, lambda *args:None, find, lookup, 3000, platform)
+        for phase in ('retiring', 'active'):
+            lifecycle['data']['state.json'] = json.dumps({'entries': {row['instance']: {
+                'phase': phase, 'approvalDigest': current['approvalDigest']}}})
+            result = evidence.inspect_row(row, settings, lifecycle, identity, {}, lambda *args:None,
+                lambda identifier:[], lambda uuid:None, 3000, platform)
+            self.assertFalse(result['cleanupOnlyAbsent'])
+
+    def test_surviving_owned_resource_prevents_cleanup_only_absence(self):
+        row, settings, lifecycle, identity, objects, client, platform = fixtures.lifecycle_observation()
+        for obj in (lifecycle, identity):
+            state = json.loads(obj['data']['state.json']); state['entries'][row['instance']]['phase'] = 'retired'
+            obj['data']['state.json'] = json.dumps(state)
+        get = lambda kind,name=None,namespace=None: copy.deepcopy(objects.get((kind,name,namespace))) if kind == 'namespace' else None
+        current = evidence.inspect_row(row, settings, lifecycle, identity, {}, get,
+            lambda identifier:[], lambda uuid:None, 3000, platform)
+        self.assertTrue(current['uids']); self.assertFalse(current['cleanupOnlyAbsent']); self.assertFalse(current['absent'])
+
+    def test_pending_uuid_remains_durable_through_repeated_cleanup_observations(self):
+        from playbooks.previews.tests import approval_fixture as approval
+        row, settings, lifecycle, identity, objects, client, platform = fixtures.lifecycle_observation()
+        runtime = json.loads(lifecycle['data']['state.json']); runtime['entries'][row['instance']]['phase'] = 'pending'
+        lifecycle['data']['state.json'] = json.dumps(runtime)
+        state = {'approvals': {'a': {'row': row}}}
+        pending = evidence.inspect_row(row, settings, lifecycle, identity, {}, lambda *args:None,
+            lambda identifier:[client], lambda uuid:client, 1200, platform)
+        self.assertFalse(pending['active']); self.assertEqual(pending['knownUUID'], client['id'])
+        approval.remember(state, {'entries': {row['instance']: pending}}, Mock())
+        for obj in (lifecycle, identity):
+            obj['data']['state.json'] = json.dumps({'entries': {row['instance']: {
+                'phase': 'retired', 'approvalDigest': pending['approvalDigest']}}})
+        for now in (3000, 3001):
+            lookup = Mock(return_value=None)
+            current = evidence.inspect_row(row, settings, lifecycle, identity, state['evidence'][row['instance']],
+                lambda *args:None, lambda identifier:[], lookup, now, platform)
+            lookup.assert_called_once_with(client['id']); self.assertTrue(current['cleanupOnlyAbsent'])
+            approval.remember(state, {'entries': {row['instance']: current}}, Mock())
+            saved = state['evidence'][row['instance']]
+            self.assertEqual(saved['knownUUID'], client['id']); self.assertNotIn('client', saved['latest'])
+            for proof in ('active', 'disabled', 'absent'): self.assertNotIn(proof, saved)
+        renamed = dict(client, clientId='renamed-client')
+        for lookup in (Mock(return_value=renamed), Mock(side_effect=RuntimeError('unavailable'))):
+            with self.assertRaises((ValueError, RuntimeError)):
+                evidence.inspect_row(row, settings, lifecycle, identity, saved, lambda *args:None,
+                    lambda identifier:[], lookup, 3002, platform)
+            lookup.assert_called_once_with(client['id'])
+
+    def test_historical_uuid_metadata_refuses_malformed_or_conflicting_identifiers(self):
+        from playbooks.previews.tests import approval_fixture as approval
+        row, settings, lifecycle, identity, objects, client, platform = fixtures.lifecycle_observation()
+        fingerprint = fixtures.digest(fixtures.canonical(row))
+        for obj in (lifecycle, identity):
+            obj['data']['state.json'] = json.dumps({'entries': {row['instance']: {'phase': 'retired', 'approvalDigest': fingerprint}}})
+        for history in ({'knownUUID': ''}, {'knownUUID': None}, {'knownUUID': '../invalid'}, {'knownUUID': ['uuid']},
+                        {'knownUUID': client['id'], 'latest': {'client': {'id': 'different-uuid'}}}):
+            with self.subTest(history=history):
+                lookup = Mock()
+                with self.assertRaises(ValueError):
+                    evidence.inspect_row(row, settings, lifecycle, identity, history, lambda *args:None,
+                        lambda identifier:[], lookup, 3000, platform)
+                lookup.assert_not_called()
+                state = {'approvals': {'a': {'row': row}}, 'evidence': {row['instance']: copy.deepcopy(history)}}
+                save = Mock()
+                with self.assertRaises(ValueError):
+                    approval.remember(state, {'entries': {row['instance']: {'approvalDigest': fingerprint}}}, save)
+                save.assert_not_called()
 
     def test_foreign_changed_resources_and_client_representations_refuse(self):
         for change in ('uid','image','source','callback','enabled','data'):
