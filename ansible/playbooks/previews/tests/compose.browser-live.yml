@@ -1,0 +1,102 @@
+name: cloudlab-preview-browser-live
+services:
+  browser: &browser
+    platform: linux/amd64
+    build: ../../keycloak/tests/browser
+    entrypoint: [node, /fixture/browser-live.mjs]
+    read_only: true
+    user: '1000:1000'
+    environment:
+      HOME: /tmp
+    volumes:
+      - ./browser-live.mjs:/fixture/browser-live.mjs:ro
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+      - /dev/shm:mode=1777,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.0
+    init: true
+    logging: {driver: none}
+    networks: [control, outbound]
+  controller: &controller
+    platform: linux/amd64
+    build:
+      context: ../../../runner
+      additional_contexts:
+        ci-source: ../../../../platform/delivery/ci
+    entrypoint: [python, -m, playbooks.previews.tests.live_acceptance, browser]
+    command: []
+    read_only: true
+    working_dir: /workspace/ansible
+    environment: &controller_environment
+      PYTHONPATH: /workspace/ansible
+      PYTHONDONTWRITEBYTECODE: '1'
+      HOME: /tmp
+    volumes:
+      - ../../../:/workspace/ansible:ro
+      - ../../../../platform:/workspace/platform:ro
+      - ../../../../charts:/workspace/charts:ro
+      - ../../../../gitops:/workspace/gitops:ro
+      - ../../../../apps:/workspace/apps:ro
+      - ../../../../verification/integration:/workspace/verification/integration:ro
+      - ../../../../compose.yaml:/workspace/compose.yaml:ro
+      - ../../../../.env.example:/workspace/.env.example:ro
+      - ../../../../.git:/workspace/.git:ro
+      - ../../../../.env:/workspace/.env:ro
+      - recovery:/recovery
+      - state:/state
+    tmpfs: ['/tmp:mode=1777,size=128m']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    init: true
+    logging: {driver: none}
+    networks: [control, outbound]
+    depends_on: [browser]
+  offline:
+    <<: *browser
+    profiles: [offline]
+    entrypoint: [node, /fixture/browser-live-check.mjs]
+    network_mode: none
+    networks: []
+    logging: {driver: json-file, options: {max-size: 1m, max-file: '1'}}
+    volumes:
+      - ./browser-live.mjs:/fixture/browser-live.mjs:ro
+      - ./browser-live-check.mjs:/fixture/browser-live-check.mjs:ro
+  checks:
+    <<: *controller
+    profiles: [offline]
+    entrypoint: [python, -m, unittest, playbooks.previews.tests.test_browser_live]
+    network_mode: none
+    networks: []
+    depends_on: []
+    environment:
+      <<: *controller_environment
+      ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+    logging: {driver: json-file, options: {max-size: 1m, max-file: '1'}}
+    volumes:
+      - ../../../:/workspace/ansible:ro
+      - ../../../../platform:/workspace/platform:ro
+      - ../../../../charts:/workspace/charts:ro
+      - ../../../../gitops:/workspace/gitops:ro
+      - ../../../../apps:/workspace/apps:ro
+      - ../../../../infra:/workspace/infra:ro
+      - ../../../../.github:/workspace/.github:ro
+      - ../../../../verification/integration:/workspace/verification/integration:ro
+      - ../../../../compose.yaml:/workspace/compose.yaml:ro
+      - ../../../../.env.example:/workspace/.env.example:ro
+networks:
+  control: {internal: true}
+  outbound: {}
+volumes:
+  recovery:
+    external: true
+    name: yasai-cloudlab_recovery_outputs
+  state:
+    external: true
+    name: yasai-cloudlab_ssh_known_hosts

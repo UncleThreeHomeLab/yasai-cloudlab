@@ -15,7 +15,7 @@ from playbooks.previews.files.contract import digest
 
 ROOT = Path(__file__).resolve().parents[4]
 ACTIONS = ('inspect', 'viewer-provision', 'viewer-stage', 'viewer-propose', 'viewer-merge', 'viewer-enroll',
-           'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup')
+           'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup', 'browser')
 
 
 class Parser(argparse.ArgumentParser):
@@ -69,6 +69,11 @@ def publication_merge(api, values, state, save, *, offboard=False):
 def prerequisites(action, state, slot):
     if action != 'inspect' and 'baseline' not in state:
         raise ValueError('Inspect and journal the private/cluster baseline first')
+    if action == 'browser' and (not state.get('enrolled') or 'offboarding' in state or
+            not isinstance(state.get('browserApprovals'), dict) or set(state['browserApprovals']) != {'a', 'b'}):
+        raise ValueError('Browser proof requires its enrolled viewer and explicit A/B approval receipts')
+    if action == 'browser' and state.get('browserAttempted'):
+        raise ValueError('Browser attempt cannot reset its ephemeral authenticator; retain ownership and offboard')
     if action in ('viewer-stage', 'viewer-propose', 'offboard-propose') and not state.get('provisioned'):
         raise ValueError('Provision the journal-owned viewer first')
     if action in ('viewer-propose', 'offboard-propose') and not state.get('staged'):
@@ -116,8 +121,12 @@ def execute(action, values, state, save, slot=None):
     request = state['viewer']
     prerequisites(action, state, slot)
     intent = {'action': action, 'slot': slot}
-    if state.get('intent') not in (None, intent):
+    interrupted_browser = (action == 'offboard-propose' and slot is None and
+        state.get('browserAttempted') is True and state.get('intent') == {'action': 'browser', 'slot': None})
+    if state.get('intent') not in (None, intent) and not interrupted_browser:
         raise ValueError('Resume the journaled operation before beginning another fixture stage')
+    if interrupted_browser:
+        state['browserFailed'] = True
     completed = {'viewer-provision': 'provisioned', 'viewer-stage': 'staged',
                  'viewer-enroll': 'enrolled', 'viewer-offboard': 'offboarded'}.get(action)
     publication_key = {'viewer-propose': 'membership', 'viewer-merge': 'membership',
@@ -168,6 +177,20 @@ def execute(action, values, state, save, slot=None):
         if state.get('identity') and any(observed[key] != state['identity'][key] for key in ('realm', 'username', 'user_id', 'email')):
             raise ValueError('Viewer identity changed since its journal receipt')
         state['identity'] = observed
+    elif action == 'browser':
+        from playbooks.previews.tests.browser_live import run
+        def begin_enrollment():
+            state['browserAttempted'] = True
+            save()
+        try:
+            state['browserProof'] = run(values, state, remote, begin_enrollment)
+        except Exception:
+            # Only the durable begin marker consumes MFA; earlier refusals remain retryable.
+            state['browserFailed'] = True
+            if state['intent'] == intent:
+                state['intent'] = None
+            save()
+            raise
     elif action == 'viewer-offboard':
         remote(values, dict(request, action='wait', revision=state['offboarding']['revision']))
         identity = {key: state['identity'][key] for key in ('realm', 'username', 'user_id', 'email')}

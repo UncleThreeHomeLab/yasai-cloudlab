@@ -118,3 +118,24 @@ retain the viewer tombstone and vault item. Synthetic PR stages are `pr-create`,
 Each invocation requires clean published main and a serialized private journal;
 the original platform revision must remain its ancestor. Runtime viewer changes
 use the versioned fixture Ansible entry point and existing identity owners.
+
+The explicit `browser` stage uses `tests/compose.browser-live.yml`: start its
+`browser` service, then run `controller --nonce <32hex> --live`. Only controller
+mounts local inputs and private recovery. The journal must contain two exact
+`instances` and `browserApprovals` entries `a`/`b`, each with `instance` and
+`approvalDigest`, matching its owned PR receipts and current catalog. Missing
+receipts refuse execution; this stage never creates execution approvals.
+The browser keeps credentials and sessions in memory, captures authorization
+callbacks before dispatch, and uses verified private TLS. After WebAuthn failure,
+retain the journal and use existing offboarding; automatic viewer reset is unsupported.
+Pre-enrollment failures remain retryable. A durable attempt marker precedes the
+first credential frame; subsequent failures permit offboarding only. The browser
+waits at most ten minutes for controller preflight, then bounds the proof to four minutes.
+After process interruption, `offboard-propose` can replace only the exact consumed
+browser intent under the journal lock; other interrupted operations still require resume.
+
+Credential-free browser checks: `docker compose -f
+ansible/playbooks/previews/tests/compose.browser-live.yml --profile offline run
+--build --rm -T offline`; replace `offline` with `checks` for controller tests.
+The isolated synthetic CA checks real TLS validation and browser isolation;
+it establishes no live identity, gateway or application-build result.

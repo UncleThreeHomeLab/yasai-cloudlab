@@ -2646,6 +2646,7 @@
       "companions": [
         "ansible/playbooks/keycloak/tests/browser/Dockerfile",
         "ansible/playbooks/keycloak/tests/browser/package-lock.json",
+        "ansible/playbooks/previews/tests/compose.browser-live.yml",
         "ansible/playbooks/previews/tests/compose.browser-origins.yml"
       ],
       "writePaths": [
