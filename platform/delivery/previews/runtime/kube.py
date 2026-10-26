@@ -26,6 +26,15 @@ RESOURCES = {
     ('rbac.authorization.k8s.io/v1', 'RoleBinding'): 'rolebindings',
 }
 
+POD_METRICS = ('metrics.k8s.io/v1beta1', 'PodMetrics')
+
+
+class NamespaceInventory(list):
+    """Keep discovery eligibility outside API-controlled object fields."""
+    def __init__(self):
+        super().__init__()
+        self.pod_metrics = set()
+
 
 class APIError(RuntimeError):
     def __init__(self, code):
@@ -124,12 +133,16 @@ class Kubernetes:
                 if len(discovered) > 200:
                     raise RuntimeError('Preview API discovery exceeds its bound')
                 endpoints.append((version, self.request('GET', '/apis/' + version)['resources']))
-        objects = []
+        objects = NamespaceInventory()
         collections = set()
         for version, resources in endpoints:
             if len(resources) > 1000:
                 raise RuntimeError('Preview API discovery exceeds its bound')
             for item in resources:
+                metrics = version == POD_METRICS[0] and item['name'] == 'pods'
+                if metrics and (item.get('kind') != POD_METRICS[1] or item.get('namespaced') is not True or
+                                set(item.get('verbs', [])) != {'get', 'list'}):
+                    raise RuntimeError('Preview metrics discovery is not the accepted read-only projection')
                 if item.get('namespaced') and '/' not in item['name'] and 'list' in item.get('verbs', []):
                     collection = (version.split('/')[0] if '/' in version else '', item['name'])
                     if collection in collections:
@@ -142,7 +155,19 @@ class Kubernetes:
                     if value.get('metadata', {}).get('continue') or len(value.get('items', [])) > 500:
                         raise RuntimeError('Incomplete preview namespace inventory')
                     for obj in value.get('items', []):
+                        if (not isinstance(obj, dict) or obj.get('apiVersion', version) != version or
+                                obj.get('kind', item['kind']) != item['kind']):
+                            raise RuntimeError('Preview inventory object differs from its discovered collection')
+                        if version == 'v1' and item['kind'] == 'Endpoints' and item['name'] != 'endpoints':
+                            raise RuntimeError('Native Endpoints require their exact core collection')
                         obj.setdefault('apiVersion', version)
                         obj.setdefault('kind', item['kind'])
+                        if metrics:
+                            meta = obj.get('metadata', {})
+                            if ((obj['apiVersion'], obj['kind']) != POD_METRICS or
+                                    not isinstance(meta, dict) or meta.get('namespace') != namespace or
+                                    not isinstance(meta.get('name'), str) or not meta['name']):
+                                raise RuntimeError('Preview metrics projection differs from its discovery')
+                            objects.pod_metrics.add(id(obj))
                         objects.append(obj)
         return objects

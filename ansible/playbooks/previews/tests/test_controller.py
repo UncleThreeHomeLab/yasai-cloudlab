@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from fixtures import approval, catalog, pull, source_responses, generated_application
+from fixtures import approval, catalog, pull, source_responses, generated_application, native_inventory_graph, discovered_inventory
 from playbooks.previews.files.contract import OWNER, IDENTITY_STATE, canonical, digest, names
 from playbooks.previews.files.controller import Controller
 from playbooks.previews.files.kube import identity, Kubernetes, APIError
@@ -196,6 +196,35 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(cluster.get(identity(persistent)), before)
         self.assertTrue(next(orphan for key, orphan in cluster.deleted if key == appset_key))
         self.assertTrue(next(orphan for key, orphan in cluster.deleted if key[1] == 'Namespace'))
+
+    def test_native_inventory_leaves_retire_only_through_namespace_gc_and_fresh_checks(self):
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                controller, row, settings, cluster, _ = self.active()
+                namespace = names(row)['namespace']
+                gateway = next(obj for key, obj in cluster.objects.items() if key[1] == 'Gateway' and key[2] == namespace)
+                graph = native_inventory_graph(namespace, gateway['metadata']['uid'])
+                for obj in graph: cluster.objects[identity(obj)] = copy.deepcopy(obj)
+                native_inventory, native_delete = cluster.namespace_inventory, cluster.delete
+                calls = []
+                def inventory(ns):
+                    result = discovered_inventory(native_inventory(ns), ns); calls.append(ns)
+                    if changed and len(calls) == 1:
+                        key = ('v1', 'Endpoints', namespace, 'native-service')
+                        cluster.objects[key]['subsets'][0]['addresses'][0]['ip'] = '10.42.9.9'
+                    return result
+                def delete(key, uid, version, **options):
+                    native_delete(key, uid, version, **options)
+                    if key[1] == 'Namespace':
+                        for child in list(cluster.objects):
+                            if child[2] == namespace: del cluster.objects[child]
+                controller.now = row['expiresAt']; cluster.identity_phase(row, 'retired')
+                with patch.object(cluster, 'namespace_inventory', side_effect=inventory), patch.object(cluster, 'delete', side_effect=delete):
+                    for _ in range(30): controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertFalse(any(key[1] in ('Endpoints', 'PodMetrics') for key, _ in cluster.deleted))
+                self.assertGreaterEqual(len(calls), 2)
+                self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retiring' if changed else 'retired')
+                self.assertEqual(cluster.get(('v1', 'Namespace', '', namespace)) is not None, changed)
 
     def test_provider_outage_retains_until_absolute_expiry(self):
         controller, row, settings, cluster, git = self.active()
