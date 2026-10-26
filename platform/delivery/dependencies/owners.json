@@ -2108,7 +2108,8 @@
         "ansible/playbooks/dependencies/tests/fixtures/native/platform/certificates/cert-manager/artifact.lock.json",
         "ansible/playbooks/dependencies/tests/fixtures/native/platform/data/cnpg/artifact.lock.json",
         "ansible/playbooks/dependencies/tests/fixtures/native/platform/data/seaweedfs/artifact.lock.json",
-        "ansible/playbooks/dependencies/tests/fixtures/native/renovate.json"
+        "ansible/playbooks/dependencies/tests/fixtures/native/renovate.json",
+        "ansible/playbooks/previews/tests/git-outage/Chart.yaml"
       ],
       "writePaths": [],
       "group": "fixture",

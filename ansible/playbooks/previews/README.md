@@ -133,6 +133,17 @@ cleanup cannot remove ownership before that evidence. `catalog-retire` closes an
 atomically deletes only proposal refs with recorded creation intents. Historical
 unjournaled refs remain retained. Approval retries never extend expiry.
 
+`probe-prepare` installs fixed public probe code in a separate restricted namespace.
+Browser preflight checks effective SSH and local Kubernetes logging before viewer
+credentials. The same SSH session must confirm fresh readiness before any JWT frame.
+Only preview access JWTs may pass once through fixed non-PTY SSH and
+Pod stdin; they never enter Ansible, resource declarations or recovery files.
+Unknown logging, proxy or ownership settings refuse the proof. `probe-cleanup`
+removes only recorded resources. `retained-create|observe|delete` owns one synthetic
+slot-D ConfigMap; changed data blocks deletion. `outage-prepare|observe|fault|restore|cleanup`
+uses a separate native ApplicationSet and retained ConfigMap. Restore its exact
+Git revision before teardown; unknown namespace data remains quarantined.
+
 The explicit `browser` stage uses `tests/compose.browser-live.yml`: start its
 `browser` service, then run `controller --nonce <32hex> --live`. Only controller
 mounts local inputs and private recovery. The journal must contain two exact
