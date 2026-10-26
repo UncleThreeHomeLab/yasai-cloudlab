@@ -152,10 +152,13 @@ class CatalogGit:
         self.number, self.merged, self.closed, self.fail = None, False, False, None
         self.pull_body = None
         self.writes = []
+        self.source_pulls = {}
 
     def request(self, method, path, body=None, missing=False):
         import hashlib
         from playbooks.argocd.files.github_setup import MARKER
+        if method == 'GET' and path in self.source_pulls:
+            return copy.deepcopy(self.source_pulls[path])
         if method != 'GET': self.writes.append((method, path, copy.deepcopy(body)))
         def written(kind, result):
             if self.fail == kind:
@@ -210,6 +213,28 @@ class CatalogGit:
             'base': {'sha': self.commits.get(self.head, {}).get('parents', [{'sha': self.main}])[0]['sha'], 'ref': 'main', 'repo': repo}}
 
 
+def orphan_pair(api):
+    nonce = 'e' * 32
+    state = {'nonce': nonce, 'approvals': {}, 'pulls': {}}
+    for slot, number in (('c', 17), ('d', 18)):
+        row = approval(slot * 32)
+        row.update(repository='example/private', pullRequest=number,
+            definition={'profile': 'synthetic', 'message': 'synthetic fixture ' + slot + ' revision 0'})
+        row['sourceDigest'] = digest(canonical(row['definition']))
+        state['approvals'][slot] = {'instance': row['instance'], 'head': row['sourceSha'],
+            'platform': row['platformRevision'], 'row': row,
+            'artifact': {'instance': row['instance'], 'sha256': digest(canonical(row))}}
+        receipt = state['pulls'][slot] = {'repository': row['repository'], 'repositoryId': row['repositoryId'],
+            'number': number, 'head': row['sourceSha'], 'branch': 'cloudlab-preview-fixture/' + nonce + '/' + slot,
+            'base': '1' * 40, 'closed': False, 'deleted': False, 'pending': None}
+        source = pull(row); source['head']['ref'] = receipt['branch']; source['base']['ref'] = 'main'
+        api.source_pulls['repos/example/private/pulls/' + str(number)] = source
+    settings = catalog([record['row'] for record in state['approvals'].values()])
+    settings['privateDiscovery'] = True
+    api.documents[api.main] = (json.dumps({'catalog': settings}, sort_keys=True, indent=2) + '\n').encode()
+    return state
+
+
 def lifecycle_observation():
     from playbooks.previews.files.resources import resources, private_route
     from playbooks.keycloak.files.preview_clients import representation
@@ -244,6 +269,16 @@ def lifecycle_observation():
         'labels': {'app.kubernetes.io/name': 'preview'}, 'ownerReferences': [{'kind': 'ReplicaSet', 'uid': 'replica'}]},
         'spec': {'automountServiceAccountToken': False}, 'status': {'phase': 'Running'}}]}
     return row, settings, lifecycle, identity, objects, client, platform
+
+
+def generated_application(appset):
+    obj = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+        'metadata': copy.deepcopy(appset['spec']['template']['metadata']),
+        'spec': copy.deepcopy(appset['spec']['template']['spec'])}
+    obj['metadata'].update(namespace='argocd', ownerReferences=[{
+        'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': appset['metadata']['name'],
+        'uid': appset['metadata']['uid'], 'controller': True, 'blockOwnerDeletion': True}])
+    return obj
 
 
 class ResourceAPI:

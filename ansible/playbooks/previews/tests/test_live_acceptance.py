@@ -58,6 +58,133 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(state['provisioned'])
         self.assertIsNone(state['intent'])
 
+    def test_orphan_d_local_refusal_leaves_actual_journal_unchanged_then_can_continue(self):
+        from playbooks.previews.tests import fixtures, approval_fixture as approval
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        for change in ('batch', 'missing', 'record-head', 'pull-head', 'repository', 'slot'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                api = fixtures.CatalogGit(); state = fixtures.orphan_pair(api); nonce = state['nonce']
+                state.update(format=1, platform='c'*40, executionPlatform='c'*40, baseline={}, intent=None,
+                    viewer={'nonce': nonce, 'realm': 'applications'})
+                if change == 'missing': del state['approvals']['d']
+                elif change == 'record-head': state['approvals']['d']['head'] = 'f'*40
+                elif change == 'pull-head': state['pulls']['d']['head'] = 'f'*40
+                elif change == 'repository': state['pulls']['d']['repository'] = 'foreign/private'
+                with patch.object(live.fixture, 'JOURNALS', Path(directory)), \
+                        patch('playbooks.argocd.files.render.committed_payload', return_value={'revision': 'c'*40}), \
+                        patch.object(live, 'dotenv_values', return_value=values), patch.object(live.session, 'private_context') as context, \
+                        patch.object(approval.time, 'time', return_value=1200):
+                    context.return_value.__enter__.return_value = api
+                    path = Path(directory)/nonce/'journal.json'; live.fixture.journal(path, state); original = path.read_bytes()
+                    args = ['catalog-prepare', '--nonce', nonce, '--batch', 'ab' if change == 'batch' else 'cd', '--mode', 'orphan-d', '--live']
+                    if change == 'slot': args += ['--slot', 'd']
+                    with patch.object(live.fixture, 'journal', wraps=live.fixture.journal) as save, self.assertRaises(ValueError): live.main(args)
+                    save.assert_not_called(); self.assertEqual(path.read_bytes(), original); context.assert_not_called()
+                    with patch.object(session_fixture, 'provision', return_value={}):
+                        live.main(['viewer-provision', '--nonce', nonce, '--live'])
+                    current = json.loads(path.read_text()); self.assertTrue(current['provisioned']); self.assertIsNone(current['intent'])
+
+    def test_persisted_missed_lifecycle_observation_resumes_cleanup_with_fresh_facts(self):
+        from playbooks.previews.tests import fixtures, approval_fixture as approval
+        values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+        api = fixtures.CatalogGit(); state = fixtures.orphan_pair(api); nonce = state['nonce']
+        baseline = {'persistent': {}, 'clients': {}}
+        state.update(format=1, platform='c'*40, executionPlatform='c'*40, baseline={'cluster': baseline},
+            intent={'action': 'lifecycle-observe', 'slot': None}, viewer={'nonce': nonce, 'realm': 'applications'})
+        facts = {'entries': {instance: {'approvalDigest': approval.contract.digest(approval.contract.canonical(row)),
+            'observedAt': 3000, 'phase': 'retired', 'identityPhase': 'retired', 'uids': {},
+            'active': False, 'disabled': False, 'absent': False, 'cleanupOnlyAbsent': True}
+            for instance,row in approval.rows(state).items()}}
+        requests = []; missing = [False]
+        def remote(values, request):
+            requests.append(request['action'])
+            if request['action'] == 'baseline': return copy.deepcopy(baseline)
+            self.assertEqual(request['action'], 'lifecycle')
+            result = copy.deepcopy(facts)
+            if missing[0]:
+                for value in result['entries'].values(): value['cleanupOnlyAbsent'] = False
+            return result
+        with tempfile.TemporaryDirectory() as directory, patch.object(live.fixture, 'JOURNALS', Path(directory)), \
+                patch('playbooks.argocd.files.render.committed_payload', return_value={'revision': 'c'*40}), \
+                patch.object(live, 'dotenv_values', return_value=values), patch.object(live, 'remote', side_effect=remote), \
+                patch.object(live.session, 'private_context') as context:
+            context.return_value.__enter__.return_value = api
+            path = Path(directory)/nonce/'journal.json'; live.fixture.journal(path, state)
+            def run(action, *extra): live.main([action, '--nonce', nonce, '--live', *extra])
+            run('lifecycle-observe')
+            current = json.loads(path.read_text()); self.assertIsNone(current['intent'])
+            self.assertTrue(all('absent' not in item and 'disabled' not in item and 'active' not in item for item in current['evidence'].values()))
+            run('catalog-prepare', '--batch', 'cd', '--mode', 'cleanup')
+            api.main = 'f'*40; api.documents[api.main] = api.documents['1'*40]
+            with self.assertRaises(ValueError): run('catalog-propose')
+            self.assertEqual(json.loads(path.read_text())['intent']['action'], 'catalog-propose')
+            run('catalog-reprepare')
+            writes = copy.deepcopy(api.writes); missing[0] = True
+            with self.assertRaises(ValueError): run('catalog-propose')
+            self.assertEqual(api.writes, writes)
+            missing[0] = False
+            for action in ('catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire'): run(action)
+            final = json.loads(path.read_text()); self.assertIsNone(final['intent'])
+            self.assertEqual(final['catalogProposals'][-1]['stage'], 'retired'); self.assertIsNone(api.head)
+            self.assertEqual(json.loads(api.documents[api.main])['catalog']['ownership'], {})
+            self.assertGreaterEqual(requests.count('lifecycle'), 9)
+            self.assertTrue(all('absent' not in item for item in final['evidence'].values()))
+    def test_rejected_first_disable_persists_uuid_across_cli_reload_and_retired_cleanup(self):
+        from playbooks.previews.tests import fixtures, approval_fixture as approval, evidence_runtime as evidence
+        row, settings, lifecycle_state, identity, objects, client, platform = fixtures.lifecycle_observation()
+        nonce = 'e'*32; baseline = {'persistent': {}, 'clients': {}}
+        state = {'format': 1, 'nonce': nonce, 'platform': 'c'*40, 'executionPlatform': 'c'*40,
+            'baseline': {'cluster': baseline}, 'intent': None, 'viewer': {'nonce': nonce, 'realm': 'applications'},
+            'approvals': {'a': {'row': row}}}
+        lifecycle_data = json.loads(lifecycle_state['data']['state.json'])
+        lifecycle_data['entries'][row['instance']]['phase'] = 'retiring'
+        lifecycle_state['data']['state.json'] = json.dumps(lifecycle_data)
+        identity_data = json.loads(identity['data']['state.json'])
+        identity_data['entries'][row['instance']].update(phase='disabled', disabledAt=1250)
+        identity['data']['state.json'] = json.dumps(identity_data); client['enabled'] = False
+        mode = ['disabled']; lookup = Mock()
+        def by_uuid(uuid):
+            if mode[0] == 'uncertain': raise RuntimeError('lookup unavailable')
+            if mode[0] == 'renamed': return dict(client, clientId='renamed-client')
+            return client if mode[0] == 'disabled' else None
+        lookup.side_effect = by_uuid
+        def remote(values, request):
+            if request['action'] == 'baseline': return copy.deepcopy(baseline)
+            self.assertEqual(request['action'], 'lifecycle')
+            observed = evidence.inspect_row(row, settings, lifecycle_state, identity,
+                request['expected'].get(row['instance'], {}), lambda *args:None,
+                lambda identifier:[client] if mode[0] == 'disabled' else [], lookup,
+                1260 if mode[0] == 'disabled' else 3000, platform)
+            return {'entries': {row['instance']: observed}}
+        with tempfile.TemporaryDirectory() as directory, patch.object(live.fixture, 'JOURNALS', Path(directory)), \
+                patch('playbooks.argocd.files.render.committed_payload', return_value={'revision': 'c'*40}), \
+                patch.object(live, 'dotenv_values', return_value={}), patch.object(live, 'remote', side_effect=remote):
+            path = Path(directory)/nonce/'journal.json'; live.fixture.journal(path, state)
+            args = ['lifecycle-observe', '--nonce', nonce, '--live']
+            with self.assertRaisesRegex(ValueError, 'captured active UUID'): live.main(args)
+            reloaded = json.loads(path.read_text()); saved = reloaded['evidence'][row['instance']]
+            self.assertEqual(saved, {'knownUUID': client['id']})
+            self.assertEqual(reloaded['intent'], {'action': 'lifecycle-observe', 'slot': None})
+            # An unchanged UUID needs no additional metadata save before the same strict rejection.
+            disabled = remote({}, {'action': 'lifecycle', 'expected': reloaded['evidence']})
+            save = Mock()
+            with self.assertRaises(ValueError): approval.remember(reloaded, disabled, save)
+            save.assert_not_called()
+            for obj in (lifecycle_state, identity):
+                obj['data']['state.json'] = json.dumps({'entries': {row['instance']: {
+                    'phase': 'retired', 'approvalDigest': fixtures.digest(fixtures.canonical(row))}}})
+            for status in ('renamed', 'uncertain'):
+                mode[0] = status
+                with self.assertRaises((ValueError, RuntimeError)): live.main(args)
+                self.assertEqual(json.loads(path.read_text())['evidence'][row['instance']], saved)
+                lookup.assert_called_with(client['id'])
+            mode[0] = 'absent'; live.main(args)
+            final = json.loads(path.read_text()); saved = final['evidence'][row['instance']]
+            self.assertEqual(saved['knownUUID'], client['id']); self.assertTrue(saved['cleanupOnlyAbsent'])
+            self.assertIsNone(final['intent'])
+            for proof in ('active', 'disabled', 'absent'): self.assertNotIn(proof, saved)
+            lookup.assert_called_with(client['id']); self.assertEqual(lookup.call_count, 5)
+
     def test_descendant_published_execution_preserves_original_provenance_and_receipts(self):
         state = {'platform': 'b' * 40, 'baseline': {'retained': True}, 'pulls': {'a': {'retained': True}}}
         before = copy.deepcopy(state)

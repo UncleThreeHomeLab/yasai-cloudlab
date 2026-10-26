@@ -113,7 +113,7 @@ def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='appro
                      'probe-observe', 'probe-cleanup', 'retained-observe', 'retained-delete', 'outage-observe', 'outage-restore', 'outage-cleanup')
         if action.startswith('catalog-') and action != 'catalog-retire':
             from playbooks.previews.tests.approval_fixture import current
-            reducing = (mode if action == 'catalog-prepare' else current(state)['mode']) in ('withdraw', 'cleanup', 'finalize')
+            reducing = (mode if action == 'catalog-prepare' else current(state)['mode']) in ('withdraw', 'orphan-d', 'cleanup', 'finalize')
         else:
             reducing = False
         if action not in permitted and not reducing:
@@ -124,14 +124,20 @@ def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='appro
                     not state.get('pulls', {}).get(value, {}).get('head') for value in batch)):
             raise ValueError('Prepare only the exact enrolled owned PR pair and bounded lifetime')
     if action.startswith('catalog-'):
-        from playbooks.previews.tests.approval_fixture import current
+        from playbooks.previews.tests.approval_fixture import current, MODES, orphan_rows
+        if slot is not None:
+            raise ValueError('Catalog transitions do not accept a PR slot')
         if action == 'catalog-prepare':
-            if batch not in ('ab', 'cd') or mode not in ('approve', 'withdraw', 'cleanup', 'finalize'):
+            if batch not in ('ab', 'cd') or mode not in MODES:
                 raise ValueError('Catalog transition requires a fixed batch and mode')
             if mode != 'finalize' and any('row' not in state.get('approvals', {}).get(value, {}) for value in batch):
                 raise ValueError('Prepare the exact owned approval pair first')
+            if mode == 'orphan-d':
+                orphan_rows(state, batch)
         elif action != 'catalog-retire':
-            current(state)
+            record = current(state)
+            if record['mode'] == 'orphan-d':
+                orphan_rows(state, record['batch'])
     if action == 'lifecycle-observe' and not state.get('approvals'):
         raise ValueError('Prepare owned approvals before lifecycle observation')
     if action == 'browser' and (not state.get('enrolled') or 'offboarding' in state or
@@ -243,12 +249,16 @@ def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000
         prepare(values, state, save, batch, lifetime)
     elif action.startswith('catalog-'):
         from playbooks.previews.tests import approval_fixture as approval
-        removing = ((action == 'catalog-prepare' and mode in ('cleanup', 'finalize')) or
-                    (action in ('catalog-review', 'catalog-merge') and approval.current(state)['mode'] in ('cleanup', 'finalize')))
+        removing = (action == 'catalog-retire' or
+                    (action == 'catalog-prepare' and mode in ('cleanup', 'finalize')) or
+                    (action in ('catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-reprepare') and
+                     approval.current(state)['mode'] in ('cleanup', 'finalize')))
         if removing and approval.rows(state):
             observed = remote(values, dict(request, action='lifecycle', approvals=list(approval.rows(state).values()),
                 expected=state.get('evidence', {}), revision=state['executionPlatform']))
             approval.remember(state, observed, save)
+            if any(not (value.get('cleanupOnlyAbsent') or value.get('absent')) for value in observed['entries'].values()):
+                raise ValueError('Fresh execution and client absence is required for catalog cleanup')
         operations = {'catalog-prepare': lambda api: approval.catalog_prepare(api, values, state, save, batch, mode),
             'catalog-reprepare': lambda api: approval.reprepare(api, values, state, save),
             'catalog-propose': lambda api: approval.propose(api, values, state, save),
@@ -347,7 +357,8 @@ def main(arguments=None):
     parser.add_argument('--slot', choices=('a', 'b', 'c', 'd'))
     parser.add_argument('--batch', choices=('ab', 'cd'), default='ab')
     parser.add_argument('--lifetime', type=int, default=3000)
-    parser.add_argument('--mode', choices=('approve', 'withdraw', 'cleanup', 'finalize'), default='approve')
+    from playbooks.previews.tests.approval_fixture import MODES
+    parser.add_argument('--mode', choices=MODES, default='approve')
     parser.add_argument('--live', action='store_true')
     args = parser.parse_args(arguments)
     if not args.live or not re.fullmatch('[a-f0-9]{32}', args.nonce):

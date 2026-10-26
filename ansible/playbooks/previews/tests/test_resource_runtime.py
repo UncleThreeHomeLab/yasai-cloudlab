@@ -473,6 +473,35 @@ class ResourceTests(unittest.TestCase):
                 request['action']='probe-prepare'
                 with self.assertRaises(ValueError):runtime.run(request)
 
+    def test_one_published_revision_supports_ab_probe_cleanup_then_cd_retained_data(self):
+        from playbooks.previews.tests import probe_state
+        from playbooks.previews.files.resources import metadata
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); api = fixtures.ResourceAPI(); request = self.request()
+            request['rows'][1] = fixtures.approval('b'*32)
+            ready = {'Namespace': {'metadata': {'uid': 'probe-namespace'}}, 'Pod': {'metadata': {'uid': 'probe-pod'}}}
+            with patch.object(runtime, 'ROOT', root), patch.object(runtime, 'HostKubernetes', return_value=api), \
+                    patch.object(runtime, 'platform', return_value='https://github.com/example/platform.git'), \
+                    patch.object(probe_state, 'bound_probe', return_value=ready):
+                self.assertTrue(runtime.run(request)['probePrepared'])
+                request['action'] = 'probe-cleanup'; self.assertTrue(runtime.run(request)['probeAbsent'])
+                target = root/request['nonce']/'state.json'; prior = json.loads(target.read_text())
+                self.assertTrue(all(record['deleted'] for record in prior['resources'].values()))
+                row = fixtures.orphan_pair(fixtures.CatalogGit())['approvals']['d']['row']; ns = fixtures.names(row)['namespace']
+                namespace = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': metadata(row, 'runtime-state', ns)}
+                namespace['metadata'].update(uid='preview-d-namespace', resourceVersion='1')
+                api.objects[identity(namespace)] = namespace
+                entry = {'phase': 'active', 'approvalDigest': fixtures.digest(fixtures.canonical(row)),
+                    'resources': [{'key': ['v1', 'Namespace', '', ns], 'uid': 'preview-d-namespace'}]}
+                api.objects['v1','ConfigMap','argocd',runtime.contract.STATE] = {'metadata': {'uid': 'runtime-state'},
+                    'data': {'state.json': json.dumps({'entries': {row['instance']: entry}})}}
+                retained = dict(request, action='retained-create', rows=[row])
+                self.assertTrue(runtime.run(retained)['retained'])
+                retained['action'] = 'retained-delete'; self.assertFalse(runtime.run(retained)['retained'])
+                current = json.loads(target.read_text())
+                self.assertEqual(current['revision'], prior['revision']); self.assertEqual(current['probeRows'], prior['probeRows'])
+                self.assertEqual({key: current['resources'][key] for key in prior['resources']}, prior['resources'])
+
     def test_oversized_or_public_host_receipts_refuse_before_cluster_access(self):
         for mode,raw in ((0o644,'{}'),(0o600,'x'*262145)):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:

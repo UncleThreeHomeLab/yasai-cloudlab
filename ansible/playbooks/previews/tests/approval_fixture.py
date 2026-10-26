@@ -20,7 +20,7 @@ from playbooks.keycloak.tests import scoped_session as session
 from playbooks.keycloak.files.private_source import decode_contents
 
 PATH = 'previews/catalog.json'
-MODES = ('approve', 'withdraw', 'cleanup', 'finalize')
+MODES = ('approve', 'withdraw', 'orphan-d', 'cleanup', 'finalize')
 
 
 def slots(batch):
@@ -31,6 +31,44 @@ def slots(batch):
 
 def rows(state):
     return {record['row']['instance']: record['row'] for record in state.get('approvals', {}).values() if 'row' in record}
+
+
+def cleanup_absent(state, instance):
+    evidence = state.get('evidence', {}).get(instance, {})
+    return bool(evidence.get('absent') or evidence.get('cleanupOnlyAbsent'))
+
+
+def orphan_rows(state, batch):
+    if batch != 'cd':
+        raise ValueError('Orphan withdrawal is limited to the exact C/D pair')
+    selected = []
+    for slot in ('c', 'd'):
+        record = state.get('approvals', {}).get(slot, {})
+        row = record.get('row'); pull = state.get('pulls', {}).get(slot, {})
+        contract.approval(row)
+        if (record.get('instance') != row['instance'] or record.get('head') != row['sourceSha'] or
+                record.get('platform') != row['platformRevision'] or
+                pull.get('repository') != row['repository'] or pull.get('repositoryId') != row['repositoryId'] or
+                pull.get('number') != row['pullRequest'] or pull.get('head') != row['sourceSha'] or
+                pull.get('branch') != 'cloudlab-preview-fixture/' + state['nonce'] + '/' + slot or
+                pull.get('closed') is not False or pull.get('deleted') is not False or pull.get('pending') is not None or
+                row['definition'] != {'profile': 'synthetic', 'message': 'synthetic fixture ' + slot + ' revision 0'}):
+            raise ValueError('Orphan withdrawal requires the exact saved source receipts')
+        selected.append(row)
+    if selected[0]['instance'] == selected[1]['instance'] or selected[0]['pullRequest'] == selected[1]['pullRequest']:
+        raise ValueError('Orphan withdrawal requires distinct C/D sources')
+    return selected
+
+
+def verify_orphan(api, state, repo, batch):
+    selected = orphan_rows(state, batch)
+    for slot, row in zip(('c', 'd'), selected):
+        if row['repository'] != repo:
+            raise ValueError('Orphan withdrawal source repository changed')
+        contract.validate_pull(row, fixture.verified_pull(api, state['pulls'][slot], state['nonce'], slot))
+    now = int(time.time())
+    if any(not row['createdAt'] <= now < row['expiresAt'] for row in selected):
+        raise ValueError('Orphan withdrawal must precede C/D expiry')
 
 
 def abandon_preparation(state, save):
@@ -268,7 +306,10 @@ def catalog_prepare(api, values, state, save, batch, mode):
         raise ValueError('Unknown bounded catalog transition')
     if mode == 'approve' and state.get('abandonedPreparation'):
         raise ValueError('Abandoned preparation cannot publish execution authority')
+    orphan = orphan_rows(state, batch) if mode == 'orphan-d' else None
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
+    if orphan and any(row['repository'] != repo for row in orphan):
+        raise ValueError('Orphan withdrawal source repository changed')
     snapshot = fixture.inspect(api, repo)
     if snapshot['catalog'] is None:
         raise ValueError('Fixture catalog must already have its declared empty settings')
@@ -278,17 +319,26 @@ def catalog_prepare(api, values, state, save, batch, mode):
     selected = [state.get('approvals', {}).get(slot, {}).get('row') for slot in slots(batch)]
     if any(row is None for row in selected) and mode != 'finalize':
         raise ValueError('Prepare the exact pair before catalog publication')
+    if orphan:
+        selected = orphan
+        pair = fixture.entries(snapshot['catalog'], [row['instance'] for row in selected])
+        for row in selected:
+            if (row['repository'] != repo or pair[row['instance']] != {'approval': row,
+                    'ownership': row['instance'] + ':' + contract.digest(contract.canonical(row))}):
+                raise ValueError('Orphan withdrawal requires unchanged C/D catalog authority')
+        verify_orphan(api, state, repo, batch)
+        selected = selected[-1:]
     ids = list(owned) if mode == 'finalize' else [row['instance'] for row in selected]
     expected = fixture.entries(snapshot['catalog'], ids)
     for instance, entry in expected.items():
         authorized = instance + ':' + contract.digest(contract.canonical(owned[instance]))
         if entry['approval'] not in (None, owned[instance]) or entry['ownership'] not in (None, authorized):
             raise ValueError('Owned catalog entry changed since its immutable approval')
-        if mode == 'approve' and state.get('evidence', {}).get(instance, {}).get('absent'):
+        if mode == 'approve' and cleanup_absent(state, instance):
             raise ValueError('Retired approval cannot be reauthorized')
     absent = []
     if mode in ('cleanup', 'finalize'):
-        if any(not state.get('evidence', {}).get(instance, {}).get('absent') for instance in ids):
+        if any(not cleanup_absent(state, instance) for instance in ids):
             raise ValueError('Namespace, generated resources and client absence must be confirmed first')
         absent = ids
     replacements = {instance: owned[instance] if mode == 'approve' else None for instance in ids}
@@ -341,6 +391,8 @@ def propose(api, values, state, save):
     repo = proposal_scope(api, values, record)
     if record['stage'] == 'merged':
         return
+    if record['mode'] == 'orphan-d':
+        verify_orphan(api, state, repo, record['batch'])
     if fixture.inspect(api, repo) != record['snapshot']:
         raise ValueError('Catalog base advanced; prepare a fresh delta without overwriting')
     files = {PATH: json.dumps({'catalog': record['document']['catalog']}, sort_keys=True, indent=2) + '\n'}
@@ -359,6 +411,8 @@ def propose(api, values, state, save):
 def review(api, values, state, save):
     record = current(state)
     repo = proposal_scope(api, values, record)
+    if record['mode'] == 'orphan-d':
+        verify_orphan(api, state, repo, record['batch'])
     prefix = 'repos/' + repo
     number, head = record.get('number'), record.get('head')
     if type(number) is not int or not isinstance(head, str) or not re.fullmatch('[a-f0-9]{40}', head):
@@ -421,7 +475,7 @@ def merge(api, values, state, save):
 
 
 def retire_proposals(api, values, state, save):
-    if any(not state.get('evidence', {}).get(instance, {}).get('absent') for instance in rows(state)):
+    if any(not cleanup_absent(state, instance) for instance in rows(state)):
         raise ValueError('Owned execution must be absent before proposal ref cleanup')
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
     target = fixture.pull_repository(api, repo)
@@ -483,6 +537,15 @@ def remember(state, observed, save):
         if value.get('approvalDigest') != contract.digest(contract.canonical(row)):
             raise ValueError('Observed approval digest changed')
         record = state.setdefault('evidence', {}).setdefault(instance, {})
+        history = [record, value, *(record.get(key, {}) for key in ('active', 'disabled', 'latest'))]
+        identifiers = [event['knownUUID'] for event in history if 'knownUUID' in event]
+        identifiers += [event['client'].get('id') for event in history if 'client' in event]
+        if (any(not isinstance(item, str) or not re.fullmatch('[A-Za-z0-9-]{1,100}', item) for item in identifiers) or
+                len(set(identifiers)) > 1):
+            raise ValueError('Observed client UUID history is malformed or changed')
+        if identifiers and record.get('knownUUID') != identifiers[0]:
+            record['knownUUID'] = identifiers[0]
+            save()
         if value.get('active'):
             previous = record.get('active')
             if previous and (previous['uids'] != value['uids'] or previous['client']['id'] != value['client']['id']):
@@ -500,5 +563,10 @@ def remember(state, observed, save):
                     value['observedAt'] < record['disabled']['disabledAt'] + 600):
                 raise ValueError('Actual disable and complete wall-time grace evidence required')
             record['absent'] = copy.deepcopy(value)
+        if value.get('cleanupOnlyAbsent'):
+            if (value.get('phase') != 'retired' or value.get('identityPhase') != 'retired' or value.get('uids') or
+                    value.get('client') or type(value.get('observedAt')) is not int):
+                raise ValueError('Cleanup requires current exact resource and client absence')
+            record['cleanupOnlyAbsent'] = copy.deepcopy(value)
         record['latest'] = copy.deepcopy(value)
         save()

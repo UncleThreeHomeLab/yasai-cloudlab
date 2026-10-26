@@ -125,11 +125,14 @@ use the versioned fixture Ansible entry point and existing identity owners.
 
 `approval-prepare --batch ab|cd --lifetime <seconds>` reserves immutable private
 approvals and artifacts after fresh owner/viewer checks. `catalog-prepare` accepts
-the same batch with `--mode approve|withdraw|cleanup|finalize`; publication requires
+the same batch with `--mode approve|withdraw|orphan-d|cleanup|finalize`; `orphan-d`
+withdraws only D before expiry, preserving C and ownership. Publication requires
 separate `catalog-propose`, `catalog-review` and `catalog-merge` stages. Stale bases
 use `catalog-reprepare`, preserving old proposal receipts. `lifecycle-observe`
-records exact resource/client identities, confirmed disable time and final absence;
-cleanup cannot remove ownership before that evidence. `catalog-retire` closes and
+records exact resource/client identities, confirmed disable time and final absence.
+Missed activation or grace observations fail acceptance; separately confirmed current
+absence permits only cleanup and never reapproval or the next acceptance pair.
+`catalog-retire` closes and
 atomically deletes only proposal refs with recorded creation intents. Historical
 unjournaled refs remain retained. Approval retries never extend expiry.
 

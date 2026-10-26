@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from fixtures import approval, catalog, pull, source_responses
+from fixtures import approval, catalog, pull, source_responses, generated_application
 from playbooks.previews.files.contract import OWNER, IDENTITY_STATE, canonical, digest, names
 from playbooks.previews.files.controller import Controller
 from playbooks.previews.files.kube import identity, Kubernetes, APIError
@@ -45,6 +45,11 @@ class Cluster:
             raise APIError(409)
         self.deleted.append((tuple(key), orphan))
         del self.objects[tuple(key)]
+        if orphan:
+            for child in self.objects.values():
+                refs = child['metadata'].get('ownerReferences', [])
+                if any(ref.get('uid') == uid for ref in refs):
+                    child['metadata']['ownerReferences'] = [ref for ref in refs if ref.get('uid') != uid]
 
     def namespace_inventory(self, namespace):
         return [copy.deepcopy(obj) for key, obj in self.objects.items() if key[2] == namespace]
@@ -205,6 +210,73 @@ class ControllerTests(unittest.TestCase):
         cluster.identity_phase(row, 'retired')
         for _ in range(30): controller.run(settings, 'https://github.com/example/platform.git')
         self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+
+    def test_native_orphan_cleanup_resumes_captured_legacy_and_lost_delete_reply(self):
+        for boundary in ('native', 'stranded', 'lost-reply'):
+            with self.subTest(boundary=boundary):
+                controller, row, settings, cluster, git = self.active()
+                parent = ('argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', names(row)['name'])
+                app = cluster.create(generated_application(cluster.get(parent)))
+                controller.capture_workloads(controller.state['entries'][row['instance']])
+                cluster.identity_phase(row, 'retired'); controller.now = row['expiresAt']
+                if boundary == 'stranded':
+                    record = controller.state['entries'][row['instance']]
+                    record.update(phase='retiring', reason='expired'); controller.save()
+                    obj = cluster.get(parent); cluster.delete(parent, obj['metadata']['uid'], obj['metadata']['resourceVersion'], orphan=True)
+                    controller = Controller(cluster, git, row['expiresAt'])
+                native = cluster.delete
+                def delete(key, uid, version, **options):
+                    native(key, uid, version, **options)
+                    if tuple(key) == parent and boundary == 'lost-reply':
+                        raise RuntimeError('lost native delete reply')
+                with patch.object(cluster, 'delete', side_effect=delete):
+                    for _ in range(30): controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+                self.assertIsNone(cluster.get(identity(app)))
+                self.assertTrue(next(orphan for key, orphan in cluster.deleted if key == identity(app)))
+
+    def test_orphan_parent_exception_never_adopts_or_ignores_changed_authority(self):
+        for change in ('unrecorded', 'uid', 'foreign-ref', 'parent', 'replacement-parent', 'active', 'owner', 'missing-receipt', 'duplicate-receipt', 'lookup'):
+            with self.subTest(change=change):
+                controller, row, _, cluster, _ = self.active()
+                parent = ('argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', names(row)['name'])
+                app = cluster.create(generated_application(cluster.get(parent))); key = identity(app)
+                record = controller.state['entries'][row['instance']]; controller.capture_workloads(record)
+                record['phase'] = 'retiring'
+                if change not in ('parent', 'replacement-parent'):
+                    obj = cluster.get(parent); cluster.delete(parent, obj['metadata']['uid'], obj['metadata']['resourceVersion'], orphan=True)
+                cluster.objects[key]['metadata']['ownerReferences'] = []
+                if change == 'unrecorded': record['resources'] = [r for r in record['resources'] if r['key'] != list(key)]
+                elif change == 'uid': cluster.objects[key]['metadata']['uid'] = 'foreign'
+                elif change == 'foreign-ref': cluster.objects[key]['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif change == 'replacement-parent': cluster.objects[parent]['metadata']['uid'] = 'replacement'
+                elif change == 'active': record['phase'] = 'active'
+                elif change == 'owner': cluster.objects[key]['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                elif change == 'missing-receipt': record['resources'] = [r for r in record['resources'] if r['key'] != list(parent)]
+                elif change == 'duplicate-receipt': record['resources'].append(copy.deepcopy(next(r for r in record['resources'] if r['key'] == list(parent))))
+                before = copy.deepcopy(record); deleted = list(cluster.deleted); native = cluster.get
+                def get(target):
+                    if change == 'lookup' and tuple(target) == parent: raise RuntimeError('API uncertain')
+                    return native(target)
+                with patch.object(cluster, 'get', side_effect=get), self.assertRaises((ValueError, RuntimeError)):
+                    controller.capture_workloads(record)
+                self.assertEqual(record, before); self.assertEqual(cluster.deleted, deleted)
+
+    def test_application_delete_rechecks_refs_and_actual_parent_after_capture(self):
+        for change in ('foreign-ref', 'parent', 'uid'):
+            with self.subTest(change=change):
+                controller, row, _, cluster, _ = self.active()
+                parent = ('argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', names(row)['name'])
+                declaration = cluster.get(parent); app = cluster.create(generated_application(declaration)); key = identity(app)
+                record = controller.state['entries'][row['instance']]; controller.capture_workloads(record); record['phase'] = 'retiring'
+                cluster.delete(parent, declaration['metadata']['uid'], declaration['metadata']['resourceVersion'], orphan=True)
+                controller.capture_workloads(record)
+                if change == 'foreign-ref': cluster.objects[key]['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif change == 'parent': cluster.create(declaration)
+                else: cluster.objects[key]['metadata']['uid'] = 'foreign'
+                deleted = list(cluster.deleted)
+                with self.assertRaises(ValueError): controller.remove(record, next(r for r in record['resources'] if r['key'] == list(key)))
+                self.assertEqual(cluster.deleted, deleted); self.assertIsNotNone(cluster.get(key))
 
     def test_foreign_pvc_vetoes_cascading_workload_deletion(self):
         controller, row, settings, cluster, git = self.active()

@@ -73,7 +73,17 @@ def inspect_row(row, settings, lifecycle, identity, expected, get, find_client, 
     found = find_client(n['client'])
     if not isinstance(found, list) or len(found) > 1:
         raise ValueError('Exact preview client lookup is ambiguous')
-    uuid = prior.get('client', {}).get('id') or clients.get('uuid')
+    history = [expected, *(expected.get(key, {}) for key in ('active', 'disabled', 'latest'))]
+    identifiers = [event['knownUUID'] for event in history if 'knownUUID' in event]
+    identifiers += [event['client'].get('id') for event in history if 'client' in event]
+    if clients.get('uuid') is not None:
+        identifiers.append(clients['uuid'])
+    if any(not isinstance(value, str) or not re.fullmatch('[A-Za-z0-9-]{1,100}', value) for value in identifiers):
+        raise ValueError('Historical client UUID is malformed')
+    known_uuids = set(identifiers)
+    if len(known_uuids) > 1:
+        raise ValueError('Historical client UUID ownership is ambiguous')
+    uuid = next(iter(known_uuids), None)
     by_uuid = get_client(uuid) if uuid else None
     if found:
         record = {'clientId': n['client'], 'approval': row, 'approvalDigest': fingerprint, 'uuid': uuid}
@@ -87,9 +97,14 @@ def inspect_row(row, settings, lifecycle, identity, expected, get, find_client, 
         client = None
     result = {'approvalDigest': fingerprint, 'observedAt': now, 'phase': runtime.get('phase'),
         'identityPhase': clients.get('phase'), 'reason': runtime.get('reason'), 'uids': uids,
-        'active': False, 'disabled': False, 'absent': False}
+        'active': False, 'disabled': False, 'absent': False, 'cleanupOnlyAbsent': False}
     if client:
         result['client'] = {'id': client['id'], 'clientId': client['clientId'], 'enabled': client.get('enabled')}
+    known_uuid = uuid or (client or {}).get('id')
+    if known_uuid is not None:
+        if not isinstance(known_uuid, str) or not re.fullmatch('[A-Za-z0-9-]{1,100}', known_uuid):
+            raise ValueError('Observed client UUID is malformed')
+        result['knownUUID'] = known_uuid
     if runtime.get('phase') == 'active' and clients.get('phase') == 'active':
         if not client or client.get('enabled') is not True or not contains(client, representation(row, settings)):
             raise ValueError('Active preview client representation differs')
@@ -140,8 +155,15 @@ def inspect_row(row, settings, lifecycle, identity, expected, get, find_client, 
         if not client or client.get('enabled') is not False or type(disabled_at) is not int or not 0 < disabled_at <= now:
             raise ValueError('Confirmed disabled UUID/time evidence is unavailable')
         result.update(disabled=True, disabledAt=disabled_at)
-    if runtime.get('phase') == 'retired' and clients.get('phase') == 'retired' and absent_resources and client is None and uuid:
-        result['absent'] = True
+    if runtime.get('phase') == 'retired' and clients.get('phase') == 'retired' and absent_resources and client is None:
+        result['cleanupOnlyAbsent'] = True
+        disabled = expected.get('disabled', {})
+        disabled_at = disabled.get('disabledAt')
+        if (uuid and prior.get('active') is True and prior.get('client', {}).get('id') == uuid and
+                disabled.get('disabled') is True and disabled.get('client', {}).get('id') == uuid and
+                disabled.get('client', {}).get('enabled') is False and type(disabled_at) is int and
+                0 < disabled_at <= now - 600):
+            result['absent'] = True
     return result
 
 
