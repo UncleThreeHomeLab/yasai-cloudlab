@@ -42,7 +42,7 @@ def inspect_row(row, settings, lifecycle, identity, expected, get, find_client, 
     from playbooks.istio.files.kube import contains
     from playbooks.previews.files.lifecycle import owned
     from playbooks.previews.files.resources import resources, private_route, workload_keys
-    from playbooks.keycloak.files.preview_clients import matching, representation
+    from playbooks.keycloak.files.preview_clients import matching, representation_matches
     n, fingerprint = contract.names(row), contract.digest(contract.canonical(row))
     runtime = json.loads(lifecycle['data']['state.json'])['entries'].get(row['instance'], {})
     clients = json.loads(identity['data']['state.json'])['entries'].get(row['instance'], {}) if identity else {}
@@ -106,7 +106,7 @@ def inspect_row(row, settings, lifecycle, identity, expected, get, find_client, 
             raise ValueError('Observed client UUID is malformed')
         result['knownUUID'] = known_uuid
     if runtime.get('phase') == 'active' and clients.get('phase') == 'active':
-        if not client or client.get('enabled') is not True or not contains(client, representation(row, settings)):
+        if not client or client.get('enabled') is not True or not representation_matches(client, row, settings):
             raise ValueError('Active preview client representation differs')
         for desired in declarations:
             key = desired['kind'] + '/' + desired['metadata']['name']

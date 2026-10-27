@@ -7,6 +7,49 @@ from playbooks.previews.tests import evidence_runtime as evidence, fixtures, vie
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_active_native_client_collection_order_preserves_exact_owned_bindings(self):
+        values = fixtures.lifecycle_observation()
+        row, settings, lifecycle, identity, objects, client, platform = values
+        get = lambda kind,name=None,namespace=None: copy.deepcopy(objects.get((kind,name,namespace)))
+        original = evidence.inspect_row(row, settings, lifecycle, identity, {}, get,
+            lambda identifier:[client], lambda uuid:client, 1200, platform, secrets_present=lambda namespace:False)
+        client['defaultClientScopes'].reverse(); client['protocolMappers'].reverse()
+        for index, mapper in enumerate(client['protocolMappers']): mapper['id'] = 'server-mapper-' + str(index)
+        before = copy.deepcopy(values)
+        result = evidence.inspect_row(row, settings, lifecycle, identity, {},
+            get,
+            lambda identifier:[client], lambda uuid:client, 1200, platform, secrets_present=lambda namespace:False)
+        self.assertTrue(result['active']); self.assertEqual(result['client']['id'], client['id'])
+        self.assertEqual(result['knownUUID'], client['id']); self.assertTrue(result['uids'])
+        self.assertEqual(result['uids'], original['uids']); self.assertEqual(result['client'], original['client'])
+        self.assertEqual(values, before)
+
+    def test_native_client_order_comparison_keeps_uuid_approval_and_mapper_policy_guards(self):
+        for change in ('uuid', 'approval', 'callback', 'audience', 'mapper-config', 'extra-mapper', 'duplicate-mapper', 'pkce', 'typed-policy'):
+            with self.subTest(change=change):
+                row, settings, lifecycle, identity, objects, client, platform = fixtures.lifecycle_observation()
+                client['defaultClientScopes'].reverse(); client['protocolMappers'].reverse()
+                if change == 'uuid': client['id'] = 'foreign-uuid'
+                elif change == 'approval': client['attributes']['cloudlab.preview.approval'] = 'f' * 64
+                elif change == 'callback': client['redirectUris'] = ['https://foreign.invalid/callback']
+                elif change == 'pkce': client['attributes']['pkce.code.challenge.method'] = 'plain'
+                elif change == 'typed-policy': client['fullScopeAllowed'] = 0
+                elif change == 'extra-mapper': client['protocolMappers'].append(copy.deepcopy(client['protocolMappers'][0]))
+                elif change == 'duplicate-mapper': client['protocolMappers'][1] = copy.deepcopy(client['protocolMappers'][0])
+                else:
+                    mapper = next(value for value in client['protocolMappers'] if value['name'] == 'api-audience')
+                    mapper['config']['included.custom.audience' if change == 'audience' else 'access.token.claim'] = 'foreign'
+                with self.assertRaises(ValueError):
+                    evidence.inspect_row(row, settings, lifecycle, identity, {},
+                        lambda kind,name=None,namespace=None: copy.deepcopy(objects.get((kind,name,namespace))),
+                        lambda identifier:[client], lambda uuid:client, 1200, platform, secrets_present=lambda namespace:False)
+
+    def test_shared_kubernetes_contains_keeps_command_lists_ordered(self):
+        from playbooks.istio.files.kube import contains
+        desired = {'spec': {'command': ['python', 'serve']}}
+        self.assertTrue(contains(copy.deepcopy(desired), desired))
+        self.assertFalse(contains({'spec': {'command': ['serve', 'python']}}, desired))
+
     def test_requested_revision_rejects_old_ready_identity_before_observation_or_credentials(self):
         from playbooks.keycloak.files import maintenance, configuration, emergency
         from playbooks.istio.files import kube
