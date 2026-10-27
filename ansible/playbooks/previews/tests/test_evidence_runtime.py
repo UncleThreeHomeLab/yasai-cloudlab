@@ -7,6 +7,30 @@ from playbooks.previews.tests import evidence_runtime as evidence, fixtures, vie
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_real_owner_repeat_keeps_observable_same_uuid_disable_during_grace(self):
+        from playbooks.keycloak.files import preview_clients as owner
+        row,settings,lifecycle,identity,objects,_,platform=fixtures.lifecycle_observation()
+        state={'format':1,'entries':{}};api=fixtures.Keycloak()
+        intent={'format':1,'entries':{row['instance']:{'phase':'pending','originVersion':evidence.contract.ORIGIN_VERSION,
+                                                   'approvalDigest':fixtures.digest(fixtures.canonical(row))}}}
+        owner.reconcile(settings,intent,state,api,lambda value:None,1200,set())
+        get=lambda kind,name=None,namespace=None:copy.deepcopy(objects.get((kind,name,namespace)))
+        identity['data']['state.json']=json.dumps(state)
+        active=evidence.inspect_row(row,settings,lifecycle,identity,{},get,
+            lambda identifier:api('find',identifier),lambda uuid:copy.deepcopy(api.rows.get(uuid)),1200,platform,
+            secrets_present=lambda namespace:False)
+        self.assertTrue(active['active'])
+        runtime=json.loads(lifecycle['data']['state.json']);runtime['entries'][row['instance']].update(phase='retiring',reason='expired')
+        lifecycle['data']['state.json']=json.dumps(runtime)
+        owner.reconcile(None,None,state,api,lambda value:None,2000,set())
+        owner.reconcile(None,None,state,api,lambda value:None,2599,set())
+        identity['data']['state.json']=json.dumps(state)
+        observed=evidence.inspect_row(row,settings,lifecycle,identity,{'active':active},get,
+            lambda identifier:api('find',identifier),lambda uuid:copy.deepcopy(api.rows.get(uuid)),2599,platform)
+        self.assertTrue(observed['disabled']);self.assertEqual(observed['identityPhase'],'disabled')
+        self.assertEqual(observed['disabledAt'],2000);self.assertEqual(observed['client']['id'],active['client']['id'])
+        self.assertIs(observed['client']['enabled'],False);self.assertFalse(observed['absent']);self.assertEqual(api.deleted,[])
+
     def test_active_native_client_collection_order_preserves_exact_owned_bindings(self):
         values = fixtures.lifecycle_observation()
         row, settings, lifecycle, identity, objects, client, platform = values

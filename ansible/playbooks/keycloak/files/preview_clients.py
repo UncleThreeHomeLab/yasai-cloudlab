@@ -157,10 +157,18 @@ def reconcile(settings, intent, state, api, save, now, persistent, *, input_avai
             record.update(phase='retired', approvalDigest=digest(canonical(row)))
             save(state)
             continue
-        record['uuid'] = rows[0]['id']
-        record['phase'] = 'retiring'
-        save(state)
-        if rows[0].get('enabled') is not False or 'disabledAt' not in record:
+        if rows[0].get('enabled') is False and 'disabledAt' in record:
+            disabled_at = record['disabledAt']
+            if (type(disabled_at) is not int or not 0 < disabled_at <= now or
+                    not isinstance(record.get('uuid'), str) or not record['uuid']):
+                raise ValueError('Preview client confirmed disable identity or time differs')
+            record['phase'] = 'disabled'
+            save(state)
+        else:
+            record['uuid'] = rows[0]['id']
+            record['phase'] = 'retiring'
+            record.pop('disabledAt', None)
+            save(state)
             api('update', dict(rows[0], enabled=False))
             confirmed = api('find', record['clientId'])
             if len(confirmed) != 1 or not matching(confirmed[0], record) or confirmed[0].get('enabled') is not False:
