@@ -450,7 +450,7 @@ for paired in (True,False):
  viewer.client_baseline=lambda request:sample['clients']
  assert viewer.baseline({'instances':[]})['states']==states
 from playbooks.previews.tests import evidence_runtime
-from playbooks.keycloak.files.preview_clients import representation
+from playbooks.keycloak.files.preview_clients import representation,representation_matches
 row={'instance':'a'*32,'repository':'example/private','repositoryId':123,'pullRequest':7,'sourceSha':'b'*40,
  'platformRevision':'c'*40,'sourcePath':contract.SOURCE_PATH,'image':contract.IMAGE,'createdAt':1000,'expiresAt':2000,
  'definition':{'profile':'synthetic','message':'synthetic'},'sourceDigest':contract.digest(contract.canonical({'profile':'synthetic','message':'synthetic'}))}
@@ -460,6 +460,12 @@ state={'metadata':{'uid':'state'},'data':{'state.json':json.dumps({'entries':{}}
 observed=evidence_runtime.inspect_row(row,settings,state,None,{},lambda *args:None,lambda *args:[],lambda *args:None,1200,'https://github.com/example/platform.git')
 assert observed['active'] is False
 assert representation(row,settings)['clientId']=='preview-'+'a'*32
+native=representation(row,settings)
+native['defaultClientScopes'].reverse();native['protocolMappers'].reverse()
+for mapper in native['protocolMappers']:mapper['id']='server-id'
+assert representation_matches(native,row,settings)
+native['attributes']['pkce.code.challenge.method']='plain'
+assert not representation_matches(native,row,settings)
 assert evidence_runtime.__file__.startswith(sys.argv[1]+'/')
 '''
             result = subprocess.run([sys.executable, '-I', '-c', probe, str(installed)], cwd=root,

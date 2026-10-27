@@ -14,6 +14,88 @@ from playbooks.keycloak.files import preview_clients as identity
 
 
 class IdentityTests(unittest.TestCase):
+    def test_preview_representation_matches_native_collection_order_and_server_ids(self):
+        row, settings = approval(), catalog()
+        observed = identity.representation(row, settings)
+        observed['defaultClientScopes'].reverse(); observed['protocolMappers'].reverse()
+        for index, mapper in enumerate(observed['protocolMappers']): mapper['id'] = 'server-mapper-' + str(index)
+        observed['attributes']['server-extra'] = 'preserved'
+        before = copy.deepcopy((observed, row, settings))
+        self.assertTrue(identity.representation_matches(observed, row, settings))
+        self.assertEqual((observed, row, settings), before)
+        for value in (None, [], 'client', 1): self.assertFalse(identity.representation_matches(value, row, settings))
+
+    def test_preview_representation_requires_exact_unique_literal_collections(self):
+        row, settings = approval(), catalog(); desired = identity.representation(row, settings)
+        for field in ('redirectUris', 'webOrigins', 'defaultClientScopes', 'optionalClientScopes'):
+            values = [None, {}, 'scope', 1, desired[field] + ['foreign'], [1] * max(1, len(desired[field]))]
+            if desired[field]:
+                values += [desired[field][:-1], desired[field] + [desired[field][0]], ['*', *desired[field][1:]]]
+            else: values.append(['foreign', 'foreign'])
+            for value in values:
+                with self.subTest(field=field, value_type=type(value).__name__):
+                    observed = copy.deepcopy(desired); observed[field] = value
+                    before = copy.deepcopy(observed)
+                    self.assertFalse(identity.representation_matches(observed, row, settings)); self.assertEqual(observed, before)
+
+    def test_preview_representation_matches_each_mapper_name_and_all_required_config(self):
+        row, settings = approval(), catalog(); desired = identity.representation(row, settings)
+        for value in (None, {}, 'mapper', [None] * 3, desired['protocolMappers'][:-1],
+                      desired['protocolMappers'] + [desired['protocolMappers'][0]], [desired['protocolMappers'][0]] * 3):
+            observed = copy.deepcopy(desired); observed['protocolMappers'] = value
+            self.assertFalse(identity.representation_matches(observed, row, settings))
+        for index, mapper in enumerate(desired['protocolMappers']):
+            for field in mapper:
+                for change in ('missing', 'changed'):
+                    with self.subTest(mapper=mapper['name'], field=field, change=change):
+                        observed = copy.deepcopy(desired); target = observed['protocolMappers'][index]
+                        if change == 'missing': del target[field]
+                        else: target[field] = '' if field == 'name' else 'foreign'
+                        self.assertFalse(identity.representation_matches(observed, row, settings))
+            for key in mapper['config']:
+                for change in ('missing', 'value', 'type'):
+                    with self.subTest(mapper=mapper['name'], config=key, change=change):
+                        observed = copy.deepcopy(desired); target = observed['protocolMappers'][index]['config']
+                        if change == 'missing': del target[key]
+                        else: target[key] = True if change == 'type' else 'foreign'
+                        self.assertFalse(identity.representation_matches(observed, row, settings))
+
+    def test_preview_representation_compares_all_security_fields_with_exact_json_types(self):
+        row, settings = approval(), catalog(); desired = identity.representation(row, settings)
+        for field, value in desired.items():
+            with self.subTest(omitted=field):
+                observed = copy.deepcopy(desired); del observed[field]
+                self.assertFalse(identity.representation_matches(observed, row, settings))
+            if type(value) in (str, bool):
+                for changed in ('foreign', int(value) if type(value) is bool else None):
+                    observed = copy.deepcopy(desired); observed[field] = changed
+                    self.assertFalse(identity.representation_matches(observed, row, settings))
+        for key in desired['attributes']:
+            for change in ('missing', 'value', 'type'):
+                with self.subTest(attribute=key, change=change):
+                    observed = copy.deepcopy(desired)
+                    if change == 'missing': del observed['attributes'][key]
+                    else: observed['attributes'][key] = 300 if change == 'type' else 'foreign'
+                    self.assertFalse(identity.representation_matches(observed, row, settings))
+
+    def test_packaged_preview_comparer_imports_without_checkout_modules(self):
+        root = Path(__file__).resolve().parents[4] / 'platform/identity/keycloak/runtime'
+        script = '''import json,sys
+sys.path.insert(0,sys.argv[1])
+import preview_clients
+row,settings=json.load(sys.stdin)
+observed=preview_clients.representation(row,settings)
+observed['defaultClientScopes'].reverse();observed['protocolMappers'].reverse()
+for mapper in observed['protocolMappers']:mapper['id']='server-id'
+assert preview_clients.representation_matches(observed,row,settings)
+assert 'preview_contract' in sys.modules
+assert preview_clients.__file__.startswith(sys.argv[1]+'/')
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, '-I', '-c', script, str(root)], cwd=directory,
+                input=json.dumps([approval(), catalog()]), capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_legacy_origin_retires_before_repair_even_without_input(self):
         for available in (True, False):
             row, settings, api = approval(), catalog(), Keycloak()

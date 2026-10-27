@@ -29,6 +29,41 @@ def representation(row, settings):
     return value
 
 
+def representation_matches(observed, row, settings):
+    expected = representation(row, settings)
+    if not isinstance(observed, dict):
+        return False
+
+    def required(actual, desired):
+        if type(actual) is not type(desired):
+            return False
+        if isinstance(desired, dict):
+            return all(key in actual and required(actual[key], value) for key, value in desired.items())
+        if isinstance(desired, list):
+            return len(actual) == len(desired) and all(required(a, d) for a, d in zip(actual, desired))
+        return actual == desired
+
+    for field, desired in expected.items():
+        actual = observed.get(field)
+        if field in ('redirectUris', 'webOrigins', 'defaultClientScopes', 'optionalClientScopes'):
+            if (type(actual) is not list or type(desired) is not list or len(actual) != len(desired) or
+                    any(type(value) is not str for value in actual) or len(set(actual)) != len(actual) or
+                    any(type(value) is not str for value in desired) or len(set(desired)) != len(desired) or set(actual) != set(desired)):
+                return False
+        elif field == 'protocolMappers':
+            if (type(actual) is not list or type(desired) is not list or len(actual) != len(desired) or any(
+                    not isinstance(value, dict) or type(value.get('name')) is not str or not value['name']
+                    for value in [*actual, *desired])):
+                return False
+            actual_names, desired_names = ({value['name']: value for value in entries} for entries in (actual, desired))
+            if (len(actual_names) != len(actual) or len(desired_names) != len(desired) or actual_names.keys() != desired_names.keys() or
+                    any(not required(actual_names[name], value) for name, value in desired_names.items())):
+                return False
+        elif field not in observed or not required(actual, desired):
+            return False
+    return True
+
+
 def matching(observed, record):
     attrs = observed.get('attributes', {})
     return (observed.get('clientId') == record['clientId'] and
