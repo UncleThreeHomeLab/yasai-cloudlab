@@ -5,6 +5,7 @@ import socket
 import tempfile
 from pathlib import Path
 import unittest
+import yaml
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
@@ -16,6 +17,34 @@ from playbooks.previews.files import contract
 
 
 class BrowserTests(unittest.TestCase):
+    def test_controller_launch_inputs_and_offline_credential_separation(self):
+        recipe = Path(__file__).with_name('compose.browser-live.yml')
+        services = yaml.safe_load(recipe.read_text())['services']
+        controller, checks, browser = (services[name] for name in ('controller', 'checks', 'browser'))
+        root = recipe.parents[4]
+        for name in ('.git', '.gitignore', '.gitattributes'):
+            bindings = [value.split(':') for value in controller['volumes']
+                        if value.split(':')[1] == '/workspace/'+name]
+            self.assertEqual(len(bindings), 1, name)
+            source, destination, mode = bindings[0]
+            self.assertEqual((recipe.parent/source).resolve(), root/name)
+            self.assertEqual(mode, 'ro')
+        for service in (controller, checks):
+            self.assertEqual(service['environment']['ANSIBLE_REMOTE_TEMP'], '/tmp/ansible-remote')
+            self.assertIs(service['read_only'], True)
+            self.assertEqual(service['tmpfs'], ['/tmp:mode=1777,size=128m'])
+        self.assertEqual(checks['environment'], controller['environment'])
+        self.assertNotIn('ANSIBLE_REMOTE_TEMP', browser['environment'])
+        for service in (browser, checks):
+            for value in service['volumes']:
+                source, destination, mode = value.split(':')
+                self.assertEqual(mode, 'ro')
+                self.assertNotIn(destination, ('/workspace/.git', '/workspace/.env', '/recovery', '/state'))
+                self.assertNotIn(source, ('recovery', 'state'))
+        self.assertEqual(checks['network_mode'], 'none')
+        self.assertEqual(checks['networks'], [])
+        self.assertEqual(checks['depends_on'], [])
+
     def fixture(self):
         rows = [fixtures.approval(letter * 32) for letter in ('a', 'd')]
         for index, row in enumerate(rows):
