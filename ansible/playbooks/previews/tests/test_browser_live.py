@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 import unittest
 import yaml
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import urlencode
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -92,6 +92,106 @@ class BrowserTests(unittest.TestCase):
             context.return_value.__enter__.return_value = api
             with self.assertRaises(ValueError): proof.run({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, state, lambda *args: identity, Mock())
             vault.assert_not_called(); connect.assert_not_called()
+            self.assertEqual(state['browserFailure'], {'stage':'preflight'})
+
+    def test_actual_run_owner_persists_only_fixed_failure_stages_and_preserves_one_shot_rules(self):
+        stages=('preflight','enrollment','authorization','token-exchange','token-validation',
+                'gateway-protection','dataplane','callback-rejection','origins')
+        cases=[(stage,'fault') for stage in stages]+[('enrollment','credentials')]+[('enrollment',mode) for mode in
+            ('timeout','eof','malformed','duplicate','oversized','extra-field','extra-frame')]+[(None,'interruption')]
+        native_channel=proof.Channel;sentinel='private-sentinel-never-persist'
+        for stage,mode in cases:
+            with self.subTest(stage=stage,mode=mode),tempfile.TemporaryDirectory() as directory, \
+                    patch.object(live_acceptance.fixture,'JOURNALS',Path(directory)):
+                state,settings,identity,runtime=self.fixture();rows=settings['approvals']
+                state.update(baseline={},intent=None,provisioned=True,staged=True)
+                path=Path(directory)/state['viewer']['nonce']/'journal.json'
+                expected=live_acceptance.fixture.journal(path,state);saved=[];fault_enabled=[True]
+                def save():
+                    nonlocal expected
+                    expected=live_acceptance.fixture.journal(path,state,expected=expected)
+                    saved.append(json.loads(path.read_text()))
+                error=KeyboardInterrupt(sentinel) if mode=='interruption' else socket.timeout(sentinel) if mode=='timeout' else RuntimeError(sentinel)
+                connection=MagicMock();connection.__enter__.return_value=connection
+                wire=MagicMock();wire.deadline=proof.time.monotonic()+240
+                wire.read.side_effect=[{'ready':True},{'callback':sentinel},{'callback':sentinel},
+                    {'rejected':True},{'rejected':True},dict.fromkeys(('origins','storage','dom','cors'),True)]
+                if mode not in ('fault','interruption','credentials'):
+                    payload={'eof':b'', 'malformed':b'{'+sentinel.encode()+b'\n',
+                        'duplicate':b'{"ready":true,"ready":true,"private":"'+sentinel.encode()+b'"}\n',
+                        'oversized':(sentinel.encode()+b'x'*proof.FRAME)[:proof.FRAME]+b'\n',
+                        'extra-field':b'{"ready":true,"private":"'+sentinel.encode()+b'"}\n',
+                        'extra-frame':b'{"ready":true}\n{"private":"'+sentinel.encode()+b'"}\n'}.get(mode,b'')
+                    chunks=[payload[index:index+4096] for index in range(0,len(payload),4096)] or [b'']
+                    connection.recv.side_effect=error if mode=='timeout' else chunks
+                    wire=native_channel(connection)
+                def fail(operation):
+                    if mode=='fault' and fault_enabled[0] and stage==operation:raise error
+                def send(value):
+                    current=json.loads(path.read_text())
+                    self.assertTrue(current['browserAttempted'])
+                    if value['action']=='enroll':
+                        self.assertEqual(current['intent'],{'action':'browser','slot':None})
+                        if mode=='interruption':raise error
+                    operation={'enroll':'enrollment','authorize':'authorization','reject':'callback-rejection','origins':'origins'}[value['action']]
+                    fail(operation)
+                if mode in ('fault','interruption','credentials'):wire.send.side_effect=send
+                else:connection.sendall.side_effect=lambda raw:send(json.loads(raw))
+                def observe(*args):fail('preflight');return identity
+                def json_get(url,**kwargs):
+                    if url.endswith('/token'):fail('token-exchange')
+                    return {'private':sentinel}
+                def claims(*args):fail('token-validation');return sentinel
+                def protected(*args):fail('gateway-protection')
+                def handoff(*args,**kwargs):
+                    if args[2]:fail('dataplane');return {'result':{'protected':True}}
+                    return {'approved':True}
+                def credentials(*args):
+                    if mode=='credentials' and fault_enabled[0]:raise error
+                    return dict(username=identity['username'],email=identity['email'],password=sentinel,ownership_id=state['viewer']['nonce'])
+                with patch('playbooks.keycloak.tests.scoped_session.private_context'), \
+                        patch('playbooks.previews.tests.catalog_fixture.inspect',return_value={'catalog':settings}), \
+                        patch('playbooks.previews.tests.catalog_fixture.verified_pull',side_effect=lambda api,receipt,*args:
+                            fixtures.pull(next(row for row in rows if row['pullRequest']==receipt['number']))), \
+                        patch('playbooks.previews.files.github.GitHub.blob',side_effect=lambda reader,row:contract.canonical(row['definition'])), \
+                        patch('playbooks.access.files.verify.remote',return_value=runtime),patch.object(live_acceptance,'remote',side_effect=observe), \
+                        patch.object(proof,'active'),patch.object(proof.time,'time',return_value=1200), \
+                        patch('playbooks.previews.tests.probe_transport.handoff',side_effect=handoff), \
+                        patch('playbooks.secrets.files.vault.fields',side_effect=credentials) as vault, \
+                        patch('playbooks.keycloak.files.health.json_get',side_effect=json_get), \
+                        patch.object(proof.socket,'create_connection',return_value=connection) as connect, \
+                        patch.object(proof,'Channel',return_value=wire),patch.object(proof,'callback',return_value=sentinel), \
+                        patch.object(proof,'claims',side_effect=claims),patch.object(proof,'protected',side_effect=protected):
+                    values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
+                    with self.assertRaises(KeyboardInterrupt if mode=='interruption' else Exception) as caught:
+                        live_acceptance.execute('browser',values,state,save)
+                    if mode in ('fault','timeout','interruption','credentials'):self.assertIs(caught.exception,error)
+                    else:self.assertIsInstance(caught.exception,ValueError)
+                    persisted=json.loads(path.read_text());self.assertNotIn(sentinel,path.read_text())
+                    self.assertNotIn('browserProof',persisted)
+                    if mode=='interruption':
+                        self.assertNotIn('browserFailure',persisted)
+                        self.assertEqual(persisted['intent'],{'action':'browser','slot':None})
+                    else:
+                        self.assertEqual(persisted['browserFailure'],{'stage':stage})
+                        self.assertTrue(persisted['browserFailed']);self.assertIsNone(persisted['intent'])
+                    if stage=='preflight' or mode=='credentials':
+                        self.assertNotIn('browserAttempted',persisted);connect.assert_not_called()
+                        if stage=='preflight':vault.assert_not_called()
+                        else:self.assertEqual(vault.call_count,1)
+                        fault_enabled[0]=False
+                        live_acceptance.execute('browser',values,state,save)
+                        self.assertEqual(state['browserFailure'],{'stage':stage})
+                        self.assertEqual(state['browserProof'],dict(authentication=True,audiences=True,callbacks=True,origins=True,
+                            dataplane={'result':{'protected':True}},platform=state['executionPlatform'],approvals=state['browserApprovals']))
+                    count=len(saved);credential_reads=vault.call_count;connections=connect.call_count
+                    with self.assertRaises(ValueError):live_acceptance.execute('browser',values,state,save)
+                    self.assertEqual(len(saved),count);self.assertEqual(vault.call_count,credential_reads);self.assertEqual(connect.call_count,connections)
+                    live_acceptance.prerequisites('offboard-propose',state,None)
+                self.assertEqual(path.stat().st_mode & 0o777,0o600)
+                if mode not in ('fault','interruption','credentials'):
+                    self.assertTrue(connection.settimeout.called)
+                    self.assertTrue(all(0<call.args[0]<=35 for call in connection.settimeout.call_args_list))
 
     def test_callback_unique_exact_bounded_query(self):
         redirect = 'https://preview.example.invalid/callback'

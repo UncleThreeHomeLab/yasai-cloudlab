@@ -186,72 +186,85 @@ def authorization(issuer, client, redirect, state, nonce, verifier):
 
 
 def run(values, state, observe, begin_enrollment):
-    from playbooks.argocd.files.github_setup import repository
-    from playbooks.previews.tests import catalog_fixture as fixture
-    from playbooks.keycloak.tests import scoped_session as session
-    from playbooks.access.files.verify import remote
-    from playbooks.secrets.files.vault import fields
-    from playbooks.keycloak.files.health import json_get
-    request = state['viewer']
-    observed = observe(values, dict(request, action='observe'))
-    runtime = remote('runtime')
-    with session.private_context(values) as api:
-        snapshot = fixture.inspect(api, repository(values['PRIVATE_CONFIG_REPOSITORY']))
-        rows, gateway = bindings(state, snapshot['catalog'], observed, runtime)
-        active(rows, observe(values, dict(request, action='baseline', instances=state['instances'])), int(time.time()))
-        settings = snapshot['catalog']
-        for slot, row in zip(('a', 'b'), rows):
-            pull = fixture.verified_pull(api, state['pulls'][slot], request['nonce'], slot)
-            contract.validate_pull(row, pull)
-            from playbooks.previews.files.github import GitHub
-            from types import SimpleNamespace
-            reader = SimpleNamespace(request=lambda path: api.request('GET', path))
-            contract.verify_blob(row, GitHub.blob(reader, row))
-        # Recheck both mutable source boundaries before any disposable credential read.
-        if fixture.inspect(api, repository(values['PRIVATE_CONFIG_REPOSITORY'])) != snapshot:
-            refused()
-        for slot, row in zip(('a', 'b'), rows):
-            contract.validate_pull(row, fixture.verified_pull(api, state['pulls'][slot], request['nonce'], slot))
-    remaining(rows)
-    from playbooks.previews.tests.probe_transport import handoff
-    probe = handoff(state, rows, [])
-    proof = fields('keycloak-proof-' + request['nonce'], ['username', 'password', 'email', 'ownership_id'])
-    if (proof['ownership_id'] != request['nonce'] or proof['username'] != observed['username'] or
-            proof['email'] != observed['email'] or not isinstance(proof['password'], str) or not 1 <= len(proof['password']) <= 4096):
-        refused()
-    issuer = settings['issuer']
-    callbacks = [contract.client(row, settings)['callbacks'][0] for row in rows]
-    clients = [contract.names(row)['client'] for row in rows]
-    jwks = json_get(issuer + '/protocol/openid-connect/certs', address=gateway)
-    with socket.create_connection(('browser', 5056), timeout=30) as connection:
-        wire = Channel(connection)
-        remaining(rows)
-        begin_enrollment()
-        wire.send({'action': 'enroll', 'issuer': issuer, 'gateway': gateway,
-                   'hosts': [contract.hostname(row, settings) for row in rows],
-                   'viewer': {key: proof[key] for key in ('username', 'password', 'email')}})
-        if wire.read({'ready'}) != {'ready': True}:
-            refused()
-        tokens = []
-        for client, redirect in zip(clients, callbacks):
-            state_value, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
-            wire.send({'action': 'authorize', 'authorization': authorization(issuer, client, redirect, state_value, nonce, verifier),
-                       'redirect': redirect, 'state': state_value, 'issuer': issuer})
-            code = callback(wire.read({'callback'})['callback'], redirect, state_value, issuer)
-            response = json_get(issuer + '/protocol/openid-connect/token', address=gateway, form={
-                'grant_type': 'authorization_code', 'client_id': client, 'redirect_uri': redirect,
-                'code': code, 'code_verifier': verifier})
-            tokens.append(claims(response, jwks, issuer, client, nonce, observed['user_id']))
-        protected(rows, settings, gateway, tokens)
-        dataplane = handoff(state, rows, tokens, probe, browser_deadline=wire.deadline)
-        for bad in (callbacks[1], callbacks[0] + '/changed'):
-            state_value, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
-            wire.send({'action': 'reject', 'authorization': authorization(issuer, clients[0], bad, state_value, nonce, verifier),
-                       'redirect': bad, 'state': state_value, 'issuer': issuer})
-            if wire.read({'rejected'}) != {'rejected': True}:
+    stage = 'preflight'
+    try:
+        from playbooks.argocd.files.github_setup import repository
+        from playbooks.previews.tests import catalog_fixture as fixture
+        from playbooks.keycloak.tests import scoped_session as session
+        from playbooks.access.files.verify import remote
+        from playbooks.secrets.files.vault import fields
+        from playbooks.keycloak.files.health import json_get
+        request = state['viewer']
+        observed = observe(values, dict(request, action='observe'))
+        runtime = remote('runtime')
+        with session.private_context(values) as api:
+            snapshot = fixture.inspect(api, repository(values['PRIVATE_CONFIG_REPOSITORY']))
+            rows, gateway = bindings(state, snapshot['catalog'], observed, runtime)
+            active(rows, observe(values, dict(request, action='baseline', instances=state['instances'])), int(time.time()))
+            settings = snapshot['catalog']
+            for slot, row in zip(('a', 'b'), rows):
+                pull = fixture.verified_pull(api, state['pulls'][slot], request['nonce'], slot)
+                contract.validate_pull(row, pull)
+                from playbooks.previews.files.github import GitHub
+                from types import SimpleNamespace
+                reader = SimpleNamespace(request=lambda path: api.request('GET', path))
+                contract.verify_blob(row, GitHub.blob(reader, row))
+            # Recheck both mutable source boundaries before any disposable credential read.
+            if fixture.inspect(api, repository(values['PRIVATE_CONFIG_REPOSITORY'])) != snapshot:
                 refused()
-        wire.send({'action': 'origins', 'callbacks': callbacks})
-        if wire.read({'origins', 'storage', 'dom', 'cors'}) != dict.fromkeys(('origins', 'storage', 'dom', 'cors'), True):
+            for slot, row in zip(('a', 'b'), rows):
+                contract.validate_pull(row, fixture.verified_pull(api, state['pulls'][slot], request['nonce'], slot))
+        remaining(rows)
+        from playbooks.previews.tests.probe_transport import handoff
+        probe = handoff(state, rows, [])
+        stage = 'enrollment'
+        proof = fields('keycloak-proof-' + request['nonce'], ['username', 'password', 'email', 'ownership_id'])
+        if (proof['ownership_id'] != request['nonce'] or proof['username'] != observed['username'] or
+                proof['email'] != observed['email'] or not isinstance(proof['password'], str) or not 1 <= len(proof['password']) <= 4096):
             refused()
-    return {'authentication': True, 'audiences': True, 'callbacks': True, 'origins': True, 'dataplane': dataplane,
-            'platform': state['executionPlatform'], 'approvals': copy.deepcopy(state['browserApprovals'])}
+        issuer = settings['issuer']
+        callbacks = [contract.client(row, settings)['callbacks'][0] for row in rows]
+        clients = [contract.names(row)['client'] for row in rows]
+        jwks = json_get(issuer + '/protocol/openid-connect/certs', address=gateway)
+        with socket.create_connection(('browser', 5056), timeout=30) as connection:
+            wire = Channel(connection)
+            remaining(rows)
+            begin_enrollment()
+            wire.send({'action': 'enroll', 'issuer': issuer, 'gateway': gateway,
+                       'hosts': [contract.hostname(row, settings) for row in rows],
+                       'viewer': {key: proof[key] for key in ('username', 'password', 'email')}})
+            if wire.read({'ready'}) != {'ready': True}:
+                refused()
+            tokens = []
+            for client, redirect in zip(clients, callbacks):
+                stage = 'authorization'
+                state_value, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
+                wire.send({'action': 'authorize', 'authorization': authorization(issuer, client, redirect, state_value, nonce, verifier),
+                           'redirect': redirect, 'state': state_value, 'issuer': issuer})
+                code = callback(wire.read({'callback'})['callback'], redirect, state_value, issuer)
+                stage = 'token-exchange'
+                response = json_get(issuer + '/protocol/openid-connect/token', address=gateway, form={
+                    'grant_type': 'authorization_code', 'client_id': client, 'redirect_uri': redirect,
+                    'code': code, 'code_verifier': verifier})
+                stage = 'token-validation'
+                tokens.append(claims(response, jwks, issuer, client, nonce, observed['user_id']))
+            stage = 'gateway-protection'
+            protected(rows, settings, gateway, tokens)
+            stage = 'dataplane'
+            dataplane = handoff(state, rows, tokens, probe, browser_deadline=wire.deadline)
+            stage = 'callback-rejection'
+            for bad in (callbacks[1], callbacks[0] + '/changed'):
+                state_value, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
+                wire.send({'action': 'reject', 'authorization': authorization(issuer, clients[0], bad, state_value, nonce, verifier),
+                           'redirect': bad, 'state': state_value, 'issuer': issuer})
+                if wire.read({'rejected'}) != {'rejected': True}:
+                    refused()
+            stage = 'origins'
+            wire.send({'action': 'origins', 'callbacks': callbacks})
+            if wire.read({'origins', 'storage', 'dom', 'cors'}) != dict.fromkeys(('origins', 'storage', 'dom', 'cors'), True):
+                refused()
+        return {'authentication': True, 'audiences': True, 'callbacks': True, 'origins': True, 'dataplane': dataplane,
+                'platform': state['executionPlatform'], 'approvals': copy.deepcopy(state['browserApprovals'])}
+    except Exception:
+        state['browserFailure'] = {'stage': stage}
+        raise
