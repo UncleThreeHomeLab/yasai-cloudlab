@@ -361,8 +361,20 @@ class Session:
         command = ['systemctl', 'show', 'k3s', '--property=ExecStart,MainPID,FragmentPath,DropInPaths,Environment,EnvironmentFiles,NeedDaemonReload',
                    '--no-pager']
         properties = run(command, self.deadline)
-        values = dict(line.split('=', 1) for line in properties.splitlines() if '=' in line)
-        if (set(values) != {'ExecStart', 'MainPID', 'FragmentPath', 'DropInPaths', 'Environment', 'EnvironmentFiles', 'NeedDaemonReload'} or
+        scalars = {'ExecStart', 'MainPID', 'FragmentPath', 'DropInPaths', 'Environment', 'NeedDaemonReload'}
+        environment_files = ('/etc/default/k3s', '/etc/sysconfig/k3s', '/etc/systemd/system/k3s.service.env')
+        values = {}; environment_rows = []
+        for line in properties.removesuffix('\n').split('\n'):
+            key, separator, value = line.partition('=')
+            if not separator or '\r' in line: refused()
+            if key == 'EnvironmentFiles':
+                environment_rows.append(value)
+            elif key not in scalars or key in values:
+                refused()
+            else:
+                values[key] = value
+        if environment_rows != [path + ' (ignore_errors=yes)' for path in environment_files]: refused()
+        if (set(values) != scalars or
                 values['NeedDaemonReload'] != 'no' or
                 values['DropInPaths'] != '/etc/systemd/system/k3s.service.d/10-cloudlab-network.conf' or
                 values['Environment'] or values['FragmentPath'] != '/etc/systemd/system/k3s.service' or
@@ -371,9 +383,6 @@ class Session:
         unit = self.read(values['FragmentPath']).decode()
         unit_policy(unit)
         dropin = self.read(values['DropInPaths']).decode(); network_unit(dropin)
-        environment_files = ('/etc/default/k3s', '/etc/sysconfig/k3s', '/etc/systemd/system/k3s.service.env')
-        listed = re.findall(r'(/[^ ]+) \(ignore_errors=yes\)', values['EnvironmentFiles'])
-        if values['EnvironmentFiles'] != ' '.join(path + ' (ignore_errors=yes)' for path in listed) or tuple(listed) != environment_files: refused()
         optional = {}
         for path in environment_files:
             exists = os.path.lexists(path); optional[path] = exists
