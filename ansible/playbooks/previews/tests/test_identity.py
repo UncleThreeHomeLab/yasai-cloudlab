@@ -88,6 +88,16 @@ observed=preview_clients.representation(row,settings)
 observed['defaultClientScopes'].reverse();observed['protocolMappers'].reverse()
 for mapper in observed['protocolMappers']:mapper['id']='server-id'
 assert preview_clients.representation_matches(observed,row,settings)
+client=dict(observed,id='server-id',enabled=False)
+state={'format':1,'entries':{row['instance']:{'approval':row,'approvalDigest':preview_clients.digest(preview_clients.canonical(row)),
+    'clientId':client['clientId'],'uuid':'server-id','phase':'retiring','disabledAt':1200,'originVersion':preview_clients.ORIGIN_VERSION}}}
+def api(action,value):
+    assert action=='find'
+    return [client]
+saved=[]
+preview_clients.reconcile(None,None,state,api,lambda value:saved.append(value['entries'][row['instance']]['phase']),1300,set())
+assert state['entries'][row['instance']]['phase']=='disabled' and state['entries'][row['instance']]['disabledAt']==1200
+assert saved==['disabled']
 assert 'preview_contract' in sys.modules
 assert preview_clients.__file__.startswith(sys.argv[1]+'/')
 '''
@@ -234,6 +244,7 @@ assert preview_clients.__file__.startswith(sys.argv[1]+'/')
         self.assertFalse(next(iter(api.rows.values()))['enabled'])
         self.assertEqual(state['entries'][row['instance']]['disabledAt'], 2000)
         identity.reconcile(None, None, state, api, save, 2599, set())
+        self.assertEqual(state['entries'][row['instance']]['phase'], 'disabled')
         self.assertEqual(api.deleted, [])
         identity.reconcile(None, None, state, api, save, 2600, set())
         self.assertEqual(api.deleted, ['owned-client-uuid'])
@@ -253,6 +264,99 @@ assert preview_clients.__file__.startswith(sys.argv[1]+'/')
         api.rows['owned-client-uuid']['id'] = 'replacement'
         with self.assertRaises(ValueError): identity.reconcile(None, None, state, api, lambda x: None, 2600, set())
         self.assertEqual(api.deleted, [])
+
+    def test_confirmed_disable_repeats_and_legacy_restart_keep_same_grace(self):
+        for legacy in (False, True):
+            row, settings, api = approval(), catalog(), Keycloak()
+            intent = {'format':1,'entries':{row['instance']:{'phase':'pending','originVersion':2,'approvalDigest':digest(canonical(row))}}}
+            state = {'format':1,'entries':{}}
+            identity.reconcile(settings,intent,state,api,lambda value:None,1500,set())
+            identity.reconcile(None,None,state,api,lambda value:None,2000,set())
+            if legacy: state['entries'][row['instance']]['phase']='retiring'
+            state=copy.deepcopy(state);saved=[];actions=[]
+            api.rows['persistent']={'id':'persistent','clientId':'persistent-client','enabled':True}
+            unrelated=copy.deepcopy(api.rows['persistent'])
+            def observed(action,value):
+                actions.append(action);return api(action,value)
+            for now in (2001,2599):
+                identity.reconcile(None,None,state,observed,lambda value:saved.append(copy.deepcopy(value)),now,{'persistent-client'})
+                record=state['entries'][row['instance']]
+                self.assertEqual((record['phase'],record['uuid'],record['disabledAt']),('disabled','owned-client-uuid',2000))
+                self.assertEqual(record['approval'],row);self.assertEqual(api.deleted,[])
+            self.assertTrue(all(value['entries'][row['instance']]['phase']=='disabled' for value in saved))
+            self.assertNotIn('update',actions)
+            identity.reconcile(None,None,state,api,lambda value:None,2600,{'persistent-client'})
+            self.assertEqual(api.deleted,['owned-client-uuid'])
+            self.assertEqual(state['entries'][row['instance']],{'phase':'retired','approvalDigest':digest(canonical(row))})
+            self.assertEqual(api.rows,{'persistent':unrelated})
+
+    def test_reusable_disable_requires_saved_valid_time_and_uuid_before_any_write(self):
+        cases=[('disabledAt',value) for value in (None,False,True,0,-1,2000.0,'2000',2501)]
+        cases += [('uuid',None),('uuid',''),('uuid','changed'),('ownership','changed')]
+        for field,value in cases:
+            with self.subTest(field=field,value=value):
+                row, settings, api = approval(), catalog(), Keycloak()
+                intent={'format':1,'entries':{row['instance']:{'phase':'pending','originVersion':2,'approvalDigest':digest(canonical(row))}}}
+                state={'format':1,'entries':{}}
+                identity.reconcile(settings,intent,state,api,lambda value:None,1500,set())
+                identity.reconcile(None,None,state,api,lambda value:None,2000,set())
+                if field=='ownership':api.rows['owned-client-uuid']['attributes']['cloudlab.preview.approval']='foreign'
+                else:state['entries'][row['instance']][field]=value
+                before=copy.deepcopy((state,api.rows));saved=[]
+                with self.assertRaises(ValueError):identity.reconcile(None,None,state,api,lambda value:saved.append(copy.deepcopy(value)),2500,set())
+                self.assertEqual((state,api.rows),before);self.assertEqual(saved,[]);self.assertEqual(api.deleted,[])
+
+    def test_reenabled_client_lost_write_or_confirmation_cannot_reuse_old_grace(self):
+        for failure in ('write-before','write-after','missing','duplicate','uuid','ownership','enabled'):
+            with self.subTest(failure=failure):
+                row, settings, api = approval(), catalog(), Keycloak()
+                intent={'format':1,'entries':{row['instance']:{'phase':'pending','originVersion':2,'approvalDigest':digest(canonical(row))}}}
+                state={'format':1,'entries':{}}
+                identity.reconcile(settings,intent,state,api,lambda value:None,1500,set())
+                identity.reconcile(None,None,state,api,lambda value:None,2000,set())
+                api.rows['owned-client-uuid']['enabled']=True;saved=[];updated=False
+                def interrupted(action,value):
+                    nonlocal updated
+                    if action=='update':
+                        durable=saved[-1]['entries'][row['instance']]
+                        self.assertEqual(durable['phase'],'retiring');self.assertNotIn('disabledAt',durable)
+                        if failure=='write-before':raise RuntimeError('write unavailable')
+                        api(action,value);updated=True
+                        if failure=='write-after':raise RuntimeError('lost write response')
+                        return None
+                    result=api(action,value)
+                    if action=='find' and updated:
+                        if failure=='missing':return []
+                        if failure=='duplicate':return result*2
+                        if failure=='uuid':result[0]['id']='changed'
+                        if failure=='ownership':result[0]['attributes']['cloudlab.preview.approval']='foreign'
+                        if failure=='enabled':result[0]['enabled']=True
+                    return result
+                with self.assertRaises((ValueError,RuntimeError)):
+                    identity.reconcile(None,None,state,interrupted,lambda value:saved.append(copy.deepcopy(value)),2500,set())
+                self.assertEqual(state['entries'][row['instance']]['phase'],'retiring')
+                self.assertNotIn('disabledAt',state['entries'][row['instance']]);self.assertEqual(api.deleted,[])
+                state=copy.deepcopy(saved[-1])
+                identity.reconcile(None,None,state,api,lambda value:None,2600,set())
+                record=state['entries'][row['instance']]
+                self.assertEqual((record['phase'],record['uuid'],record['disabledAt']),('disabled','owned-client-uuid',2600))
+                self.assertEqual(record['approval'],row);self.assertEqual(api.deleted,[])
+                identity.reconcile(None,None,state,api,lambda value:None,3199,set());self.assertEqual(api.deleted,[])
+                identity.reconcile(None,None,state,api,lambda value:None,3200,set());self.assertEqual(api.deleted,['owned-client-uuid'])
+
+    def test_only_explicit_backend_false_keeps_confirmed_disable_time(self):
+        for enabled in (False,True,None,0,'false','missing'):
+            with self.subTest(enabled=enabled):
+                row, settings, api = approval(), catalog(), Keycloak()
+                intent={'format':1,'entries':{row['instance']:{'phase':'pending','originVersion':2,'approvalDigest':digest(canonical(row))}}}
+                state={'format':1,'entries':{}}
+                identity.reconcile(settings,intent,state,api,lambda value:None,1500,set())
+                identity.reconcile(None,None,state,api,lambda value:None,2000,set())
+                if enabled=='missing':api.rows['owned-client-uuid'].pop('enabled')
+                else:api.rows['owned-client-uuid']['enabled']=enabled
+                identity.reconcile(None,None,state,api,lambda value:None,2500,set())
+                self.assertEqual(state['entries'][row['instance']]['disabledAt'],2000 if enabled is False else 2500)
+                self.assertEqual(state['entries'][row['instance']]['phase'],'disabled');self.assertEqual(api.deleted,[])
 
     def test_preview_failure_returns_for_ordinary_realm_repair_then_marks_failure(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(identity, 'run', side_effect=RuntimeError('private failure')):
