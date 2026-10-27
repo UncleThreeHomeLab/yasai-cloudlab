@@ -165,8 +165,9 @@ retain the journal and use existing offboarding; automatic viewer reset is unsup
 Pre-enrollment failures remain retryable. A durable attempt marker precedes the
 first credential frame; subsequent failures permit offboarding only. The browser
 waits at most ten minutes for controller preflight, then bounds the proof to four minutes.
-After process interruption, `offboard-propose` can replace only the exact consumed
-browser intent under the journal lock; other interrupted operations still require resume.
+After process interruption, `offboard-propose` can replace an exact interrupted
+`custody-install` or `custody-observe` intent, or consumed browser intent, under
+the journal lock; other interrupted operations still require resume.
 
 Credential-free browser checks: `docker compose -f
 ansible/playbooks/previews/tests/compose.browser-live.yml --profile offline run
