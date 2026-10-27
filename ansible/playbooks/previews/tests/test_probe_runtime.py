@@ -15,6 +15,18 @@ from playbooks.previews.files import contract
 
 
 class ProbeTests(unittest.TestCase):
+    def test_host_only_owner_observation_requires_current_healthy_source_without_resources(self):
+        from playbooks.previews.tests import resource_runtime
+        api=fixtures.ResourceAPI();key=('argoproj.io/v1alpha1','Application','argocd','cloudlab-previews')
+        api.objects[key]={'spec':{'sources':[{'repoURL':'https://github.com/example/platform.git','targetRevision':'c'*40}]},
+                          'status':{'sync':{'revisions':['c'*40]},'health':{'status':'Healthy'}}}
+        with patch.object(resource_runtime,'HostKubernetes',return_value=api):
+            probe_state.host_owner('c'*40)
+            with self.assertRaises(ValueError):probe_state.host_owner('f'*40)
+            api.objects[key]['status']['health']['status']='Progressing'
+            with self.assertRaises(ValueError):probe_state.host_owner('c'*40)
+        self.assertEqual(api.writes,[])
+
     def assurance(self,observation):
         def command(arguments):return observation['commands'][tuple(arguments)]
         with patch.dict(os.environ,{'SSH_CONNECTION':'100.64.0.1 4000 100.64.0.2 22'},clear=True), \
@@ -22,14 +34,12 @@ class ProbeTests(unittest.TestCase):
                 patch.object(probe_state.os,'getppid',return_value=observation['parent']), \
                 patch.object(probe_state,'command',side_effect=command), \
                 patch.object(probe_state,'file',side_effect=lambda name:observation['files'][name]), \
-                patch.object(probe_state,'server_environment') as environment, \
                 patch.object(Path,'exists',autospec=True,side_effect=lambda path:str(path)=='/root/.bashrc'), \
                 patch.object(Path,'glob',autospec=True,side_effect=lambda *args:iter(())), \
                 patch.object(Path,'resolve',autospec=True,side_effect=lambda path:Path(observation['executables'][str(path)])), \
                 patch.object(Path,'read_bytes',autospec=True,side_effect=lambda path:observation['cmdlines'][str(path)]), \
                 patch.object(probe_state.subprocess,'run',return_value=Mock(returncode=3,stdout='inactive\n',stderr='')):
-            result=probe_state.assurance()
-            environment.assert_called_once_with('500')
+            result=probe_state.assurance(Mock(observe=Mock(return_value={"native":"synthetic"})))
             return result
 
     def test_actual_assurance_accepts_packaged_debian13_session_and_legacy_native_chain(self):
@@ -95,12 +105,11 @@ class ProbeTests(unittest.TestCase):
             self.assertFalse(probe_state.bash_startup_safe(raw))
 
     def test_effective_server_environment_cannot_redirect_config_or_audit(self):
+        from playbooks.k3s.files.native_custody import environment_policy
         for key in ('K3S_KUBE_APISERVER_ARG','K3S_CONFIG_FILE','K3S_DATA_DIR','HTTPS_PROXY','LD_PRELOAD'):
-            with patch.object(Path,'open',return_value=io.BytesIO((key+'=private\0').encode())):
-                with self.assertRaises(ValueError) as error:probe_state.server_environment('123')
-                self.assertNotIn('private',str(error.exception))
-        with patch.object(Path,'open',return_value=io.BytesIO(b'PATH=/usr/bin\0K3S_TOKEN=never-export\0')):
-            probe_state.server_environment('123')
+            with self.assertRaises(ValueError) as error:environment_policy((key+'=private\0').encode())
+            self.assertNotIn('private',str(error.exception))
+        environment_policy(b'PATH=/usr/bin\0K3S_TOKEN=never-export\0')
 
     def test_targets_bind_exact_ready_pod_service_endpoints_and_policies(self):
         row,objects=fixtures.probe_observation()
@@ -143,10 +152,10 @@ class ProbeTests(unittest.TestCase):
 
     def test_inspector_checks_logging_before_readiness_or_access_frame(self):
         request={'challenge':'f'*64,'nonce':'e'*32,'revision':'c'*40,
-                 'digests':['a'*64,'b'*64],'deadline':1250}
+                 'digests':['a'*64,'b'*64],'deadline':1250,'source':inspection.source_binding(),'mode':'probe'}
         channel=Mock(deadline=1260);channel.read_frame.return_value=contract.canonical(request)
         channel.remaining.return_value=50
-        with patch.object(inspection.signal,'setitimer'),patch.object(inspection.time,'time',return_value=1200), \
+        with patch.object(inspection.signal,'setitimer'),patch.object(probe_state,'native_session',return_value=MagicMock()),patch.object(inspection,'source_binding',return_value=inspection.source_binding()),patch.object(inspection.time,'time',return_value=1200), \
                 patch.object(inspection.time,'monotonic',return_value=1200), \
                 patch.object(probe_state,'assurance',side_effect=ValueError('unknown logging')):
             with self.assertRaises(ValueError):inspection.run(channel)
@@ -154,7 +163,7 @@ class ProbeTests(unittest.TestCase):
 
     def test_fixed_inspection_schema_rejects_mutations_and_caller_transport(self):
         value={'challenge':'f'*64,'nonce':'e'*32,'revision':'c'*40,
-               'digests':['a'*64,'b'*64],'deadline':1250}
+               'digests':['a'*64,'b'*64],'deadline':1250,'source':inspection.source_binding(),'mode':'probe'}
         with patch.object(inspection.time,'time',return_value=1200):
             inspection.validate(value)
             for name in ('create','apply','patch','replace','delete','fault','restore','install','exec'):
@@ -195,13 +204,13 @@ class ProbeTests(unittest.TestCase):
             with patch.dict(os.environ,{'SSH_CONNECTION':'100.64.0.1 4000 100.64.0.2 22',key:'private'},clear=True), \
                     patch.object(probe_state.os,'geteuid',return_value=0),patch.object(probe_state.os,'isatty',return_value=False), \
                     patch.object(probe_state,'command') as command:
-                with self.assertRaises(ValueError):probe_state.assurance()
+                with self.assertRaises(ValueError):probe_state.assurance(Mock())
                 command.assert_not_called()
 
     def test_changed_target_or_assurance_after_exec_refuses(self):
         rows=[fixtures.approval('a'*32),fixtures.approval('d'*32)]
         request={'challenge':'f'*64,'nonce':'e'*32,'revision':'c'*40,
-                 'digests':[contract.digest(contract.canonical(row)) for row in rows],'deadline':1250}
+                 'digests':[contract.digest(contract.canonical(row)) for row in rows],'deadline':1250,'source':inspection.source_binding(),'mode':'probe'}
         root=Path(inspection.__file__).parent
         probe={'Namespace':{'metadata':{'name':'cloudlab-fixture-probe-'+'e'*32,'uid':'namespace'}},
                'Pod':{'metadata':{'uid':'pod'}},'Service':{'metadata':{'uid':'service'},'spec':{'clusterIP':'10.43.0.1'}},
@@ -209,7 +218,7 @@ class ProbeTests(unittest.TestCase):
                             'traffic.py':root.parents[1].joinpath('access/files/traffic.py').read_text()}}}
         channel=Mock(deadline=1260);channel.read_frame.return_value=contract.canonical(request);channel.remaining.return_value=50
         with patch.object(inspection.time,'time',return_value=1200),patch.object(inspection.time,'monotonic',return_value=1200), \
-                patch.object(inspection.signal,'setitimer'),patch.object(probe_state,'assurance',return_value='a'*64), \
+                patch.object(inspection.signal,'setitimer'),patch.object(probe_state,'native_session',return_value=MagicMock()),patch.object(inspection,'source_binding',return_value=inspection.source_binding()),patch.object(probe_state,'assurance',return_value='a'*64), \
                 patch.object(probe_state,'receipt',return_value={'revision':'c'*40,'probeRows':rows}), \
                 patch.object(probe_state,'bound_probe',return_value=probe), \
                 patch.object(probe_state,'targets',side_effect=[([],{'uid':'first'}),([],{'uid':'changed'})]), \
@@ -234,23 +243,27 @@ class ProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);installed=root/'installed';selected=[]
             for task in tasks:
-                if 'ansible.builtin.command' in task:break
+                task=copy.deepcopy(task)
                 if 'ansible.builtin.file' in task or 'src' in task.get('ansible.builtin.copy',{}):
-                    task=copy.deepcopy(task)
                     module=task.get('ansible.builtin.file',task.get('ansible.builtin.copy'))
                     field='path' if 'path' in module else 'dest'
                     module[field]=module[field].replace('/opt/cloudlab',str(installed),1)
-                    selected.append(task)
+                elif 'dest' in task.get('ansible.builtin.copy',{}):
+                    task['ansible.builtin.copy']['dest']=str(root/'resource-result.json')
+                selected.append(task)
             playbook=root/'install.yml';playbook.write_text(yaml.safe_dump([{'hosts':'localhost','gather_facts':False,'tasks':selected}]))
             config=root/'ansible.cfg';config.write_text('[defaults]\ninterpreter_python=auto_silent\nremote_tmp='+str(root/'ansible-tmp')+'\n')
-            environment=dict(os.environ,ANSIBLE_CONFIG=str(config));environment.pop('PYTHONPATH',None)
+            environment=dict(os.environ,ANSIBLE_CONFIG=str(config),CLOUDLAB_PREVIEW_RESOURCE_REQUEST=json.dumps(
+                {'action':'custody-install','nonce':'e'*32,'revision':'c'*40,'rows':[]}));environment.pop('PYTHONPATH',None)
             result=subprocess.run(['ansible-playbook','-i','localhost,','-c','local',str(playbook)],cwd=root,env=environment,capture_output=True,text=True,timeout=90)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-            script="import sys;sys.path.insert(0,sys.argv[1]);from playbooks.previews.tests import resource_runtime,probe_inspection,probe_state;assert resource_runtime.__file__.startswith(sys.argv[1]);assert probe_inspection.__file__.startswith(sys.argv[1])"
-            result=subprocess.run([os.sys.executable,'-I','-B','-c',script,str(installed)],capture_output=True,timeout=30)
+            self.assertEqual(json.loads((root/'resource-result.json').read_text()),{'installed':True})
+            self.assertEqual((root/'resource-result.json').stat().st_mode & 0o777,0o600)
+            script="import sys;sys.path.insert(0,sys.argv[1]);from playbooks.previews.tests import resource_runtime,probe_inspection,probe_state;from playbooks.k3s.files import native_custody;assert resource_runtime.__file__.startswith(sys.argv[1]);assert probe_inspection.__file__.startswith(sys.argv[1]);assert probe_inspection.source_binding(trusted=True)==sys.argv[2]"
+            result=subprocess.run([os.sys.executable,'-I','-B','-c',script,str(installed),inspection.source_binding()],capture_output=True,timeout=30)
             self.assertEqual(result.returncode,0,'Installed closure failed')
             (installed/'playbooks/previews/files/contract.py').unlink()
-            result=subprocess.run([os.sys.executable,'-I','-B','-c',script,str(installed)],capture_output=True,timeout=30)
+            result=subprocess.run([os.sys.executable,'-I','-B','-c',script,str(installed),inspection.source_binding()],capture_output=True,timeout=30)
             self.assertNotEqual(result.returncode,0)
         self.assertTrue(all(task.get('no_log') for task in tasks))
         text=Path(__file__).with_name('resources.yml').read_text()

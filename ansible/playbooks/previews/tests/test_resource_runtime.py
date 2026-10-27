@@ -10,6 +10,35 @@ from playbooks.previews.tests import fixtures, resource_runtime as runtime
 
 
 class ResourceTests(unittest.TestCase):
+    def test_custody_preparation_has_no_preview_rows_resource_receipts_or_stale_success(self):
+        from playbooks.previews.tests import live_acceptance as live, probe_transport
+        from playbooks.previews.tests import approval_fixture
+        state={'nonce':'e'*32,'executionPlatform':'c'*40,'baseline':{},'viewer':{'nonce':'e'*32,'realm':'applications'},
+               'enrolled':True,'identity':{'enabled':True},'pulls':{'a':{'head':'a'*40},'b':{'head':'b'*40}},'intent':None}
+        request=live.resource_request('custody-install',state)
+        self.assertEqual(request['rows'],[])
+        with patch.object(runtime.Path,'mkdir') as mkdir, self.assertRaises(ValueError): runtime.run(request)
+        mkdir.assert_not_called()
+        with patch.object(live,'resource_remote',return_value={'installed':True}) as install:
+            live.execute('custody-install',{},state,Mock())
+            install.assert_called_once_with({},request)
+        self.assertNotIn('resources',state);self.assertNotIn('resourceEvidence',state)
+        with patch('playbooks.previews.files.command.vm_environment'), \
+                patch.object(probe_transport,'handoff',return_value={'host':True}) as handoff:
+            live.execute('custody-observe',{},state,Mock())
+            handoff.assert_called_once_with(state,[],[],host_only=True)
+        events=[]
+        with patch.object(live,'remote',return_value=state['identity']), \
+                patch.object(live,'host_readiness',side_effect=lambda *args: events.append('fresh-host')), \
+                patch.object(approval_fixture,'prepare',side_effect=lambda *args: events.append('approval')):
+            live.execute('approval-prepare',{},state,Mock())
+        self.assertEqual(events,['fresh-host','approval'])
+        with patch.object(live,'remote',return_value=state['identity']), \
+                patch.object(live,'host_readiness',side_effect=ValueError('unavailable')), \
+                patch.object(approval_fixture,'prepare') as prepare:
+            with self.assertRaises(ValueError):live.execute('approval-prepare',{},state,Mock())
+            prepare.assert_not_called()
+
     def test_invalid_runtime_cli_inputs_never_save_intent_or_block_normal_continuation(self):
         from playbooks.previews.tests import live_acceptance as live, catalog_fixture
         cases=[('probe-prepare','missing',None),('probe-cleanup','missing',None),('retained-delete','missing',None),

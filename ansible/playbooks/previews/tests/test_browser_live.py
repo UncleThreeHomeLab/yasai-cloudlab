@@ -278,6 +278,11 @@ class BrowserTests(unittest.TestCase):
                 with self.assertRaises(ValueError): proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
             self.assertEqual(events, ['probe-preflight', 'credentials', 'connection'])
             self.assertEqual(vault.call_count, 2)
+            events.clear()
+            with patch('playbooks.previews.tests.probe_transport.handoff',side_effect=ValueError('insufficient readiness margin')):
+                with self.assertRaises(ValueError):proof.run(values,state,lambda *args:identity,lambda:events.append('begin'))
+            self.assertEqual(events,[])
+            self.assertEqual(vault.call_count,2)
 
     def test_runtime_requires_active_current_owned_controller_and_identity_records(self):
         _, settings, _, _ = self.fixture()

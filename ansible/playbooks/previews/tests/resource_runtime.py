@@ -17,7 +17,7 @@ from playbooks.istio.files.kube import contains, kube
 
 ROOT = Path('/var/lib/cloudlab/preview-fixtures')
 OWNER = 'cloudlab-preview-fixture'
-ACTIONS = ('probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete',
+ACTIONS = ('custody-install', 'probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete',
            'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup')
 REDUCING = ('probe-observe', 'probe-cleanup', 'retained-observe', 'retained-delete', 'outage-observe', 'outage-restore', 'outage-cleanup')
 
@@ -496,6 +496,8 @@ def outage(request, receipts, repository=None):
 
 def run(request):
     validate(request)
+    if request['action'] == 'custody-install':
+        raise ValueError('Custody installation belongs only to its Ansible owner')
     directory = ROOT / request['nonce']
     if ROOT.is_symlink() or directory.is_symlink(): raise ValueError('Fixture receipt path changed')
     ROOT.mkdir(mode=0o700, exist_ok=True); directory.mkdir(mode=0o700, exist_ok=True)

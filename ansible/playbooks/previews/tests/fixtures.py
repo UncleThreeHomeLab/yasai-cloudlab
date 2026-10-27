@@ -473,6 +473,7 @@ def probe_channel_child(mode='valid'):
     """Local child runs the real host protocol with synthetic external observations."""
     return 'MODE = ' + repr(mode) + '\n' + r'''
 import json,os,sys,time
+from contextlib import contextmanager
 if MODE=='startup-refuse':raise SystemExit(23)
 if MODE in ('missing','partial','malformed','stderr','queued'):
     request=json.loads(sys.stdin.buffer.readline(32769))
@@ -494,7 +495,7 @@ def context(request):
     counter[0]+=1
     changed=(MODE=='target-change' and counter[0]>1) or (MODE=='ready-target-change' and counter[0]>=3) or (MODE=='post-target-change' and counter[0]>=4)
     return probe,[],('e'*64 if changed else 'c'*64)
-def assurance():
+def assurance(*args):
     assurance_counter[0]+=1
     if MODE=='assurance-refuse':raise ValueError('private-diagnostic-sentinel')
     return 'e'*64 if MODE=='config-change' or MODE=='ready-assurance-change' and assurance_counter[0]>=3 else 'b'*64
@@ -508,6 +509,20 @@ def execute(frame,namespace,deadline):
         os.write(2,b'SECRET_PROBE_EXECUTED\n')
     return {'targets':[dict(control=True,gateway=True,podProtected=True,serviceProtected=True,serviceMode='blocked')]*2}
 helper.context=context;helper.probe_state.assurance=assurance;helper.execute=execute
+helper.probe_state.host_owner=lambda revision:None
+original_source=helper.source_binding
+helper.source_binding=lambda **kwargs:original_source()
+@contextmanager
+def native_session(deadline):
+    if MODE=='genuine-data':
+        import ctypes,yaml
+        from pathlib import Path
+        from playbooks.k3s.files.native_custody import derive
+        pin=yaml.safe_load(Path(helper.__file__).parents[2].joinpath('k3s/vars.yml').read_text())['k3s_binaries']['x86_64']['sha256']
+        with open('/artifacts/k3s','rb') as stream:
+            derive(stream,pin,ctypes.CDLL('/usr/lib/x86_64-linux-gnu/libzstd.so.1'),deadline)
+    yield None
+helper.probe_state.native_session=native_session
 try:helper.main()
 except Exception:raise SystemExit(1) from None
 '''

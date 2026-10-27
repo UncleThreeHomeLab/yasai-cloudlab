@@ -10,7 +10,7 @@
         that:
           - preview_resource.nonce is match('^[a-f0-9]{32}$')
           - preview_resource.revision is match('^[a-f0-9]{40}$')
-          - preview_resource.action in ['probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete', 'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup']
+          - preview_resource.action in ['custody-install', 'probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete', 'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup']
       vars:
         preview_resource: "{{ lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json }}"
       no_log: true
@@ -19,7 +19,7 @@
         path: '/opt/cloudlab/playbooks/{{ item }}'
         state: directory
         mode: '0700'
-      loop: [previews/tests, previews/files, istio/files, argocd/files, access/files, tailscale/files]
+      loop: [previews/tests, previews/files, istio/files, argocd/files, access/files, tailscale/files, k3s/files]
       no_log: true
     - name: Install published resource and read-only probe closure
       ansible.builtin.copy:
@@ -41,6 +41,8 @@
         - argocd/files/source_revision.py
         - access/files/traffic.py
         - tailscale/files/ssh_channel.py
+        - k3s/files/native_custody.py
+        - k3s/vars.yml
       no_log: true
     - name: Invoke only the fixed resource owner
       ansible.builtin.command: python3 -B /opt/cloudlab/playbooks/previews/tests/resource_runtime.py
@@ -49,9 +51,10 @@
       register: preview_resource_result
       changed_when: (lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json).action not in ['probe-observe', 'retained-observe', 'outage-observe']
       no_log: true
+      when: (lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json).action != 'custody-install'
     - name: Retain bounded private resource observation
       ansible.builtin.copy:
-        content: '{{ preview_resource_result.stdout }}'
+        content: "{{ '{\"installed\":true}' if (lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json).action == 'custody-install' else preview_resource_result.stdout }}"
         dest: "/recovery/previews/{{ (lookup('env', 'CLOUDLAB_PREVIEW_RESOURCE_REQUEST') | from_json).nonce }}/resource-result.json"
         mode: '0600'
       delegate_to: localhost

@@ -1,10 +1,12 @@
 """Fixed read-only SSH protocol; authorize one access frame only after fresh readiness."""
 import json
+import os
 from pathlib import Path
 import re
 import resource
 import secrets
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -14,6 +16,31 @@ sys.path.insert(0, '/opt/cloudlab')
 from playbooks.previews.files import contract
 from playbooks.previews.tests import probe_state
 from playbooks.tailscale.files.ssh_channel import Frames, PipeChannel
+
+
+CLOSURE = ('k3s/files/native_custody.py', 'k3s/vars.yml', 'previews/tests/probe_inspection.py',
+           'previews/tests/probe_state.py', 'previews/tests/probe_program.py', 'previews/tests/resource_runtime.py',
+           'previews/files/contract.py', 'previews/files/kube.py', 'previews/files/lifecycle.py',
+           'previews/files/resources.py', 'previews/files/images.lock.json', 'previews/files/sigstore-fulcio.crt',
+           'istio/files/kube.py', 'argocd/files/source_revision.py', 'access/files/traffic.py', 'tailscale/files/ssh_channel.py')
+
+
+def source_binding(*, trusted=False):
+    root = Path(__file__).parents[2]
+    hashes = {}
+    for name in CLOSURE:
+        path = root / name
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'rb') as stream:
+            before = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_size > 262144 or
+                    trusted and (before.st_uid != 0 or before.st_mode & 0o022)): probe_state.refused()
+            raw = stream.read(262145)
+            after = os.fstat(stream.fileno())
+            if len(raw) > 262144 or any(getattr(before, field) != getattr(after, field) for field in (
+                    'st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')): probe_state.refused()
+        hashes[name] = contract.digest(raw)
+    return contract.digest(contract.canonical(hashes))
 
 
 def decode(raw):
@@ -28,11 +55,13 @@ def decode(raw):
 
 
 def validate(request):
-    if (not isinstance(request, dict) or set(request) != {'challenge', 'nonce', 'revision', 'digests', 'deadline'} or
+    if (not isinstance(request, dict) or set(request) != {'challenge', 'nonce', 'revision', 'digests', 'deadline', 'source', 'mode'} or
             not re.fullmatch('[a-f0-9]{64}', request.get('challenge', '')) or
             not re.fullmatch('[a-f0-9]{32}', request.get('nonce', '')) or
             not re.fullmatch('[a-f0-9]{40}', request.get('revision', '')) or
-            not isinstance(request['digests'], list) or len(request['digests']) != 2 or len(set(request['digests'])) != 2 or
+            request['mode'] not in ('host', 'probe') or not re.fullmatch('[a-f0-9]{64}', request.get('source', '')) or
+            not isinstance(request['digests'], list) or len(request['digests']) != (2 if request['mode'] == 'probe' else 0) or
+            len(set(request['digests'])) != len(request['digests']) or
             any(not isinstance(value, str) or not re.fullmatch('[a-f0-9]{64}', value) for value in request['digests']) or
             type(request['deadline']) is not int or not time.time() < request['deadline'] <= time.time() + 60):
         probe_state.refused()
@@ -93,11 +122,29 @@ def run(channel):
     validate(request)
     channel.deadline = min(channel.deadline, time.monotonic() + request['deadline'] - time.time())
     signal.setitimer(signal.ITIMER_REAL, channel.remaining())
-    assurance = probe_state.assurance()
+    if request['source'] != source_binding(trusted=True): probe_state.refused()
+    with probe_state.native_session(channel.deadline) as native:
+        inspect(channel, request, native)
+
+
+def inspect(channel, request, native):
+    assurance = probe_state.assurance(native)
+    if request['mode'] == 'host':
+        probe_state.host_owner(request['revision'])
+        channel.no_pending()
+        ready = {'action': 'host-ready', 'challenge': request['challenge'], 'revision': request['revision'],
+                 'source': request['source'], 'assurance': assurance}
+        channel.write_frame(contract.canonical(ready))
+        channel.require_eof()
+        probe_state.host_owner(request['revision'])
+        if source_binding(trusted=True) != request['source'] or probe_state.assurance(native) != assurance: probe_state.refused()
+        channel.write_frame(contract.canonical({'action': 'host-result', 'challenge': request['challenge'],
+            'readinessDigest': contract.digest(contract.canonical(ready)), 'host': True}))
+        return
     probe, declarations, binding = context(request)
     execute(frame(request, probe, declarations, 'preflight', []), probe['Namespace']['metadata']['name'], channel.deadline)
     _, _, after = context(request)
-    if binding != after or probe_state.assurance() != assurance: probe_state.refused()
+    if binding != after or probe_state.assurance(native) != assurance or source_binding(trusted=True) != request['source']: probe_state.refused()
     channel.no_pending()
     ready = {'action': 'ready', 'challenge': request['challenge'], 'serverNonce': secrets.token_hex(32),
              'revision': request['revision'], 'digests': request['digests'], 'assurance': assurance, 'bindings': binding,
@@ -118,11 +165,11 @@ def run(channel):
             probe_state.refused()
         channel.require_eof()
         current_probe, current_declarations, current_binding = context(request)
-        if binding != current_binding or probe_state.assurance() != assurance: probe_state.refused()
+        if binding != current_binding or probe_state.assurance(native) != assurance or source_binding(trusted=True) != request['source']: probe_state.refused()
         output = execute(frame(request, current_probe, current_declarations, 'probe', access['tokens']),
                          current_probe['Namespace']['metadata']['name'], channel.deadline)
         _, _, after = context(request)
-        if binding != after or probe_state.assurance() != assurance: probe_state.refused()
+        if binding != after or probe_state.assurance(native) != assurance or source_binding(trusted=True) != request['source']: probe_state.refused()
     channel.remaining()
     channel.write_frame(contract.canonical({'action': 'result', 'challenge': request['challenge'], 'serverNonce': ready['serverNonce'],
                          'readinessDigest': ready_digest, 'result': output}))
