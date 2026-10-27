@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 import resource
 import subprocess
 import sys
@@ -25,7 +26,7 @@ class ProtocolTests(unittest.TestCase):
         payload=base64.urlsafe_b64encode(contract.canonical({'exp':int(time.time())+300})).decode().rstrip('=')
         self.tokens=['header.'+payload+'.signatureA','header.'+payload+'.signatureB']
 
-    def invoke(self,mode='valid',*,preflight_only=False,budget=None,recheck_failure=False):
+    def invoke(self,mode='valid',*,preflight_only=False,budget=None,recheck_failure=False,host_only=False):
         owner=sys.modules[preflight.ssh_channel.__module__]
         native_popen=subprocess.Popen;native_write=os.write
         processes=[];sent=bytearray();calls=[];stderr=bytearray()
@@ -51,8 +52,9 @@ class ProtocolTests(unittest.TestCase):
                 patch.object(transport,'client_assurance',return_value='a'*64),patch.dict(os.environ,{'VM_HOST':'example.invalid'}), \
                 patch.object(preflight,'ssh',side_effect=AssertionError('legacy SSH fallback')):
             def call():
-                return transport.handoff(self.state,self.rows,[] if preflight_only else self.tokens,
-                    None if preflight_only else self.prior,browser_deadline=time.monotonic()+budget if budget else None)
+                return transport.handoff(self.state,[] if host_only else self.rows,[] if preflight_only or host_only else self.tokens,
+                    None if preflight_only or host_only else self.prior,browser_deadline=time.monotonic()+budget if budget else None,
+                    host_only=host_only)
             try:
                 if recheck_failure:
                     with patch.object(transport,'lifetime',side_effect=[None,ValueError('expired')]):result=call()
@@ -78,7 +80,7 @@ class ProtocolTests(unittest.TestCase):
         frames=[json.loads(value) for value in sent.splitlines()]
         self.assertEqual(len(frames),2)
         init,access=frames
-        self.assertEqual(set(init),{'challenge','nonce','revision','digests','deadline'})
+        self.assertEqual(set(init),{'challenge','nonce','revision','digests','deadline','source','mode'})
         self.assertEqual(init['digests'],self.digests)
         self.assertNotIn(self.rows[0]['repository'],json.dumps(init));self.assertNotIn('https:',json.dumps(init))
         self.assertEqual(access['tokens'],self.tokens);self.assertEqual(access['challenge'],init['challenge'])
@@ -99,7 +101,7 @@ class ProtocolTests(unittest.TestCase):
                 result,error,sent,_=self.invoke(mode,budget=0.4 if mode in ('missing','partial','stderr') else None)
                 self.assertIsNotNone(error);self.assertIsNone(result)
                 for token in self.tokens:self.assertNotIn(token.encode(),sent)
-                self.assertTrue(all(set(json.loads(raw))=={'challenge','nonce','revision','digests','deadline'} for raw in sent.splitlines()))
+                self.assertTrue(all(set(json.loads(raw))=={'challenge','nonce','revision','digests','deadline','source','mode'} for raw in sent.splitlines()))
 
     def test_lifetime_and_browser_budget_are_rechecked_after_ready_before_access(self):
         for options in ({'budget':34},{'recheck_failure':True}):
@@ -107,6 +109,30 @@ class ProtocolTests(unittest.TestCase):
                 _,error,sent,_=self.invoke(**options)
                 self.assertIsNotNone(error);self.assertEqual(len(sent.splitlines()),1)
                 for token in self.tokens:self.assertNotIn(token.encode(),sent)
+
+    def test_empty_preflight_refuses_insufficient_margin_before_any_secret_lookup(self):
+        result,error,sent,_=self.invoke(preflight_only=True,budget=34)
+        self.assertIsNone(result);self.assertIsNotNone(error)
+        self.assertEqual(len(sent.splitlines()),1)
+        for token in self.tokens:self.assertNotIn(token.encode(),sent)
+
+    def test_host_only_protocol_needs_no_preview_and_accepts_no_access(self):
+        result,error,sent,_=self.invoke(host_only=True)
+        self.assertIsNone(error);self.assertEqual(result,{'host':True})
+        request=json.loads(sent)
+        self.assertEqual(request['mode'],'host');self.assertEqual(request['digests'],[])
+        for token in self.tokens:self.assertNotIn(token.encode(),sent)
+        self.manual_helper('host-access')
+
+    @unittest.skipUnless(Path('/artifacts/k3s').is_file(),'Official data-only artifact not mounted')
+    def test_genuine_data_derivation_in_actual_empty_handoff_preserves_pretoken_margin(self):
+        started=time.monotonic()
+        result,error,sent,_=self.invoke('genuine-data',preflight_only=True)
+        self.assertIsNone(error);self.assertEqual(result['result'],{'preflight':True})
+        self.assertEqual(len(sent.splitlines()),1)
+        elapsed=time.monotonic()-started
+        self.assertLess(elapsed,15)
+        print('Official DATA plus synthetic-host empty handoff seconds:',round(elapsed,3),flush=True)
 
     def test_ready_to_access_drift_refuses_before_secret_pod_execution(self):
         for mode in ('ready-target-change','ready-assurance-change'):
@@ -124,7 +150,8 @@ class ProtocolTests(unittest.TestCase):
 
     def manual_helper(self,mode):
         owner=sys.modules[preflight.ssh_channel.__module__]
-        init={'challenge':'f'*64,'nonce':'e'*32,'revision':'c'*40,'digests':self.digests,'deadline':int(time.time())+55}
+        init={'challenge':'f'*64,'nonce':'e'*32,'revision':'c'*40,'digests':self.digests,'deadline':int(time.time())+55,'source':transport.source_binding(),'mode':'probe'}
+        if mode=='host-access':init.update(mode='host',digests=[])
         environment={'PATH':os.environ['PATH'],'PYTHONPATH':os.environ['PYTHONPATH'],'PYTHONDONTWRITEBYTECODE':'1'}
         with patch.object(owner,'_ssh_transport',return_value=([sys.executable,'-u','-c',fixtures.probe_channel_child()],environment)):
             with preflight.ssh_channel('VM','example.invalid',transport.REMOTE,deadline=time.monotonic()+3) as channel:
@@ -134,6 +161,9 @@ class ProtocolTests(unittest.TestCase):
                 elif mode in ('early','reordered'):
                     channel.write_frame(contract.canonical({'action':'access','challenge':'f'*64,'serverNonce':'0'*64,
                         'readinessDigest':'0'*64,'tokens':self.tokens}))
+                elif mode=='host-access':
+                    ready=json.loads(channel.read_frame());self.assertEqual(ready['action'],'host-ready')
+                    channel.write_frame(contract.canonical({'action':'access','tokens':self.tokens}))
                 else:
                     ready=json.loads(channel.read_frame())
                     access={'action':'access','challenge':'f'*64,'serverNonce':ready['serverNonce'],

@@ -97,7 +97,7 @@ class ApprovalTests(unittest.TestCase):
         values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
         with tempfile.TemporaryDirectory() as directory,patch.object(catalog_fixture,'JOURNALS',Path(directory)), \
                 patch('playbooks.argocd.files.render.committed_payload',return_value={'revision':'c'*40}), \
-                patch.object(live,'dotenv_values',return_value=values),patch.object(live,'remote',return_value=state['identity']), \
+                patch.object(live,'host_readiness'),patch.object(live,'dotenv_values',return_value=values),patch.object(live,'remote',return_value=state['identity']), \
                 patch.object(approval.time,'time',return_value=1000),patch.object(approval.repository_tokens,'issue',return_value=lease), \
                 patch.object(approval.repository_tokens,'revoke'),patch('playbooks.previews.files.github.GitHub',return_value=reader):
             path=Path(directory)/nonce/'journal.json';catalog_fixture.journal(path,state)
@@ -262,7 +262,7 @@ class ApprovalTests(unittest.TestCase):
                 reader.blob.return_value = contract.canonical(fixtures.approval()['definition'])
                 with tempfile.TemporaryDirectory() as directory, patch.object(catalog_fixture, 'JOURNALS', Path(directory)), \
                         patch('playbooks.argocd.files.render.committed_payload', return_value={'revision': 'c'*40}), \
-                        patch.object(live, 'dotenv_values', return_value=values), patch.object(live, 'remote', return_value=state['identity']), \
+                        patch.object(live, 'host_readiness'),patch.object(live, 'dotenv_values', return_value=values), patch.object(live, 'remote', return_value=state['identity']), \
                         patch.object(approval.time, 'time', return_value=1000), \
                         patch.object(approval.repository_tokens, 'issue', return_value=lease), patch.object(approval.repository_tokens, 'revoke'), \
                         patch('playbooks.previews.files.github.GitHub', return_value=reader):

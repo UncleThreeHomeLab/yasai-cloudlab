@@ -147,6 +147,12 @@ slot-D ConfigMap; changed data blocks deletion. `outage-prepare|observe|fault|re
 uses a separate native ApplicationSet and retained ConfigMap. Restore its exact
 Git revision before teardown; unknown namespace data remains quarantined.
 
+Before approval preparation, run `custody-install` and `custody-observe` through
+the explicit fixture CLI. They install the reviewed read-only inspection closure
+and check native K3s/SSH custody without previews or access tokens. Approval
+preparation repeats fresh host readiness; browser entry still requires the complete
+probe handoff. Unknown binary, audit, TLS or recording settings refuse execution.
+
 The explicit `browser` stage uses `tests/compose.browser-live.yml`: start its
 `browser` service, then run `controller --nonce <32hex> --live`. Only controller
 mounts local inputs and private recovery. The journal must contain two exact

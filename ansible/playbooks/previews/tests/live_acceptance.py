@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[4]
 ACTIONS = ('inspect', 'viewer-provision', 'viewer-stage', 'viewer-propose', 'viewer-merge', 'viewer-enroll',
            'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup', 'browser',
            'approval-prepare', 'approval-abandon', 'catalog-prepare', 'catalog-reprepare', 'catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire', 'lifecycle-observe',
-           'probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete',
+           'custody-install', 'custody-observe', 'probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete',
            'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup')
 
 
@@ -51,6 +51,14 @@ def resource_request(action, state):
     request = {'action': action, 'nonce': state['nonce'], 'revision': state['executionPlatform'], 'rows': rows}
     validate(request)
     return request
+
+
+def host_readiness(values, state):
+    from playbooks.previews.files.command import vm_environment
+    from playbooks.previews.tests.probe_transport import handoff
+    vm_environment(values)
+    if handoff(state, [], [], host_only=True) != {'host': True}:
+        raise ValueError('Private host custody is not ready')
 
 
 def remote(values, request):
@@ -103,6 +111,8 @@ def publication_merge(api, values, state, save, *, offboard=False):
 def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='approve'):
     if action != 'inspect' and 'baseline' not in state:
         raise ValueError('Inspect and journal the private/cluster baseline first')
+    if action.startswith('custody-') and (slot is not None or not state.get('enrolled') or 'offboarding' in state):
+        raise ValueError('Custody preparation requires the enrolled owned viewer and no PR slot')
     if action.startswith(('probe-', 'retained-', 'outage-')):
         if slot is not None:
             raise ValueError('Runtime fixture actions do not accept a PR slot')
@@ -246,7 +256,13 @@ def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000
         if observed != state.get('identity') or observed.get('enabled') is not True:
             raise ValueError('Fresh enrolled viewer identity changed before approval preparation')
         remote(values, dict(request, action='lifecycle', approvals=[], expected={}, revision=state['executionPlatform']))
+        host_readiness(values, state)
         prepare(values, state, save, batch, lifetime)
+    elif action == 'custody-install':
+        if resource_remote(values, resource_request(action, state)) != {'installed': True}:
+            raise ValueError('Custody installation did not complete')
+    elif action == 'custody-observe':
+        host_readiness(values, state)
     elif action.startswith('catalog-'):
         from playbooks.previews.tests import approval_fixture as approval
         removing = (action == 'catalog-retire' or

@@ -8,7 +8,7 @@ import subprocess
 import time
 
 from playbooks.previews.files import contract
-from playbooks.previews.tests.probe_inspection import decode, validate_result
+from playbooks.previews.tests.probe_inspection import decode, validate_result, source_binding
 
 REMOTE = 'python3 /opt/cloudlab/playbooks/previews/tests/probe_inspection.py'
 
@@ -55,25 +55,39 @@ def lifetime(tokens, deadline):
             raise ValueError('Private probe access token lifetime is insufficient')
 
 
-def handoff(state, rows, tokens, prior=None, *, browser_deadline=None):
+def handoff(state, rows, tokens, prior=None, *, browser_deadline=None, host_only=False):
     from playbooks.access.files.preflight import ssh_channel
     deadline = min(time.monotonic() + 50, browser_deadline if browser_deadline is not None else float('inf'))
     if deadline <= time.monotonic(): raise ValueError('Private probe browser budget expired')
     assurance = client_assurance(timeout=min(10, deadline - time.monotonic()))
     if prior and prior['clientAssurance'] != assurance: raise ValueError('Private probe SSH state changed')
     if tokens and prior is None: raise ValueError('Private probe requires prior public preflight')
+    if host_only and (rows or tokens or prior): raise ValueError('Host readiness accepts no preview or access input')
     wall_deadline = int(time.time() + deadline - time.monotonic())
     request = {'challenge': secrets.token_hex(32), 'nonce': state['nonce'],
-               'revision': state['executionPlatform'], 'digests': [contract.digest(contract.canonical(row)) for row in rows], 'deadline': wall_deadline}
+               'revision': state['executionPlatform'], 'digests': [contract.digest(contract.canonical(row)) for row in rows],
+               'deadline': wall_deadline, 'source': source_binding(), 'mode': 'host' if host_only else 'probe'}
     if tokens: lifetime(tokens, wall_deadline)
     with ssh_channel('VM', os.environ['VM_HOST'], REMOTE, deadline=deadline, output_limit=8192) as channel:
         channel.write_frame(contract.canonical(request))
         ready = decode(channel.read_frame())
+        if host_only:
+            if (not isinstance(ready, dict) or set(ready) != {'action', 'challenge', 'revision', 'source', 'assurance'} or
+                    ready['action'] != 'host-ready' or any(ready[key] != request[key] for key in ('challenge', 'revision', 'source')) or
+                    not isinstance(ready['assurance'], str) or not re.fullmatch('[a-f0-9]{64}', ready['assurance'])):
+                raise ValueError('Private host readiness refused')
+            channel.no_pending(); channel.close_input()
+            response = decode(channel.read_frame())
+            if response != {'action': 'host-result', 'challenge': request['challenge'],
+                    'readinessDigest': contract.digest(contract.canonical(ready)), 'host': True}:
+                raise ValueError('Private host result refused')
+            channel.finish()
+            return {'host': True}
         readiness(ready, request, prior)
         channel.no_pending()
+        if channel.remaining() < 35: raise ValueError('Private probe browser budget insufficient')
         ready_digest = contract.digest(contract.canonical(ready))
         if tokens:
-            if channel.remaining() < 35: raise ValueError('Private probe browser budget insufficient')
             lifetime(tokens, wall_deadline)
             # Serialization happens only after fresh same-session readiness and lifetime checks.
             channel.write_frame(contract.canonical({'action': 'access', 'challenge': request['challenge'], 'serverNonce': ready['serverNonce'],

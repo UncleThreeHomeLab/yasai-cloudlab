@@ -7,6 +7,7 @@ import re
 import stat
 import subprocess
 
+from playbooks.k3s.files.native_custody import Session as native_session
 from playbooks.previews.files import contract
 from playbooks.previews.files.lifecycle import owned
 from playbooks.previews.files.resources import resources, workload
@@ -32,27 +33,17 @@ def file(path):
     return target.read_text()
 
 
-def server_environment(process):
-    with Path('/proc/' + process + '/environ').open('rb') as stream:
-        raw = stream.read(262145)
-    if len(raw) > 262144: refused()
-    values = dict(value.split(b'=', 1) for value in raw.split(b'\0') if value)
-    if any(value for key, value in values.items() if key.upper().endswith(b'_PROXY') or
-            key.startswith(b'K3S_') and key not in (b'K3S_TOKEN',) or key in (b'LD_PRELOAD', b'LD_LIBRARY_PATH')):
-        refused()
-
-
 def bash_startup_safe(raw):
     effective = '\n'.join(line.strip() for line in raw.splitlines() if line.strip() and not line.lstrip().startswith('#'))
     return not effective or effective.startswith('[ -z "$PS1" ] && return\n') or bool(
         re.match(r'^case \$- in\n\*i\*\)\s*;;\n\*\)\s*return\s*;;\nesac(?:\n|$)', effective))
 
 
-def assurance():
+def assurance(native):
     """Support only the inspected native root SSH/local K3s chain; unknown means stop."""
     if os.geteuid() != 0 or os.isatty(0) or not os.environ.get('SSH_CONNECTION'): refused()
     if any(value for key, value in os.environ.items() if key.upper().endswith('_PROXY') or key in (
-            'KUBECONFIG', 'K3S_URL', 'K3S_TOKEN', 'K3S_CONFIG_FILE', 'BASH_ENV', 'ENV', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'SSH_TTY')):
+            'KUBECONFIG', 'K3S_URL', 'K3S_TOKEN', 'K3S_CONFIG_FILE', 'BASH_ENV', 'ENV', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'SSH_TTY')):
         refused()
     connection = os.environ['SSH_CONNECTION'].split()
     if len(connection) != 4: refused()
@@ -95,34 +86,18 @@ def assurance():
     else: refused()
     pam = file('/etc/pam.d/sshd') + file('/etc/pam.d/common-session') + file('/etc/pam.d/common-session-noninteractive')
     if re.search(r'pam_(?:exec|tty_audit|script|tlog)|record|session\s+\S+\s+[^\s]+\s+.*(?:log_input|iolog)', pam, re.I): refused()
-    unit = command(['systemctl', 'show', 'k3s', '--property=ExecStart', '--value'])
-    process = command(['systemctl', 'show', 'k3s', '--property=MainPID', '--value']).strip()
-    if not process.isdecimal() or int(process) <= 1 or '/usr/local/bin/k3s' not in unit: refused()
-    argv = Path('/proc/' + process + '/cmdline').read_bytes().split(b'\0')
-    if argv[:2] != [b'/usr/local/bin/k3s', b'server'] or any(
-            b'audit' in value.lower() or b'config' in value.lower() or b'kube-apiserver-arg' in value.lower() for value in argv[2:] if value): refused()
-    server_environment(process)
-    # The repo-owned default config has no API audit body sink or alternate proxy.
-    import yaml
-    configuration = yaml.safe_load(file('/etc/rancher/k3s/config.yaml'))
-    allowed = {'node-name', 'node-ip', 'flannel-iface', 'write-kubeconfig-mode', 'advertise-address', 'tls-san',
-               'cluster-cidr', 'service-cidr', 'flannel-backend', 'disable'}
-    if not isinstance(configuration, dict) or set(configuration) - allowed: refused()
-    supplements = Path('/etc/rancher/k3s/config.yaml.d')
-    if supplements.exists() and any(supplements.iterdir()): refused()
-    for base in ('/var/lib/rancher/k3s/server', '/etc/rancher/k3s'):
-        if any(Path(base).glob('*audit*')): refused()
-    kubeconfig = yaml.safe_load(file('/etc/rancher/k3s/k3s.yaml'))
-    clusters = kubeconfig.get('clusters', [])
-    if (len(clusters) != 1 or clusters[0].get('cluster', {}).get('server') != 'https://127.0.0.1:6443' or
-            set(clusters[0]['cluster']) != {'server', 'certificate-authority-data'} or
-            any('exec' in user.get('user', {}) or 'auth-provider' in user.get('user', {}) for user in kubeconfig.get('users', []))): refused()
+    native_snapshot = native.observe()
     # Refuse known dynamic input recording even when SSH itself is ordinary.
     for service in ('tlog-rec-session.service', 'sshd-session-recording.service'):
         result = subprocess.run(['systemctl', 'is-active', service], capture_output=True, text=True, timeout=10)
         if result.returncode not in (3, 4) or result.stdout.strip() not in ('inactive', 'unknown') or result.stderr.strip(): refused()
-    return contract.digest(contract.canonical({'sshd': server, 'ancestry': ancestry, 'unit': unit, 'argv': [value.decode() for value in argv],
-        'config': configuration, 'pam': pam, 'kubeServer': clusters[0]['cluster']['server']}))
+    return contract.digest(contract.canonical({'sshd': server, 'ancestry': ancestry,
+        'native': native_snapshot, 'pam': pam}))
+
+
+def host_owner(revision):
+    from playbooks.previews.tests.resource_runtime import platform, HostKubernetes
+    platform({'revision': revision}, HostKubernetes())
 
 
 def receipt(nonce):
