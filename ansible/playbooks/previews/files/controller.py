@@ -1,6 +1,7 @@
 """Continuous bounded preview lifecycle, independent of Git generator deletion."""
 import copy
 import json
+import re
 import time
 from pathlib import Path
 
@@ -218,31 +219,110 @@ class Controller:
                 orphan=receipt['key'][1] in ('ApplicationSet', 'Application', 'Namespace'))
         return False
 
+    def absent_controls(self, record, namespace, keys):
+        allowed = {'key', 'uid', 'desiredDigest', 'creationAttempted', 'collision', 'generated'}
+        if any(set(item) - allowed or 'uid' not in item or item.get('collision') or
+               any(field in item and type(item[field]) is not bool for field in ('creationAttempted', 'collision', 'generated')) or
+               (item.get('uid') is not None and (not isinstance(item['uid'], str) or not item['uid'])) or
+               ('desiredDigest' in item and (not isinstance(item['desiredDigest'], str) or
+                                             not re.fullmatch('[a-f0-9]{64}', item['desiredDigest'])))
+               for item in record['resources']):
+            raise ValueError('Absent namespace receipts are malformed or quarantined')
+        uids = [item['uid'] for item in record['resources'] if item.get('uid') is not None]
+        if len(uids) != len(set(uids)):
+            raise ValueError('Absent namespace resource UIDs collide')
+        receipts = {tuple(item['key']): item for item in record['resources']}
+        if len(receipts) != len(record['resources']) or any(
+                key != ('v1', 'Namespace', '', namespace) and key[2] != namespace and key not in keys for key in receipts):
+            raise ValueError('Absent namespace cleanup has ambiguous or foreign receipt scope')
+        pending = []
+        for key in keys:
+            obj = self.kube.get(key)
+            if obj is None:
+                continue
+            receipt = receipts.get(key)
+            if (not receipt or receipt.get('collision') or not isinstance(receipt.get('uid'), str) or not receipt['uid'] or
+                    not isinstance(obj, dict) or not isinstance(obj.get('metadata'), dict) or
+                    (obj.get('apiVersion'), obj.get('kind'), obj['metadata'].get('namespace', ''), obj['metadata'].get('name')) != key):
+                raise ValueError('Surviving preview control lacks its exact creation receipt')
+            owned(obj, record['approval'], self.object['metadata']['uid'], receipt['uid'])
+            if key[1] == 'Application':
+                self.application_owner(record, obj)
+            elif obj['metadata'].get('ownerReferences'):
+                raise ValueError('Preview control has a foreign parent')
+            if obj['metadata'].get('finalizers') not in (None, [], ['foregroundDeletion']):
+                raise ValueError('Unexpected finalizer blocks preview deletion')
+            pending.append(receipt)
+        for receipt in pending:
+            if not self.remove(record, receipt):
+                return False
+        return True
+
     def retire(self, record, identity_state):
-        self.capture_workloads(record)
-        # Stop native regeneration before removing any workloads.
-        for kind in ('HTTPRoute', 'ApplicationSet', 'Application', 'Deployment', 'Service', 'ServiceAccount', 'Gateway'):
-            for receipt in record['resources']:
-                if receipt['key'][1] == kind and not self.remove(record, receipt):
-                    return
-        for receipt in record['resources']:
-            if receipt['key'][1] not in ('Namespace', 'ApplicationSet', 'Application', 'HTTPRoute', 'RoleBinding', 'Deployment', 'Service', 'ServiceAccount', 'Gateway'):
-                if not self.remove(record, receipt):
-                    return
-        identity_entry = (identity_state or {}).get('entries', {}).get(record['approval']['instance'])
-        # No client was ever provisioned when identity has no entry and execution never activated.
+        row = record['approval']; n = names(row)
+        namespace_key = ('v1', 'Namespace', '', n['namespace'])
+        global_keys = [('argoproj.io/v1alpha1', kind, 'argocd', n['name'])
+                       for kind in ('ApplicationSet', 'Application', 'AppProject')]
+        receipts = record.get('resources')
+        if (record.get('phase') != 'retiring' or not isinstance(receipts, list) or any(
+                not isinstance(item, dict) or not isinstance(item.get('key'), list) or len(item['key']) != 4 or
+                any(not isinstance(part, str) for part in item['key']) or
+                any(not item['key'][index] for index in (0, 1, 3)) for item in receipts)):
+            raise ValueError('Preview retirement receipts are malformed')
+        namespaces = [item for item in receipts if item['key'][1] == 'Namespace']
+        namespace_receipt = namespaces[0] if len(namespaces) == 1 else None
+        if receipts:
+            if (namespace_receipt is None or namespace_receipt['key'] != list(namespace_key) or
+                    not isinstance(namespace_receipt.get('uid'), str) or not namespace_receipt['uid'] or
+                    namespace_receipt.get('collision') or namespace_receipt.get('generated') or
+                    not isinstance(namespace_receipt.get('desiredDigest'), str) or
+                    not re.fullmatch('[a-f0-9]{64}', namespace_receipt['desiredDigest'])):
+                raise ValueError('Preview retirement lacks its unique original namespace receipt')
+        elif record.get('activatedAt') is not None:
+            raise ValueError('Activated preview cannot have empty creation history')
+        namespace = self.kube.get(namespace_key)
+        if namespace is None:
+            if not self.absent_controls(record, n['namespace'], global_keys):
+                return
+        else:
+            if (namespace_receipt is None or not isinstance(namespace, dict) or
+                    namespace.get('apiVersion') != 'v1' or namespace.get('kind') != 'Namespace' or
+                    not isinstance(namespace.get('metadata'), dict)):
+                raise ValueError('Preview namespace differs from its creation history')
+            owned(namespace, row, self.object['metadata']['uid'], namespace_receipt['uid'])
+            self.capture_workloads(record)
+            # Stop native regeneration before removing any workloads.
+            for kind in ('HTTPRoute', 'ApplicationSet', 'Application', 'Deployment', 'Service', 'ServiceAccount', 'Gateway'):
+                for receipt in receipts:
+                    if receipt['key'][1] == kind and not self.remove(record, receipt):
+                        return
+            for receipt in receipts:
+                if receipt['key'][1] not in ('Namespace', 'ApplicationSet', 'Application', 'HTTPRoute', 'RoleBinding', 'Deployment', 'Service', 'ServiceAccount', 'Gateway'):
+                    if not self.remove(record, receipt):
+                        return
+        if identity_state is None:
+            return
+        if not isinstance(identity_state, dict) or not isinstance(identity_state.get('entries'), dict):
+            raise ValueError('Preview identity retirement state is unavailable')
+        identity_entry = identity_state['entries'].get(row['instance'])
+        if identity_entry is not None and not isinstance(identity_entry, dict):
+            raise ValueError('Preview identity retirement entry is malformed')
+        # A missing entry is permitted only with an available owner state and no activation.
         if (identity_entry is None and record.get('activatedAt') is not None) or (identity_entry is not None and (
                 identity_entry.get('approvalDigest') != record['approvalDigest'] or identity_entry.get('phase') != 'retired')):
             return
-        namespace_receipt = next((r for r in record['resources'] if r['key'][1] == 'Namespace'), None)
-        if namespace_receipt:
-            namespace = self.kube.get(tuple(namespace_receipt['key']))
-            if namespace:
-                owned(namespace, record['approval'], self.object['metadata']['uid'], namespace_receipt['uid'])
-                namespace_disposable(self.kube.namespace_inventory(namespace['metadata']['name']),
+        if namespace is not None:
+            namespace = self.kube.get(namespace_key)
+            if namespace is not None:
+                owned(namespace, row, self.object['metadata']['uid'], namespace_receipt['uid'])
+                namespace_disposable(self.kube.namespace_inventory(n['namespace']),
                     {r['uid'] for r in record['resources'] if r['uid']}, namespace_receipt['uid'])
                 if not self.remove(record, namespace_receipt):
                     return
+        if any(self.kube.get(key) is not None for key in global_keys):
+            return
+        if self.kube.get(namespace_key) is not None:
+            raise ValueError('Preview namespace reappeared before retirement completion')
         record.clear()
         record.update(phase='retired', approvalDigest=self.retiring_digest, expiresAt=self.retiring_expiry)
         self.save()

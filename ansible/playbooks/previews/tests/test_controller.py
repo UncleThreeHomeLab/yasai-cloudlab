@@ -1,9 +1,13 @@
 import copy
+import io
 import json
+from pathlib import Path
+import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
-from fixtures import approval, catalog, pull, source_responses, generated_application, native_inventory_graph, discovered_inventory
+from fixtures import approval, catalog, pull, source_responses, generated_application, native_inventory_graph, discovered_inventory, NamespaceScopedAPI
 from playbooks.previews.files.contract import OWNER, IDENTITY_STATE, canonical, digest, names
 from playbooks.previews.files.controller import Controller
 from playbooks.previews.files.kube import identity, Kubernetes, APIError
@@ -179,6 +183,22 @@ class ControllerTests(unittest.TestCase):
         controller.now = 1561
         return controller, row, settings, cluster, git
 
+    def gone(self):
+        controller, row, settings, cluster, git = self.active()
+        key = ('argoproj.io/v1alpha1', 'ApplicationSet', 'argocd', names(row)['name'])
+        cluster.create(generated_application(cluster.get(key)))
+        controller.capture_workloads(controller.state['entries'][row['instance']])
+        snapshots = {key: copy.deepcopy(obj) for key, obj in cluster.objects.items()}
+        cluster.identity_phase(row, 'retired'); controller.now = row['expiresAt']
+        controller.run(settings, 'https://github.com/example/platform.git')
+        kube = NamespaceScopedAPI(cluster, names(row)['namespace']); controller.kube = kube
+        namespace_key = ('v1', 'Namespace', '', names(row)['namespace'])
+        for key in [namespace_key, *(('argoproj.io/v1alpha1', kind, 'argocd', names(row)['name'])
+                                   for kind in ('ApplicationSet', 'Application', 'AppProject'))]:
+            obj = cluster.get(key)
+            if obj: kube.delete(key, obj['metadata']['uid'], obj['metadata']['resourceVersion'], orphan=True)
+        return controller, row, settings, kube, git, snapshots
+
     def test_new_commit_cannot_change_execution_and_cleanup_preserves_persistent_app(self):
         controller, row, settings, cluster, git = self.active()
         n = names(row)
@@ -239,6 +259,202 @@ class ControllerTests(unittest.TestCase):
         cluster.identity_phase(row, 'retired')
         for _ in range(30): controller.run(settings, 'https://github.com/example/platform.git')
         self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+
+    def test_namespace_gc_revokes_rbac_without_stranding_retirement_after_restart_or_lost_reply(self):
+        for boundary in ('normal', 'restart', 'lost-reply'):
+            with self.subTest(boundary=boundary):
+                controller, row, settings, cluster, git = self.active()
+                kube = NamespaceScopedAPI(cluster, names(row)['namespace']); controller.kube = kube
+                kube.lose_namespace_reply = boundary == 'lost-reply'
+                cluster.identity_phase(row, 'retired'); controller.now = row['expiresAt']
+                for _ in range(30):
+                    controller.run(settings, 'https://github.com/example/platform.git')
+                    if boundary == 'restart': controller = Controller(kube, git, row['expiresAt'])
+                record = controller.state['entries'][row['instance']]
+                self.assertEqual(record, {'phase': 'retired', 'approvalDigest': digest(canonical(row)), 'expiresAt': row['expiresAt']})
+                self.assertEqual(kube.forbidden, [])
+                self.assertIsNone(cluster.get(('v1', 'Namespace', '', names(row)['namespace'])))
+                self.assertFalse(any(key[1] == 'RoleBinding' for key, _ in cluster.deleted))
+
+    def test_absent_namespace_requires_definitive_initial_and_final_get(self):
+        for moment in (1, 2):
+            for failure in ('403', '500', 'unavailable', 'malformed', 'reappeared', 'replacement'):
+                if moment == 1 and failure == 'reappeared':
+                    continue
+                with self.subTest(moment=moment, failure=failure):
+                    controller, row, settings, kube, _, snapshots = self.gone()
+                    key = ('v1', 'Namespace', '', names(row)['namespace']); native = kube.get; count = [0]
+                    before = list(kube.deleted)
+                    def get(target):
+                        if tuple(target) == key:
+                            count[0] += 1
+                            if count[0] == moment:
+                                if failure in ('403', '500'): raise APIError(int(failure))
+                                if failure == 'unavailable': raise RuntimeError('API unavailable')
+                                if failure == 'malformed': return {}
+                                kube.objects[key] = copy.deepcopy(snapshots[key])
+                                if failure == 'replacement': kube.objects[key]['metadata']['uid'] = 'foreign-namespace'
+                        return native(target)
+                    with patch.object(kube, 'get', side_effect=get):
+                        controller.run(settings, 'https://github.com/example/platform.git')
+                    self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retiring')
+                    self.assertEqual(kube.deleted, before)
+                    self.assertEqual(kube.forbidden, [])
+
+    def test_namespace_actual_transport_uncertainty_cannot_skip_data_or_finalize(self):
+        cases = [(body, stage) for body in (b'', b'null') for stage in ('present-live', 'present-none', 'final')]
+        for body, stage in [*cases, (404, 'absent-404')]:
+            with self.subTest(body=body, stage=stage), tempfile.TemporaryDirectory() as directory:
+                if stage in ('final', 'absent-404'):
+                    controller, row, settings, kube, _, _ = self.gone()
+                else:
+                    controller, row, settings, cluster, _ = self.active()
+                    kube = NamespaceScopedAPI(cluster, names(row)['namespace']); controller.kube = kube
+                    cluster.identity_phase(row, 'retired'); controller.now = row['expiresAt']
+                    cluster.create({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
+                        'name': 'retained-data', 'namespace': names(row)['namespace'], 'annotations': {'cloudlab.io/retention': 'retain'}},
+                        'data': {'synthetic': 'keep'}})
+                    if stage == 'present-none':
+                        for kind in ('ApplicationSet', 'Application', 'AppProject'):
+                            key = ('argoproj.io/v1alpha1', kind, 'argocd', names(row)['name']); obj = cluster.get(key)
+                            if obj: cluster.delete(key, obj['metadata']['uid'], obj['metadata']['resourceVersion'], orphan=True)
+                transport = object.__new__(Kubernetes); transport.context = None; transport.account = Path(directory)
+                transport.account.joinpath('token').write_text('synthetic-token')
+                namespace_key = ('v1', 'Namespace', '', names(row)['namespace']); calls = [0]
+                def response(request, **kwargs):
+                    calls[0] += 1
+                    if body == 404 or stage == 'final' and calls[0] == 1:
+                        raise urllib.error.HTTPError(request.full_url, 404, 'synthetic', {}, None)
+                    return io.BytesIO(body)
+                native = kube.get; before = list(kube.deleted)
+                def get(key): return transport.get(key) if tuple(key) == namespace_key else native(key)
+                with patch('playbooks.previews.files.kube.urllib.request.build_opener') as opener, patch.object(kube, 'get', side_effect=get):
+                    opener.return_value.open.side_effect = response
+                    controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired' if stage == 'absent-404' else 'retiring')
+                self.assertEqual(kube.deleted, before); self.assertEqual(kube.forbidden, [])
+                if stage.startswith('present'):
+                    self.assertIsNotNone(kube.api.get(namespace_key))
+                    self.assertIsNotNone(kube.api.get(('v1', 'ConfigMap', namespace_key[3], 'retained-data')))
+
+    def test_absent_namespace_checks_all_global_controls_and_retires_only_recorded_uids(self):
+        for kind in ('ApplicationSet', 'Application', 'AppProject', 'all'):
+            with self.subTest(kind=kind):
+                controller, row, settings, kube, _, snapshots = self.gone()
+                keys = [('argoproj.io/v1alpha1', item, 'argocd', names(row)['name']) for item in
+                        (('ApplicationSet', 'Application', 'AppProject') if kind == 'all' else (kind,))]
+                for key in keys: kube.objects[key] = copy.deepcopy(snapshots[key])
+                if kind == 'Application': kube.objects[keys[0]]['metadata']['ownerReferences'] = []
+                for _ in range(6): controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+                self.assertTrue(all(kube.api.get(key) is None for key in keys)); self.assertEqual(kube.forbidden, [])
+
+    def test_final_global_reappearance_and_state_cas_failure_do_not_erase_authority(self):
+        for boundary in ('global-reappeared', 'state-cas'):
+            with self.subTest(boundary=boundary):
+                controller, row, settings, kube, git, snapshots = self.gone()
+                key = ('argoproj.io/v1alpha1', 'AppProject', 'argocd', names(row)['name'])
+                native = kube.get; calls = [0]; before = list(kube.deleted)
+                def get(target):
+                    if tuple(target) == key:
+                        calls[0] += 1
+                        if boundary == 'global-reappeared' and calls[0] == 2:
+                            kube.objects[key] = copy.deepcopy(snapshots[key]); kube.objects[key]['metadata']['uid'] = 'foreign'
+                    return native(target)
+                with patch.object(kube, 'get', side_effect=get), patch.object(kube, 'replace', side_effect=APIError(409)):
+                    controller.run(settings, 'https://github.com/example/platform.git')
+                persisted = json.loads(kube.objects['v1', 'ConfigMap', 'argocd', 'cloudlab-preview-state']['data']['state.json'])
+                self.assertEqual(persisted['entries'][row['instance']]['phase'], 'retiring')
+                self.assertEqual(kube.deleted, before); self.assertEqual(kube.forbidden, [])
+                if boundary == 'state-cas':
+                    controller = Controller(kube, git, row['expiresAt'])
+                    controller.run(settings, 'https://github.com/example/platform.git')
+                    self.assertEqual(controller.state['entries'][row['instance']]['phase'], 'retired')
+
+    def test_absent_namespace_refuses_foreign_global_state_and_receipts_before_deletion(self):
+        for change in ('uid', 'owner', 'refs', 'finalizer', 'unrecorded', 'parent-receipt', 'foreign-receipt', 'global-error'):
+            with self.subTest(change=change):
+                controller, row, settings, kube, _, snapshots = self.gone()
+                key = ('argoproj.io/v1alpha1', 'Application', 'argocd', names(row)['name'])
+                kube.objects[key] = copy.deepcopy(snapshots[key]); kube.objects[key]['metadata']['ownerReferences'] = []
+                record = controller.state['entries'][row['instance']]
+                if change == 'uid': kube.objects[key]['metadata']['uid'] = 'foreign'
+                elif change == 'owner': kube.objects[key]['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                elif change == 'refs': kube.objects[key]['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                elif change == 'finalizer': kube.objects[key]['metadata']['finalizers'] = ['foreign']
+                elif change == 'unrecorded': record['resources'] = [r for r in record['resources'] if r['key'] != list(key)]
+                elif change == 'parent-receipt': record['resources'] = [r for r in record['resources'] if r['key'][1] != 'ApplicationSet']
+                elif change == 'foreign-receipt': record['resources'].append({'key': ['v1', 'ConfigMap', 'foreign', 'data'], 'uid': 'foreign'})
+                native = kube.get; before = list(kube.deleted)
+                def get(target):
+                    if change == 'global-error' and tuple(target) == key: raise APIError(403)
+                    return native(target)
+                with patch.object(kube, 'get', side_effect=get):
+                    controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertEqual(record['phase'], 'retiring'); self.assertEqual(kube.deleted, before)
+                self.assertEqual(kube.forbidden, []); self.assertIsNotNone(kube.api.get(key))
+
+    def test_absent_namespace_receipt_and_identity_gates_preserve_quarantine(self):
+        for change in ('missing', 'duplicate', 'foreign', 'uidless', 'digest', 'collision', 'malformed', 'uid-collision', 'child-collision', 'quarantine', 'child-flag',
+                       'pending', 'disabled', 'identity-digest', 'identity-missing'):
+            with self.subTest(change=change):
+                controller, row, settings, kube, _, _ = self.gone(); record = controller.state['entries'][row['instance']]
+                receipt = next(r for r in record['resources'] if r['key'][1] == 'Namespace')
+                if change == 'missing': record['resources'].remove(receipt)
+                elif change == 'duplicate': record['resources'].append(copy.deepcopy(receipt))
+                elif change == 'foreign': receipt['key'][3] = 'foreign'
+                elif change == 'uidless': receipt['uid'] = None
+                elif change == 'digest': receipt['desiredDigest'] = 'malformed'
+                elif change == 'collision': receipt['collision'] = True
+                elif change == 'malformed': receipt['key'] = ['Namespace']
+                elif change in ('uid-collision', 'child-collision', 'quarantine', 'child-flag'):
+                    child = next(r for r in record['resources'] if r['key'][1] == 'AppProject')
+                    if change == 'uid-collision': child['uid'] = receipt['uid']
+                    elif change == 'child-collision': child['collision'] = True
+                    elif change == 'quarantine': child['quarantined'] = True
+                    else: child['creationAttempted'] = 'malformed'
+                else:
+                    identity_key = ('v1', 'ConfigMap', 'cloudlab-identity', IDENTITY_STATE)
+                    if change == 'identity-missing': del kube.objects[identity_key]
+                    else:
+                        state = json.loads(kube.objects[identity_key]['data']['state.json'])
+                        entry = state['entries'][row['instance']]
+                        if change == 'identity-digest': entry['approvalDigest'] = 'f'*64
+                        else: entry['phase'] = change
+                        kube.objects[identity_key]['data']['state.json'] = json.dumps(state)
+                before = list(kube.deleted)
+                controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertEqual(record['phase'], 'retiring'); self.assertEqual(kube.deleted, before)
+                self.assertEqual(kube.forbidden, [])
+
+    def test_pre_materialization_empty_enrollment_retires_only_after_available_identity_and_exact_absence(self):
+        for mode in ('no-entry', 'retired', 'pending', 'disabled', 'mismatch', 'unavailable', 'global', 'namespace'):
+            with self.subTest(mode=mode):
+                row, settings, cluster, git = approval(), catalog(), Cluster(), Git(); settings['privateDiscovery'] = True
+                cluster.identity_phase(row, 'retired')
+                identity_key = ('v1', 'ConfigMap', 'cloudlab-identity', IDENTITY_STATE)
+                if mode == 'unavailable': del cluster.objects[identity_key]
+                else:
+                    data = json.loads(cluster.objects[identity_key]['data']['state.json'])
+                    if mode == 'no-entry': data['entries'] = {}
+                    elif mode in ('pending', 'disabled'): data['entries'][row['instance']]['phase'] = mode
+                    elif mode == 'mismatch': data['entries'][row['instance']]['approvalDigest'] = 'f'*64
+                    cluster.objects[identity_key]['data']['state.json'] = json.dumps(data)
+                controller = Controller(cluster, git, 1500)
+                with patch.object(controller, 'materialize', side_effect=RuntimeError('before first materialization')):
+                    controller.run(settings, 'https://github.com/example/platform.git')
+                self.assertEqual(controller.state['entries'][row['instance']]['resources'], [])
+                if mode == 'global':
+                    cluster.create({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'AppProject',
+                        'metadata': {'name': names(row)['name'], 'namespace': 'argocd'}})
+                elif mode == 'namespace':
+                    cluster.create({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': names(row)['namespace']}})
+                kube = NamespaceScopedAPI(cluster, names(row)['namespace']); controller = Controller(kube, git, row['expiresAt'])
+                controller.run(settings, 'https://github.com/example/platform.git')
+                record = controller.state['entries'][row['instance']]
+                self.assertEqual(record['phase'], 'retired' if mode in ('no-entry', 'retired') else 'retiring')
+                self.assertEqual(kube.forbidden, [])
+                self.assertFalse(cluster.deleted)
 
     def test_native_orphan_cleanup_resumes_captured_legacy_and_lost_delete_reply(self):
         for boundary in ('native', 'stranded', 'lost-reply'):

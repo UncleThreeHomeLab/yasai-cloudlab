@@ -5,15 +5,49 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import Mock, patch
 
-from playbooks.previews.files.kube import Kubernetes
+from playbooks.previews.files.kube import Kubernetes, APIError
 from playbooks.previews.files.lifecycle import namespace_disposable
 from playbooks.previews.tests.native_admission import REMOTE
 from playbooks.previews.tests.fixtures import native_inventory_graph, inventory_responses
 
 
 class InventoryTests(unittest.TestCase):
+    def test_object_get_actual_transport_distinguishes_404_from_uncertain_success(self):
+        key = ('v1', 'Namespace', '', 'cloudlab-preview-synthetic')
+        namespace = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': key[3], 'uid': 'owned'}}
+        for result in (b'', b'null', b'{private-body-sentinel', 404, 403, 500, json.dumps(namespace).encode()):
+            with self.subTest(result=result), tempfile.TemporaryDirectory() as directory:
+                kube = object.__new__(Kubernetes); kube.context = None; kube.account = Path(directory)
+                kube.account.joinpath('token').write_text('synthetic-token')
+                opener = Mock()
+                if isinstance(result, int):
+                    opener.open.side_effect = urllib.error.HTTPError('https://kubernetes.default.svc/fixture', result,
+                        'private-body-sentinel', {}, None)
+                else: opener.open.side_effect = lambda *args, **kwargs:io.BytesIO(result)
+                with patch('playbooks.previews.files.kube.urllib.request.build_opener', return_value=opener):
+                    if result == 404: self.assertIsNone(kube.get(key))
+                    elif result == json.dumps(namespace).encode(): self.assertEqual(kube.get(key), namespace)
+                    else:
+                        with self.assertRaises(RuntimeError) as error: kube.get(key)
+                        self.assertNotIn('private-body-sentinel', str(error.exception))
+                        if isinstance(result, int):
+                            self.assertIsInstance(error.exception, APIError); self.assertEqual(error.exception.code, result)
+
+    def test_empty_successful_delete_keeps_request_and_uid_version_semantics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            kube = object.__new__(Kubernetes); kube.context = None; kube.account = Path(directory)
+            kube.account.joinpath('token').write_text('synthetic-token')
+            def response(request, **kwargs):
+                self.assertEqual(request.get_method(), 'DELETE')
+                self.assertEqual(json.loads(request.data)['preconditions'], {'uid': 'owned', 'resourceVersion': '7'})
+                return io.BytesIO(b'')
+            opener = Mock(); opener.open.side_effect = response
+            with patch('playbooks.previews.files.kube.urllib.request.build_opener', return_value=opener):
+                self.assertIsNone(kube.delete(('v1', 'Namespace', '', 'cloudlab-preview-synthetic'), 'owned', '7'))
+
     def setUp(self):
         self.namespace = 'cloudlab-preview-' + 'a' * 32
         self.group = 'gateway.networking.k8s.io'
