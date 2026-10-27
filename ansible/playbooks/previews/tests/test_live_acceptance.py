@@ -11,11 +11,181 @@ from unittest.mock import Mock, patch
 
 from playbooks.previews.tests import live_acceptance as live, viewer_runtime as runtime
 from playbooks.keycloak.files import session_fixture, lifecycle
+from playbooks.previews.tests import fixtures
 
 
 class AcceptanceTests(unittest.TestCase):
     def request(self, action, **extra):
         return {'action': action, 'nonce': 'a' * 32, 'realm': 'applications', **extra}
+
+    def baseline(self, observations, instances=()):
+        from playbooks.istio.files import kube
+        states, collections, clients = observations
+        def get(resource, name, namespace):
+            value = states.get(name)
+            if isinstance(value, Exception): raise value
+            return value
+        def command(*args):
+            self.assertEqual(args[0], 'get')
+            if args[1] == 'secrets': return 'system\tcredential\tsecret-uid\towner\n'
+            value = collections[args[1]]
+            if isinstance(value, Exception): raise value
+            return value if isinstance(value, str) else json.dumps(value)
+        with patch.object(kube, 'get', side_effect=get), \
+                patch.object(kube, 'kube', side_effect=command) as read, \
+                patch.object(runtime, 'client_baseline', return_value=clients,
+                             side_effect=clients if isinstance(clients, Exception) else None) as client_read:
+            result = runtime.baseline(self.request('baseline', instances=list(instances)))
+        return result, read.call_args_list, client_read.call_count
+
+    def test_retained_terminal_baseline_preserves_receipts_and_existing_identities(self):
+        observations = fixtures.retained_baseline(); before = copy.deepcopy(observations)
+        result, calls, client_calls = self.baseline(observations)
+        self.assertEqual(observations, before)
+        self.assertEqual(result['states'], observations[0]); self.assertEqual(result['clients'], observations[2])
+        self.assertEqual(result['persistent']['applications.argoproj.io']['identities'], {'argocd/persistent': 'persistent'})
+        self.assertEqual(result['persistent']['secrets']['identities'], {'system/credential': 'secret-uid'})
+        self.assertEqual(len(calls), 6); self.assertEqual(client_calls, 1)
+
+    def test_retained_runtime_only_and_current_records_do_not_grant_browser_authority(self):
+        from playbooks.previews.files import contract
+        from playbooks.previews.tests.browser_live import active
+        for phase in ('active', 'retiring'):
+            observations = fixtures.retained_baseline(); states = observations[0]
+            data = json.loads(states[contract.IDENTITY_STATE]['data']['state.json']); data['entries'] = {}
+            states[contract.IDENTITY_STATE]['data']['state.json'] = json.dumps(data)
+            row = fixtures.approval()
+            for obj in states.values():
+                data = json.loads(obj['data']['state.json'])
+                data['entries'][row['instance']] = {'phase': phase, 'approval': row, 'originVersion': contract.ORIGIN_VERSION,
+                    'approvalDigest': contract.digest(contract.canonical(row)), 'verifiedAt': 1200}
+                obj['data']['state.json'] = json.dumps(data)
+            before = copy.deepcopy(observations)
+            result, _, _ = self.baseline(observations, [row['instance']])
+            self.assertEqual(observations, before); self.assertEqual(result['states'], states)
+            if phase == 'active': active([row], result, 1200)
+            else:
+                with self.assertRaises(ValueError): active([row], result, 1200)
+            with self.assertRaises(ValueError): active([fixtures.approval('f' * 32)], result, 1200)
+
+    def test_retained_baseline_rejects_nonterminal_malformed_and_incomplete_state(self):
+        from playbooks.previews.files.contract import STATE, IDENTITY_STATE
+        for change in ('active', 'pending', 'retiring', 'disabled', 'extra', 'digest', 'mismatch', 'expiry-bool', 'expiry-float', 'expiry-zero',
+                       'identity-only', 'identity-missing', 'identity-unavailable', 'identity-null', 'key', 'format', 'format-bool',
+                       'entries', 'missing-entries', 'root-extra', 'capacity'):
+            with self.subTest(change=change):
+                observations = fixtures.retained_baseline(); states = observations[0]
+                data = json.loads(states[STATE]['data']['state.json']); identity = json.loads(states[IDENTITY_STATE]['data']['state.json'])
+                row = data['entries']['f' * 32]
+                if change in ('active', 'pending', 'retiring'): row['phase'] = change
+                elif change == 'disabled': identity['entries']['f' * 32]['phase'] = 'disabled'
+                elif change == 'extra': row['uuid'] = 'foreign-authority'
+                elif change == 'digest': row['approvalDigest'] = 'invalid'
+                elif change == 'mismatch': identity['entries']['f' * 32]['approvalDigest'] = 'a' * 64
+                elif change == 'expiry-bool': row['expiresAt'] = True
+                elif change == 'expiry-float': row['expiresAt'] = 1.5
+                elif change == 'expiry-zero': row['expiresAt'] = 0
+                elif change == 'identity-only': data['entries'] = {}
+                elif change == 'identity-null': identity['entries']['f' * 32] = None
+                elif change == 'key': data['entries']['invalid'] = data['entries'].pop('f' * 32)
+                elif change == 'format': data['format'] = 2
+                elif change == 'format-bool': data['format'] = True
+                elif change == 'entries': data['entries'] = []
+                elif change == 'missing-entries': del data['entries']
+                elif change == 'root-extra': data['unrecognized'] = {}
+                elif change == 'capacity': data['entries'] = {format(index, '032x'): row for index in range(257)}
+                states[STATE]['data']['state.json'] = json.dumps(data)
+                states[IDENTITY_STATE]['data']['state.json'] = json.dumps(identity)
+                if change == 'identity-missing': states[IDENTITY_STATE] = None
+                elif change == 'identity-unavailable': states[IDENTITY_STATE] = RuntimeError('Identity unavailable')
+                before = json.dumps(observations, default=str, sort_keys=True)
+                with self.assertRaises((ValueError, RuntimeError)): self.baseline(observations)
+                self.assertEqual(json.dumps(observations, default=str, sort_keys=True), before)
+
+    def test_retained_baseline_refuses_surviving_controls_namespace_and_client(self):
+        import hashlib
+        from playbooks.previews.files.contract import IDENTITY_STATE, OWNER
+        for paired in (True, False):
+            for resource in ('namespaces', 'applications.argoproj.io', 'applicationsets.argoproj.io', 'appprojects.argoproj.io', 'client'):
+                with self.subTest(paired=paired, resource=resource):
+                    observations = fixtures.retained_baseline(); states, collections, clients = observations
+                    if not paired: states[IDENTITY_STATE]['data']['state.json'] = json.dumps({'format': 1, 'entries': {}})
+                    if resource == 'client':
+                        record = clients['applications']; record['identities']['preview-' + 'f' * 32] = 'disabled-client'
+                        record.update(count=2, identityHash=hashlib.sha256(json.dumps(sorted(record['identities'].items())).encode()).hexdigest())
+                    else:
+                        meta = {'name': ('cloudlab-preview-' if resource == 'namespaces' else 'preview-') + 'f' * 32,
+                            'namespace': '' if resource == 'namespaces' else 'argocd', 'uid': 'survivor',
+                            'labels': {'cloudlab.io/owner': OWNER}, 'deletionTimestamp': '2026-01-01T00:00:00Z'}
+                        collections[resource]['items'].append({'metadata': meta})
+                    before = copy.deepcopy(observations)
+                    with self.assertRaises(ValueError): self.baseline(observations)
+                    self.assertEqual(observations, before)
+
+    def test_retained_baseline_refuses_uncertain_or_ambiguous_native_collections(self):
+        for resource in ('namespaces', 'applications.argoproj.io', 'applicationsets.argoproj.io', 'appprojects.argoproj.io'):
+            meta = {'name': 'unrelated', 'uid': 'uid', 'namespace': '' if resource == 'namespaces' else 'argocd'}
+            for value in ('', 'null', '{}', {'items': None}, {'items': [], 'metadata': {'continue': 'next'}},
+                          {'items': [], 'metadata': {'continue': False}}, {'items': [], 'metadata': {'remainingItemCount': False}},
+                          {'items': [], 'metadata': []}, {'items': [None]}, {'items': [{'metadata': {'name': 'unknown'}}]},
+                          {'items': [{'metadata': meta}, {'metadata': meta}]}, {'items': [], 'kind': 'ForeignList'},
+                          {'items': [{'metadata': meta}] * 10001}, ' ' * 1048577, RuntimeError('API unavailable')):
+                with self.subTest(resource=resource, value_type=type(value).__name__):
+                    observations = fixtures.retained_baseline()
+                    observations[1][resource] = {'apiVersion': 'v1', 'kind': 'List', 'metadata': {}, **value} if isinstance(value, dict) else value
+                    with self.assertRaises(RuntimeError): self.baseline(observations)
+            if resource in ('applicationsets.argoproj.io', 'appprojects.argoproj.io'):
+                observations = fixtures.retained_baseline()
+                observations[1][resource]['items'] = [{'metadata': dict(meta, namespace='foreign')}]
+                with self.assertRaises(RuntimeError): self.baseline(observations)
+        for value in (None, {}, {'applications': {}}, {'platform': {}, 'applications': {}}, RuntimeError('Client inventory unavailable')):
+            with self.subTest(client_type=type(value).__name__):
+                observations = list(fixtures.retained_baseline()); observations[2] = value
+                with self.assertRaises(RuntimeError): self.baseline(observations)
+        for change in ('count', 'hash', 'identities'):
+            observations = fixtures.retained_baseline(); record = observations[2]['applications']
+            if change == 'count': record['count'] = True
+            elif change == 'hash': record['identityHash'] = 'f' * 64
+            else: record['identities'] = []
+            with self.assertRaises(RuntimeError): self.baseline(observations)
+
+    def test_retained_baseline_keeps_existing_application_size_headroom_bounded(self):
+        observations = fixtures.retained_baseline()
+        application = observations[1]['applications.argoproj.io']['items'][0]
+        application['metadata']['annotations'] = {'synthetic': 'x' * 1048576}
+        result, _, _ = self.baseline(observations)
+        self.assertEqual(result['persistent']['applications.argoproj.io']['identities'], {'argocd/persistent': 'persistent'})
+        for resource in ('applicationsets.argoproj.io', 'appprojects.argoproj.io'):
+            observations[1][resource]['items'] = [{'metadata': {'name': 'unrelated', 'namespace': 'argocd', 'uid': 'uid',
+                'annotations': {'synthetic': 'x' * 1048576}}}]
+            with self.assertRaises(RuntimeError): self.baseline(observations)
+            observations[1][resource]['items'] = []
+        application['metadata']['annotations']['synthetic'] = 'x' * 8388608
+        with self.assertRaises(RuntimeError): self.baseline(observations)
+
+    def test_pending_inspect_retries_retained_baseline_without_adopting_old_instances(self):
+        observations = fixtures.retained_baseline(); api = fixtures.CatalogGit(); nonce = 'a' * 32
+        api.documents[api.main] = json.dumps({'catalog': fixtures.catalog([])}).encode()
+        state = {'format': 1, 'nonce': nonce, 'platform': 'c' * 40, 'viewer': {'nonce': nonce, 'realm': 'applications'},
+                 'pulls': {}, 'intent': {'action': 'inspect', 'slot': None}}
+        survivor = {'metadata': {'name': 'preview-' + 'f' * 32, 'namespace': 'argocd', 'uid': 'survivor'}}
+        observations[1]['applicationsets.argoproj.io']['items'].append(survivor)
+        with tempfile.TemporaryDirectory() as directory, patch.object(live.fixture, 'JOURNALS', Path(directory)), \
+                patch('playbooks.argocd.files.render.committed_payload', return_value={'revision': 'c' * 40}), \
+                patch.object(live, 'dotenv_values', return_value={'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}), \
+                patch.object(live.session, 'private_context') as context, patch.object(live.session, 'inspect', return_value={'retained': True}), \
+                patch.object(live, 'remote', side_effect=lambda values,request:self.baseline(observations)[0]):
+            context.return_value.__enter__.return_value = api
+            path = Path(directory)/nonce/'journal.json'; live.fixture.journal(path, state)
+            args = ['inspect', '--nonce', nonce, '--live']
+            with self.assertRaises(ValueError): live.main(args)
+            current = json.loads(path.read_text()); self.assertEqual(current['intent'], state['intent']); self.assertNotIn('baseline', current)
+            observations[1]['applicationsets.argoproj.io']['items'] = []
+            live.main(args); current = json.loads(path.read_text())
+            self.assertIsNone(current['intent']); self.assertEqual(current['baseline']['cluster']['states'], observations[0])
+            self.assertFalse(set(current) & {'instances', 'approvals', 'browserApprovals', 'browserAttempted', 'provisioned'})
+            with patch.object(session_fixture, 'provision', return_value={}): live.main(['viewer-provision', '--nonce', nonce, '--live'])
+            self.assertTrue(json.loads(path.read_text())['provisioned'])
 
     def test_remote_dispatch_uses_owner_primitives_and_never_local_ssh_wrappers(self):
         with patch.object(session_fixture, 'enroll', return_value={}) as enroll, \
@@ -271,6 +441,14 @@ from playbooks.previews.files import contract
 assert set(result['states'])=={contract.STATE,contract.IDENTITY_STATE}
 assert contract.__file__.startswith(sys.argv[1]+'/')
 assert viewer.__file__.startswith(sys.argv[1]+'/')
+sample=json.load(sys.stdin)
+for paired in (True,False):
+ states=json.loads(json.dumps(sample['states']))
+ if not paired:states[contract.IDENTITY_STATE]['data']['state.json']=json.dumps({'format':1,'entries':{}})
+ kube.get=lambda resource,name,namespace:states.get(name)
+ kube.kube=lambda *args:'' if args[1]=='secrets' else json.dumps(sample['collections'][args[1]])
+ viewer.client_baseline=lambda request:sample['clients']
+ assert viewer.baseline({'instances':[]})['states']==states
 from playbooks.previews.tests import evidence_runtime
 from playbooks.keycloak.files.preview_clients import representation
 row={'instance':'a'*32,'repository':'example/private','repositoryId':123,'pullRequest':7,'sourceSha':'b'*40,
@@ -285,11 +463,13 @@ assert representation(row,settings)['clientId']=='preview-'+'a'*32
 assert evidence_runtime.__file__.startswith(sys.argv[1]+'/')
 '''
             result = subprocess.run([sys.executable, '-I', '-c', probe, str(installed)], cwd=root,
-                env=environment, capture_output=True, text=True, timeout=30)
+                env=environment, input=json.dumps(dict(zip(('states', 'collections', 'clients'), fixtures.retained_baseline()))),
+                capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             installed.joinpath('playbooks/previews/files/contract.py').unlink()
             result = subprocess.run([sys.executable, '-I', '-c', probe, str(installed)], cwd=root,
-                env=environment, capture_output=True, text=True, timeout=30)
+                env=environment, input=json.dumps(dict(zip(('states', 'collections', 'clients'), fixtures.retained_baseline()))),
+                capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("No module named 'playbooks.previews.files.contract'", result.stderr)
 
