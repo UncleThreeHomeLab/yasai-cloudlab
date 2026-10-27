@@ -1,8 +1,30 @@
 """Credential-free immutable preview examples."""
 import copy
+import hashlib
 import json
 import base64
-from playbooks.previews.files.contract import IMAGE, SOURCE_PATH, canonical, digest, names
+from playbooks.previews.files.contract import IMAGE, SOURCE_PATH, OWNER, STATE, IDENTITY_STATE, canonical, digest, names
+
+
+def retained_baseline():
+    instance = 'f' * 32
+    states = {}
+    for name, namespace, owner, record in (
+            (STATE, 'argocd', OWNER, {'phase': 'retired', 'approvalDigest': 'e' * 64, 'expiresAt': 4102444800}),
+            (IDENTITY_STATE, 'cloudlab-identity', 'cloudlab-preview-identity', {'phase': 'retired', 'approvalDigest': 'e' * 64})):
+        states[name] = {'metadata': {'name': name, 'namespace': namespace, 'uid': name, 'labels': {'cloudlab.io/owner': owner}},
+                        'data': {'state.json': json.dumps({'format': 1, 'entries': {instance: record}})}}
+    collections = {kind: {'apiVersion': 'v1', 'kind': 'List', 'metadata': {}, 'items': []} for kind in
+                   ('namespaces', 'persistentvolumeclaims', 'applications.argoproj.io', 'applicationsets.argoproj.io', 'appprojects.argoproj.io')}
+    for kind, name, namespace in (('namespaces', 'system', ''), ('persistentvolumeclaims', 'data', 'system'),
+                                   ('applications.argoproj.io', 'persistent', 'argocd')):
+        collections[kind]['items'].append({'metadata': {'name': name, 'namespace': namespace, 'uid': name}})
+    clients = {}
+    for realm in ('platform', 'applications'):
+        identities = {'persistent': realm + '-client'}
+        clients[realm] = {'count': 1, 'identityHash': hashlib.sha256(json.dumps(sorted(identities.items())).encode()).hexdigest(),
+                          'identities': identities}
+    return states, collections, clients
 
 
 def approval(instance='a' * 32):

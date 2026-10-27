@@ -65,25 +65,92 @@ def observe(request):
             'email': rows[0]['email'], 'enabled': rows[0]['enabled']}
 
 
+def retained_entries(records, instances):
+    from playbooks.previews.files.contract import STATE, IDENTITY_STATE
+    runtime, identity = records[STATE] or {}, records[IDENTITY_STATE]
+    retained = set(runtime) - set(instances)
+    if set(identity or {}) - set(instances) - retained or (retained and identity is None):
+        raise ValueError('Preview baseline terminal history is incomplete')
+    for instance in retained:
+        row, client = runtime[instance], identity.get(instance)
+        if (not re.fullmatch('[a-f0-9]{32}', instance) or not isinstance(row, dict) or
+                set(row) != {'phase', 'approvalDigest', 'expiresAt'} or row['phase'] != 'retired' or
+                not isinstance(row['approvalDigest'], str) or not re.fullmatch('[a-f0-9]{64}', row['approvalDigest']) or
+                type(row['expiresAt']) is not int or row['expiresAt'] <= 0 or
+                (instance in identity and (not isinstance(client, dict) or set(client) != {'phase', 'approvalDigest'} or
+                    client['phase'] != 'retired' or client['approvalDigest'] != row['approvalDigest']))):
+            raise ValueError('Preview baseline contains unrelated nonterminal or malformed history')
+    return retained
+
+
+def baseline_items(raw, kind, *, namespace=None):
+    limit = 8388608 if kind == 'applications.argoproj.io' else 1048576
+    if not isinstance(raw, str) or not raw or len(raw.encode()) > limit:
+        raise RuntimeError('Preview baseline inventory unavailable or exceeds its bound')
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        raise RuntimeError('Preview baseline inventory malformed') from None
+    kinds = {'namespaces': 'NamespaceList', 'applications.argoproj.io': 'ApplicationList',
+             'applicationsets.argoproj.io': 'ApplicationSetList', 'appprojects.argoproj.io': 'AppProjectList'}
+    if (not isinstance(value, dict) or value.get('kind') not in ('List', kinds[kind]) or
+            value.get('apiVersion') != ('v1' if kind == 'namespaces' or value.get('kind') == 'List' else 'argoproj.io/v1alpha1') or
+            not isinstance(value.get('metadata'), dict) or
+            not isinstance(value.get('items'), list) or len(value['items']) > 10000):
+        raise RuntimeError('Preview baseline inventory malformed')
+    metadata = value.get('metadata', {})
+    if (not isinstance(metadata.get('continue', ''), str) or metadata.get('continue') or
+            type(metadata.get('remainingItemCount', 0)) is not int or metadata.get('remainingItemCount', 0) != 0):
+        raise RuntimeError('Preview baseline inventory incomplete')
+    coordinates = set()
+    for row in value['items']:
+        meta = row.get('metadata') if isinstance(row, dict) else None
+        if (not isinstance(meta, dict) or any(not isinstance(meta.get(field), str) or not meta[field] for field in ('name', 'uid')) or
+                (kind != 'namespaces' and (not isinstance(meta.get('namespace'), str) or not meta['namespace'])) or
+                (kind == 'namespaces' and meta.get('namespace', '') != '') or
+                (namespace is not None and meta.get('namespace') != namespace)):
+            raise RuntimeError('Preview baseline inventory coordinates unavailable')
+        coordinate = (meta.get('namespace', ''), meta['name'])
+        if coordinate in coordinates:
+            raise RuntimeError('Preview baseline inventory identity is ambiguous')
+        coordinates.add(coordinate)
+    return value['items']
+
+
 def baseline(request):
     from playbooks.istio.files.kube import get, kube
     from playbooks.previews.files.contract import OWNER, STATE, IDENTITY_STATE
-    states = {}
+    states, records = {}, {}
     for namespace, name, owner in [('argocd', STATE, OWNER), ('cloudlab-identity', IDENTITY_STATE, 'cloudlab-preview-identity')]:
         obj = get('configmap', name, namespace)
         if obj is not None:
             if obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != owner:
                 raise ValueError('Preview baseline state has foreign ownership')
             state = json.loads(obj['data']['state.json'])
-            if state.get('format') != 1 or set(state.get('entries', {})) - set(request['instances']):
-                raise ValueError('Preview baseline contains unrelated instances')
+            allowed = {'format', 'entries', 'settings', 'checks', 'providerCheckAt'} if name == STATE else {'format', 'entries'}
+            if (not isinstance(state, dict) or set(state) - allowed or not {'format', 'entries'} <= set(state) or
+                    type(state['format']) is not int or state['format'] != 1 or
+                    not isinstance(state['entries'], dict) or len(state['entries']) > 256):
+                raise ValueError('Preview baseline state is malformed')
+            records[name] = state['entries']
+        else:
+            records[name] = None
         states[name] = obj
+    retained = retained_entries(records, request['instances'])
+    retired_names = {'preview-' + instance for instance in retained}
     inventory = {}
     for kind in ('namespaces', 'persistentvolumeclaims', 'applications.argoproj.io'):
-        objects = json.loads(kube('get', kind, '-A', '-o', 'json'))
-        if objects.get('metadata', {}).get('continue'):
-            raise RuntimeError('Preview baseline inventory incomplete')
-        items = objects['items']
+        raw = kube('get', kind, '-A', '-o', 'json')
+        if retained and kind != 'persistentvolumeclaims':
+            items = baseline_items(raw, kind)
+        else:
+            objects = json.loads(raw)
+            if objects.get('metadata', {}).get('continue'):
+                raise RuntimeError('Preview baseline inventory incomplete')
+            items = objects['items']
+        if kind == 'applications.argoproj.io' and any(row['metadata'].get('namespace') == 'argocd' and
+                row['metadata']['name'] in retired_names for row in items):
+            raise ValueError('Retired preview control still exists')
         if kind == 'namespaces' and any(row['metadata']['name'].startswith('cloudlab-preview-') and
                 row['metadata']['name'].removeprefix('cloudlab-preview-') not in request['instances'] for row in items):
             raise ValueError('Unrelated preview namespace blocks activation')
@@ -91,6 +158,11 @@ def baseline(request):
                      if row['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER)
         inventory[kind] = {'count': len(ids), 'uidHash': hashlib.sha256(json.dumps(ids).encode()).hexdigest(),
                            'identities': {namespace + '/' + name: uid for namespace, name, uid in ids}}
+    if retained:
+        for kind in ('applicationsets.argoproj.io', 'appprojects.argoproj.io'):
+            items = baseline_items(kube('get', kind, '-n', 'argocd', '-o', 'json'), kind, namespace='argocd')
+            if any(row['metadata']['name'] in retired_names for row in items):
+                raise ValueError('Retired preview control still exists')
     # Trusted kubectl receives API objects; only these metadata columns enter fixture Python.
     expression = r'{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.metadata.uid}{"\t"}{.metadata.labels.cloudlab\.io/owner}{"\n"}{end}'
     raw = kube('get', 'secrets', '-A', '-o=jsonpath=' + expression)
@@ -105,7 +177,21 @@ def baseline(request):
         raise RuntimeError('Secret metadata identity is ambiguous')
     inventory['secrets'] = {'count': len(ids), 'uidHash': hashlib.sha256(json.dumps(ids).encode()).hexdigest(),
                             'identities': {namespace + '/' + name: uid for namespace, name, uid in ids}}
-    return {'states': states, 'persistent': inventory, 'clients': client_baseline(request)}
+    clients = client_baseline(request)
+    if retained:
+        if not isinstance(clients, dict) or set(clients) != {'platform', 'applications'}:
+            raise RuntimeError('Preview baseline client inventory unavailable')
+        for record in clients.values():
+            if (not isinstance(record, dict) or set(record) != {'count', 'identityHash', 'identities'} or
+                    not isinstance(record['identities'], dict) or len(record['identities']) > 10000 or
+                    any(not isinstance(key, str) or not key or not isinstance(value, str) or not value
+                        for key, value in record['identities'].items()) or
+                    type(record['count']) is not int or record['count'] != len(record['identities']) or
+                    record['identityHash'] != hashlib.sha256(json.dumps(sorted(record['identities'].items())).encode()).hexdigest()):
+                raise RuntimeError('Preview baseline client inventory incomplete')
+        if retired_names & set(clients['applications']['identities']):
+            raise ValueError('Retired preview client still exists')
+    return {'states': states, 'persistent': inventory, 'clients': clients}
 
 
 def client_baseline(request):
