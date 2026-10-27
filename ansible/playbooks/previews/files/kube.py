@@ -90,7 +90,10 @@ class Kubernetes:
 
     def get(self, key):
         try:
-            return self.request('GET', path(key))
+            obj = self.request('GET', path(key))
+            if obj is None:
+                raise RuntimeError('Preview Kubernetes object observation unavailable')
+            return obj
         except APIError as error:
             if error.code != 404:
                 raise

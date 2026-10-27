@@ -281,6 +281,52 @@ def generated_application(appset):
     return obj
 
 
+class NamespaceScopedAPI:
+    """Model native GC removing both namespaced objects and their read authority."""
+    def __init__(self, api, namespace):
+        self.api, self.namespace = api, namespace
+        self.calls, self.forbidden = [], []
+        self.lose_namespace_reply = False
+
+    def __getattr__(self, name):
+        return getattr(self.api, name)
+
+    def check(self, operation, namespace):
+        self.calls.append((operation, namespace))
+        if namespace == self.namespace and self.api.get(('v1', 'Namespace', '', namespace)) is None:
+            from playbooks.previews.files.kube import APIError
+            self.forbidden.append((operation, namespace))
+            raise APIError(403)
+
+    def get(self, key):
+        self.check('get', key[2])
+        return self.api.get(key)
+
+    def namespace_inventory(self, namespace):
+        self.check('list', namespace)
+        return self.api.namespace_inventory(namespace)
+
+    def create(self, obj):
+        self.check('create', obj['metadata'].get('namespace', ''))
+        return self.api.create(obj)
+
+    def replace(self, obj):
+        self.check('replace', obj['metadata'].get('namespace', ''))
+        return self.api.replace(obj)
+
+    def delete(self, key, uid, version, *, orphan=False):
+        self.check('delete', key[2])
+        result = self.api.delete(key, uid, version, orphan=orphan)
+        if tuple(key) == ('v1', 'Namespace', '', self.namespace):
+            for child in list(self.api.objects):
+                if child[2] == self.namespace:
+                    del self.api.objects[child]
+            if self.lose_namespace_reply:
+                self.lose_namespace_reply = False
+                raise RuntimeError('Lost namespace deletion reply')
+        return result
+
+
 def native_inventory_graph(namespace='cloudlab-preview-synthetic', root='native-root'):
     def meta(name, uid, parent=None, kind='Gateway'):
         value = {'name': name, 'namespace': namespace, 'uid': uid, 'resourceVersion': '1'}
