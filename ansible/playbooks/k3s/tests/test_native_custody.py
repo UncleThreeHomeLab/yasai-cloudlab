@@ -162,9 +162,11 @@ ExecStart=/usr/local/bin/k3s server
         properties = {'ExecStart': '{ path=/usr/local/bin/k3s ; argv[]=/usr/local/bin/k3s server ; }',
                       'MainPID': '500', 'FragmentPath': '/etc/systemd/system/k3s.service',
                       'DropInPaths': '/etc/systemd/system/k3s.service.d/10-cloudlab-network.conf',
-                      'Environment': '', 'NeedDaemonReload': 'no',
-                      'EnvironmentFiles': ' '.join(p+' (ignore_errors=yes)' for p in
-                          ('/etc/default/k3s', '/etc/sysconfig/k3s', '/etc/systemd/system/k3s.service.env'))}
+                      'Environment': '', 'NeedDaemonReload': 'no'}
+        environment_files = ('/etc/default/k3s', '/etc/sysconfig/k3s', '/etc/systemd/system/k3s.service.env')
+        def observation():
+            return '\n'.join([k+'='+v for k,v in properties.items()] +
+                             ['EnvironmentFiles='+p+' (ignore_errors=yes)' for p in environment_files])+'\n'
         files = {'/etc/systemd/system/k3s.service': self.unit().encode(),
                  properties['DropInPaths']: b'[Unit]\nRequires=wg-quick@wg0.service cloudlab-firewall.service\nAfter=wg-quick@wg0.service cloudlab-firewall.service\n',
                  '/etc/rancher/k3s/config.yaml': b'write-kubeconfig-mode: "0600"\n',
@@ -175,10 +177,10 @@ ExecStart=/usr/local/bin/k3s server
         with tempfile.TemporaryFile() as core:
             core.write(b'core');core.flush()
             session = native.Session(time.monotonic()+30); session.core = core; session.base = '/native'
-            with patch.object(native, 'run', side_effect=lambda *args: '\n'.join(k+'='+v for k,v in properties.items())), \
-                    patch.object(session, 'read', side_effect=lambda p: files[str(p)]), \
-                    patch.object(session, 'effective_flags', side_effect=lambda c: native.flag_policy(json.dumps(self.flags()))), \
-                    patch.object(session, 'dispatch', return_value={}), patch.object(native.os.path, 'lexists', return_value=False), \
+            with patch.object(native, 'run', side_effect=lambda *args: observation()) as show, \
+                    patch.object(session, 'read', side_effect=lambda p: files[str(p)]) as read, \
+                    patch.object(session, 'effective_flags', side_effect=lambda c: native.flag_policy(json.dumps(self.flags()))) as api, \
+                    patch.object(session, 'dispatch', return_value={}), patch.object(native.os.path, 'lexists', return_value=False) as optional, \
                     patch.object(Path, 'exists', return_value=False), \
                     patch.object(Path, 'resolve', return_value=Path('/native/bin/k3s')), \
                     patch.object(Path, 'read_text', return_value='500 (k3s) '+' '.join(['0']*19+['123'])), \
@@ -186,7 +188,32 @@ ExecStart=/usr/local/bin/k3s server
                     patch.object(Path, 'open', autospec=True, side_effect=lambda p,*a,**k: io.BytesIO(environment[0]) if p.name=='environ' else
                         io.BytesIO(title[0]) if p.name=='cmdline' else os.fdopen(os.dup(core.fileno()),'rb')):
                 baseline = session.observe(); session.initial = baseline
+                self.assertEqual(show.call_count,2)
+                self.assertEqual(show.call_args_list[0],show.call_args_list[1])
                 self.assertEqual(session.observe(), baseline)
+                rows=observation().splitlines(); scalar_rows=rows[:len(properties)]; env_rows=rows[len(properties):]
+                invalid=[rows+['Unknown=value'], rows+['malformed'], rows+[''], rows[:2]+['']+rows[2:]]
+                for row in scalar_rows:
+                    invalid.extend(([value for value in rows if value!=row], rows+[row],
+                                    [row.partition('=')[0]+'=hidden']+rows))
+                for index,row in enumerate(env_rows):
+                    invalid.extend((scalar_rows+env_rows[:index]+env_rows[index+1:],
+                                    scalar_rows+env_rows+[row],
+                                    scalar_rows+[value.replace('ignore_errors=yes','ignore_errors=no') if value==row else value for value in env_rows],
+                                    scalar_rows+[value+' trailing' if value==row else value for value in env_rows]))
+                invalid.extend((scalar_rows+env_rows[::-1],scalar_rows+[env_rows[1],env_rows[0],env_rows[2]],
+                                scalar_rows+['EnvironmentFiles='+' '.join(row.split('=',1)[1] for row in env_rows)],
+                                scalar_rows+env_rows+['EnvironmentFiles=/unknown (ignore_errors=yes)'],
+                                [row+'\r' for row in rows]))
+                for bad in invalid:
+                    read.reset_mock();api.reset_mock();optional.reset_mock()
+                    with self.subTest(rows=bad),patch.object(native,'run',return_value='\n'.join(bad)+'\n'),self.assertRaises(ValueError):
+                        session.observe()
+                    read.assert_not_called();api.assert_not_called()
+                    self.assertFalse(any(str(call.args[0]) in environment_files for call in optional.call_args_list))
+                changed=rows.copy();changed[0],changed[1]=changed[1],changed[0]
+                with patch.object(native,'run',side_effect=[observation(),'\n'.join(changed)+'\n']),self.assertRaises(ValueError):
+                    session.observe()
                 for key, wrong in (('MainPID', '501'), ('DropInPaths', '/foreign'), ('Environment', 'LD_PRELOAD=foreign'),
                                    ('ExecStart', '{ path=/wrapper ; argv[]=/wrapper ; }')):
                     original = properties[key]; properties[key] = wrong
