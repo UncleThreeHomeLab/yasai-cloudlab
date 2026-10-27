@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
-from playbooks.previews.tests import fixtures, probe_program as program, probe_inspection as inspection, probe_state, probe_transport as transport
+from playbooks.previews.tests import fixtures, probe_program as program, probe_inspection as inspection, probe_state, probe_transport as transport, resource_runtime
 from playbooks.previews.files import contract
 
 
@@ -113,11 +113,12 @@ class ProbeTests(unittest.TestCase):
 
     def test_targets_bind_exact_ready_pod_service_endpoints_and_policies(self):
         row,objects=fixtures.probe_observation()
-        def get(kind,name=None,namespace=None):return copy.deepcopy(objects.get((kind,name,namespace)))
-        with patch.object(probe_state,'get',side_effect=get):
+        batches=fixtures.ProbeBatchReads(objects)
+        with patch.object(resource_runtime.HostKubernetes,'_read_batch',side_effect=batches):
             declarations,snapshot=probe_state.targets([row],row['platformRevision'])
             self.assertEqual(declarations[0]['pod']['address'],'10.42.0.5')
             self.assertEqual(snapshot['targets'][0]['podUID'],'pod')
+            self.assertEqual(len(batches.calls),3)
         for change in ('podUID','endpointOwner','notReady','policy','selector','source','extraContainer'):
             row,objects=fixtures.probe_observation();ns=contract.names(row)['namespace']
             if change=='podUID':objects['pods',None,ns]['items'][0]['metadata']['uid']='foreign'
@@ -127,8 +128,47 @@ class ProbeTests(unittest.TestCase):
             if change=='selector':objects['service','preview',ns]['spec']['selector']={'foreign':'pod'}
             if change=='source':objects['deployment.apps','preview',ns]['spec']['template']['spec']['containers'][0]['env'][0]['value']='foreign'
             if change=='extraContainer':objects['pods',None,ns]['items'][0]['spec']['containers'].append({'image':'foreign'})
-            with self.subTest(change=change),patch.object(probe_state,'get',side_effect=get),self.assertRaises(ValueError):
+            with self.subTest(change=change),patch.object(resource_runtime.HostKubernetes,'_read_batch',side_effect=fixtures.ProbeBatchReads(objects)),self.assertRaises(ValueError):
                 probe_state.targets([row],row['platformRevision'])
+
+    def test_actual_context_reads_fresh_batches_and_refuses_changed_probe_before_or_after_access(self):
+        import time
+        for change in ('none','preflightUID','probeCode'):
+            rows,state,objects=fixtures.probe_context_observation();batches=fixtures.ProbeBatchReads(objects)
+            request={'challenge':'f'*64,'nonce':state['nonce'],'revision':state['revision'],'mode':'probe',
+                     'source':inspection.source_binding(),'deadline':int(time.time())+50,
+                     'digests':[contract.digest(contract.canonical(row)) for row in rows]}
+            ready=[];channel=Mock(deadline=time.monotonic()+50);channel.remaining.return_value=50
+            def write(raw):
+                value=json.loads(raw)
+                if value['action']=='ready':ready.append(value)
+            def read(*args,**kwargs):
+                if not ready:return contract.canonical(request)
+                if change!='probeCode':return None
+                value=ready[0]
+                return contract.canonical({'action':'access','challenge':request['challenge'],'serverNonce':value['serverNonce'],
+                    'readinessDigest':contract.digest(contract.canonical(value)),'tokens':['a.b.c','d.e.f']})
+            def execute(frame,*args):
+                if frame['phase']=='preflight':
+                    if change=='preflightUID':objects['pod','probe','cloudlab-fixture-probe-'+state['nonce']]['metadata']['uid']='changed'
+                    return {'preflight':True}
+                objects['configmap','probe-code','cloudlab-fixture-probe-'+state['nonce']]['data']['probe_program.py']='changed'
+                return {'targets':[dict(control=True,gateway=True,podProtected=True,serviceProtected=True,serviceMode='blocked')]*2}
+            channel.read_frame.side_effect=read;channel.write_frame.side_effect=write
+            with self.subTest(change=change),patch.object(resource_runtime.HostKubernetes,'_read_batch',side_effect=batches), \
+                    patch.object(probe_state,'receipt',return_value=state),patch.object(probe_state,'native_session',return_value=MagicMock()), \
+                    patch.object(probe_state,'assurance',return_value='a'*64), \
+                    patch.object(inspection,'source_binding',return_value=request['source']),patch.object(inspection.signal,'setitimer'), \
+                    patch.object(inspection,'execute',side_effect=execute):
+                if change=='none':
+                    inspection.run(channel)
+                    self.assertEqual(len(batches.calls),12)
+                    self.assertEqual([call[:2] for call in batches.calls[:6]],[call[:2] for call in batches.calls[6:]])
+                    self.assertEqual(json.loads(channel.write_frame.call_args.args[0])['result'],{'preflight':True})
+                else:
+                    with self.assertRaises(ValueError):inspection.run(channel)
+                    self.assertEqual(len(batches.calls),7 if change=='preflightUID' else 19)
+                    self.assertEqual(len(ready),0 if change=='preflightUID' else 1)
 
     def test_denial_status_cannot_hide_protected_application_data(self):
         from playbooks.access.files import traffic

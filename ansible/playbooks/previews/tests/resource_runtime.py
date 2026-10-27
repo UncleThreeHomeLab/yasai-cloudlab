@@ -2,18 +2,21 @@
 import copy
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import re
 import secrets
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, '/opt/cloudlab')
 from playbooks.previews.files import contract
 from playbooks.previews.files.kube import APIError, Kubernetes, identity, path
 from playbooks.previews.files.lifecycle import namespace_disposable, owned
 from playbooks.istio.files.kube import contains, kube
+from playbooks.tailscale.files.ssh_channel import PipeChannel
 
 ROOT = Path('/var/lib/cloudlab/preview-fixtures')
 OWNER = 'cloudlab-preview-fixture'
@@ -68,6 +71,104 @@ class HostKubernetes(Kubernetes):
         version, kind, namespace, name = key
         resource = kind.lower() + ('.' + version.split('/')[0] if '/' in version else '')
         return get(resource, name or None, namespace or None)
+
+    @staticmethod
+    def _read_batch(arguments, document, deadline):
+        deadline = min(deadline if deadline is not None else float('inf'), time.monotonic()+15)
+        if deadline <= time.monotonic(): raise ValueError('Native observation deadline expired')
+        process = subprocess.Popen(['/usr/local/bin/k3s', 'kubectl', '--kubeconfig=/etc/rancher/k3s/k3s.yaml',
+            '--request-timeout=10s', 'get', *arguments, '--show-managed-fields=true', '-o', 'json'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, start_new_session=True,
+            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C', 'PYTHONDONTWRITEBYTECODE': '1'})
+        with PipeChannel(process, deadline, frame_limit=2*1024*1024, output_limit=2*1024*1024) as channel:
+            if document is not None: channel.write_frame(document)
+            channel.close_input()
+            lines = []
+            while (line := channel.read_frame(allow_eof=True)) is not None: lines.append(line)
+            channel.finish()
+        return b'\n'.join(lines)+b'\n' if lines else b''
+
+    @staticmethod
+    def _items(raw):
+        def unique(pairs):
+            value = dict(pairs)
+            if len(value) != len(pairs): raise ValueError('Duplicate native observation field')
+            return value
+        def constant(value):
+            raise ValueError('Non-JSON native observation value')
+        def finite(raw):
+            value = float(raw)
+            if not math.isfinite(value): raise ValueError('Nonfinite native observation value')
+            return value
+        if type(raw) is not bytes or not raw or len(raw) > 2*1024*1024:
+            raise ValueError('Native observation is not bounded JSON')
+        value = json.loads(raw, object_pairs_hook=unique, parse_constant=constant, parse_float=finite)
+        if (not isinstance(value, dict) or set(value) != {'apiVersion', 'kind', 'metadata', 'items'} or
+                value['apiVersion'] != 'v1' or value['kind'] != 'List' or not isinstance(value['metadata'], dict) or
+                set(value['metadata']) - {'resourceVersion', 'continue', 'remainingItemCount'} or
+                value['metadata'].get('continue', '') != '' or
+                'resourceVersion' in value['metadata'] and type(value['metadata']['resourceVersion']) is not str or
+                'remainingItemCount' in value['metadata'] and (type(value['metadata']['remainingItemCount']) is not int or value['metadata']['remainingItemCount'] != 0) or
+                not isinstance(value['items'], list) or len(value['items']) > 500):
+            raise ValueError('Native observation is not a complete bounded List')
+        return value['items']
+
+    @staticmethod
+    def _coordinate(key):
+        if (type(key) is not tuple or len(key) != 4 or any(type(part) is not str for part in key) or
+                not key[3] or len(key[3]) > 253 or len(key[2]) > 63):
+            raise ValueError('Invalid native observation coordinate')
+        path(key)
+        if (key[1] == 'Namespace') != (key[2] == ''):
+            raise ValueError('Invalid native observation scope')
+        return key
+
+    @staticmethod
+    def _identity(value):
+        if not isinstance(value, dict) or not isinstance(value.get('metadata'), dict):
+            raise ValueError('Invalid native observation object')
+        meta = value['metadata']
+        key = (value.get('apiVersion'), value.get('kind'), meta.get('namespace', ''), meta.get('name'))
+        if (any(type(part) is not str for part in key) or not key[3] or len(key[3]) > 253 or len(key[2]) > 63 or
+                any(not re.fullmatch('[a-z0-9][a-z0-9.-]*', part) for part in key[2:] if part)):
+            raise ValueError('Invalid native observation identity')
+        return key
+
+    def named(self, keys, *, deadline=None):
+        allowed = {('v1', name) for name in ('Namespace', 'Pod', 'Service', 'ConfigMap', 'ResourceQuota')}
+        allowed.update((('apps/v1', 'Deployment'), ('argoproj.io/v1alpha1', 'Application'),
+                        ('gateway.networking.k8s.io/v1', 'Gateway'), ('networking.k8s.io/v1', 'NetworkPolicy')))
+        allowed.update(('security.istio.io/v1', name) for name in ('AuthorizationPolicy', 'PeerAuthentication', 'RequestAuthentication'))
+        if not isinstance(keys, (tuple, list)) or not 1 <= len(keys) <= 64:
+            raise ValueError('Native named observation count differs')
+        keys = [self._coordinate(key) for key in keys]
+        if len(set(keys)) != len(keys) or any(key[:2] not in allowed for key in keys):
+            raise ValueError('Unsupported native named observation')
+        document = contract.canonical({'apiVersion': 'v1', 'kind': 'List', 'items': [
+            {'apiVersion': version, 'kind': kind, 'metadata': dict(name=name, **({'namespace': namespace} if namespace else {}))}
+            for version, kind, namespace, name in keys]})
+        if len(document) > 32768: raise ValueError('Native named request too large')
+        raw = self._read_batch(['-f', '-', '--ignore-not-found=true'], document, deadline)
+        result = dict.fromkeys(keys)
+        if raw == b'': return result  # Qualified native success alone reports all named objects missing.
+        seen = set()
+        for value in self._items(raw):
+            key = self._identity(value)
+            if key not in result or key in seen: raise ValueError('Unexpected native named observation')
+            result[key] = value; seen.add(key)
+        return result
+
+    def collections(self, namespace, *, deadline=None):
+        self._coordinate(('v1', 'Pod', namespace, 'probe'))
+        kinds = (('v1', 'Pod'), ('apps/v1', 'ReplicaSet'), ('discovery.k8s.io/v1', 'EndpointSlice'))
+        result = {key: [] for key in kinds}; seen = set()
+        raw = self._read_batch(['pods,replicasets.apps,endpointslices.discovery.k8s.io', '-n', namespace], None, deadline)
+        for value in self._items(raw):
+            key = self._identity(value)
+            if key[:2] not in result or key[2] != namespace or key in seen:
+                raise ValueError('Unexpected native collection observation')
+            result[key[:2]].append(value); seen.add(key)
+        return result
 
 
 def metadata(nonce, name, namespace=None):

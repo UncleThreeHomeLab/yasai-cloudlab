@@ -101,8 +101,9 @@ def context(request):
     for row in rows: contract.approval(row)
     if [contract.digest(contract.canonical(row)) for row in rows] != request['digests']:
         probe_state.refused()
-    probe = probe_state.bound_probe(state)
-    declarations, snapshot = probe_state.targets(rows, request['revision'])
+    deadline = time.monotonic() + request['deadline'] - time.time()
+    probe = probe_state.bound_probe(state, deadline=deadline)
+    declarations, snapshot = probe_state.targets(rows, request['revision'], deadline=deadline)
     code = probe['ConfigMap'].get('data', {})
     if set(code) != {'probe_program.py', 'traffic.py'} or probe['ConfigMap'].get('binaryData'): probe_state.refused()
     if code['probe_program.py'] != Path(__file__).with_name('probe_program.py').read_text(): probe_state.refused()

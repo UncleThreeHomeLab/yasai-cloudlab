@@ -11,7 +11,7 @@ from playbooks.k3s.files.native_custody import Session as native_session
 from playbooks.previews.files import contract
 from playbooks.previews.files.lifecycle import owned
 from playbooks.previews.files.resources import resources, workload
-from playbooks.istio.files.kube import contains, get
+from playbooks.istio.files.kube import contains
 
 ROOT = Path('/var/lib/cloudlab/preview-fixtures')
 
@@ -113,15 +113,18 @@ def receipt(nonce):
     return value
 
 
-def bound_probe(state):
+def bound_probe(state, *, deadline=None):
+    from playbooks.previews.tests.resource_runtime import HostKubernetes
     namespace = 'cloudlab-fixture-probe-' + state['nonce']
+    keys = [(version, kind, '' if kind == 'Namespace' else namespace, name)
+            for version, kind, name in (('v1', 'Namespace', namespace), ('v1', 'Pod', 'probe'), ('v1', 'Service', 'control'),
+                ('v1', 'ConfigMap', 'probe-code'), ('v1', 'ResourceQuota', 'budget'), ('networking.k8s.io/v1', 'NetworkPolicy', 'probe'))]
+    observed = HostKubernetes().named(keys, deadline=deadline)
     result = {}
-    for version, kind, name in (('v1', 'Namespace', namespace), ('v1', 'Pod', 'probe'), ('v1', 'Service', 'control'),
-                               ('v1', 'ConfigMap', 'probe-code'), ('v1', 'ResourceQuota', 'budget'),
-                               ('networking.k8s.io/v1', 'NetworkPolicy', 'probe')):
-        key = (version, kind, '' if kind == 'Namespace' else namespace, name)
+    for key in keys:
+        version, kind, _, name = key
         record = state.get('resources', {}).get('/'.join(key), {})
-        actual = get(kind.lower() + ('.' + version.split('/')[0] if '/' in version else ''), name, key[2] or None)
+        actual = observed[key]
         if (not record.get('uid') or record.get('deleted') or not actual or actual['metadata']['uid'] != record['uid'] or
                 not contains(actual, record['desired']) or actual['metadata'].get('deletionTimestamp')): refused()
         result[kind] = actual
@@ -144,20 +147,26 @@ def bound_probe(state):
     return result
 
 
-def targets(rows, revision):
-    catalog = get('configmap', contract.APPROVALS, 'argocd')
+def targets(rows, revision, *, deadline=None):
+    from playbooks.previews.tests.resource_runtime import HostKubernetes
+    api = HostKubernetes()
+    fixed = api.named([('v1', 'ConfigMap', 'argocd', contract.APPROVALS), ('v1', 'ConfigMap', 'argocd', contract.STATE),
+        ('argoproj.io/v1alpha1', 'Application', 'argocd', 'cloudlab-previews'),
+        ('v1', 'Service', 'cloudlab-gateway-private', 'cloudlab-istio'),
+        ('gateway.networking.k8s.io/v1', 'Gateway', 'cloudlab-gateway-private', 'cloudlab')], deadline=deadline)
+    catalog = fixed['v1', 'ConfigMap', 'argocd', contract.APPROVALS]
     if catalog['metadata'].get('labels', {}).get('cloudlab.io/owner') != contract.OWNER: refused()
     settings = contract.runtime_catalog(json.loads(catalog['data']['catalog.json']))
-    state = get('configmap', contract.STATE, 'argocd')
+    state = fixed['v1', 'ConfigMap', 'argocd', contract.STATE]
     if state['metadata'].get('labels', {}).get('cloudlab.io/owner') != contract.OWNER: refused()
     runtime = json.loads(state['data']['state.json'])['entries']
-    application = get('application.argoproj.io', 'cloudlab-previews', 'argocd')
+    application = fixed['argoproj.io/v1alpha1', 'Application', 'argocd', 'cloudlab-previews']
     source = application['spec']['sources'][0]
     if (application['metadata'].get('labels', {}).get('cloudlab.io/owner') != contract.OWNER or
             source['targetRevision'] != revision or application['status']['sync'].get('revisions', [None])[0] != revision or
             application['status']['health']['status'] != 'Healthy'): refused()
-    gateway = get('service', 'cloudlab-istio', 'cloudlab-gateway-private')
-    gateway_owner = get('gateway.gateway.networking.k8s.io', 'cloudlab', 'cloudlab-gateway-private')
+    gateway = fixed['v1', 'Service', 'cloudlab-gateway-private', 'cloudlab-istio']
+    gateway_owner = fixed['gateway.networking.k8s.io/v1', 'Gateway', 'cloudlab-gateway-private', 'cloudlab']
     if (not gateway_owner or gateway_owner.get('spec', {}).get('gatewayClassName') != 'istio' or
             not any(ref.get('kind') == 'Gateway' and ref.get('uid') == gateway_owner['metadata']['uid']
                     for ref in gateway.get('metadata', {}).get('ownerReferences', [])) or
@@ -171,18 +180,21 @@ def targets(rows, revision):
         if entry.get('phase') != 'active' or entry.get('approval') != row: refused()
         n = contract.names(row); ns = n['namespace']
         uid_map = {'/'.join(item['key']): item['uid'] for item in entry['resources']}
+        policy_declarations = [desired for desired in resources(row, settings, source['repoURL'], state['metadata']['uid'])
+            if desired['kind'] in ('NetworkPolicy', 'AuthorizationPolicy', 'RequestAuthentication', 'PeerAuthentication', 'Namespace')]
+        named = api.named([(desired['apiVersion'], desired['kind'], desired['metadata'].get('namespace', ''), desired['metadata']['name'])
+            for desired in policy_declarations] + [('v1', 'Service', ns, 'preview'), ('apps/v1', 'Deployment', ns, 'preview')], deadline=deadline)
+        collections = api.collections(ns, deadline=deadline)
         policies = []
-        for desired in resources(row, settings, source['repoURL'], state['metadata']['uid']):
-            if desired['kind'] not in ('NetworkPolicy', 'AuthorizationPolicy', 'RequestAuthentication', 'PeerAuthentication', 'Namespace'): continue
+        for desired in policy_declarations:
             version, kind = desired['apiVersion'], desired['kind']
-            actual = get(kind.lower() + ('.' + version.split('/')[0] if '/' in version else ''), desired['metadata']['name'],
-                         desired['metadata'].get('namespace'))
+            actual = named[version, kind, desired['metadata'].get('namespace', ''), desired['metadata']['name']]
             key = '/'.join((version, kind, desired['metadata'].get('namespace', ''), desired['metadata']['name']))
             if not uid_map.get(key): refused()
             owned(actual, row, state['metadata']['uid'], uid_map.get(key))
             if not contains(actual, desired): refused()
             policies.append({'uid': actual['metadata']['uid'], 'spec': actual.get('spec'), 'labels': actual['metadata'].get('labels')})
-        service, deployment = get('service', 'preview', ns), get('deployment.apps', 'preview', ns)
+        service, deployment = named['v1', 'Service', ns, 'preview'], named['apps/v1', 'Deployment', ns, 'preview']
         for kind, version, actual in (('Service', 'v1', service), ('Deployment', 'apps/v1', deployment)):
             key = '/'.join((version, kind, ns, 'preview'))
             if not uid_map.get(key): refused()
@@ -200,18 +212,18 @@ def targets(rows, revision):
             refused()
         environment = {value['name']: value.get('value') for value in containers[0].get('env', [])}
         if environment.get('CLOUDLAB_SOURCE_SHA') != row['sourceSha'] or environment.get('PREVIEW_MESSAGE') != row['definition']['message']: refused()
-        replicas = (get('replicasets.apps', namespace=ns) or {}).get('items', [])
+        replicas = collections['apps/v1', 'ReplicaSet']
         replica_uids = {obj['metadata']['uid'] for obj in replicas if any(
             owner.get('uid') == deployment['metadata']['uid'] and owner.get('kind') == 'Deployment'
             for owner in obj['metadata'].get('ownerReferences', []))}
-        pods = [pod for pod in (get('pods', namespace=ns) or {}).get('items', []) if contains(pod['metadata'].get('labels', {}), selector)]
+        pods = [pod for pod in collections['v1', 'Pod'] if contains(pod['metadata'].get('labels', {}), selector)]
         if len(pods) != 1: refused()
         pod = pods[0]
         if (not any(owner.get('uid') in replica_uids and owner.get('kind') == 'ReplicaSet' for owner in pod['metadata'].get('ownerReferences', [])) or
                 not contains(pod.get('spec', {}), deployment['spec']['template']['spec']) or
                 not any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in pod.get('status', {}).get('conditions', []))): refused()
         pod_ip = pod['status']['podIP']; ipaddress.ip_address(pod_ip)
-        slices = (get('endpointslices.discovery.k8s.io', namespace=ns) or {}).get('items', [])
+        slices = collections['discovery.k8s.io/v1', 'EndpointSlice']
         slices = [item for item in slices if item['metadata'].get('labels', {}).get('kubernetes.io/service-name') == 'preview']
         if len(slices) != 1 or not slices[0]['metadata'].get('uid') or not any(
                 owner.get('kind') == 'Service' and owner.get('uid') == service['metadata']['uid']

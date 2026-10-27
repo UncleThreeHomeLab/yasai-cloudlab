@@ -3,7 +3,7 @@ import copy
 import hashlib
 import json
 import base64
-from playbooks.previews.files.contract import IMAGE, SOURCE_PATH, OWNER, STATE, IDENTITY_STATE, canonical, digest, names
+from playbooks.previews.files.contract import IMAGE, SOURCE_PATH, OWNER, STATE, APPROVALS, IDENTITY_STATE, canonical, digest, names
 
 
 def retained_baseline():
@@ -257,11 +257,11 @@ def orphan_pair(api):
     return state
 
 
-def lifecycle_observation():
+def lifecycle_observation(row=None):
     from playbooks.previews.files.resources import resources, private_route
     from playbooks.keycloak.files.preview_clients import representation
     from playbooks.previews.tests.evidence_runtime import resource
-    row, platform = approval(), 'https://github.com/example/platform.git'
+    row, platform = row or approval(), 'https://github.com/example/platform.git'
     settings = catalog([row]); n = names(row); state_uid = 'runtime-state'
     declarations = resources(row, settings, platform, state_uid) + [private_route(row, settings, state_uid)]
     appset = next(obj for obj in declarations if obj['kind'] == 'ApplicationSet')
@@ -438,10 +438,10 @@ class ResourceAPI:
         return [copy.deepcopy(actual) for key, actual in self.objects.items() if key[2] == namespace]
 
 
-def probe_observation():
+def probe_observation(row=None):
     from playbooks.previews.files import contract
     from playbooks.previews.files.resources import workload
-    row, settings, lifecycle, _, objects, _, platform = lifecycle_observation()
+    row, settings, lifecycle, _, objects, _, platform = lifecycle_observation(row)
     ns=names(row)['namespace']
     lifecycle['metadata']['labels']={'cloudlab.io/owner':contract.OWNER}
     objects['configmap',contract.APPROVALS,'argocd']={'metadata':{'labels':{'cloudlab.io/owner':contract.OWNER}},
@@ -467,6 +467,56 @@ def probe_observation():
             'targetRef':{'uid':pod['metadata']['uid'],'kind':'Pod','namespace':ns}}],
         'ports':[{'port':8080,'protocol':'TCP'}]}]}
     return row,objects
+
+
+class ProbeBatchReads:
+    """Native-shaped fresh read responses over the owning synthetic object inventory."""
+    def __init__(self, objects):
+        self.objects, self.calls = objects, []
+
+    @staticmethod
+    def typed(value, version, kind, name, namespace):
+        value = copy.deepcopy(value); value.setdefault('apiVersion', version); value.setdefault('kind', kind)
+        meta = value.setdefault('metadata', {}); meta.setdefault('name', name)
+        if namespace: meta.setdefault('namespace', namespace)
+        return value
+
+    def __call__(self, arguments, document, deadline):
+        self.calls.append((list(arguments), document, deadline)); items = []
+        if document is not None:
+            for requested in json.loads(document)['items']:
+                version, kind = requested['apiVersion'], requested['kind']; meta = requested['metadata']
+                resource = kind.lower()+('.'+version.split('/')[0] if '/' in version else '')
+                value = self.objects.get((resource, meta['name'], meta.get('namespace')))
+                if value is not None: items.append(self.typed(value,version,kind,meta['name'],meta.get('namespace')))
+        else:
+            namespace = arguments[2]
+            for resource,version,kind in (('pods','v1','Pod'),('replicasets.apps','apps/v1','ReplicaSet'),
+                                          ('endpointslices.discovery.k8s.io','discovery.k8s.io/v1','EndpointSlice')):
+                for index,value in enumerate(self.objects.get((resource,None,namespace),{'items':[]})['items']):
+                    items.append(self.typed(value,version,kind,'synthetic-'+kind.lower()+'-'+str(index),namespace))
+        return canonical({'apiVersion':'v1','kind':'List','metadata':{},'items':items[::-1]})+b'\n'
+
+
+def probe_context_observation():
+    from playbooks.previews.tests.resource_runtime import probe_objects
+    rows, objects, entries = [], {}, {}
+    for letter in ('a','d'):
+        row, observed = probe_observation(approval(letter*32)); rows.append(row); objects.update(observed)
+        entries.update(json.loads(observed['configmap',STATE,'argocd']['data']['state.json'])['entries'])
+    objects['configmap',APPROVALS,'argocd']['data']['catalog.json'] = json.dumps(catalog(rows))
+    objects['configmap',STATE,'argocd']['data']['state.json'] = json.dumps({'entries':entries})
+    request = {'action':'probe-prepare','nonce':'e'*32,'revision':rows[0]['platformRevision'],'rows':rows}
+    state = {'nonce':request['nonce'],'revision':request['revision'],'probeRows':rows,'resources':{}}
+    for desired in probe_objects(request):
+        actual = copy.deepcopy(desired); meta = actual['metadata']; meta.update(uid='probe-'+actual['kind'],resourceVersion='1')
+        if actual['kind']=='Pod': actual['status']={'phase':'Running','conditions':[{'type':'Ready','status':'True'}]}
+        if actual['kind']=='Service': actual['spec']['clusterIP']='10.43.0.9'
+        key = (actual['apiVersion'],actual['kind'],meta.get('namespace',''),meta['name'])
+        state['resources']['/'.join(key)] = {'uid':meta['uid'],'desired':desired}
+        resource = actual['kind'].lower()+('.'+actual['apiVersion'].split('/')[0] if '/' in actual['apiVersion'] else '')
+        objects[resource,meta['name'],meta.get('namespace')] = actual
+    return rows,state,objects
 
 
 def probe_channel_child(mode='valid'):

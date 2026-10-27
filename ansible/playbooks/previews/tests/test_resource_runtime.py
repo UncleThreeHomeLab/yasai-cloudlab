@@ -1,7 +1,11 @@
 import copy
 import json
+import os
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -10,6 +14,79 @@ from playbooks.previews.tests import fixtures, resource_runtime as runtime
 
 
 class ResourceTests(unittest.TestCase):
+    def test_native_batch_float_overflow_refuses_named_and_collection_objects(self):
+        api=runtime.HostKubernetes();key=('v1','Pod','owned','probe')
+        for mode in ('named','collections'):
+            for number in ('1e309','-1e309','1.25'):
+                raw=('{"apiVersion":"v1","kind":"List","metadata":{},"items":['
+                     '{"apiVersion":"v1","kind":"Pod","metadata":{"name":"probe","namespace":"owned"},'
+                     '"status":{"value":'+number+'}}]}').encode()
+                with self.subTest(mode=mode,number=number),patch.object(api,'_read_batch',return_value=raw):
+                    def read():return api.named([key])[key] if mode=='named' else api.collections('owned')['v1','Pod'][0]
+                    if number=='1.25':self.assertEqual(read()['status']['value'],1.25)
+                    else:
+                        with self.assertRaises(ValueError):read()
+
+    def test_native_batch_maps_complete_missing_reordered_and_rejects_unsafe_observations(self):
+        api=runtime.HostKubernetes();keys=[('v1','Service','owned','first'),('v1','Service','owned','second')]
+        values=[{'apiVersion':'v1','kind':'Service','metadata':{'name':key[3],'namespace':'owned','uid':key[3]}} for key in keys]
+        def encode(items):return json.dumps({'apiVersion':'v1','kind':'List','metadata':{},'items':items}).encode()+b'\n'
+        for raw,expected in ((encode(values[::-1]),values),(encode(values[:1]),[values[0],None]),(encode([]),[None,None]),(b'',[None,None])):
+            with patch.object(api,'_read_batch',return_value=raw):
+                result=api.named(keys);self.assertEqual([result[key] for key in keys],expected)
+        malformed=[b' ',b'null',b'{',encode(values)[:-3],encode(values)+b'x',encode(values)+b' '*(2*1024*1024),
+                   b'{"apiVersion":"v1","apiVersion":"v1","kind":"List","metadata":{},"items":[]}',encode(values+values)]
+        for field,wrong in (('kind','ServiceList'),('apiVersion','v2'),('items',None),('metadata',{'continue':'next'}),
+                            ('metadata',{'remainingItemCount':1}),('metadata',{'continue':None}),('metadata',None),('extra',True)):
+            value=json.loads(encode(values));value[field]=wrong;malformed.append(json.dumps(value).encode())
+        for field,wrong in (('name','foreign'),('namespace','foreign'),('name',''),('namespace',None)):
+            changed=copy.deepcopy(values);changed[0]['metadata'][field]=wrong;malformed.append(encode(changed))
+        for field,wrong in (('apiVersion','v2'),('kind','Pod'),('metadata',[])):
+            changed=copy.deepcopy(values);changed[0][field]=wrong;malformed.append(encode(changed))
+        malformed.extend((encode(values[:1]*501),encode([dict(values[0],spec={'invalid':float('nan')})])))
+        for raw in malformed:
+            with self.subTest(size=len(raw)),patch.object(api,'_read_batch',return_value=raw),self.assertRaises(ValueError):api.named(keys)
+        for invalid in ([],keys*33,keys+keys,[('v1','Secret','owned','secret')],[('v1','Pod','','pod')],
+                        [('v1','Namespace','owned','namespace')],[('v1','Pod','owned','-bad')],[('v1','Pod','owned','')]):
+            with patch.object(api,'_read_batch') as read,self.assertRaises(ValueError):api.named(invalid)
+            read.assert_not_called()
+        pods=[{'apiVersion':'v1','kind':'Pod','metadata':{'namespace':'owned','name':name}} for name in ('preview','waypoint')]
+        with patch.object(api,'_read_batch',return_value=encode(pods)) as read:
+            self.assertEqual(api.collections('owned')['v1','Pod'],pods)
+            read.assert_called_once_with(['pods,replicasets.apps,endpointslices.discovery.k8s.io','-n','owned'],None,None)
+        with patch.object(api,'_read_batch',return_value=encode([])):
+            self.assertTrue(all(not values for values in api.collections('owned').values()))
+        for raw in (b'',b' ',b'null',encode(values),encode(pods+pods),encode([dict(pods[0],apiVersion='v2')]),
+                    encode([dict(pods[0],metadata={'name':'foreign','namespace':'other'})])):
+            with patch.object(api,'_read_batch',return_value=raw),self.assertRaises(ValueError):api.collections('owned')
+
+    def test_native_batch_process_get_only_identity_stdin_and_bounded_failure_never_becomes_missing(self):
+        api=runtime.HostKubernetes();key=('v1','Service','owned','first')
+        expected=runtime.contract.canonical({'apiVersion':'v1','kind':'List','items':[
+            {'apiVersion':'v1','kind':'Service','metadata':{'name':'first','namespace':'owned'}}]})+b'\n'
+        native_popen=subprocess.Popen
+        for response,error,status,delay in ((b'',b'',0,0),(b'',b'private-diagnostic',0,0),(b'',b'',7,0),
+                (b'x'*(2*1024*1024+1),b'',0,0),(b'',b'',0,2)):
+            processes=[]
+            def spawn(arguments,**options):
+                self.assertEqual(arguments,['/usr/local/bin/k3s','kubectl','--kubeconfig=/etc/rancher/k3s/k3s.yaml',
+                    '--request-timeout=10s','get','-f','-','--ignore-not-found=true','--show-managed-fields=true','-o','json'])
+                self.assertEqual(options['env'],{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C','PYTHONDONTWRITEBYTECODE':'1'})
+                self.assertTrue(options['start_new_session']);self.assertNotIn('shell',options)
+                output=repr(response) if len(response)<1024 else "b'x'*"+str(len(response))
+                script='import sys,time;assert sys.stdin.buffer.read()=='+repr(expected)+';sys.stdout.buffer.write('+output+');sys.stderr.buffer.write('+repr(error)+');time.sleep('+str(delay)+');sys.exit('+str(status)+')'
+                process=native_popen([sys.executable,'-c',script],**options);processes.append(process);return process
+            with self.subTest(status=status,stderr=bool(error),delay=delay),patch.object(runtime.subprocess,'Popen',side_effect=spawn):
+                if error or status or delay or response:
+                    with self.assertRaises(RuntimeError) as failure:api.named([key],deadline=time.monotonic()+(.2 if delay else 5))
+                    self.assertNotIn('private-diagnostic',str(failure.exception))
+                else:self.assertEqual(api.named([key]),{key:None})
+            for process in processes:
+                self.assertIsNotNone(process.returncode)
+                self.assertTrue(all(stream.closed for stream in (process.stdin,process.stdout,process.stderr)))
+        with patch.object(runtime.subprocess,'Popen') as spawn,self.assertRaises(ValueError):api.named([key],deadline=time.monotonic()-1)
+        spawn.assert_not_called()
+
     def test_custody_preparation_has_no_preview_rows_resource_receipts_or_stale_success(self):
         from playbooks.previews.tests import live_acceptance as live, probe_transport
         from playbooks.previews.tests import approval_fixture
