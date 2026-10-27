@@ -219,13 +219,15 @@ def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000
         stale_catalog = True
     interrupted_browser = (action == 'offboard-propose' and slot is None and
         state.get('browserAttempted') is True and state.get('intent') == {'action': 'browser', 'slot': None})
+    interrupted_custody = (action == 'offboard-propose' and slot is None and state.get('intent') in (
+        {'action': name, 'slot': None} for name in ('custody-install', 'custody-observe')))
     resource_recovery = {'probe-cleanup': ('probe-prepare', 'probe-observe'),
         'retained-delete': ('retained-create', 'retained-observe'),
         'outage-restore': ('outage-prepare', 'outage-observe', 'outage-fault'),
         'outage-cleanup': ('outage-prepare', 'outage-observe', 'outage-restore')}
     reducing_resource = slot is None and state.get('intent') in (
         {'action': previous, 'slot': None} for previous in resource_recovery.get(action, ()))
-    if state.get('intent') not in (None, intent) and not interrupted_browser and not stale_catalog and not reducing_resource:
+    if state.get('intent') not in (None, intent) and not interrupted_browser and not interrupted_custody and not stale_catalog and not reducing_resource:
         raise ValueError('Resume the journaled operation before beginning another fixture stage')
     if interrupted_browser:
         state['browserFailed'] = True

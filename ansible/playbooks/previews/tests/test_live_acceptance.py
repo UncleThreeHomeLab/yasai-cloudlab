@@ -15,6 +15,85 @@ from playbooks.previews.tests import fixtures
 
 
 class AcceptanceTests(unittest.TestCase):
+    def test_failed_or_interrupted_custody_can_only_publish_resumable_offboarding(self):
+        for action in ('custody-install', 'custody-observe'):
+            for failed_call in (False, True):
+                with self.subTest(action=action,failed_call=failed_call), tempfile.TemporaryDirectory() as directory, \
+                        patch.object(live.fixture,'JOURNALS',Path(directory)), \
+                        patch('playbooks.argocd.files.render.committed_payload',return_value={'revision':'c'*40}), \
+                        patch.object(live,'dotenv_values',return_value={}), patch.object(live.session,'private_context'):
+                    nonce='e'*32
+                    state={'format':1,'nonce':nonce,'platform':'c'*40,'executionPlatform':'c'*40,
+                           'viewer':{'nonce':nonce,'realm':'applications'},'baseline':{},'provisioned':True,'staged':True,
+                           'enrolled':True,'identity':{'enabled':True},'pulls':{},'approvals':{},'instances':[],
+                           'browserApprovals':{},'browserAttempted':False,'resourceEvidence':{'preserved':True},
+                           'intent':None if failed_call else {'action':action,'slot':None}}
+                    path=Path(directory)/nonce/'journal.json';live.fixture.journal(path,state)
+                    if failed_call:
+                        boundary='resource_remote' if action=='custody-install' else 'host_readiness'
+                        with patch.object(live,boundary,side_effect=RuntimeError('custody unavailable')) as custody:
+                            for _ in range(2):
+                                with self.assertRaisesRegex(RuntimeError,'custody unavailable'):
+                                    live.main([action,'--nonce',nonce,'--live'])
+                            self.assertEqual(custody.call_count,2)
+                    failed=json.loads(path.read_text())
+                    self.assertEqual(failed['intent'],{'action':action,'slot':None})
+                    publications=[]
+                    def publish(api,values,current,save,*,offboard):
+                        persisted=json.loads(path.read_text())
+                        self.assertEqual(persisted['intent'],{'action':'offboard-propose','slot':None})
+                        self.assertTrue(offboard)
+                        self.assertEqual({k:v for k,v in persisted.items() if k!='intent'},
+                                         {k:v for k,v in failed.items() if k!='intent'})
+                        publications.append(offboard)
+                        if len(publications)==1:raise RuntimeError('publication unavailable')
+                        current['offboarding']={'number':99,'head':'f'*40};save()
+                    with patch.object(live,'publication',side_effect=publish):
+                        with self.assertRaisesRegex(RuntimeError,'publication unavailable'):
+                            live.main(['offboard-propose','--nonce',nonce,'--live'])
+                        self.assertEqual(json.loads(path.read_text())['intent'],{'action':'offboard-propose','slot':None})
+                        live.main(['offboard-propose','--nonce',nonce,'--live'])
+                    result=json.loads(path.read_text())
+                    self.assertIsNone(result['intent']);self.assertEqual(len(publications),2)
+                    self.assertEqual(result['offboarding'],{'number':99,'head':'f'*40})
+                    self.assertEqual({k:v for k,v in result.items() if k not in ('intent','offboarding')},
+                                     {k:v for k,v in failed.items() if k!='intent'})
+                    for refused in (action,'approval-prepare'):
+                        with patch.object(live,'host_readiness') as host, patch.object(live,'resource_remote') as resource, \
+                                patch.object(live.fixture,'journal',wraps=live.fixture.journal) as save:
+                            with self.assertRaises(ValueError):live.main([refused,'--nonce',nonce,'--live'])
+                            host.assert_not_called();resource.assert_not_called();save.assert_not_called()
+
+    def test_custody_takeover_refuses_malformed_intents_slots_and_other_actions_without_writes(self):
+        valid=[{'action':action,'slot':None} for action in ('custody-install','custody-observe')]
+        malformed=[{'action':'custody-install'}, {'action':'custody-observe','slot':'a'},
+                   {'action':'custody-install','slot':None,'extra':True}, {'action':'unrelated','slot':None}]
+        cases=[(intent,'offboard-propose',None) for intent in malformed]
+        cases += [(intent,'offboard-propose','a') for intent in valid]
+        cases += [(intent,action,slot) for intent in valid for action,slot in (
+            ('custody-observe' if intent['action']=='custody-install' else 'custody-install',None),
+            ('approval-prepare',None),('browser',None),('pr-cleanup','a'),('probe-cleanup',None))]
+        for intent,action,slot in cases:
+            with self.subTest(intent=intent,action=action,slot=slot),tempfile.TemporaryDirectory() as directory, \
+                    patch.object(live.fixture,'JOURNALS',Path(directory)), \
+                    patch('playbooks.argocd.files.render.committed_payload',return_value={'revision':'c'*40}), \
+                    patch.object(live,'dotenv_values',return_value={}):
+                nonce='e'*32
+                state={'format':1,'nonce':nonce,'platform':'c'*40,'executionPlatform':'c'*40,
+                       'viewer':{'nonce':nonce,'realm':'applications'},'baseline':{},'provisioned':True,'staged':True,
+                       'enrolled':True,'pulls':{'a':{'head':'a'*40,'number':7},'b':{'head':'b'*40}},
+                       'approvals':{'a':{'row':fixtures.approval('a'*32)},'b':{'row':fixtures.approval('b'*32)}},
+                       'browserApprovals':{'a':{},'b':{}},'intent':intent}
+                path=Path(directory)/nonce/'journal.json';live.fixture.journal(path,state);before=path.read_bytes()
+                with patch.object(live.fixture,'journal',wraps=live.fixture.journal) as save, \
+                        patch.object(live,'publication') as publish,patch.object(live,'host_readiness') as host, \
+                        patch.object(live,'resource_remote') as resource,patch.object(live.session,'private_context') as context:
+                    args=[action,'--nonce',nonce,'--live']+(['--slot',slot] if slot else [])
+                    with self.assertRaises(ValueError):live.main(args)
+                    save.assert_not_called();publish.assert_not_called();host.assert_not_called()
+                    resource.assert_not_called();context.assert_not_called()
+                self.assertEqual(path.read_bytes(),before)
+
     def request(self, action, **extra):
         return {'action': action, 'nonce': 'a' * 32, 'realm': 'applications', **extra}
 
