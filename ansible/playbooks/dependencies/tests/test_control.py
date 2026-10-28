@@ -4,12 +4,74 @@ from unittest.mock import Mock, patch
 import unittest
 from contextlib import nullcontext
 import tempfile
+import shutil
+import subprocess
+import yaml
 from pathlib import Path
 
 from playbooks.dependencies.files import control
 
 
 class ControlTests(unittest.TestCase):
+    def test_declared_control_inputs_preserve_actual_public_source_guard(self):
+        from playbooks.argocd.files import render
+        recipe = control.ROOT / 'ansible/playbooks/dependencies/compose.yaml'
+        bindings = yaml.safe_load(recipe.read_text())['services']['control']['volumes']
+        targets = {value.split(':')[1]: value.split(':') for value in bindings if value.endswith(':ro')}
+        required = ('ansible', 'platform', 'apps', 'gitops', 'charts', 'verification/integration',
+                    'compose.yaml', '.env.example', '.gitignore')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in required:
+                source = control.ROOT / name
+                target = root / name
+                if source.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    (target / 'tracked.txt').write_text('public input\n')
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
+            values = root / 'gitops/roots/public/values.yaml'
+            values.parent.mkdir(parents=True, exist_ok=True)
+            values.write_text('repository: https://github.com/example/platform.git\nrevision: main\n')
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], stderr=subprocess.DEVNULL).decode().strip()
+            git('init', '-q'); git('add', '.')
+            git('-c', 'user.name=Synthetic', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Synthetic public inputs')
+            revision = git('rev-parse', 'HEAD')
+            real_run = subprocess.run
+            def run(args, **kwargs):
+                if 'ls-remote' in args:
+                    return subprocess.CompletedProcess(args, 0, revision+'\trefs/heads/main\n', '')
+                return real_run(args, **kwargs)
+            missing = []
+            for name in required:
+                destination = '/workspace/'+name
+                covering = [key for key in targets if destination == key or destination.startswith(key+'/')]
+                if not covering:
+                    missing.append(name)
+                    path = root/name
+                    if path.is_dir(): shutil.rmtree(path)
+                    else: path.unlink()
+            with patch.object(render, 'ROOT', root), patch.object(render, 'PUBLIC', values.parent), \
+                    patch.object(render, 'payload', return_value={}), patch.object(render.subprocess, 'run', side_effect=run):
+                self.assertEqual(render.committed_payload()['revision'], revision, missing)
+                cache = root/'ansible/__pycache__'
+                cache.mkdir(); (cache/'synthetic.pyc').write_bytes(b'public runtime cache')
+                self.assertEqual(render.committed_payload()['revision'], revision)
+                for name in ('.gitignore',):
+                    path=root/name; original=path.read_bytes();path.unlink()
+                    with self.assertRaises(RuntimeError):render.committed_payload()
+                    path.write_bytes(original)
+                (root/'.env.example').write_text('changed public input\n')
+                with self.assertRaises(RuntimeError): render.committed_payload()
+                (root/'.env.example').unlink()
+                with self.assertRaises(RuntimeError): render.committed_payload()
+            for name in required:
+                destination='/workspace/'+name
+                owner=next(key for key in targets if destination==key or destination.startswith(key+'/'))
+                source=targets[owner][0]
+                self.assertEqual((recipe.parent/source).resolve(), (control.ROOT/owner.removeprefix('/workspace/')).resolve())
     def test_actions_owner_is_rejected_before_source_preflight_or_secret_lookup(self):
         owner = {'updater': 'actions', 'writePaths': ['.github/workflows/application-test.yaml']}
         with patch.object(control, 'selected', return_value={'actions': owner}), \

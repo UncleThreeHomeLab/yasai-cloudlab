@@ -110,14 +110,34 @@ services:
       - ../../../apps:/workspace/apps:ro
       - ../../../charts:/workspace/charts:ro
       - ../../../gitops:/workspace/gitops:ro
+      - ../../../verification/integration:/workspace/verification/integration:ro
       - ../../../.github:/workspace/.github:ro
       - ../../../compose.yaml:/workspace/compose.yaml:ro
+      - ../../../.env.example:/workspace/.env.example:ro
+      - ../../../.gitignore:/workspace/.gitignore:ro
       - ../../../.env:/workspace/.env:ro
       - ../../../.git:/workspace/.git:ro
       - writer_lock:/writer-lock
       - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/control:/control
       - ${DEPENDENCY_WORK_DIR:-../../../docs/local/dependency-work}/candidate:/candidate
+      - ${DEPENDENCY_FIXTURE_DIR:-../../../docs/local/dependency-fixture}/artifact:/fixture-artifact:ro
       - handoff:/handoff
+
+  fixture-artifact:
+    <<: *toolchain
+    network_mode: bridge
+    entrypoint: [python, -m, playbooks.dependencies.tests.live_fixture, artifact]
+    volumes:
+      - ./files:/workspace/ansible/playbooks/dependencies/files:ro
+      - ./tests/live_fixture.py:/workspace/ansible/playbooks/dependencies/tests/live_fixture.py:ro
+      - ../argocd/files/repository_tokens.py:/workspace/ansible/playbooks/argocd/files/repository_tokens.py:ro
+      - ../argocd/files/github_setup.py:/workspace/ansible/playbooks/argocd/files/github_setup.py:ro
+      - ../argocd/files/github_app.py:/workspace/ansible/playbooks/argocd/files/github_app.py:ro
+      - ../argocd/files/render.py:/workspace/ansible/playbooks/argocd/files/render.py:ro
+      - ../harbor/files/scopes.py:/workspace/ansible/playbooks/harbor/files/scopes.py:ro
+      - ../secrets/files/vault.py:/workspace/ansible/playbooks/secrets/files/vault.py:ro
+      - ${DEPENDENCY_FIXTURE_DIR:-../../../docs/local/dependency-fixture}/input.json:/fixture-input.json:ro
+      - ${DEPENDENCY_FIXTURE_DIR:-../../../docs/local/dependency-fixture}/artifact:/artifact:rw
 
   propose:
     extends: {service: control}
