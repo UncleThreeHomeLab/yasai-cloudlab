@@ -14,6 +14,8 @@ from playbooks.previews.files import contract
 
 BUDGET = 240
 FRAME = 32768
+ENROLLMENT_STAGES = frozenset(('launch', 'context', 'account-enrollment', 'account-password',
+                              'webauthn-registration', 'account-session'))
 
 
 def refused():
@@ -159,7 +161,7 @@ class Channel:
             refused()
         self.connection.sendall(raw + b'\n')
 
-    def read(self, keys):
+    def read(self, keys, *, enrollment=False):
         while b'\n' not in self.buffer:
             self.connection.settimeout(max(0.01, min(35, self.deadline - time.monotonic())))
             chunk = self.connection.recv(min(4096, FRAME + 1 - len(self.buffer)))
@@ -173,7 +175,16 @@ class Channel:
                 refused()
             return value
         value = json.loads(raw, object_pairs_hook=unique)
-        if self.buffer or not isinstance(value, dict) or set(value) != set(keys):
+        if self.buffer or not isinstance(value, dict):
+            refused()
+        if enrollment and set(value) == {'failed', 'enrollmentStage'}:
+            if (value['failed'] is not True or type(value['enrollmentStage']) is not str or
+                    value['enrollmentStage'] not in ENROLLMENT_STAGES):
+                refused()
+            # Return only the local literal, never arbitrary remote diagnostic content.
+            return {'failed': True, 'enrollmentStage': next(stage for stage in ENROLLMENT_STAGES
+                                                          if stage == value['enrollmentStage'])}
+        if set(value) != set(keys):
             refused()
         return value
 
@@ -187,6 +198,7 @@ def authorization(issuer, client, redirect, state, nonce, verifier):
 
 def run(values, state, observe, begin_enrollment):
     stage = 'preflight'
+    enrollment_stage = None
     try:
         from playbooks.argocd.files.github_setup import repository
         from playbooks.previews.tests import catalog_fixture as fixture
@@ -233,7 +245,11 @@ def run(values, state, observe, begin_enrollment):
             wire.send({'action': 'enroll', 'issuer': issuer, 'gateway': gateway,
                        'hosts': [contract.hostname(row, settings) for row in rows],
                        'viewer': {key: proof[key] for key in ('username', 'password', 'email')}})
-            if wire.read({'ready'}) != {'ready': True}:
+            readiness = wire.read({'ready'}, enrollment=True)
+            if readiness.get('failed') is True:
+                enrollment_stage = readiness['enrollmentStage']
+                refused()
+            if readiness != {'ready': True}:
                 refused()
             tokens = []
             for client, redirect in zip(clients, callbacks):
@@ -267,4 +283,6 @@ def run(values, state, observe, begin_enrollment):
                 'platform': state['executionPlatform'], 'approvals': copy.deepcopy(state['browserApprovals'])}
     except Exception:
         state['browserFailure'] = {'stage': stage}
+        if enrollment_stage is not None:
+            state['browserFailure']['enrollmentStage'] = enrollment_stage
         raise

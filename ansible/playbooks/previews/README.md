@@ -164,7 +164,7 @@ callbacks before dispatch, and uses verified private TLS. After WebAuthn failure
 retain the journal and use existing offboarding; automatic viewer reset is unsupported.
 Pre-enrollment failures remain retryable. A durable attempt marker precedes the
 first credential frame; subsequent failures permit offboarding only.
-`browserFailure.stage` records the last started controller operation on caught failure; it does not establish cause or grant retries.
+`browserFailure.stage` and optional `enrollmentStage` record the last started operation on caught failure; neither establishes cause or grants retries.
 The browser waits at most ten minutes for controller preflight, then bounds the proof to four minutes.
 After process interruption, `offboard-propose` can replace an exact interrupted
 `custody-install` or `custody-observe` intent, or consumed browser intent, under

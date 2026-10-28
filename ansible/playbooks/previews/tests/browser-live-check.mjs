@@ -9,6 +9,7 @@ import {createServer} from 'node:https';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {authorize, origins, callback, corsEvidence, finish} from './browser-live.mjs';
+import {enrollViewer} from '/proof/disposable.mjs';
 const {chromium}=createRequire('/proof/package.json')('playwright');
 const directory=mkdtempSync(join(tmpdir(),'preview-live-check-'));
 const login='login.example.invalid', a='preview-'+ 'a'.repeat(32)+'.internal.example.invalid';
@@ -16,7 +17,7 @@ const b='preview-'+ 'b'.repeat(32)+'.internal.example.invalid', foreign='foreign
 const issuer='https://'+login+'/realms/applications';
 const redirect='https://'+a+'/previews/'+ 'a'.repeat(32)+'/callback';
 const other='https://'+b+'/previews/'+ 'b'.repeat(32)+'/callback';
-let browser,server,mode='valid', requests=[], stage='certificate';
+let browser,server,mode='valid', requests=[], stage='certificate', credentialCreated=false, profileCompleted=false;
 const openssl=args=>execFileSync('openssl',args,{cwd:directory,stdio:'ignore'});
 const launch=()=>chromium.launch({headless:true,env:{...process.env,HOME:directory},args:[
   '--host-resolver-rules='+[login,a,b,foreign].map(host=>'MAP '+host+' 127.0.0.1').join(',')
@@ -32,6 +33,31 @@ try {
     requests.push({host:request.headers.host,path:request.url});
     if(requests.length>200) { response.writeHead(500); response.end(); return; }
     if(request.headers.host===login) {
+      if(mode==='enrollment') {
+        response.setHeader('Content-Type','text/html');
+        if(request.url=== '/realms/applications/account/') {
+          response.end('<form action="/enroll/password" method="post"><label>Username<input name="username"></label><label>Password<input name="password" type="password"></label><button>Sign In</button></form>'); return;
+        }
+        if(request.url==='/enroll/password' && request.method==='POST') {
+          response.end(`<button onclick="register()">Register</button><script>async function register() {
+            const credential=await navigator.credentials.create({publicKey:{challenge:new Uint8Array(32),
+              rp:{name:'Synthetic enrollment'},user:{id:new Uint8Array([1]),name:'fixture',displayName:'Fixture'},
+              pubKeyCredParams:[{type:'public-key',alg:-7}],timeout:3000,attestation:'none'}});
+            if(credential) { await fetch('/enroll/credential',{method:'POST'}); location.href='/enroll/profile'; }
+          }</script>`); return;
+        }
+        if(request.url==='/enroll/credential' && request.method==='POST') {
+          credentialCreated=true; response.end(''); return;
+        }
+        if(request.url==='/enroll/profile') {
+          response.end('<form action="/enroll/complete" method="post"><label>First name<input name="first"></label><label>Last name<input name="last"></label><button>Submit</button></form>'); return;
+        }
+        if(request.url==='/enroll/complete' && request.method==='POST') {
+          let body=''; request.on('data',chunk=>{body+=chunk;if(body.length>256)request.destroy();});
+          request.on('end',()=>{profileCompleted=body==='first=Fixture&last=Viewer';response.end('<h1>Personal info</h1>');}); return;
+        }
+        response.writeHead(404); response.end(''); return;
+      }
       if(request.url.startsWith('/realms/applications/protocol/openid-connect/auth')) {
         if(mode==='reject') { response.writeHead(400); response.end('Invalid parameter: redirect_uri'); return; }
         response.writeHead(302,{Location:issuer+'/login-actions/authenticate'}); response.end(); return;
@@ -86,6 +112,11 @@ assert bind('NSS_Shutdown',[],c.c_int)()==0
   }
   stage='trusted'; browser=await launch(); context=await browser.newContext({serviceWorkers:'block'}); page=await context.newPage();
   page.setDefaultTimeout(8000); page.setDefaultNavigationTimeout(8000);
+  stage='enrollment'; mode='enrollment'; const enrollmentStages=[];
+  await enrollViewer(page,context,{username:'fixture',password:'synthetic-password'},issuer,value=>enrollmentStages.push(value));
+  assert.equal(credentialCreated,true); assert.equal(profileCompleted,true);
+  assert.deepEqual(enrollmentStages,['account enrollment','account password','WebAuthn registration','account session']);
+  mode='valid';
   const input={issuer,redirect,state:'synthetic-state',authorization:issuer+'/protocol/openid-connect/auth?state=initial'};
   stage='redirect'; requests=[];
   assert.equal((await authorize(page,context,input)).callback,redirect+'?code=synthetic-code&state=synthetic-state');
@@ -146,7 +177,51 @@ assert bind('NSS_Shutdown',[],c.c_int)()==0
     assert.equal(raw,'{"failed":true}\n');
     assert.equal(logs,'');
   } finally { clearTimeout(childDeadline); socket?.destroy(); child.kill(); }
-  console.log('{"trusted_tls":true,"redirect_guard":true,"no_callback_dispatch":true,"guard_removed":true,"native_cors":true}');
+  stage='terminal-enrollment';
+  for(const fault of ['launch','context','account-enrollment','account-password','webauthn-registration','account-session','post-ready']) {
+    // Replace Playwright only inside this synthetic child; execute the actual serve catch and shared helper.
+    const source=`
+      import {createRequire} from 'node:module';
+      const {chromium}=createRequire('/proof/package.json')('playwright');
+      const fault=${JSON.stringify(fault)}, refuse=()=>{throw new Error('private-sentinel-never-log');};
+      const page={setDefaultTimeout(){},setDefaultNavigationTimeout(){},
+        async goto(){if(fault==='account-enrollment')refuse();},
+        getByLabel(){return {async fill(){if(fault==='account-password')refuse();},async waitFor(){},async isVisible(){return false;}};},
+        async waitForLoadState(){if(fault==='webauthn-registration')refuse();},
+        getByRole(role){if(fault==='account-session'&&role==='heading')refuse();return {async click(){},async waitFor(){},async count(){return 0;}};}};
+      const context={async newPage(){return page;},async newCDPSession(){return {async send(){}};},async close(){}};
+      chromium.launch=async()=>{if(fault==='launch')refuse();return {async newContext(){if(fault==='context')refuse();return context;},async close(){}};};
+      await (await import('/fixture/browser-live.mjs')).serve();`;
+    const process=spawn(globalThis.process.execPath,['--input-type=module','-e',source],{stdio:['ignore','pipe','pipe']});
+    const exited=new Promise(resolve=>process.once('exit',(code,signal)=>resolve({code,signal})));
+    let socket, logs='', raw='', sent=false;
+    const bounded=chunk=>{logs+=chunk;if(logs.length>4096)process.kill();};
+    process.stdout.on('data',bounded);process.stderr.on('data',bounded);
+    const deadline=setTimeout(()=>process.kill(),8000);
+    try {
+      const readyDeadline=performance.now()+5000;
+      while(performance.now()<readyDeadline) {
+        try {
+          socket=await new Promise((resolve,reject)=>{
+            const candidate=net.createConnection(5056,'127.0.0.1');
+            candidate.once('connect',()=>resolve(candidate));candidate.once('error',reject);
+          });break;
+        } catch(error) {if(error.code!=='ECONNREFUSED')throw error;await new Promise(resolve=>setTimeout(resolve,20));}
+      }
+      assert.ok(socket);
+      socket.on('data',chunk=>{
+        raw+=chunk;if(raw.length>32768)socket.destroy();
+        if(fault==='post-ready' && raw.includes('\n') && !sent) {sent=true;socket.write('{"action":"invalid"}\n');}
+      });
+      socket.write(JSON.stringify({action:'enroll',issuer,gateway:'100.64.0.1',hosts:[a,b],
+        viewer:{username:'fixture',email:'fixture@example.invalid',password:'synthetic-password'}})+'\n');
+      assert.deepEqual(await exited,{code:0,signal:null});
+      assert.equal(raw,fault==='post-ready' ? '{"ready":true}\n{"failed":true}\n' :
+        JSON.stringify({failed:true,enrollmentStage:fault})+'\n');
+      assert.equal(logs,'');
+    } finally {clearTimeout(deadline);socket?.destroy();process.kill();}
+  }
+  console.log('{"enrollment":true,"terminal_enrollment":true,"trusted_tls":true,"redirect_guard":true,"no_callback_dispatch":true,"guard_removed":true,"native_cors":true}');
 } catch {
   console.error(JSON.stringify({failed_stage:stage})); process.exitCode=1;
 } finally {

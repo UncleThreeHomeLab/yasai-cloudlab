@@ -98,7 +98,10 @@ class BrowserTests(unittest.TestCase):
         stages=('preflight','enrollment','authorization','token-exchange','token-validation',
                 'gateway-protection','dataplane','callback-rejection','origins')
         cases=[(stage,'fault') for stage in stages]+[('enrollment','credentials')]+[('enrollment',mode) for mode in
-            ('timeout','eof','malformed','duplicate','oversized','extra-field','extra-frame')]+[(None,'interruption')]
+            ('timeout','eof','malformed','duplicate','oversized','extra-field','extra-frame','generic-failure',
+             'terminal-unknown','terminal-type','terminal-false','terminal-extra','terminal-duplicate')]+[
+             ('enrollment','terminal:'+value) for value in sorted(proof.ENROLLMENT_STAGES)]+[
+             ('authorization','wrong-phase'),(None,'interruption')]
         native_channel=proof.Channel;sentinel='private-sentinel-never-persist'
         for stage,mode in cases:
             with self.subTest(stage=stage,mode=mode),tempfile.TemporaryDirectory() as directory, \
@@ -121,8 +124,17 @@ class BrowserTests(unittest.TestCase):
                         'duplicate':b'{"ready":true,"ready":true,"private":"'+sentinel.encode()+b'"}\n',
                         'oversized':(sentinel.encode()+b'x'*proof.FRAME)[:proof.FRAME]+b'\n',
                         'extra-field':b'{"ready":true,"private":"'+sentinel.encode()+b'"}\n',
-                        'extra-frame':b'{"ready":true}\n{"private":"'+sentinel.encode()+b'"}\n'}.get(mode,b'')
+                        'extra-frame':b'{"ready":true}\n{"private":"'+sentinel.encode()+b'"}\n',
+                        'generic-failure':b'{"failed":true}\n',
+                        'terminal-unknown':json.dumps({'failed':True,'enrollmentStage':sentinel}).encode()+b'\n',
+                        'terminal-type':b'{"failed":true,"enrollmentStage":[] }\n',
+                        'terminal-false':b'{"failed":1,"enrollmentStage":"launch"}\n',
+                        'terminal-extra':json.dumps({'failed':True,'enrollmentStage':'launch','private':sentinel}).encode()+b'\n',
+                        'terminal-duplicate':b'{"failed":true,"enrollmentStage":"launch","enrollmentStage":"'+sentinel.encode()+b'"}\n'}.get(mode,b'')
+                    if mode.startswith('terminal:'):
+                        payload=json.dumps({'failed':True,'enrollmentStage':mode.split(':',1)[1]}).encode()+b'\n'
                     chunks=[payload[index:index+4096] for index in range(0,len(payload),4096)] or [b'']
+                    if mode=='wrong-phase':chunks=[b'{"ready":true}\n',b'{"failed":true,"enrollmentStage":"launch"}\n']
                     connection.recv.side_effect=error if mode=='timeout' else chunks
                     wire=native_channel(connection)
                 def fail(operation):
@@ -173,7 +185,9 @@ class BrowserTests(unittest.TestCase):
                         self.assertNotIn('browserFailure',persisted)
                         self.assertEqual(persisted['intent'],{'action':'browser','slot':None})
                     else:
-                        self.assertEqual(persisted['browserFailure'],{'stage':stage})
+                        diagnostic={'stage':stage}
+                        if mode.startswith('terminal:'):diagnostic['enrollmentStage']=mode.split(':',1)[1]
+                        self.assertEqual(persisted['browserFailure'],diagnostic)
                         self.assertTrue(persisted['browserFailed']);self.assertIsNone(persisted['intent'])
                     if stage=='preflight' or mode=='credentials':
                         self.assertNotIn('browserAttempted',persisted);connect.assert_not_called()
@@ -212,6 +226,17 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(proof.Channel(connection).read({'ready'}), {'ready': True})
         wire = proof.Channel(connection); wire.deadline = 0
         with self.assertRaises(ValueError): wire.send({'ready': True})
+        terminal=b'{"failed":true,"enrollmentStage":"launch"}\n'
+        for keys in ({'ready'},{'callback'},{'rejected'},{'origins','storage','dom','cors'}):
+            connection=Mock();connection.recv.return_value=terminal
+            with self.assertRaises(ValueError):proof.Channel(connection).read(keys)
+        for raw in (terminal+b' ',terminal+b'{}\n',b'{"failed":true,"enrollmentStage":null}\n',
+                    b'{"failed":true,"enrollmentStage":true}\n',b'{"failed":false,"enrollmentStage":"launch"}\n'):
+            connection=Mock();connection.recv.return_value=raw
+            with self.assertRaises(ValueError):proof.Channel(connection).read({'ready'},enrollment=True)
+        for value in sorted(proof.ENROLLMENT_STAGES):
+            connection=Mock();connection.recv.return_value=json.dumps({'failed':True,'enrollmentStage':value}).encode()+b'\n'
+            self.assertEqual(proof.Channel(connection).read({'ready'},enrollment=True),{'failed':True,'enrollmentStage':value})
 
     def test_existing_jwt_signature_plus_exact_subject_azp_and_lifetime(self):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

@@ -228,6 +228,7 @@ export async function serve() {
   const server=net.createServer(async socket=>{
     if(accepted) { socket.destroy(); return; } accepted=true; server.close();
     const budget=setTimeout(()=>{ socket.destroy(); if(browser) browser.close().catch(()=>{}); },240000);
+    let enrollmentStage;
     try {
       const wire=channel(socket), input=await wire.read('enroll',['issuer','gateway','hosts','viewer']);
       const issuer=new URL(input.issuer);
@@ -238,11 +239,19 @@ export async function serve() {
           input.hosts.some(host=>!new RegExp('^[a-z0-9-]+-[a-f0-9]{32}\\.internal\\.'+issuer.hostname.slice(6).replaceAll('.','\\.')+'$').test(host)) ||
           Object.keys(input.viewer).sort().join()!=='email,password,username' ||
           Object.values(input.viewer).some(value=>!bounded(value))) fail();
+      enrollmentStage='launch';
       browser=await chromium.launch({headless:true,args:['--host-resolver-rules='+[issuer.hostname,...input.hosts].map(host=>'MAP '+host+' '+input.gateway).join(',') ]});
+      enrollmentStage='context';
       const context=await browser.newContext({serviceWorkers:'block'}), page=await context.newPage();
       page.setDefaultTimeout(20000); page.setDefaultNavigationTimeout(25000);
-      await enrollViewer(page,context,input.viewer,input.issuer,()=>{});
+      const stages=new Map([['account enrollment','account-enrollment'],['account password','account-password'],
+        ['WebAuthn registration','webauthn-registration'],['account session','account-session']]);
+      await enrollViewer(page,context,input.viewer,input.issuer,value=>{
+        enrollmentStage=stages.get(value);
+        if(!enrollmentStage) fail();
+      });
       wire.send({ready:true});
+      enrollmentStage=undefined;
       for(let index=0;index<2;index++) {
         const command=await wire.read('authorize',['authorization','redirect','state','issuer']);
         if(command.issuer!==input.issuer || new URL(command.redirect).hostname!==input.hosts[index]) fail();
@@ -257,7 +266,7 @@ export async function serve() {
       if(!Array.isArray(command.callbacks) || command.callbacks.length!==2 || command.callbacks.some((url,index)=>new URL(url).hostname!==input.hosts[index])) fail();
       await finish(socket,await origins(context,command.callbacks));
       await context.close();
-    } catch { await finish(socket,{failed:true}); }
+    } catch { await finish(socket,enrollmentStage ? {failed:true,enrollmentStage} : {failed:true}); }
     finally { clearTimeout(budget); if(browser) await browser.close(); socket.destroy(); }
   });
   const deadline=setTimeout(()=>server.close(),600000);
