@@ -1,4 +1,5 @@
 """Fixed in-Pod HTTP checks; bearer credentials exist only in transient stdin."""
+import errno
 import http.client
 import ipaddress
 import json
@@ -28,6 +29,8 @@ def request(target, bearer=None):
                     connection.connect()
                 except socket.timeout:
                     return 'timeout'
+                except ConnectionRefusedError as error:
+                    return 'refused' if error.errno == errno.ECONNREFUSED else 'unproved'
                 connection.request('GET', target['path'], headers=headers)
                 response = connection.getresponse()
                 status, body = response.status, response.read(65537)
@@ -49,8 +52,8 @@ def request(target, bearer=None):
 def classify(control, gateway, service, pod):
     if control != 'allowed' or gateway != 'allowed': refused()
     if len(service) != 3 or len(pod) != 3: refused()
-    if any(value not in ('denied', 'timeout') for value in pod): refused()
-    if service not in (['allowed', 'denied', 'denied'], ['denied'] * 3, ['timeout'] * 3): refused()
+    if any(value not in ('denied', 'timeout', 'refused') for value in pod): refused()
+    if service not in (['allowed', 'denied', 'denied'], ['denied'] * 3, ['timeout'] * 3, ['refused'] * 3): refused()
     return {'control': True, 'gateway': True, 'podProtected': True,
             'serviceProtected': True, 'serviceMode': 'waypoint' if service[0] == 'allowed' else 'blocked'}
 
