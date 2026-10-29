@@ -296,10 +296,21 @@ class Receipts:
 def platform(request, api):
     controller = api.get(('argoproj.io/v1alpha1', 'Application', 'argocd', 'cloudlab-previews')) or {}
     source = controller.get('spec', {}).get('sources', [{}])[0]
+    health = controller.get('status', {}).get('health', {}).get('status')
+    retained_recovery = health == 'Degraded' and request.get('action') in ('retained-observe', 'retained-delete')
     if (source.get('targetRevision') != request['revision'] or
             controller.get('status', {}).get('sync', {}).get('revisions', [None])[0] != request['revision'] or
-            controller.get('status', {}).get('health', {}).get('status') != 'Healthy' or controller.get('operation')):
+            (health != 'Healthy' and not retained_recovery) or controller.get('operation')):
         raise ValueError('Published preview owner is not ready')
+    if retained_recovery:
+        meta = controller.get('metadata', {}); spec = controller.get('spec', {})
+        if (controller.get('status', {}).get('sync', {}).get('status') != 'Synced' or
+                not isinstance(meta.get('uid'), str) or not meta['uid'] or
+                meta.get('labels', {}).get('cloudlab.io/owner') != contract.OWNER or
+                any(meta.get(key) for key in ('deletionTimestamp', 'ownerReferences', 'finalizers')) or
+                spec.get('project') != 'cloudlab-previews' or source.get('path') != 'platform/delivery/previews' or
+                spec.get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}):
+            raise ValueError('Retained recovery requires the intact synced preview owner')
     repository = source.get('repoURL', '')
     if not re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git', repository):
         raise ValueError('Fixture requires its accepted public platform source')

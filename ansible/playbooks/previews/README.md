@@ -147,7 +147,9 @@ Only preview access JWTs may pass once through fixed non-PTY SSH and
 Pod stdin; they never enter Ansible, resource declarations or recovery files.
 Unknown logging, proxy or ownership settings refuse the proof. `probe-cleanup`
 removes only recorded resources. `retained-create|observe|delete` owns one synthetic
-slot-D ConfigMap; changed data blocks deletion. `outage-prepare|observe|fault|restore|cleanup`
+slot-D ConfigMap; changed data blocks deletion. Only retained observation and deletion
+permit a Degraded parent that remains Synced at the current source with intact ownership.
+`outage-prepare|observe|fault|restore|cleanup`
 uses a separate native ApplicationSet and retained ConfigMap. Restore its exact
 Git revision before teardown; unknown namespace data remains quarantined.
 
