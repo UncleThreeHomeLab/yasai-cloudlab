@@ -1,6 +1,8 @@
 import base64
 import copy
+import errno
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -72,9 +74,40 @@ class ProbeTests(unittest.TestCase):
             connection=Mock();getattr(connection,failed).side_effect=socket.timeout()
             with patch.object(program.http.client,'HTTPConnection',return_value=connection):
                 self.assertEqual(program.request(target),expected)
+            connection.close.assert_called_once()
+            if failed=='connect':connection.request.assert_not_called()
         connection=Mock();connection.getresponse.return_value.read.side_effect=socket.timeout()
         with patch.object(program.http.client,'HTTPConnection',return_value=connection):
             self.assertEqual(program.request(target),'unproved')
+        connection.close.assert_called_once()
+
+    def test_only_explicit_tcp_connect_refusal_is_recognized_and_connection_always_closes(self):
+        target={'host':'preview.internal.example.invalid','address':'10.42.0.1','path':'/preview/',
+                'tls':False,'expected':{'synthetic':'data'}}
+        errors=(ConnectionRefusedError(errno.ECONNREFUSED,'synthetic private sentinel'),
+            ConnectionRefusedError(errno.EACCES,'synthetic private sentinel'),ConnectionRefusedError(),
+            PermissionError(errno.EACCES,'synthetic private sentinel'),
+            ConnectionResetError(errno.ECONNRESET,'synthetic private sentinel'),
+            OSError(errno.ENETUNREACH,'synthetic private sentinel'))
+        for stage in ('connect','request','getresponse','read'):
+            for error in errors:
+                with self.subTest(stage=stage,error=type(error).__name__,number=error.errno):
+                    connection=Mock()
+                    if stage=='read':connection.getresponse.return_value.read.side_effect=error
+                    else:getattr(connection,stage).side_effect=error
+                    with patch.object(program.http.client,'HTTPConnection',return_value=connection) as factory:
+                        result=program.request(target)
+                    self.assertEqual(result,'refused' if stage=='connect' and type(error) is ConnectionRefusedError
+                        and error.errno==errno.ECONNREFUSED else 'unproved')
+                    factory.assert_called_once_with(target['address'],8080,timeout=2)
+                    connection.close.assert_called_once()
+                    if stage=='connect':connection.request.assert_not_called();connection.getresponse.assert_not_called()
+        from playbooks.access.files import traffic
+        with patch.dict('sys.modules',{'traffic':traffic}), \
+                patch.object(traffic,'https',side_effect=ConnectionRefusedError(errno.ECONNREFUSED,'synthetic')) as https, \
+                patch.object(program.http.client,'HTTPConnection') as plain:
+            self.assertEqual(program.request(dict(target,tls=True)),'unproved')
+            https.assert_called_once();plain.assert_not_called()
 
     def test_gateway_positive_must_survive_each_targets_negative_paths(self):
         base={'host':'preview.internal.example.invalid','path':'/preview/','expected':{'synthetic':'data'}}
@@ -82,17 +115,19 @@ class ProbeTests(unittest.TestCase):
                  for offset,kind in enumerate(('gateway','service','pod'),1)} for index in range(2)]
         frame={'phase':'probe','deadline':1250,'tokens':['synthetic-a','synthetic-b'],
                'control':dict(base,address='10.43.0.1',tls=False),'targets':groups}
-        for outage in (False,True):
+        for direct,outage in itertools.product(('timeout','refused'),('none','control-before','gateway-before','gateway-after','control-after')):
             calls=[]
             def request(target,bearer=None):
                 calls.append((target['address'],bearer))
-                if target==frame['control']:return 'allowed'
+                if target==frame['control']:
+                    count=sum(address==target['address'] for address,_ in calls)
+                    return 'unproved' if outage==('control-before' if count==1 else 'control-after') else 'allowed'
                 if target['tls']:
                     count=sum(address==target['address'] for address,_ in calls)
-                    return 'unproved' if outage and count==2 else 'allowed'
-                return 'timeout'
-            with self.subTest(outage=outage),patch.object(program,'request',side_effect=request),patch.object(program.time,'time',return_value=1200):
-                if outage:
+                    return 'unproved' if outage==('gateway-before' if count==1 else 'gateway-after') else 'allowed'
+                return direct
+            with self.subTest(direct=direct,outage=outage),patch.object(program,'request',side_effect=request),patch.object(program.time,'time',return_value=1200):
+                if outage!='none':
                     with self.assertRaises(ValueError):program.run(frame)
                 else:
                     self.assertTrue(program.run(frame)['targets'][0]['podProtected'])
@@ -182,8 +217,18 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(program.request(target),'denied')
 
     def test_direct_classification_never_treats_startup_tls_or_application_data_as_denial(self):
-        for service in (['allowed','denied','denied'], ['denied']*3, ['timeout']*3):
-            self.assertTrue(program.classify('allowed','allowed',service,['timeout']*3)['podProtected'])
+        for service in (['allowed','denied','denied'], ['denied']*3, ['timeout']*3, ['refused']*3):
+            for pod in (['timeout']*3,['refused']*3,['refused','denied','timeout']):
+                result=program.classify('allowed','allowed',service,pod)
+                self.assertEqual(result,dict(control=True,gateway=True,podProtected=True,serviceProtected=True,
+                    serviceMode='waypoint' if service[0]=='allowed' else 'blocked'))
+        for service in itertools.product(('denied','timeout','refused'),repeat=3):
+            if len(set(service))>1:
+                with self.subTest(service=service),self.assertRaises(ValueError):
+                    program.classify('allowed','allowed',list(service),['refused']*3)
+        for pod in (['allowed']*3,['allowed','refused','refused'],['unproved']*3,['refused','unproved','refused'],
+                    ['unexpected']*3,[],['refused']*2,['refused']*4):
+            with self.subTest(pod=pod),self.assertRaises(ValueError):program.classify('allowed','allowed',['refused']*3,pod)
         for control,gateway,service,pod in (
                 ('unproved','allowed',['timeout']*3,['timeout']*3),('allowed','unproved',['denied']*3,['denied']*3),
                 ('allowed','allowed',['allowed']*3,['denied']*3),('allowed','allowed',['allowed','denied','denied'],['allowed','denied','denied']),
