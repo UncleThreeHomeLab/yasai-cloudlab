@@ -133,6 +133,23 @@ def claims(response, jwks, issuer, client, nonce, subject, *, now=None):
     return response['access_token']
 
 
+def callbacks_ready(rows, settings, gateway):
+    from playbooks.access.files.traffic import https
+    callbacks = [contract.client(row, settings)['callbacks'][0] for row in rows]
+    def unique(pairs):
+        result = dict(pairs)
+        if len(result) != len(pairs): refused()
+        return result
+    for callback_url in callbacks:
+        target = urlsplit(callback_url)
+        response = https(target.hostname, address=gateway, path=target.path, timeout=5)
+        if response['status'] != 200: refused()
+        body = json.loads(response['body'], object_pairs_hook=unique)
+        if not isinstance(body, dict) or set(body) != {'callback'} or body['callback'] is not True:
+            refused()
+    return callbacks
+
+
 def protected(rows, settings, gateway, tokens, *, request=None):
     from playbooks.access.files.traffic import https
     request = request or https
@@ -229,13 +246,14 @@ def run(values, state, observe, begin_enrollment):
         remaining(rows)
         from playbooks.previews.tests.probe_transport import handoff
         probe = handoff(state, rows, [])
+        callbacks = callbacks_ready(rows, settings, gateway)
+        remaining(rows)
         stage = 'enrollment'
         proof = fields('keycloak-proof-' + request['nonce'], ['username', 'password', 'email', 'ownership_id'])
         if (proof['ownership_id'] != request['nonce'] or proof['username'] != observed['username'] or
                 proof['email'] != observed['email'] or not isinstance(proof['password'], str) or not 1 <= len(proof['password']) <= 4096):
             refused()
         issuer = settings['issuer']
-        callbacks = [contract.client(row, settings)['callbacks'][0] for row in rows]
         clients = [contract.names(row)['client'] for row in rows]
         jwks = json_get(issuer + '/protocol/openid-connect/certs', address=gateway)
         with socket.create_connection(('browser', 5056), timeout=30) as connection:
