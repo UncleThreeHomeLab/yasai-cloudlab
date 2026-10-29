@@ -125,8 +125,10 @@ use the versioned fixture Ansible entry point and existing identity owners.
 
 `approval-prepare --batch ab|cd --lifetime <seconds>` reserves immutable private
 approvals and artifacts after fresh owner/viewer checks. `catalog-prepare` accepts
-the same batch with `--mode approve|withdraw|orphan-d|cleanup|finalize`; `orphan-d`
-withdraws only D before expiry, preserving C and ownership. Publication requires
+the same batch with `--mode approve|withdraw|orphan-b|orphan-d|cleanup|finalize`.
+Orphan modes withdraw only B from A/B or D from C/D before expiry, preserving the
+other approval and ownership; B requires successful browser proof for the exact A/B pair.
+Publication requires
 separate `catalog-propose`, `catalog-review` and `catalog-merge` stages. Stale bases
 use `catalog-reprepare`, preserving old proposal receipts. `lifecycle-observe`
 records exact resource/client identities, confirmed disable time and final absence.
@@ -134,7 +136,9 @@ Missed activation or grace observations fail acceptance; separately confirmed cu
 absence permits only cleanup and never reapproval or the next acceptance pair.
 `catalog-retire` closes and
 atomically deletes only proposal refs with recorded creation intents. Historical
-unjournaled refs remain retained. Approval retries never extend expiry.
+unjournaled refs remain retained. `catalog-abandon` cancels only the pending owned,
+unmerged orphan review after both approvals expire, preserving retained resources.
+Approval retries never extend expiry.
 
 `probe-prepare` installs fixed public probe code in a separate restricted namespace.
 Browser preflight checks effective SSH and local Kubernetes logging before viewer

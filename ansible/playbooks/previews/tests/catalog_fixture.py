@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from playbooks.previews.files.contract import canonical, digest, names, runtime_catalog, repository as validate_repository
 from playbooks.keycloak.files.private_source import decode_contents
+from playbooks.argocd.files.github_setup import GitHubHTTPError
 
 JOURNALS = Path('/recovery/previews')
 
@@ -281,7 +282,17 @@ def delete_branch(api, repository, node_id, branch, head, receipt, save):
         raise ValueError('Fixture ref deletion requires exact scoped coordinates')
     prefix = 'repos/' + repository
     route = prefix + '/git/ref/heads/' + quote(branch, safe='/')
-    current = api.request('GET', route, missing=True)
+    def observe():
+        try: value = api.request('GET', route)
+        except GitHubHTTPError as error:
+            if error.status == 404: return None
+            raise
+        if (not isinstance(value, dict) or not isinstance(value.get('object'), dict) or
+                not isinstance(value['object'].get('sha'), str) or not re.fullmatch('[a-f0-9]{40}', value['object']['sha']) or
+                'ref' in value and value['ref'] != 'refs/heads/' + branch):
+            raise ValueError('Fixture ref observation is unavailable or malformed')
+        return value
+    current = observe()
     if current is not None:
         if current['object']['sha'] != head:
             raise ValueError('Fixture cleanup head changed; branch deletion refused')
@@ -298,7 +309,7 @@ def delete_branch(api, repository, node_id, branch, head, receipt, save):
                 not isinstance(result['data'].get('updateRefs'), dict) or
                 result['data']['updateRefs'].get('clientMutationId') != mutation_id):
             raise RuntimeError('Fixture atomic deletion failed; provider diagnostics withheld')
-        if api.request('GET', route, missing=True) is not None:
+        if observe() is not None:
             raise RuntimeError('Fixture branch absence not confirmed; deletion receipt withheld')
     elif not receipt.get('deleteIntent'):
         raise ValueError('Fixture branch disappeared without deletion intent')

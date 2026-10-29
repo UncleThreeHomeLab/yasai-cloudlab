@@ -1,11 +1,31 @@
 import copy
 import unittest
+from unittest.mock import patch
 
 from fixtures import PrivatePreviewGit
 from playbooks.previews.tests import catalog_fixture as fixture
 
 
 class PullFixtureTests(unittest.TestCase):
+    def test_ref_deletion_accepts_only_http404_absence_not_successful_null_or_malformed(self):
+        for phase in ('before','after'):
+            for value in (None,{},[],{'object':{'sha':'truncated'}}):
+                with self.subTest(phase=phase,value=value):
+                    self.setUp();self.create();request=self.api.request
+                    def uncertain(method,path,body=None,**kwargs):
+                        if method=='GET' and '/git/ref/heads/' in path and (phase=='before' or self.api.head is None):return value
+                        return request(method,path,body,**kwargs)
+                    with patch.object(self.api,'request',side_effect=uncertain):
+                        with self.assertRaises(ValueError):fixture.delete_branch(self.api,self.receipt['repository'],
+                            self.receipt['repositoryNodeId'],self.receipt['branch'],self.receipt['head'],self.receipt,self.save)
+                    self.assertFalse(self.receipt['deleted'])
+                    if phase=='before':self.assertFalse(any(path=='graphql' for _,path,_ in self.api.writes))
+                    else:
+                        self.assertTrue(self.receipt['deleteIntent']);self.assertIsNone(self.api.head)
+                        fixture.delete_branch(self.api,self.receipt['repository'],self.receipt['repositoryNodeId'],
+                            self.receipt['branch'],self.receipt['head'],self.receipt,self.save)
+                        self.assertTrue(self.receipt['deleted'])
+
     def setUp(self):
         self.api, self.nonce, self.slot = PrivatePreviewGit(), 'a' * 32, 'a'
         self.receipt = fixture.pull_receipt(self.api, 'example/private', self.nonce, self.slot)

@@ -16,7 +16,7 @@ from playbooks.previews.files.contract import digest
 ROOT = Path(__file__).resolve().parents[4]
 ACTIONS = ('inspect', 'viewer-provision', 'viewer-stage', 'viewer-propose', 'viewer-merge', 'viewer-enroll',
            'viewer-observe', 'offboard-propose', 'offboard-merge', 'viewer-offboard', 'pr-create', 'pr-advance', 'pr-cleanup', 'browser',
-           'approval-prepare', 'approval-abandon', 'catalog-prepare', 'catalog-reprepare', 'catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire', 'lifecycle-observe',
+           'approval-prepare', 'approval-abandon', 'catalog-prepare', 'catalog-reprepare', 'catalog-propose', 'catalog-review', 'catalog-merge', 'catalog-retire', 'catalog-abandon', 'lifecycle-observe',
            'custody-install', 'custody-observe', 'probe-prepare', 'probe-observe', 'probe-cleanup', 'retained-create', 'retained-observe', 'retained-delete',
            'outage-prepare', 'outage-observe', 'outage-fault', 'outage-restore', 'outage-cleanup')
 
@@ -111,6 +111,11 @@ def publication_merge(api, values, state, save, *, offboard=False):
 def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='approve'):
     if action != 'inspect' and 'baseline' not in state:
         raise ValueError('Inspect and journal the private/cluster baseline first')
+    if action == 'catalog-abandon':
+        from playbooks.previews.tests.approval_fixture import abandon_check
+        if slot is not None: raise ValueError('Catalog cancellation does not accept a PR slot')
+        abandon_check(state)
+        return
     if action.startswith('custody-') and (slot is not None or not state.get('enrolled') or 'offboarding' in state):
         raise ValueError('Custody preparation requires the enrolled owned viewer and no PR slot')
     if action.startswith(('probe-', 'retained-', 'outage-')):
@@ -123,7 +128,7 @@ def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='appro
                      'probe-observe', 'probe-cleanup', 'retained-observe', 'retained-delete', 'outage-observe', 'outage-restore', 'outage-cleanup')
         if action.startswith('catalog-') and action != 'catalog-retire':
             from playbooks.previews.tests.approval_fixture import current
-            reducing = (mode if action == 'catalog-prepare' else current(state)['mode']) in ('withdraw', 'orphan-d', 'cleanup', 'finalize')
+            reducing = (mode if action == 'catalog-prepare' else current(state)['mode']) in ('withdraw', 'orphan-b', 'orphan-d', 'cleanup', 'finalize')
         else:
             reducing = False
         if action not in permitted and not reducing:
@@ -134,7 +139,7 @@ def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='appro
                     not state.get('pulls', {}).get(value, {}).get('head') for value in batch)):
             raise ValueError('Prepare only the exact enrolled owned PR pair and bounded lifetime')
     if action.startswith('catalog-'):
-        from playbooks.previews.tests.approval_fixture import current, MODES, orphan_rows
+        from playbooks.previews.tests.approval_fixture import current, MODES, ORPHAN_BATCHES, orphan_rows
         if slot is not None:
             raise ValueError('Catalog transitions do not accept a PR slot')
         if action == 'catalog-prepare':
@@ -142,12 +147,12 @@ def prerequisites(action, state, slot, *, batch='ab', lifetime=3000, mode='appro
                 raise ValueError('Catalog transition requires a fixed batch and mode')
             if mode != 'finalize' and any('row' not in state.get('approvals', {}).get(value, {}) for value in batch):
                 raise ValueError('Prepare the exact owned approval pair first')
-            if mode == 'orphan-d':
-                orphan_rows(state, batch)
+            if mode in ORPHAN_BATCHES:
+                orphan_rows(state, batch, mode)
         elif action != 'catalog-retire':
             record = current(state)
-            if record['mode'] == 'orphan-d':
-                orphan_rows(state, record['batch'])
+            if record['mode'] in ORPHAN_BATCHES:
+                orphan_rows(state, record['batch'], record['mode'])
     if action == 'lifecycle-observe' and not state.get('approvals'):
         raise ValueError('Prepare owned approvals before lifecycle observation')
     if action == 'browser' and (not state.get('enrolled') or 'offboarding' in state or
@@ -204,6 +209,12 @@ def execute(action, values, state, save, slot=None, *, batch='ab', lifetime=3000
     if action == 'approval-abandon':
         from playbooks.previews.tests.approval_fixture import abandon_preparation
         abandon_preparation(state, save)
+        return
+    if action == 'catalog-abandon':
+        from playbooks.previews.tests.approval_fixture import abandon_catalog, abandon_check
+        if not abandon_check(state):
+            with session.private_context(values, write=True) as api:
+                abandon_catalog(api, values, state, save)
         return
     intent = {'action': action, 'slot': slot}
     if action == 'approval-prepare':

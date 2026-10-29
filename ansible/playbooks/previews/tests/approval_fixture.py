@@ -20,7 +20,8 @@ from playbooks.keycloak.tests import scoped_session as session
 from playbooks.keycloak.files.private_source import decode_contents
 
 PATH = 'previews/catalog.json'
-MODES = ('approve', 'withdraw', 'orphan-d', 'cleanup', 'finalize')
+ORPHAN_BATCHES = {'orphan-b': 'ab', 'orphan-d': 'cd'}
+MODES = ('approve', 'withdraw', *ORPHAN_BATCHES, 'cleanup', 'finalize')
 
 
 def slots(batch):
@@ -38,11 +39,11 @@ def cleanup_absent(state, instance):
     return bool(evidence.get('absent') or evidence.get('cleanupOnlyAbsent'))
 
 
-def orphan_rows(state, batch):
-    if batch != 'cd':
-        raise ValueError('Orphan withdrawal is limited to the exact C/D pair')
+def orphan_rows(state, batch, mode=None, *, reducing=False):
+    if mode is not None and ORPHAN_BATCHES.get(mode) != batch:
+        raise ValueError('Orphan withdrawal requires its fixed approval pair')
     selected = []
-    for slot in ('c', 'd'):
+    for slot in slots(batch):
         record = state.get('approvals', {}).get(slot, {})
         row = record.get('row'); pull = state.get('pulls', {}).get(slot, {})
         contract.approval(row)
@@ -56,19 +57,35 @@ def orphan_rows(state, batch):
             raise ValueError('Orphan withdrawal requires the exact saved source receipts')
         selected.append(row)
     if selected[0]['instance'] == selected[1]['instance'] or selected[0]['pullRequest'] == selected[1]['pullRequest']:
-        raise ValueError('Orphan withdrawal requires distinct C/D sources')
+        raise ValueError('Orphan withdrawal requires distinct sources')
+    if batch == 'ab':
+        from playbooks.previews.tests.probe_inspection import validate_result
+        proof = state.get('browserProof')
+        expected = {slot: {'instance': row['instance'], 'approvalDigest': contract.digest(contract.canonical(row))}
+                    for slot, row in zip(slots(batch), selected)}
+        platform = selected[0]['platformRevision'] if reducing else state.get('executionPlatform')
+        if (not isinstance(proof, dict) or
+                any(proof.get(key) is not True for key in ('authentication', 'audiences', 'callbacks', 'origins')) or
+                state.get('browserAttempted') is not True or state.get('browserFailed') is True or
+                proof.get('platform') != platform or any(row['platformRevision'] != platform for row in selected) or
+                proof.get('approvals') != expected or state.get('browserApprovals') != expected or
+                not isinstance(proof.get('dataplane'), dict) or
+                proof['dataplane'].get('revision') != platform or
+                proof['dataplane'].get('digests') != [expected[slot]['approvalDigest'] for slot in slots(batch)]):
+            raise ValueError('Orphan B requires successful exact current A/B browser proof')
+        validate_result(proof['dataplane'].get('result'), 'probe')
     return selected
 
 
-def verify_orphan(api, state, repo, batch):
-    selected = orphan_rows(state, batch)
-    for slot, row in zip(('c', 'd'), selected):
+def verify_orphan(api, state, repo, batch, mode):
+    selected = orphan_rows(state, batch, mode)
+    for slot, row in zip(slots(batch), selected):
         if row['repository'] != repo:
             raise ValueError('Orphan withdrawal source repository changed')
         contract.validate_pull(row, fixture.verified_pull(api, state['pulls'][slot], state['nonce'], slot))
     now = int(time.time())
     if any(not row['createdAt'] <= now < row['expiresAt'] for row in selected):
-        raise ValueError('Orphan withdrawal must precede C/D expiry')
+        raise ValueError('Orphan withdrawal must precede ' + batch.upper()[0] + '/' + batch.upper()[1] + ' expiry')
 
 
 def abandon_preparation(state, save):
@@ -288,6 +305,8 @@ def current(state):
     history = state.get('catalogProposals', [])
     if not history:
         raise ValueError('Prepare the exact catalog delta first')
+    if history[-1].get('catalogAbandoned') is True:
+        raise ValueError('Abandoned catalog proposals cannot resume publication')
     if state.get('abandonedPreparation') and history[-1]['mode'] == 'approve':
         raise ValueError('Abandoned preparation cannot resume an execution approval proposal')
     return history[-1]
@@ -306,7 +325,7 @@ def catalog_prepare(api, values, state, save, batch, mode):
         raise ValueError('Unknown bounded catalog transition')
     if mode == 'approve' and state.get('abandonedPreparation'):
         raise ValueError('Abandoned preparation cannot publish execution authority')
-    orphan = orphan_rows(state, batch) if mode == 'orphan-d' else None
+    orphan = orphan_rows(state, batch, mode) if mode in ORPHAN_BATCHES else None
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
     if orphan and any(row['repository'] != repo for row in orphan):
         raise ValueError('Orphan withdrawal source repository changed')
@@ -325,8 +344,8 @@ def catalog_prepare(api, values, state, save, batch, mode):
         for row in selected:
             if (row['repository'] != repo or pair[row['instance']] != {'approval': row,
                     'ownership': row['instance'] + ':' + contract.digest(contract.canonical(row))}):
-                raise ValueError('Orphan withdrawal requires unchanged C/D catalog authority')
-        verify_orphan(api, state, repo, batch)
+                raise ValueError('Orphan withdrawal requires unchanged pair catalog authority')
+        verify_orphan(api, state, repo, batch, mode)
         selected = selected[-1:]
     ids = list(owned) if mode == 'finalize' else [row['instance'] for row in selected]
     expected = fixture.entries(snapshot['catalog'], ids)
@@ -359,7 +378,8 @@ def catalog_prepare(api, values, state, save, batch, mode):
     previous = state.get('catalogProposals', [])
     if len(previous) >= 32:
         raise ValueError('Fixture proposal history reached its bounded capacity')
-    if previous and previous[-1].get('stage') not in ('merged', 'retired') and previous[-1]['snapshot'] == snapshot:
+    if (previous and previous[-1].get('stage') not in ('merged', 'retired') and
+            previous[-1].get('catalogAbandoned') is not True and previous[-1]['snapshot'] == snapshot):
         if previous[-1]['document'] != document:
             raise ValueError('Finish or explicitly reprepare the pending catalog transition')
         return
@@ -391,8 +411,8 @@ def propose(api, values, state, save):
     repo = proposal_scope(api, values, record)
     if record['stage'] == 'merged':
         return
-    if record['mode'] == 'orphan-d':
-        verify_orphan(api, state, repo, record['batch'])
+    if record['mode'] in ORPHAN_BATCHES:
+        verify_orphan(api, state, repo, record['batch'], record['mode'])
     if fixture.inspect(api, repo) != record['snapshot']:
         raise ValueError('Catalog base advanced; prepare a fresh delta without overwriting')
     files = {PATH: json.dumps({'catalog': record['document']['catalog']}, sort_keys=True, indent=2) + '\n'}
@@ -411,8 +431,8 @@ def propose(api, values, state, save):
 def review(api, values, state, save):
     record = current(state)
     repo = proposal_scope(api, values, record)
-    if record['mode'] == 'orphan-d':
-        verify_orphan(api, state, repo, record['batch'])
+    if record['mode'] in ORPHAN_BATCHES:
+        verify_orphan(api, state, repo, record['batch'], record['mode'])
     prefix = 'repos/' + repo
     number, head = record.get('number'), record.get('head')
     if type(number) is not int or not isinstance(head, str) or not re.fullmatch('[a-f0-9]{40}', head):
@@ -474,6 +494,154 @@ def merge(api, values, state, save):
     save()
 
 
+def retirement_proposal(api, values, record, save):
+    """Validate one recorded proposal without granting general resource cleanup."""
+    repo = proposal_scope(api, values, record)
+    target = fixture.pull_repository(api, repo)
+    if record.get('refRejected'):
+        raise ValueError('Rejected ref creation has no cleanup ownership')
+    head, branch = record['refIntent']['sha'], record['branch']
+    if record['refIntent'] != {'ref': 'refs/heads/' + branch, 'sha': head} or record.get('createdHead') != head:
+        raise ValueError('Proposal cleanup lacks an exact owned ref creation intent')
+    prefix = 'repos/' + repo
+    files = record.get('prepared') or {PATH: json.dumps({'catalog': record['document']['catalog']}, sort_keys=True, indent=2) + '\n'}
+    scope = branch.split('/')[0]
+    Publication(api, repo, record, save, scope, files, record['snapshot']['revision']).associations()
+    commit = api.request('GET', prefix + '/git/commits/' + head)
+    difference = api.request('GET', prefix + '/compare/' + record['snapshot']['revision'] + '...' + head)
+    if ([parent['sha'] for parent in commit.get('parents', [])] != [record['snapshot']['revision']] or
+            difference.get('total_commits') != 1 or {item['filename'] for item in difference.get('files', [])} != set(files) or
+            any(item.get('status') not in ('added', 'modified') or 'previous_filename' in item for item in difference.get('files', []))):
+        raise ValueError('Owned proposal commit scope changed before cleanup')
+    for path, raw in files.items():
+        if decode_contents(api.request('GET', prefix + '/contents/' + path + '?ref=' + head)) != raw.encode():
+            raise ValueError('Owned proposal content differs before cleanup')
+    pull = None
+    if record.get('number'):
+        pull = api.request('GET', prefix + '/pulls/' + str(record['number']))
+        if (pull['head']['sha'] != head or pull['head']['ref'] != branch or
+                not record.get('pullBody') or pull.get('body') != record['pullBody'] or record.get('pullRejected') or
+                pull.get('base', {}).get('ref') != 'main' or
+                any(pull.get(side, {}).get('repo', {}).get('id') != target['id'] for side in ('base', 'head'))):
+            raise ValueError('Proposal PR identity changed before cleanup')
+    return repo, target, branch, head, pull
+
+
+def cancellation_fingerprint(record):
+    return contract.digest(contract.canonical({key: value for key, value in record.items()
+        if key not in ('stage', 'closeIntent', 'deleteIntent', 'deleted', 'catalogAbandoned', 'cancellation')}))
+
+
+def abandon_check(state):
+    history = state.get('catalogProposals', [])
+    if not history:
+        raise ValueError('Only the exact interrupted orphan review can be abandoned')
+    record = history[-1]
+    cancel = record.get('cancellation')
+    if cancel is not None:
+        if (not isinstance(cancel, dict) or set(cancel) != {'prior', 'index', 'fingerprint', 'identity', 'stage'} or
+                cancel['prior'] != {'action': 'catalog-review', 'slot': None} or type(cancel['index']) is not int or
+                cancel['index'] != len(history)-1 or cancel['stage'] not in ('canceling', 'abandoned')):
+            raise ValueError('Catalog cancellation differs from its exact durable intent')
+        identity = cancel['identity']
+        if (not isinstance(identity, dict) or set(identity) != {'source', 'number', 'branch', 'head', 'node', 'base'} or
+                any(identity[key] != record.get(key) for key in ('source', 'number', 'branch', 'head')) or
+                cancel['fingerprint'] != cancellation_fingerprint(record)):
+            raise ValueError('Catalog cancellation proposal changed')
+        if cancel['stage'] == 'abandoned':
+            if (state.get('intent') is not None or record.get('catalogAbandoned') is not True or
+                    record.get('stage') != 'abandoned' or record.get('deleted') is not True or record.get('closeIntent') is not True):
+                raise ValueError('Completed catalog cancellation cannot replace another intent')
+            return True
+        if state.get('intent') != {'action': 'catalog-abandon', 'slot': None}:
+            raise ValueError('Resume only the exact catalog cancellation')
+    else:
+        if state.get('intent') != {'action': 'catalog-review', 'slot': None} or not history:
+            raise ValueError('Only the exact interrupted orphan review can be abandoned')
+        record = history[-1]
+        if any(key in record for key in ('closeIntent', 'deleteIntent', 'deleted', 'catalogAbandoned')):
+            raise ValueError('Catalog cancellation requires its original proposal receipts')
+    if (ORPHAN_BATCHES.get(record.get('mode')) != record.get('batch') or record.get('stage') != 'proposed' or
+            record.get('refCreated') is not True or record.get('pullIntent') is not True or
+            any(key in record for key in ('refRejected', 'pullRejected')) or
+            type(record.get('number')) is not int or record['number'] < 1 or
+            not isinstance(record.get('head'), str) or not re.fullmatch('[a-f0-9]{40}', record['head']) or
+            record.get('createdHead') != record['head'] or
+            not re.fullmatch('previews/desired-[a-f0-9]{20}', record.get('branch', '')) or
+            record.get('refIntent') != {'ref': 'refs/heads/'+record['branch'], 'sha': record['head']} or
+            record.get('prepared') not in (None, {PATH: json.dumps({'catalog': record['document']['catalog']}, sort_keys=True, indent=2)+'\n'})):
+        raise ValueError('Only an exact owned proposed orphan delta can be abandoned')
+    selected = orphan_rows(state, record['batch'], record['mode'], reducing=True)
+    expected = fixture.entries(record['snapshot']['catalog'], [row['instance'] for row in selected])
+    for row in selected:
+        if (row['repository'] != record['source']['repository'] or
+                expected[row['instance']] != {'approval': row,
+                    'ownership': row['instance'] + ':' + contract.digest(contract.canonical(row))}):
+            raise ValueError('Cancellation immutable rows differ from the original catalog')
+    victim = selected[-1]['instance']
+    document = fixture.update(record['snapshot'], {victim: expected[victim]}, {victim: None})
+    body = ('Review the complete private preview approvals and retained namespace authorizations. '
+            'No automatic merge or production credential change is authorized.\n\n<!-- owned-request:')
+    if (record['document'] != document or not isinstance(record.get('pullBody'), str) or
+            not re.fullmatch(re.escape(body) + '[a-f0-9]{32} -->', record['pullBody'])):
+        raise ValueError('Cancellation differs from its exact owned orphan delta')
+    now = int(time.time())
+    for slot, row in zip(slots(record['batch']), selected):
+        saved = state['approvals'][slot]
+        if (now < row['expiresAt'] or saved.get('artifact') != {'instance': row['instance'],
+                'sha256': contract.digest(contract.canonical(row))} or
+                saved.get('createdAt', row['createdAt']) != row['createdAt'] or
+                saved.get('lifetime', row['expiresAt']-row['createdAt']) != row['expiresAt']-row['createdAt']):
+            raise ValueError('Both immutable pair approvals must expire before cancellation')
+    return False
+
+
+def abandoned_pull(record, pull, expected=None):
+    if (not isinstance(pull, dict) or pull.get('number') != record['number'] or pull.get('merged') is not False or
+            pull.get('merged_at') is not None or pull.get('state') not in ('open', 'closed') or
+            not isinstance(pull.get('node_id'), str) or not 1 <= len(pull['node_id']) <= 256 or
+            not isinstance(pull.get('base', {}).get('sha'), str) or not re.fullmatch('[a-f0-9]{40}', pull['base']['sha']) or
+            pull.get('head', {}).get('sha') != record['head'] or pull['head'].get('ref') != record['branch'] or
+            pull.get('body') != record['pullBody'] or pull['base'].get('ref') != 'main' or
+            any(pull.get(side, {}).get('repo', {}).get('full_name') != record['source']['repository'] or
+                pull[side]['repo'].get('id') != record['source']['id'] for side in ('head', 'base'))):
+        raise ValueError('Catalog cancellation requires the unchanged unmerged owned PR')
+    identity = {key: copy.deepcopy(record[key]) for key in ('source', 'number', 'branch', 'head')}
+    identity.update(node=pull['node_id'], base=pull['base']['sha'])
+    if expected is not None and identity != expected:
+        raise ValueError('Catalog cancellation PR identity changed')
+    return identity
+
+
+def abandon_catalog(api, values, state, save):
+    if abandon_check(state): return
+    record = state['catalogProposals'][-1]
+    repo, target, branch, head, pull = retirement_proposal(api, values, record, save)
+    cancel = record.get('cancellation')
+    identity = abandoned_pull(record, pull, cancel['identity'] if cancel else None)
+    if cancel is None:
+        record['cancellation'] = cancel = {'prior': copy.deepcopy(state['intent']),
+            'index': len(state['catalogProposals'])-1, 'fingerprint': cancellation_fingerprint(record),
+            'identity': identity, 'stage': 'canceling'}
+        state['intent'] = {'action': 'catalog-abandon', 'slot': None}
+        save()
+    record['closeIntent'] = True; save()
+    pull = api.request('GET', 'repos/'+repo+'/pulls/'+str(record['number']))
+    abandoned_pull(record, pull, cancel['identity'])
+    if pull['state'] != 'closed':
+        api.request('PATCH', 'repos/'+repo+'/pulls/'+str(record['number']), {'state': 'closed'})
+    _, _, _, _, closed = retirement_proposal(api, values, record, save)
+    abandoned_pull(record, closed, cancel['identity'])
+    if closed['state'] != 'closed':
+        raise ValueError('Catalog cancellation close did not converge')
+    fixture.delete_branch(api, repo, target['node_id'], branch, head, record, save)
+    closed = api.request('GET', 'repos/'+repo+'/pulls/'+str(record['number']))
+    abandoned_pull(record, closed, cancel['identity'])
+    if closed['state'] != 'closed': raise ValueError('Catalog proposal reopened during cancellation')
+    record.update(stage='abandoned', catalogAbandoned=True)
+    cancel['stage'] = 'abandoned'; state['intent'] = None; save()
+
+
 def retire_proposals(api, values, state, save):
     if any(not cleanup_absent(state, instance) for instance in rows(state)):
         raise ValueError('Owned execution must be absent before proposal ref cleanup')
@@ -484,36 +652,12 @@ def retire_proposals(api, values, state, save):
         raise ValueError('Withdraw owned execution approvals before proposal cleanup')
     records = list(state.get('catalogProposals', [])) + [state[key] for key in ('membership', 'offboarding') if key in state]
     for record in records:
-        if record.get('stage') == 'retired' or not record.get('refIntent'):
+        if record.get('stage') == 'retired' or record.get('catalogAbandoned') is True or not record.get('refIntent'):
             continue
-        if record.get('refRejected'):
-            raise ValueError('Rejected ref creation has no cleanup ownership')
-        proposal_scope(api, values, record)
-        head, branch = record['refIntent']['sha'], record['branch']
-        if record['refIntent'] != {'ref': 'refs/heads/' + branch, 'sha': head} or record.get('createdHead') != head:
-            raise ValueError('Proposal cleanup lacks an exact owned ref creation intent')
-        prefix = 'repos/' + repo
-        files = record.get('prepared') or {PATH: json.dumps({'catalog': record['document']['catalog']}, sort_keys=True, indent=2) + '\n'}
-        scope = branch.split('/')[0]
-        Publication(api, repo, record, save, scope, files, record['snapshot']['revision']).associations()
-        commit = api.request('GET', prefix + '/git/commits/' + head)
-        difference = api.request('GET', prefix + '/compare/' + record['snapshot']['revision'] + '...' + head)
-        if ([parent['sha'] for parent in commit.get('parents', [])] != [record['snapshot']['revision']] or
-                difference.get('total_commits') != 1 or {item['filename'] for item in difference.get('files', [])} != set(files) or
-                any(item.get('status') not in ('added', 'modified') or 'previous_filename' in item for item in difference.get('files', []))):
-            raise ValueError('Owned proposal commit scope changed before cleanup')
-        for path, raw in files.items():
-            if decode_contents(api.request('GET', prefix + '/contents/' + path + '?ref=' + head)) != raw.encode():
-                raise ValueError('Owned proposal content differs before cleanup')
-        if record.get('number'):
-            pull = api.request('GET', prefix + '/pulls/' + str(record['number']))
-            if (pull['head']['sha'] != head or pull['head']['ref'] != branch or
-                    not record.get('pullBody') or pull.get('body') != record['pullBody'] or record.get('pullRejected') or
-                    pull.get('base', {}).get('ref') != 'main' or
-                    any(pull.get(side, {}).get('repo', {}).get('id') != target['id'] for side in ('base', 'head'))):
-                raise ValueError('Proposal PR identity changed before cleanup')
+        _, _, branch, head, pull = retirement_proposal(api, values, record, save)
+        if pull is not None:
             if pull['state'] != 'closed':
-                api.request('PATCH', prefix + '/pulls/' + str(record['number']), {'state': 'closed'})
+                api.request('PATCH', 'repos/'+repo+'/pulls/' + str(record['number']), {'state': 'closed'})
         fixture.delete_branch(api, repo, target['node_id'], branch, head, record, save)
         record['stage'] = 'retired'
         save()
