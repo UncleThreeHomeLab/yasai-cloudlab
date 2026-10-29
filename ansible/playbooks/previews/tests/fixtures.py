@@ -248,6 +248,17 @@ class CatalogGit:
             'base': {'sha': self.commits.get(self.head or self.last_head, {}).get('parents', [{'sha': self.main}])[0]['sha'], 'ref': 'main', 'repo': repo}}
 
 
+def preview_owner(revision='c'*40, health='Healthy'):
+    return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+        'metadata': {'name': 'cloudlab-previews', 'namespace': 'argocd', 'uid': 'preview-owner',
+            'labels': {'cloudlab.io/owner': 'cloudlab-previews'}},
+        'spec': {'project': 'cloudlab-previews',
+            'sources': [{'repoURL': 'https://github.com/example/platform.git',
+                'targetRevision': revision, 'path': 'platform/delivery/previews'}],
+            'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}},
+        'status': {'sync': {'status': 'Synced', 'revisions': [revision]}, 'health': {'status': health}}}
+
+
 def orphan_pair(api, batch='cd'):
     nonce = 'e' * 32
     state = {'nonce': nonce, 'approvals': {}, 'pulls': {}}

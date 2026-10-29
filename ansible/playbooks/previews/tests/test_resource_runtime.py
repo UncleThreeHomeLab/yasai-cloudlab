@@ -14,6 +14,89 @@ from playbooks.previews.tests import fixtures, resource_runtime as runtime
 
 
 class ResourceTests(unittest.TestCase):
+    def test_degraded_platform_allows_only_named_retained_recovery_and_keeps_host_custody_strict(self):
+        from playbooks.previews.tests import probe_state
+        key=('argoproj.io/v1alpha1','Application','argocd','cloudlab-previews')
+        for health in ('Healthy','Degraded','Progressing','Missing',None):
+            for action in (None,*runtime.ACTIONS):
+                with self.subTest(health=health,action=action):
+                    api=fixtures.ResourceAPI();api.objects[key]=fixtures.preview_owner(health=health)
+                    request={'revision':'c'*40}
+                    if action is not None:request['action']=action
+                    if health=='Healthy' or health=='Degraded' and action in ('retained-observe','retained-delete'):
+                        self.assertEqual(runtime.platform(request,api),'https://github.com/example/platform.git')
+                    else:
+                        with self.assertRaises(ValueError):runtime.platform(request,api)
+                    self.assertEqual(api.writes,[])
+        api.objects[key]=fixtures.preview_owner(health='Degraded')
+        with patch.object(runtime,'HostKubernetes',return_value=api),self.assertRaises(ValueError):
+            probe_state.host_owner('c'*40)
+
+    def test_degraded_retained_platform_refuses_changed_source_sync_and_owner_without_writes(self):
+        key=('argoproj.io/v1alpha1','Application','argocd','cloudlab-previews')
+        cases=('target','observed','sync','sync-missing','repository','uid','uid-type','label','project',
+               'chart','server','namespace','destination-extra','operation','deleting','owners','finalizers')
+        for action in ('retained-observe','retained-delete'):
+            for case in cases:
+                with self.subTest(action=action,case=case):
+                    api=fixtures.ResourceAPI();owner=fixtures.preview_owner(health='Degraded');api.objects[key]=owner
+                    source=owner['spec']['sources'][0];meta=owner['metadata'];status=owner['status']
+                    if case=='target':source['targetRevision']='f'*40
+                    elif case=='observed':status['sync']['revisions']=['f'*40]
+                    elif case=='sync':status['sync']['status']='OutOfSync'
+                    elif case=='sync-missing':status['sync'].pop('status')
+                    elif case=='repository':source['repoURL']='https://example.invalid/private.git'
+                    elif case=='uid':meta.pop('uid')
+                    elif case=='uid-type':meta['uid']=True
+                    elif case=='label':meta['labels']['cloudlab.io/owner']='foreign'
+                    elif case=='project':owner['spec']['project']='default'
+                    elif case=='chart':source['path']='foreign/chart'
+                    elif case=='server':owner['spec']['destination']['server']='https://example.invalid'
+                    elif case=='namespace':owner['spec']['destination']['namespace']='foreign'
+                    elif case=='destination-extra':owner['spec']['destination']['name']='foreign'
+                    elif case=='operation':owner['operation']={'sync':{}}
+                    elif case=='deleting':meta['deletionTimestamp']='synthetic'
+                    elif case=='owners':meta['ownerReferences']=[{'uid':'foreign'}]
+                    elif case=='finalizers':meta['finalizers']=['retain']
+                    before=copy.deepcopy(api.objects)
+                    with self.assertRaises(ValueError):runtime.platform({'action':action,'revision':'c'*40},api)
+                    self.assertEqual(api.writes,[]);self.assertEqual(api.objects,before)
+
+    def test_actual_retained_run_recovers_degraded_owner_without_changing_original_receipts_or_foreign_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);request,api,_=self.retained_fixture(directory)
+            owner_key=('argoproj.io/v1alpha1','Application','argocd','cloudlab-previews')
+            api.objects[owner_key]=fixtures.preview_owner()
+            with patch.object(runtime,'ROOT',root),patch.object(runtime,'HostKubernetes',return_value=api):
+                self.assertTrue(runtime.run(request)['retained'])
+                target=root/request['nonce']/'state.json';original_receipt=target.read_bytes()
+                ns=fixtures.names(request['rows'][0])['namespace'];key=('v1','ConfigMap',ns,'retained-proof')
+                namespace_key=('v1','Namespace','',ns)
+                api.objects[('v1','ConfigMap',ns,'foreign')]=runtime.obj(request['nonce'],'v1','ConfigMap','foreign',ns,
+                    data={'user':'retain'})
+                api.objects[owner_key]=fixtures.preview_owner(revision='f'*40,health='Degraded')
+                request=dict(request,action='retained-observe',revision='f'*40)
+                before=copy.deepcopy(api.objects);writes=copy.deepcopy(api.writes)
+                self.assertTrue(runtime.run(request)['retained'])
+                self.assertEqual(api.objects,before);self.assertEqual(api.writes,writes)
+                self.assertEqual(target.read_bytes(),original_receipt)
+                for drift in ('data','namespace'):
+                    with self.subTest(drift=drift):
+                        if drift=='data':api.objects[key]['data']['user']='retain'
+                        else:api.objects[namespace_key]['metadata']['uid']='foreign'
+                        with self.assertRaises(ValueError):runtime.run(dict(request,action='retained-delete'))
+                        self.assertEqual(api.writes,writes);self.assertEqual(target.read_bytes(),original_receipt)
+                        api.objects=copy.deepcopy(before)
+                self.assertFalse(runtime.run(dict(request,action='retained-delete'))['retained'])
+                expected=copy.deepcopy(before);expected.pop(key)
+                self.assertEqual(api.objects,expected)
+                self.assertEqual(api.writes[len(writes):],[('delete',key)])
+                saved=json.loads(target.read_text());original=json.loads(original_receipt)
+                self.assertEqual(saved['revision'],original['revision'])
+                record=saved['resources']['/'.join(key)]
+                self.assertTrue(record['deleteIntent']);self.assertTrue(record['deleted'])
+                self.assertEqual(record['uid'],original['resources']['/'.join(key)]['uid'])
+
     def test_native_batch_float_overflow_refuses_named_and_collection_objects(self):
         api=runtime.HostKubernetes();key=('v1','Pod','owned','probe')
         for mode in ('named','collections'):
