@@ -12,6 +12,186 @@ from playbooks.previews.tests import approval_fixture as approval, catalog_fixtu
 
 
 class ApprovalTests(unittest.TestCase):
+    def expired_orphan_proposal(self, batch='cd'):
+        api=fixtures.CatalogGit();state=fixtures.orphan_pair(api,batch)
+        values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
+        with patch.object(approval.time,'time',return_value=1200):
+            approval.catalog_prepare(api,values,state,Mock(),batch,'orphan-'+batch[-1])
+            approval.propose(api,values,state,Mock())
+        state.update(viewer={'nonce':state['nonce'],'realm':'applications'},baseline={},
+                     intent={'action':'catalog-review','slot':None})
+        api.writes.clear()
+        return api,state,values
+
+    def test_catalog_abandon_local_and_remote_negatives_never_close_or_delete(self):
+        cases=('intent','slot','mode','batch','stage','unexpired','malformed','ref-rejected','pull-rejected',
+               'ref-created','pull-intent','head','body','bytes','parent','repository','foreign','merged')
+        for case in cases:
+            with self.subTest(case=case):
+                api,state,values=self.expired_orphan_proposal();record=state['catalogProposals'][-1]
+                if case=='intent':state['intent']={'action':'catalog-merge','slot':None}
+                elif case=='mode':record['mode']='approve'
+                elif case=='batch':record['batch']='ab'
+                elif case=='stage':record['stage']='merging'
+                elif case=='malformed':state['approvals']['d']['row']['expiresAt']=True
+                elif case=='ref-rejected':record['refRejected']=422
+                elif case=='pull-rejected':record['pullRejected']=422
+                elif case=='ref-created':record['refCreated']=False
+                elif case=='pull-intent':record['pullIntent']=False
+                elif case=='head':api.head='f'*40
+                elif case=='body':api.pull_body+=' changed'
+                elif case=='bytes':api.documents[api.head]=b'{"changed":true}'
+                elif case=='parent':api.commits[api.head]['parents']=[{'sha':'f'*40}]
+                elif case=='repository':record['source']['nodeId']='foreign'
+                elif case=='merged':api.merged=True
+                request=api.request
+                def foreign(method,path,body=None,**kwargs):
+                    result=request(method,path,body,**kwargs)
+                    if case=='foreign' and '/pulls?state=all' in path:return result+[dict(result[0],number=99)]
+                    return result
+                save=Mock()
+                with patch.object(approval.time,'time',return_value=1200 if case=='unexpired' else 3000), \
+                        patch.object(api,'request',side_effect=foreign),patch.object(live.session,'private_context') as context:
+                    context.return_value.__enter__.return_value=api
+                    with self.assertRaises(ValueError):live.execute('catalog-abandon',values,state,save,'d' if case=='slot' else None)
+                self.assertEqual(api.writes,[]);self.assertNotIn('cancellation',record)
+                self.assertEqual(state['intent'],{'action':'catalog-merge' if case=='intent' else 'catalog-review','slot':None})
+
+    def test_catalog_cancellation_durable_intents_lost_replies_and_global_guard(self):
+        for failure in ('before-close','close','delete'):
+            with self.subTest(failure=failure):
+                api,state,values=self.expired_orphan_proposal();saved=[]
+                def save():saved.append(copy.deepcopy(state))
+                request=api.request;first=[True]
+                def boundary(method,path,body=None,**kwargs):
+                    if method in ('PATCH','POST'):
+                        self.assertEqual(saved[-1]['intent'],{'action':'catalog-abandon','slot':None})
+                        self.assertEqual(saved[-1]['catalogProposals'][-1]['cancellation']['prior'],{'action':'catalog-review','slot':None})
+                        self.assertTrue(saved[-1]['catalogProposals'][-1]['closeIntent'])
+                        if path=='graphql':self.assertTrue(saved[-1]['catalogProposals'][-1]['deleteIntent'])
+                    if failure=='before-close' and method=='PATCH' and first[0]:first[0]=False;raise RuntimeError('synthetic interruption')
+                    return request(method,path,body,**kwargs)
+                api.fail=failure if failure!='before-close' else None
+                with patch.object(approval.time,'time',return_value=3000),patch.object(api,'request',side_effect=boundary):
+                    with self.assertRaises(RuntimeError):approval.abandon_catalog(api,values,state,save)
+                    # Resume a real serialized cancellation, preserving original proposal binding.
+                    state=json.loads(json.dumps(state));approval.abandon_catalog(api,values,state,save)
+                    self.assertIsNone(state['intent']);self.assertTrue(state['catalogProposals'][-1]['catalogAbandoned'])
+                    self.assertIsNone(api.head);self.assertFalse(api.merged)
+                    with self.assertRaisesRegex(ValueError,'execution must be absent'):
+                        approval.retire_proposals(api,values,state,save)
+                    state['evidence']={key:{'cleanupOnlyAbsent':True} for key in approval.rows(state)}
+                    approval.catalog_prepare(api,values,state,save,'cd','cleanup')
+                    self.assertEqual(len(state['catalogProposals']),2)
+                    self.assertEqual(state['catalogProposals'][0]['stage'],'abandoned')
+                    self.assertEqual(state['catalogProposals'][1]['stage'],'prepared')
+
+    def test_catalog_cancellation_close_and_cas_races_quarantine_branch(self):
+        for race in ('head','merge','delete'):
+            with self.subTest(race=race):
+                api,state,values=self.expired_orphan_proposal();request=api.request
+                def boundary(method,path,body=None,**kwargs):
+                    if race=='delete' and path=='graphql':api.head='f'*40
+                    result=request(method,path,body,**kwargs)
+                    if method=='PATCH':
+                        if race=='head':api.head='f'*40
+                        elif race=='merge':api.merged=True
+                    return result
+                with patch.object(approval.time,'time',return_value=3000),patch.object(api,'request',side_effect=boundary):
+                    with self.assertRaises((ValueError,RuntimeError)):approval.abandon_catalog(api,values,state,Mock())
+                self.assertIsNotNone(api.head);self.assertNotIn('catalogAbandoned',state['catalogProposals'][-1])
+                self.assertEqual(state['intent'],{'action':'catalog-abandon','slot':None})
+                if race!='delete':self.assertFalse(any(path=='graphql' for _,path,_ in api.writes))
+
+    def test_cancellation_binds_original_browser_source_and_keeps_later_proposals_independent(self):
+        api,state,values=self.expired_orphan_proposal('ab')
+        original=copy.deepcopy(state)
+        state['executionPlatform']='f'*40
+        with patch.object(approval.time,'time',return_value=3000):
+            approval.abandon_catalog(api,values,state,Mock())
+            canceled=copy.deepcopy(state['catalogProposals'][0])
+            for key in ('approvals','pulls','browserProof','browserApprovals'):
+                self.assertEqual(state[key],original[key])
+            for operation in (approval.propose,approval.review,approval.merge,approval.reprepare):
+                with self.assertRaises(ValueError):operation(api,values,state,Mock())
+            state['intent']={'action':'lifecycle-observe','slot':None}
+            with self.assertRaises(ValueError):approval.abandon_catalog(api,values,state,Mock())
+            self.assertEqual(state['intent'],{'action':'lifecycle-observe','slot':None})
+            state['intent']=None
+            state['evidence']={key:{'cleanupOnlyAbsent':True} for key in approval.rows(state)}
+            approval.catalog_prepare(api,values,state,Mock(),'ab','cleanup')
+            self.assertNotIn('cancellation',approval.current(state))
+            self.assertEqual(state['catalogProposals'][0],canceled)
+            approval.propose(api,values,state,Mock());approval.review(api,values,state,Mock());approval.merge(api,values,state,Mock())
+            # A later proposal gets its own cancellation binding, preserving the previous terminal receipt.
+            later_api,later,unused=self.expired_orphan_proposal('cd')
+            state['approvals'].update(later['approvals']);state['pulls'].update(later['pulls'])
+            state['catalogProposals'].append(later['catalogProposals'][-1])
+            state['intent']={'action':'catalog-review','slot':None}
+            approval.abandon_catalog(later_api,values,state,Mock())
+            self.assertEqual(state['catalogProposals'][0],canceled)
+            self.assertEqual(state['catalogProposals'][-1]['cancellation']['index'],2)
+
+    def test_fixed_orphan_pairs_preserve_survivor_ownership_and_unrelated_catalog(self):
+        values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
+        for batch in ('ab','cd'):
+            with self.subTest(batch=batch),patch.object(approval.time,'time',return_value=1200):
+                api=fixtures.CatalogGit();state=fixtures.orphan_pair(api,batch)
+                document=json.loads(api.documents[api.main]);original=copy.deepcopy(document['catalog'])
+                extra=fixtures.approval('f'*32);extra['repository']='example/private'
+                original['approvals'].insert(1,extra)
+                original['ownership'][contract.names(extra)['namespace']]=extra['instance']+':'+contract.digest(contract.canonical(extra))
+                api.documents[api.main]=json.dumps({'catalog':original}).encode()
+                saved=copy.deepcopy(state)
+                approval.catalog_prepare(api,values,state,Mock(),batch,'orphan-'+batch[-1])
+                expected=copy.deepcopy(original)
+                victim=state['approvals'][batch[-1]]['row']['instance']
+                expected['approvals']=[row for row in original['approvals'] if row['instance']!=victim]
+                self.assertEqual(approval.current(state)['document']['catalog'],expected)
+                approval.propose(api,values,state,Mock());approval.review(api,values,state,Mock());approval.merge(api,values,state,Mock())
+                self.assertEqual(json.loads(api.documents[api.main])['catalog'],expected)
+                for key in saved:self.assertEqual(state[key],saved[key],key)
+
+    def test_orphan_b_refuses_missing_failed_mismatched_or_stale_browser_proof_before_writes(self):
+        cases=('missing','failed','attempt','platform','instance','digest','callback','audience','origin','authentication',
+               'dataplane','dataplane-source','dataplane-digests','saved-binding','crossed','expired','head','branch','definition')
+        values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
+        for case in cases:
+            with self.subTest(case=case):
+                api=fixtures.CatalogGit();state=fixtures.orphan_pair(api,'ab');proof=state['browserProof']
+                if case=='missing':state.pop('browserProof')
+                elif case=='failed':state['browserFailed']=True
+                elif case=='attempt':state['browserAttempted']=False
+                elif case=='platform':state['executionPlatform']='f'*40
+                elif case=='instance':proof['approvals']['b']['instance']='f'*32
+                elif case=='digest':proof['approvals']['b']['approvalDigest']='f'*64
+                elif case in ('callback','audience','origin','authentication'):proof[{'callback':'callbacks','audience':'audiences','origin':'origins'}.get(case,case)]=False
+                elif case=='dataplane':proof['dataplane']['result']['targets'][0]['podProtected']=False
+                elif case=='dataplane-source':proof['dataplane']['revision']='f'*40
+                elif case=='dataplane-digests':proof['dataplane']['digests'].reverse()
+                elif case=='saved-binding':state['browserApprovals']['a']['approvalDigest']='f'*64
+                elif case=='head':api.source_pulls['repos/example/private/pulls/18']['head']['sha']='f'*40
+                elif case=='branch':state['pulls']['b']['branch']+='-foreign'
+                elif case=='definition':state['approvals']['b']['row']['definition']['message']='foreign'
+                with patch.object(approval.time,'time',return_value=3000 if case=='expired' else 1200),self.assertRaises(ValueError):
+                    approval.catalog_prepare(api,values,state,Mock(),'ab','orphan-d' if case=='crossed' else 'orphan-b')
+                self.assertEqual(api.writes,[]);self.assertNotIn('catalogProposals',state)
+
+    def test_orphan_b_rechecks_browser_and_source_on_all_publication_stages(self):
+        values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
+        for operation in (approval.propose,approval.review,approval.merge):
+            for failure in ('browser','source'):
+                with self.subTest(operation=operation.__name__,failure=failure),patch.object(approval.time,'time',return_value=1200):
+                    api=fixtures.CatalogGit();state=fixtures.orphan_pair(api,'ab')
+                    approval.catalog_prepare(api,values,state,Mock(),'ab','orphan-b')
+                    if operation!=approval.propose:approval.propose(api,values,state,Mock())
+                    if operation==approval.merge:approval.review(api,values,state,Mock())
+                    if failure=='browser':state['browserProof']['audiences']=False
+                    else:api.source_pulls['repos/example/private/pulls/18']['head']['sha']='f'*40
+                    writes=copy.deepcopy(api.writes)
+                    with self.assertRaises(ValueError):operation(api,values,state,Mock())
+                    self.assertEqual(api.writes,writes)
+
     def state(self):
         return {'nonce': 'e' * 32, 'viewer': {'nonce': 'e' * 32, 'realm': 'applications'}, 'enrolled': True,
             'identity': {'enabled': True}, 'executionPlatform': 'c' * 40, 'approvals': {},

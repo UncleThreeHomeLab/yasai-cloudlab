@@ -15,6 +15,48 @@ from playbooks.previews.tests import fixtures
 
 
 class AcceptanceTests(unittest.TestCase):
+    def test_expired_orphan_catalog_abandon_releases_only_proposal_and_preserves_retained_data(self):
+        from playbooks.previews.tests import approval_fixture as approval
+        api=fixtures.CatalogGit();state=fixtures.orphan_pair(api);nonce=state['nonce']
+        baseline={'persistent':{},'clients':{}}
+        state.update(format=1,platform='c'*40,executionPlatform='c'*40,baseline={'cluster':baseline},intent=None,
+            viewer={'nonce':nonce,'realm':'applications'},instances=list(approval.rows(state)),
+            browserAttempted=True,browserFailed=True,
+            evidence={key:{'active':{'uids':{'Namespace':'owned-'+key},'client':{'id':'client-'+key}}} for key in approval.rows(state)},
+            resourceEvidence={'retained-create':{'retained':True,'configMapUID':'owned-cm','dataHash':'f'*64}})
+        values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
+        with patch.object(approval.time,'time',return_value=1200):
+            approval.catalog_prepare(api,values,state,Mock(),'cd','orphan-d')
+            approval.propose(api,values,state,Mock())
+        with tempfile.TemporaryDirectory() as directory,patch.object(live.fixture,'JOURNALS',Path(directory)), \
+                patch('playbooks.argocd.files.render.committed_payload',return_value={'revision':'c'*40}), \
+                patch.object(live,'dotenv_values',return_value=values),patch.object(live.session,'private_context') as context, \
+                patch.object(approval.time,'time',return_value=3000):
+            context.return_value.__enter__.return_value=api
+            path=Path(directory)/nonce/'journal.json';live.fixture.journal(path,state)
+            def run(action):live.main([action,'--nonce',nonce,'--live'])
+            with self.assertRaisesRegex(ValueError,'precede C/D expiry'):run('catalog-review')
+            pending=json.loads(path.read_text());self.assertEqual(pending['intent'],{'action':'catalog-review','slot':None})
+            with self.assertRaisesRegex(ValueError,'Resume the journaled'):run('retained-delete')
+            original=copy.deepcopy(pending);raw_main=api.documents[api.main]
+            run('catalog-abandon')
+            canceled=json.loads(path.read_text());self.assertIsNone(canceled['intent'])
+            self.assertEqual(canceled['catalogProposals'][-1]['stage'],'abandoned')
+            for key in ('approvals','instances','evidence','resourceEvidence','baseline','viewer','pulls','platform','browserAttempted','browserFailed'):
+                self.assertEqual(canceled[key],original[key],key)
+            self.assertEqual(api.documents[api.main],raw_main);self.assertTrue(api.closed);self.assertFalse(api.merged);self.assertIsNone(api.head)
+            finished=path.read_bytes();run('catalog-abandon');self.assertEqual(path.read_bytes(),finished)
+            for action in ('catalog-propose','catalog-review','catalog-merge','catalog-reprepare'):
+                with self.assertRaises(ValueError):run(action)
+                self.assertEqual(path.read_bytes(),finished)
+            facts={'entries':{key:{'approvalDigest':approval.contract.digest(approval.contract.canonical(row)),
+                'phase':'retiring','identityPhase':'retired','uids':{},'observedAt':3000,
+                'active':False,'disabled':False,'absent':False} for key,row in approval.rows(canceled).items()}}
+            with patch.object(live,'remote',side_effect=lambda values,request: baseline if request['action']=='baseline' else facts), \
+                    patch.object(live,'resource_remote',return_value={'retained':False,'configMapUID':'owned-cm'}) as resource:
+                run('lifecycle-observe');run('retained-delete')
+                self.assertEqual(resource.call_args.args[1]['rows'],[state['approvals']['d']['row']])
+
     def test_failed_or_interrupted_custody_can_only_publish_resumable_offboarding(self):
         for action in ('custody-install', 'custody-observe'):
             for failed_call in (False, True):

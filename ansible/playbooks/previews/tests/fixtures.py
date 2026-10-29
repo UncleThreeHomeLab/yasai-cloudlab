@@ -120,7 +120,10 @@ class PrivatePreviewGit:
         if path.endswith('/git/ref/heads/main'):
             return {'object': {'sha': self.main}}
         if '/git/ref/heads/' in path:
-            return {'object': {'sha': self.head}} if self.head else None
+            if self.head: return {'object': {'sha': self.head}}
+            if missing: return None
+            from playbooks.argocd.files.github_setup import GitHubHTTPError
+            raise GitHubHTTPError(404)
         if method == 'POST' and path.endswith('/git/trees'):
             name = str(len(self.trees))
             self.trees[name] = body['tree'][0]['content'].encode()
@@ -168,7 +171,7 @@ class PrivatePreviewGit:
 class CatalogGit:
     """Native private publisher fixture with exact catalog blobs and lost replies."""
     def __init__(self):
-        self.main, self.branch, self.head = '1' * 40, None, None
+        self.main, self.branch, self.head, self.last_head = '1' * 40, None, None, None
         self.documents = {self.main: (json.dumps({'catalog': catalog([])}, sort_keys=True, indent=2) + '\n').encode()}
         self.commits, self.blobs, self.trees = {}, {}, {}
         self.number, self.merged, self.closed, self.fail = None, False, False, None
@@ -191,7 +194,11 @@ class CatalogGit:
                 'fork': False, 'default_branch': 'main', 'description': MARKER + 'private-config'}
         if path == 'repos/example/private': return repo
         if path.endswith('/git/ref/heads/main'): return {'object': {'sha': self.main}}
-        if '/git/ref/heads/' in path: return {'object': {'sha': self.head}} if self.head else None
+        if '/git/ref/heads/' in path:
+            if self.head: return {'object': {'sha': self.head}}
+            if missing: return None
+            from playbooks.argocd.files.github_setup import GitHubHTTPError
+            raise GitHubHTTPError(404)
         if '/contents/' in path:
             raw = self.documents.get(path.split('?ref=')[1])
             if raw is None: return None
@@ -207,19 +214,25 @@ class CatalogGit:
             self.documents[sha] = self.trees[body['tree']]; return {'sha': sha}
         if '/git/commits/' in path: return self.commits.get(path.rsplit('/', 1)[1], {'tree': {'sha': 'base-tree'}})
         if path.endswith('/git/refs'):
-            self.head, self.branch = body['sha'], body['ref'].removeprefix('refs/heads/')
+            self.head, self.last_head, self.branch = body['sha'], body['sha'], body['ref'].removeprefix('refs/heads/')
             return written('ref', {})
         if '/compare/' in path: return {'total_commits': 1, 'files': [{'filename': 'previews/catalog.json', 'status': 'modified'}]}
-        if '/pulls?' in path: return [self.pull(repo)] if self.number and ('state=all' in path or not self.closed) else []
+        if '/pulls?' in path:
+            from urllib.parse import parse_qs, urlsplit
+            head = parse_qs(urlsplit(path).query).get('head', [''])[0]
+            return [self.pull(repo)] if (self.number and head == 'example:' + self.branch and
+                ('state=all' in path or not self.closed)) else []
         if path.endswith('/pulls'):
-            self.number, self.pull_body = 9, body['body']; return written('pull', self.pull(repo))
+            self.number, self.pull_body = (self.number or 8) + 1, body['body']
+            self.closed = self.merged = False
+            return written('pull', self.pull(repo))
         if path.endswith('/merge'):
             self.merged = self.closed = True; self.main = self.head
             return written('merge', {'merged': True, 'sha': self.main})
         if '/files?' in path: return [{'filename': 'previews/catalog.json', 'status': 'modified'}]
         if '/pulls/' in path:
             if method == 'PATCH': self.closed = True
-            return self.pull(repo)
+            return written('close', self.pull(repo)) if method == 'PATCH' else self.pull(repo)
         if path == 'graphql':
             value = body['variables']['input']; update = value['refUpdates'][0]
             if update['beforeOid'] != self.head: return {'errors': [{'message': 'changed'}]}
@@ -228,17 +241,17 @@ class CatalogGit:
         raise AssertionError('Unexpected synthetic catalog operation')
 
     def pull(self, repo):
-        return {'number': self.number, 'state': 'closed' if self.closed else 'open', 'draft': False,
+        return {'number': self.number, 'node_id': 'PR_catalog_' + str(self.number), 'state': 'closed' if self.closed else 'open', 'draft': False,
             'body': self.pull_body,
-            'merged': self.merged, 'merge_commit_sha': self.main if self.merged else None,
-            'head': {'sha': self.head, 'ref': self.branch, 'repo': repo},
-            'base': {'sha': self.commits.get(self.head, {}).get('parents', [{'sha': self.main}])[0]['sha'], 'ref': 'main', 'repo': repo}}
+            'merged': self.merged, 'merged_at': 'synthetic' if self.merged else None, 'merge_commit_sha': self.main if self.merged else None,
+            'head': {'sha': self.head or self.last_head, 'ref': self.branch, 'repo': repo},
+            'base': {'sha': self.commits.get(self.head or self.last_head, {}).get('parents', [{'sha': self.main}])[0]['sha'], 'ref': 'main', 'repo': repo}}
 
 
-def orphan_pair(api):
+def orphan_pair(api, batch='cd'):
     nonce = 'e' * 32
     state = {'nonce': nonce, 'approvals': {}, 'pulls': {}}
-    for slot, number in (('c', 17), ('d', 18)):
+    for slot, number in zip(batch, (17, 18)):
         row = approval(slot * 32)
         row.update(repository='example/private', pullRequest=number,
             definition={'profile': 'synthetic', 'message': 'synthetic fixture ' + slot + ' revision 0'})
@@ -254,6 +267,17 @@ def orphan_pair(api):
     settings = catalog([record['row'] for record in state['approvals'].values()])
     settings['privateDiscovery'] = True
     api.documents[api.main] = (json.dumps({'catalog': settings}, sort_keys=True, indent=2) + '\n').encode()
+    if batch == 'ab':
+        state['executionPlatform'] = state['approvals']['a']['row']['platformRevision']
+        state['browserApprovals'] = {slot: {'instance': record['row']['instance'],
+            'approvalDigest': digest(canonical(record['row']))} for slot, record in state['approvals'].items()}
+        state['browserAttempted'] = True
+        state['browserProof'] = {'authentication': True, 'audiences': True, 'callbacks': True, 'origins': True,
+            'platform': state['executionPlatform'], 'approvals': copy.deepcopy(state['browserApprovals']),
+            'dataplane': {'revision': state['executionPlatform'],
+                'digests': [state['browserApprovals'][slot]['approvalDigest'] for slot in batch],
+                'result': {'targets': [dict(control=True, gateway=True, podProtected=True, serviceProtected=True,
+                    serviceMode='waypoint') for _ in batch]}}}
     return state
 
 

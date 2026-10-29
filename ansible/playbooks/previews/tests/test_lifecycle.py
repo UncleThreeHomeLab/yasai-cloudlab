@@ -49,6 +49,15 @@ class LifecycleTests(unittest.TestCase):
             with self.subTest(kind=bad['kind']), self.assertRaises(ValueError):
                 namespace_disposable(objects + [bad], {'deployment'}, 'namespace')
 
+    def test_orphan_retirement_preserves_retained_data(self):
+        row=approval()
+        self.assertEqual(retirement(row,None,None,1500),'orphan')
+        retained={'kind':'ConfigMap','metadata':{'name':'synthetic-retained','uid':'owned-data',
+            'annotations':{'cloudlab.io/retention':'retain'}},'data':{'synthetic':'unchanged'}}
+        before=copy.deepcopy(retained)
+        with self.assertRaises(ValueError):namespace_disposable([retained],{'owned-data'},'namespace')
+        self.assertEqual(retained,before)
+
     def test_native_generated_crl_is_disposable_but_retention_still_blocks(self):
         crl = {'kind': 'ConfigMap', 'metadata': {'name': 'istio-ca-crl', 'uid': 'native-crl'}}
         self.assertTrue(namespace_disposable([crl], set(), 'namespace'))
