@@ -95,13 +95,14 @@ def resources(row, settings, platform_repository, state_uid):
                      'ports': [{'port': 15008, 'protocol': 'TCP'}]},
                     {'from': [{'ipBlock': {'cidr': '169.254.7.127/32'}}], 'ports': [{'port': 15021, 'protocol': 'TCP'}]}],
         'egress': [dns, {'to': [{'podSelector': {'matchLabels': {'app.kubernetes.io/name': 'preview'}}}],
-                         'ports': [{'port': port, 'protocol': 'TCP'}]},
+                         'ports': [{'port': port, 'protocol': 'TCP'}, {'port': 15008, 'protocol': 'TCP'}]},
                    {'to': [{'namespaceSelector': {'matchLabels': {'kubernetes.io/metadata.name': 'istio-system'}},
                             'podSelector': {'matchLabels': {'app': 'istiod'}}}],
                     'ports': [{'port': 15012, 'protocol': 'TCP'}]}]})
     add('networking.k8s.io/v1', 'NetworkPolicy', 'application', {
         'podSelector': {'matchLabels': {'app.kubernetes.io/name': 'preview'}}, 'policyTypes': ['Ingress', 'Egress'],
-        'ingress': [{'from': [{'podSelector': gateway_selector}], 'ports': [{'port': port, 'protocol': 'TCP'}]},
+        'ingress': [{'from': [{'podSelector': gateway_selector}],
+                     'ports': [{'port': port, 'protocol': 'TCP'}, {'port': 15008, 'protocol': 'TCP'}]},
                     {'from': [{'ipBlock': {'cidr': '169.254.7.127/32'}}], 'ports': [{'port': port, 'protocol': 'TCP'}]}],
         'egress': [dns]})
     add('security.istio.io/v1', 'PeerAuthentication', 'strict', {'mtls': {'mode': 'STRICT'}})

@@ -10,6 +10,27 @@ from playbooks.previews.files.resources import resources, workload, private_rout
 
 
 class ApprovalTests(unittest.TestCase):
+    def assert_ambient_policies(self, objects, port):
+        dns={'to':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'kube-system'}},
+                    'podSelector':{'matchLabels':{'k8s-app':'kube-dns'}}}],
+             'ports':[{'protocol':protocol,'port':53} for protocol in ('UDP','TCP')]}
+        waypoint={'matchLabels':{'gateway.networking.k8s.io/gateway-name':'preview-waypoint'}}
+        application={'matchLabels':{'app.kubernetes.io/name':'preview'}}
+        transport=[{'port':port,'protocol':'TCP'},{'port':15008,'protocol':'TCP'}]
+        expected={'default-deny':{'podSelector':{},'policyTypes':['Ingress','Egress']},
+            'waypoint':{'podSelector':waypoint,'policyTypes':['Ingress','Egress'],
+                'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'cloudlab-gateway-private'}}}],
+                    'ports':[{'port':15008,'protocol':'TCP'}]},
+                    {'from':[{'ipBlock':{'cidr':'169.254.7.127/32'}}],'ports':[{'port':15021,'protocol':'TCP'}]}],
+                'egress':[dns,{'to':[{'podSelector':application}],'ports':transport},
+                    {'to':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'istio-system'}},
+                            'podSelector':{'matchLabels':{'app':'istiod'}}}],'ports':[{'port':15012,'protocol':'TCP'}]}]},
+            'application':{'podSelector':application,'policyTypes':['Ingress','Egress'],
+                'ingress':[{'from':[{'podSelector':waypoint}],'ports':transport},
+                    {'from':[{'ipBlock':{'cidr':'169.254.7.127/32'}}],'ports':[{'port':port,'protocol':'TCP'}]}],
+                'egress':[dns]}}
+        self.assertEqual({obj['metadata']['name']:obj['spec'] for obj in objects if obj['kind']=='NetworkPolicy'},expected)
+
     def test_unique_bounded_browser_origins_and_exact_callbacks(self):
         first, settings = approval(), catalog()
         second = dict(first, instance='b' * 32)
@@ -117,6 +138,7 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(namespace['labels']['pod-security.kubernetes.io/enforce'], 'restricted')
         self.assertEqual(next(o for o in objects if o['kind'] == 'ResourceQuota')['spec']['hard']['persistentvolumeclaims'], '0')
         self.assertFalse(any(o['kind'] in ('Secret', 'PersistentVolumeClaim', 'ExternalSecret', 'HTTPRoute') for o in objects))
+        self.assert_ambient_policies(objects,8080)
 
     def test_distinct_audience_and_only_exact_callback_health_exceptions(self):
         first, second = approval(), approval('d' * 32)
@@ -136,7 +158,7 @@ class ApprovalTests(unittest.TestCase):
 
     def test_application_artifact_is_approval_bound_without_source_digest_cycle(self):
         row = approval()
-        row['definition'] = {'profile': 'application', 'port': 8080, 'healthPath': '/healthz', 'environment': {'PREVIEW_DATA': 'synthetic'},
+        row['definition'] = {'profile': 'application', 'port': 8181, 'healthPath': '/healthz', 'environment': {'PREVIEW_DATA': 'synthetic'},
             'resources': {'requests': {'cpu': '50m', 'memory': '64Mi'}, 'limits': {'cpu': '200m', 'memory': '128Mi'}}}
         row['sourceDigest'] = contract.digest(contract.canonical(row['definition']))
         row['image'] = 'ghcr.io/example/application@sha256:' + '1' * 64
@@ -151,6 +173,7 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(keyless['additionalExtensions']['githubWorkflowSha'], row['sourceSha'])
         self.assertEqual(verifier['imageReferences'], [row['image']])
         self.assertEqual(workload(row, settings)['command'], [])
+        self.assert_ambient_policies(objects,8181)
         mutated = copy.deepcopy(settings)
         mutated['artifacts']['ghcr.io/example/application']['public'] = False
         with self.assertRaises(ValueError): contract.catalog(mutated)

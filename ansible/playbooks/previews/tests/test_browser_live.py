@@ -94,6 +94,45 @@ class BrowserTests(unittest.TestCase):
             vault.assert_not_called(); connect.assert_not_called()
             self.assertEqual(state['browserFailure'], {'stage':'preflight'})
 
+    def test_exact_callback_readiness_refuses_before_credentials_connection_or_mfa(self):
+        good={'status':200,'body':b'{"callback":true}'}
+        cases=[good,{'status':503,'body':b'upstream unavailable'},{'status':302,'body':b'{"callback":true}'},
+            *[{'status':200,'body':body} for body in (b'{',b'[]',b'{"callback":false}',b'{"callback":1}',
+                b'{"callback":"true"}',b'{"callback":true,"extra":true}',b'{"callback":false,"callback":true}')],
+            socket.timeout('synthetic timeout')]
+        for failure in cases:
+            for target in (0,1):
+                with self.subTest(failure=failure,target=target):
+                    state,settings,identity,runtime=self.fixture();rows=settings['approvals']
+                    responses=[copy.deepcopy(good),copy.deepcopy(good)];responses[target]=failure
+                    stop=RuntimeError('stop before reading credentials')
+                    with patch('playbooks.keycloak.tests.scoped_session.private_context'), \
+                            patch('playbooks.previews.tests.catalog_fixture.inspect',return_value={'catalog':settings}), \
+                            patch('playbooks.previews.tests.catalog_fixture.verified_pull',side_effect=lambda api,receipt,*args:
+                                fixtures.pull(next(row for row in rows if row['pullRequest']==receipt['number']))), \
+                            patch('playbooks.previews.files.github.GitHub.blob',side_effect=lambda reader,row:contract.canonical(row['definition'])), \
+                            patch('playbooks.access.files.verify.remote',return_value=runtime),patch.object(proof,'active'), \
+                            patch.object(proof.time,'time',return_value=1200), \
+                            patch('playbooks.previews.tests.probe_transport.handoff'), \
+                            patch('playbooks.access.files.traffic.https',side_effect=responses) as https, \
+                            patch('playbooks.secrets.files.vault.fields',side_effect=stop) as vault, \
+                            patch.object(proof.socket,'create_connection') as connect:
+                        begin=Mock()
+                        with self.assertRaises(Exception) as caught:
+                            proof.run({'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'},state,lambda *args:identity,begin)
+                        if failure==good:
+                            self.assertIs(caught.exception,stop);vault.assert_called_once()
+                            self.assertEqual(https.call_count,2)
+                        else:
+                            vault.assert_not_called();self.assertEqual(https.call_count,target+1)
+                        for row,call in zip(rows,https.call_args_list):
+                            url=proof.urlsplit(contract.client(row,settings)['callbacks'][0])
+                            self.assertEqual(call.args,(url.hostname,))
+                            self.assertEqual(call.kwargs,{'address':'100.64.0.1','path':url.path,'timeout':5})
+                        connect.assert_not_called();begin.assert_not_called()
+                        self.assertNotIn('browserAttempted',state)
+                        self.assertEqual(state['browserFailure'],{'stage':'enrollment' if failure==good else 'preflight'})
+
     def test_actual_run_owner_persists_only_fixed_failure_stages_and_preserves_one_shot_rules(self):
         stages=('preflight','enrollment','authorization','token-exchange','token-validation',
                 'gateway-protection','dataplane','callback-rejection','origins')
@@ -167,12 +206,14 @@ class BrowserTests(unittest.TestCase):
                             fixtures.pull(next(row for row in rows if row['pullRequest']==receipt['number']))), \
                         patch('playbooks.previews.files.github.GitHub.blob',side_effect=lambda reader,row:contract.canonical(row['definition'])), \
                         patch('playbooks.access.files.verify.remote',return_value=runtime),patch.object(live_acceptance,'remote',side_effect=observe), \
-                        patch.object(proof,'active'),patch.object(proof.time,'time',return_value=1200), \
+                        patch.multiple(proof,active=Mock(),callback=Mock(return_value=sentinel)), \
+                        patch.object(proof.time,'time',return_value=1200), \
                         patch('playbooks.previews.tests.probe_transport.handoff',side_effect=handoff), \
+                        patch('playbooks.access.files.traffic.https',return_value={'status':200,'body':b'{"callback":true}'}), \
                         patch('playbooks.secrets.files.vault.fields',side_effect=credentials) as vault, \
                         patch('playbooks.keycloak.files.health.json_get',side_effect=json_get), \
                         patch.object(proof.socket,'create_connection',return_value=connection) as connect, \
-                        patch.object(proof,'Channel',return_value=wire),patch.object(proof,'callback',return_value=sentinel), \
+                        patch.object(proof,'Channel',return_value=wire), \
                         patch.object(proof,'claims',side_effect=claims),patch.object(proof,'protected',side_effect=protected):
                     values={'PRIVATE_CONFIG_REPOSITORY':'https://github.com/example/private.git'}
                     with self.assertRaises(KeyboardInterrupt if mode=='interruption' else Exception) as caught:
@@ -384,6 +425,8 @@ class BrowserTests(unittest.TestCase):
                 patch('playbooks.access.files.verify.remote', return_value=runtime), \
                 patch.object(proof, 'bindings', return_value=(rows, '100.64.0.1')), patch.object(proof, 'active'), \
                 patch('playbooks.previews.tests.probe_transport.handoff', side_effect=lambda *args: events.append('probe-preflight')), \
+                patch('playbooks.access.files.traffic.https',side_effect=lambda *args,**kwargs:
+                    events.append('callback') or {'status':200,'body':b'{"callback":true}'}), \
                 patch.object(proof.time, 'time', return_value=1200), \
                 patch('playbooks.secrets.files.vault.fields', side_effect=credentials) as vault, \
                 patch('playbooks.keycloak.files.health.json_get', return_value={}), \
@@ -393,16 +436,21 @@ class BrowserTests(unittest.TestCase):
             values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
             with self.assertRaises(RuntimeError):
                 proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
-            self.assertEqual(events, ['probe-preflight', 'credentials', 'connection', 'begin', 'frame'])
+            self.assertEqual(events, ['probe-preflight', 'callback', 'callback', 'credentials', 'connection', 'begin', 'frame'])
             events.clear()
             with patch.object(proof.time, 'time', return_value=1700):
                 with self.assertRaises(ValueError): proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
             self.assertEqual(events, [])
             self.assertEqual(vault.call_count, 1)
-            with patch.object(proof.time, 'time', side_effect=[1200, 1200, 1700]):
+            with patch.object(proof.time, 'time', side_effect=[1200, 1200, 1200, 1700]):
                 with self.assertRaises(ValueError): proof.run(values, state, lambda *args: identity, lambda: events.append('begin'))
-            self.assertEqual(events, ['probe-preflight', 'credentials', 'connection'])
+            self.assertEqual(events, ['probe-preflight', 'callback', 'callback', 'credentials', 'connection'])
             self.assertEqual(vault.call_count, 2)
+            events.clear()
+            with patch.object(proof.time,'time',side_effect=[1200,1200,1700]):
+                with self.assertRaises(ValueError):proof.run(values,state,lambda *args:identity,lambda:events.append('begin'))
+            self.assertEqual(events,['probe-preflight','callback','callback'])
+            self.assertEqual(vault.call_count,2)
             events.clear()
             with patch('playbooks.previews.tests.probe_transport.handoff',side_effect=ValueError('insufficient readiness margin')):
                 with self.assertRaises(ValueError):proof.run(values,state,lambda *args:identity,lambda:events.append('begin'))
@@ -449,6 +497,7 @@ class BrowserTests(unittest.TestCase):
                 patch('playbooks.access.files.verify.remote',return_value=runtime),patch.object(proof,'bindings',return_value=(rows,'100.64.0.1')), \
                 patch.object(proof,'active'),patch.object(proof.time,'time',return_value=1200), \
                 patch('playbooks.previews.tests.probe_transport.handoff',side_effect=handoff), \
+                patch('playbooks.access.files.traffic.https',return_value={'status':200,'body':b'{"callback":true}'}), \
                 patch('playbooks.secrets.files.vault.fields',side_effect=credentials),patch('playbooks.keycloak.files.health.json_get',return_value={}), \
                 patch.object(proof.socket,'create_connection'),patch.object(proof,'Channel',return_value=wire), \
                 patch.object(proof,'callback',return_value='synthetic-code'),patch.object(proof,'claims',side_effect=tokens), \
