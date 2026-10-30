@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import signal
 import subprocess
@@ -72,6 +73,44 @@ def require_released_sandbox():
     raise RuntimeError('Direct test execution retained active sandbox state')
 
 
+def captured_result(result):
+    def bounded(value):
+        if isinstance(value, bytes):
+            value = value.decode('utf-8', errors='replace')
+        return (value or '')[-16384:]
+    return {'rc': getattr(result, 'returncode', None),
+            'timeout': isinstance(result, subprocess.TimeoutExpired),
+            'stdout': bounded(result.stdout), 'stderr': bounded(result.stderr)}
+
+
+def failed_execution(result):
+    # Only the qualification owner invokes this proof; Ansible retains stderr with no_log and mode 0600.
+    details = {'execution': captured_result(result)}
+    command = ['buildctl', '--addr', 'tcp://127.0.0.1:1234', 'debug']
+    try:
+        history = subprocess.run(command + ['histories', '--format', '{{json .}}'],
+                                 capture_output=True, text=True, timeout=10)
+        details['history'] = captured_result(history)
+        refs = []
+        for line in history.stdout.splitlines()[-32:]:
+            event = json.loads(line)
+            record = event.get('record', {}) if isinstance(event, dict) else {}
+            ref = record.get('Ref') if isinstance(record, dict) else None
+            if isinstance(ref, str) and re.fullmatch('[a-z0-9]{25}', ref) and ref not in refs:
+                refs.append(ref)
+        details['progress'] = []
+        for ref in refs[:2]:
+            try:
+                progress = subprocess.run(command + ['logs', '--progress', 'plain', ref],
+                                          capture_output=True, text=True, timeout=10)
+                details['progress'].append(captured_result(progress))
+            except (OSError, subprocess.TimeoutExpired) as error:
+                details['progress'].append({'unavailable': type(error).__name__})
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        details['history_unavailable'] = type(error).__name__
+    return RuntimeError('Direct offline test did not execute successfully: ' + json.dumps(details))
+
+
 def main():
     expected = json.loads(Path('/proof/test-meta.json').read_text())
     version = subprocess.check_output(['cloudlab-test', '--version'], text=True, timeout=10).strip()
@@ -90,9 +129,12 @@ def main():
                    '--timeout', '4m', '--', 'python3', '/app/proof.py']
         environment = dict(os.environ, GITHUB_TOKEN='SYNTHETIC_MUST_NOT_ENTER_TEST')
         for _ in range(2):
-            result = subprocess.run(command + ['pass'], env=environment, capture_output=True, text=True, timeout=260)
+            try:
+                result = subprocess.run(command + ['pass'], env=environment, capture_output=True, text=True, timeout=260)
+            except subprocess.TimeoutExpired as error:
+                raise failed_execution(error) from None
             if result.returncode != 0 or result.stdout.strip() != 'CLOUDLAB_DIRECT_TEST_OK':
-                raise RuntimeError('Direct offline test did not execute successfully')
+                raise failed_execution(result)
         result = subprocess.run(command + ['fail'], env=environment, capture_output=True, text=True, timeout=40)
         if result.returncode == 0 or 'EXPECTED_TEST_FAILURE' not in result.stdout:
             raise RuntimeError('Failed test did not fail the executor')
