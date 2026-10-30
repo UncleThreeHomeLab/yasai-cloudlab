@@ -121,20 +121,28 @@ namespace GitHub.Runner.Worker
             return names.SetEquals(expected);
         }
 
-        internal static bool Valid(IReadOnlyDictionary<string, string> row)
+        internal static bool Valid(IReadOnlyDictionary<string, string> row, bool development = false)
         {
             bool main = row["ref"] == "refs/heads/main" &&
                 (row["event_name"] is "push" or "workflow_dispatch");
             bool pullRequest = row["event_name"] == "pull_request" && row["job"] == "test" &&
                 Matches(row["ref"], "refs/pull/[1-9][0-9]*/merge") && row["sha"] == row["workflow_sha"];
+            bool branchTest = development && row["job"] == "test" &&
+                (row["event_name"] is "push" or "workflow_dispatch") && DevelopmentRef(row["ref"]);
             return Matches(row["repository_id"], "[1-9][0-9]{0,19}") &&
                 Matches(row["repository"], "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") &&
                 Matches(row["workflow_sha"], "[a-f0-9]{40}") && Matches(row["sha"], "[a-f0-9]{40}") &&
-                (main || pullRequest) &&
+                (main || pullRequest || branchTest) &&
                 Matches(row["job"], "[A-Za-z_][A-Za-z0-9_-]{0,63}") &&
                 Matches(row["workflow_ref"], Regex.Escape(row["repository"]) +
                     "/\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml@" + Regex.Escape(row["ref"]));
         }
+
+        internal static bool DevelopmentRef(string value) => value != "refs/heads/main" &&
+            Matches(value, "refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]{0,180}") && !value.Contains("..", StringComparison.Ordinal) &&
+            value["refs/heads/".Length..].Split('/').All(part => part.Length > 0 &&
+                !part.StartsWith(".", StringComparison.Ordinal) && !part.EndsWith(".", StringComparison.Ordinal) &&
+                !part.EndsWith(".lock", StringComparison.OrdinalIgnoreCase));
 
         private static bool Matches(string value, string pattern) => value != null && value.Length <= 256 &&
             Regex.IsMatch(value, "\\A(?:" + pattern + ")\\z", RegexOptions.CultureInvariant);

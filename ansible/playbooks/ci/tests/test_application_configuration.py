@@ -14,6 +14,44 @@ from playbooks.ci.tests.fixtures import qualified_tools, pool_values
 
 
 class ApplicationConfigurationTests(unittest.TestCase):
+    def test_direct_testing_requires_fresh_proof_and_keeps_credentials_out_of_builder(self):
+        application, current = self.inputs('example', 'public')
+        application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-public/test-env@sha256:' + 'a' * 64}
+        templates = [{'repository_id': str(current['id']), 'repository': current['full_name'],
+                      'visibility': 'public', 'workflow_path': '.github/workflows/ci.yaml',
+                      'workflow_sha256': 'a' * 64, 'job': job,
+                      'job_workflow_ref': current['full_name'] + '/.github/workflows/ci.yaml@refs/heads/main'}
+                     for job in ('test', 'build')]
+        with self.assertRaises(ValueError):
+            application_configuration(qualified_tools(), application, current, templates=templates)
+        qualified = qualified_tools(direct=True)
+        document = application_configuration(qualified, application, current, templates=templates)['runner.json']
+        values = document['values']
+        objects = render(values, chart=POOL, namespace=document['namespace'])
+        config = next(row for row in objects if row['kind'] == 'ConfigMap' and row['metadata']['name'] == 'cloudlab-testing')
+        self.assertEqual(json.loads(config['data']['config.json']), application['testing'])
+        self.assertEqual([r['job'] for r in values['workflowTemplates']], ['test', 'build'])
+        builder = values['arc']['template']['spec']['initContainers'][0]
+        self.assertFalse(any(row['name'] in ('testing', 'test-pull') for row in builder['volumeMounts']))
+        for mutate in ('mutable', 'foreign', 'stale', 'missing-node', 'builder-secret', 'writable'):
+            bad_app, bad_proof, bad_values = copy.deepcopy(application), copy.deepcopy(qualified), copy.deepcopy(values)
+            with self.subTest(mutate=mutate):
+                if mutate in ('builder-secret', 'writable'):
+                    if mutate == 'builder-secret':
+                        bad_values['arc']['template']['spec']['initContainers'][0]['volumeMounts'].append(
+                            {'name': 'test-pull', 'mountPath': '/secret', 'readOnly': True})
+                    else:
+                        bad_values['arc']['template']['spec']['containers'][0]['volumeMounts'][-1]['readOnly'] = False
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        render(bad_values, chart=POOL, namespace=document['namespace'])
+                    continue
+                if mutate == 'mutable': bad_app['testing']['image'] = bad_app['testing']['image'].split('@')[0] + ':latest'
+                if mutate == 'foreign': bad_app['testing']['image'] = bad_app['testing']['image'].replace('cloudlab-public', 'cloudlab-private')
+                if mutate == 'stale': bad_proof['direct_test_profile_sha256'] = '0' * 64
+                if mutate == 'missing-node': bad_proof['direct_test_nodes_verified'] = 1
+                with self.assertRaises(ValueError):
+                    application_configuration(bad_proof, bad_app, current, templates=templates)
+
     def setUp(self):
         patcher = patch('playbooks.ci.files.network.discover', return_value={
             'enforce': True, 'apiServiceCIDRs': ['10.43.0.1/32'],
@@ -127,6 +165,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
     def test_publisher_uses_one_shared_budget_with_role_scoped_credentials_and_no_builder_secret_mounts(self):
         for scope in ('public', 'private'):
             application, current = self.inputs('example', scope)
+            application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-public/test-env@sha256:' + 'a' * 64}
             templates = [{'repository_id': str(current['id']), 'repository': current['full_name'],
                           'visibility': scope, 'workflow_path': '.github/workflows/ci.yaml',
                           'workflow_sha256': 'a' * 64, 'job': job,
@@ -137,11 +176,14 @@ class ApplicationConfigurationTests(unittest.TestCase):
                           'registry': 'registry.example.invalid', 'project': 'cloudlab-' + scope,
                           'release_repository': 'example/gitops', 'release_repository_id': 456,
                           'workflow_identity': 'https://github.com/' + templates[1]['job_workflow_ref']}
-            documents = application_configuration(qualified_tools(), application, current,
+            documents = application_configuration(qualified_tools(direct=True), application, current,
                                                    templates=templates, publishing=publishing)
             self.assertEqual(set(documents), {'controller.json', 'runner.json', 'publisher.json'})
             self.assertEqual(documents['controller.json']['values']['runnerPools'], 2)
             primary, publisher = (documents[key]['values'] for key in ('runner.json', 'publisher.json'))
+            self.assertIn('testing', primary)
+            self.assertNotIn('testing', publisher)
+            self.assertFalse(any(v['name'] in ('testing', 'test-pull') for v in publisher['arc']['template']['spec']['volumes']))
             self.assertEqual([row['job'] for row in primary['workflowTemplates']], ['test'])
             self.assertEqual([row['job'] for row in publisher['workflowTemplates']], ['publish'])
             self.assertFalse(any(row['name'].startswith('publish-') for row in primary['arc']['template']['spec']['volumes']))

@@ -115,7 +115,8 @@
           ansible.builtin.copy:
             content: >-
               {{ {'pods': ci_failure_pods.stdout, 'build': ci_build_proof | default({}),
-              'api': ci_api_denial | default({}), 'workers': ci_tcp_workers | default({})} | to_json }}
+              'api': ci_api_denial | default({}), 'workers': ci_tcp_workers | default({}),
+              'direct_test': ci_direct_test_proof | default({})} | to_json }}
             dest: /infra-work/harbor/ci/qualification-failure.json
             mode: '0600'
           delegate_to: localhost

@@ -27,10 +27,10 @@
   },
   "overlays": {
     "runner.patch": "546e4f956ee5fa0a2a2d334b19dc2b04974985180e13791d2fa618645109ad6c",
-    "TrustedWorkflow.cs": "1a8afdddb3bae76f0f34001e755e8705da22803b9d9b12eed2ac5025bb40aeb3",
-    "TrustedTemplate.cs": "c4444e2e4d2fca9f770dcaff872caf255e0510ebe4430db88ec25da4bfed60ee",
+    "TrustedWorkflow.cs": "68e2365932d1e0eef49ed2fa8df972a4e2b276b359582c665b0213bec4727c58",
+    "TrustedTemplate.cs": "683603b6d3d06816611c339a404122e4cc24ee33f47998cbafc644fe7bff3bc2",
     "health.py": "33dd346912c464b9d2c774bbcfa2a8f7a5901ca2a3a9bd565f3df0f73e17489c",
     "tests/Fixtures.cs": "24c7d8db56fd899d31d05e19a660dcd412e84198e0cb434277fd9b7d7f9c669b",
-    "tests/TrustedWorkflowL0.cs": "567afd01cad32440cf3c12325806ffd745e05b8fca7d876239e7cd429641ef52"
+    "tests/TrustedWorkflowL0.cs": "4ccd4dcd62c979262a81ff65c49b6350eb0dd534a83dcbf4b7042e8e415fd717"
   }
 }

@@ -11,7 +11,7 @@ import re
 import yaml
 
 from playbooks.argocd.files.github_setup import MARKER, inputs, inspect, repository
-from playbooks.ci.files.qualification import images, profile_fingerprint
+from playbooks.ci.files.qualification import images, profile_fingerprint, direct_test_profile
 from playbooks.ci.files.chart import POOL, controller_version
 from playbooks.harbor.files.recovery import atomic
 from playbooks.infrastructure.files import harbor as harbor_api
@@ -82,8 +82,9 @@ def application_templates(api, current, revision, pull_request=None, *, platform
                              '.github/workflows/ci.yaml')
     workflow = yaml.safe_load(content)
     jobs = workflow.get('jobs') if isinstance(workflow, dict) else None
-    if not isinstance(jobs, dict) or not jobs or set(jobs) - {'test', 'publish'}:
-        raise ValueError('Application CI requires the shared test/publish job interface')
+    roles = {'test', 'build', 'publish'} if repository_owned and not current['private'] else {'test', 'publish'}
+    if not isinstance(jobs, dict) or not jobs or set(jobs) - roles:
+        raise ValueError('Application CI requires approved test/build/publish jobs')
     platform = repository(platform_repository or
                           yaml.safe_load((harbor_api.ROOT / 'gitops/roots/public/values.yaml').read_text())['repository'])
     rows = []
@@ -134,11 +135,23 @@ def application_templates(api, current, revision, pull_request=None, *, platform
 def application_configuration(qualified, application, current, workflows=(), templates=(), publishing=None,
                               exact_reusable=False):
     references = qualified_images(qualified)
-    if (set(application) != {'name', 'repository', 'visibility'} or
+    if (set(application) not in ({'name', 'repository', 'visibility'}, {'name', 'repository', 'visibility', 'testing'}) or
             not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application.get('name', '')) or
             application.get('visibility') not in ('public', 'private')):
         raise ValueError('Application registration requires a name, repository and visibility')
     name = application['name']
+    testing = application.get('testing')
+    if (testing is not None or any(row.get('job') == 'build' for row in templates)) and (
+            qualified.get('direct_test_nodes_verified') != 2 or
+            qualified.get('direct_test_profile_sha256') != direct_test_profile()):
+        raise ValueError('Direct testing and build roles require the current native two-node executor qualification')
+    if 'testing' in application:
+        registry = references['runner'].split('/')[0]
+        if (not isinstance(testing, dict) or set(testing) != {'image'} or
+                not isinstance(testing['image'], str) or not re.fullmatch(
+                    re.escape(registry) + r'/cloudlab-public/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}', testing['image']) or
+                any(part in ('', '.', '..') for part in testing['image'].split('@')[0].split('/'))):
+            raise ValueError('Testing requires an immutable dependency environment in the qualified public registry project')
     full_name = repository(application['repository'])
     scope = application['visibility']
     if (current.get('full_name') != full_name or current.get('html_url') != 'https://github.com/' + full_name or
@@ -146,6 +159,10 @@ def application_configuration(qualified, application, current, workflows=(), tem
             current.get('fork') or current.get('archived') or current.get('disabled') or
             current.get('default_branch') != 'main' or type(current.get('id')) is not int or current['id'] <= 0):
         raise ValueError('Application repository identity or trust boundary differs')
+    if any(row.get('job') == 'build' and (scope != 'public' or
+            row.get('job_workflow_ref') != full_name + '/' + row.get('workflow_path', '') + '@refs/heads/main')
+           for row in templates):
+        raise ValueError('Build roles require a public repository-owned workflow')
     namespace = 'cloudlab-ci-' + scope + '-' + name
     controller = 'cloudlab-' + name + '-controller'
     image_repository, image_digest = references['controller'].split('@')
@@ -171,6 +188,15 @@ def application_configuration(qualified, application, current, workflows=(), tem
         pod = values['arc']['template']['spec']
         pod['containers'][0]['image'] = references['runner']
         pod['initContainers'][0]['image'] = references['builder']
+        if testing:
+            values['testing'] = copy.deepcopy(testing)
+            pod['volumes'].extend([
+                {'name': 'testing', 'configMap': {'name': 'cloudlab-testing', 'defaultMode': 292}},
+                {'name': 'test-pull', 'secret': {'secretName': 'harbor-tools-pull', 'defaultMode': 288,
+                                               'items': [{'key': '.dockerconfigjson', 'path': 'config.json'}]}}])
+            pod['containers'][0]['volumeMounts'].extend([
+                {'name': 'testing', 'mountPath': '/run/cloudlab-test/config', 'readOnly': True},
+                {'name': 'test-pull', 'mountPath': '/run/cloudlab-test/registry', 'readOnly': True}])
         values['eligibility'] = copy.deepcopy(list(workflows))
         if templates:
             values['workflowTemplates'] = list(templates)
@@ -184,9 +210,14 @@ def application_configuration(qualified, application, current, workflows=(), tem
                     publishing['source_repository_id'] != str(current['id']) or publishing['visibility'] != scope):
                 raise ValueError('Publishing inputs must match the registered application repository')
             publisher = copy.deepcopy(values)
+            publisher.pop('testing', None)
+            publisher_pod = publisher['arc']['template']['spec']
+            publisher_pod['volumes'] = [v for v in publisher_pod['volumes'] if v['name'] not in ('testing', 'test-pull')]
+            publisher_pod['containers'][0]['volumeMounts'] = [
+                v for v in publisher_pod['containers'][0]['volumeMounts'] if v['name'] not in ('testing', 'test-pull')]
             for key in ('eligibility', 'workflowTemplates'):
                 if key in values:
-                    values[key] = [row for row in values[key] if row['job'] == 'test']
+                    values[key] = [row for row in values[key] if row['job'] != 'publish']
                     publisher[key] = [row for row in publisher[key] if row['job'] == 'publish']
             if not (values['eligibility'] or values.get('workflowTemplates')) or not (
                     publisher['eligibility'] or publisher.get('workflowTemplates')):

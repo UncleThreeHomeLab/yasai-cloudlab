@@ -15,3 +15,5 @@
 !tools/*/
 !tools/*/go.mod
 !tools/*/go.sum
+!testexec/
+!testexec/*.go

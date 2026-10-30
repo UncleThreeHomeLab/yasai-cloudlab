@@ -115,10 +115,18 @@ Generate controller inputs with `--application-file` (JSON fields `name`,
 the private GitOps catalog at `platform/ci/pools/<name>/controller.json`; add
 `runner.json` only after workflow eligibility is approved. For routine app revisions,
 use `--approve-repository-workflow --workflow-revision <reviewed-app-sha>` for
-public repository-owned `test`/`publish` jobs. Their exact workflow bytes, assigned
+public repository-owned `test`/`build`/`publish` jobs. Their exact workflow bytes, assigned
 runner names, protected main and current internal PR author permissions are checked
 before any step. Scripts and build/test/publication logic stay in the application
 repository. Changed workflow bytes require renewed approval.
+Only `test` runs on PRs and non-main branches; branch tests require the current
+head and original actor's current repository write permission. `build` and `publish`
+require current protected main. Optional application `testing.image` pins a dependency-only
+environment digest in the qualified registry's `cloudlab-public` project. After native
+direct execution qualification on both nodes, `cloudlab-test --source . -- <command>`
+runs current tracked source read-only at `/app`, offline, with fresh writable state.
+Tests never build an image or inherit runner credentials; update the environment
+separately from reviewed application main. Private GitOps owns this configuration.
 For the retained shared-workflow interface,
 add `--approve-workflow-template` with the reviewed `--workflow-revision` (and
 `--pull-request` for initial internal PR setup). This pins caller bytes and each
