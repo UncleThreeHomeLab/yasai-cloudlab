@@ -36,4 +36,3 @@ metadata: {name: cloudlab-testing, namespace: {{ $.Release.Namespace }}}
 data:
   config.json: {{ toJson . | quote }}
 {{- end }}
-
