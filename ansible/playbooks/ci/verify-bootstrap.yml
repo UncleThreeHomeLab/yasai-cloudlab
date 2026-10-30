@@ -103,6 +103,36 @@
             loop_var: ci_node
             label: node
       rescue:
+        - name: Read bounded fixture builder logs before cleanup
+          ansible.builtin.command:
+            argv: >-
+              {{ ci_kubectl + ['logs', '-n', ci_namespace, ci_pod.metadata.name,
+              '-c', 'builder', '--tail=500', '--limit-bytes=65536', '--timestamps=true'] }}
+          register: ci_failure_builder_logs
+          ignore_errors: true
+          when: ci_pod is defined
+          timeout: 20
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Read bounded fixture builder filesystem and cache usage before cleanup
+          ansible.builtin.command:
+            argv: >-
+              {{ ci_kubectl + ['exec', '-n', ci_namespace, ci_pod.metadata.name,
+              '-c', 'builder', '--', '/bin/sh', '-c', item] }}
+          loop:
+            - timeout 15 df -Pk /home/user/.local/share/buildkit/state
+            - timeout 15 du -sk /home/user/.local/share/buildkit/state
+            - timeout 15 buildctl --addr tcp://127.0.0.1:1234 du --verbose 2>&1 | head -c 65536
+          register: ci_failure_builder_usage
+          ignore_errors: true
+          when: ci_pod is defined
+          timeout: 20
+          changed_when: false
+          failed_when: false
+          no_log: true
+
         - name: Read only fixture Pod diagnostics before cleanup
           ansible.builtin.command:
             argv: "{{ ci_kubectl + ['get', 'pods', '-n', ci_namespace, '-o', 'json'] }}"
@@ -116,7 +146,9 @@
             content: >-
               {{ {'pods': ci_failure_pods.stdout, 'build': ci_build_proof | default({}),
               'api': ci_api_denial | default({}), 'workers': ci_tcp_workers | default({}),
-              'direct_test': ci_direct_test_proof | default({})} | to_json }}
+              'direct_test': ci_direct_test_proof | default({}),
+              'builder_logs': ci_failure_builder_logs | default({}),
+              'builder_usage': ci_failure_builder_usage | default({})} | to_json }}
             dest: /infra-work/harbor/ci/qualification-failure.json
             mode: '0600'
           delegate_to: localhost

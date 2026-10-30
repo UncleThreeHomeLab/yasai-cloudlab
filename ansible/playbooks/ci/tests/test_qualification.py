@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
+import yaml
 
 from playbooks.ci.files import qualification
 from playbooks.ci.files import direct_test_proof
@@ -17,6 +18,68 @@ from playbooks.ci.tests.fixtures import bootstrap_document, render_resources
 
 
 class QualificationTests(unittest.TestCase):
+    def test_direct_failure_retains_bounded_output_and_native_progress_without_forwarding_arguments(self):
+        result = subprocess.CompletedProcess(['private-command'], 1, 'x' * 20000, 'offline test execution failed')
+        ref = 'a' * 25
+        history = '\n'.join(json.dumps({'record': {'Ref': value}}) for value in ('--unsafe', '../escape', ref))
+        replies = [subprocess.CompletedProcess([], 0, history, ''),
+                   subprocess.CompletedProcess([], 0, '', 'native source stage evidence')]
+        with patch.object(direct_test_proof.subprocess, 'run', side_effect=replies) as run:
+            failure = direct_test_proof.failed_execution(result)
+        details = json.loads(str(failure).split(': ', 1)[1])
+        self.assertEqual(details['execution']['rc'], 1)
+        self.assertEqual(details['execution']['stdout'], 'x' * 16384)
+        self.assertEqual(details['execution']['stderr'], result.stderr)
+        self.assertEqual(details['progress'][0]['stderr'], 'native source stage evidence')
+        self.assertNotIn('private-command', str(failure))
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[1].args[0][-4:], ['logs', '--progress', 'plain', ref])
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs['timeout'], 10)
+            self.assertNotIn('shell', call.kwargs)
+            self.assertNotIn('env', call.kwargs)
+        timeout = subprocess.TimeoutExpired(['private-command'], 260, output=b'partial stdout', stderr=b'partial stderr')
+        for error in (OSError('private detail'), subprocess.TimeoutExpired(['diagnostic'], 10)):
+            with self.subTest(error=type(error).__name__), patch.object(direct_test_proof.subprocess, 'run', side_effect=error):
+                failure = direct_test_proof.failed_execution(timeout)
+            details = json.loads(str(failure).split(': ', 1)[1])
+            self.assertTrue(details['execution']['timeout'])
+            self.assertEqual(details['execution']['stdout'], 'partial stdout')
+            self.assertEqual(details['execution']['stderr'], 'partial stderr')
+            self.assertNotIn('private detail', str(failure))
+
+    def test_native_rescue_retains_diagnostics_privately_and_still_fails_and_cleans_up(self):
+        rescue = yaml.safe_load((ROOT / 'ansible/playbooks/ci/verify-bootstrap.yml').read_text())[1]['tasks'][-1]['rescue']
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            output, cleanup = directory / 'failure.json', directory / 'cleaned'
+            fake = directory / 'kubectl.py'
+            fake.write_text('import sys\nprint("SYNTHETIC_PRIVATE_DIAGNOSTIC")\nsys.exit(1)\n')
+            tasks = json.loads(json.dumps(rescue))
+            for task in tasks:
+                if 'ansible.builtin.copy' in task:
+                    task['ansible.builtin.copy']['dest'] = str(output)
+            playbook = directory / 'rescue.json'
+            playbook.write_text(json.dumps([{'hosts': 'localhost', 'gather_facts': False,
+                'vars': {'ansible_python_interpreter': sys.executable,
+                         'ci_kubectl': [sys.executable, str(fake)], 'ci_namespace': 'fixture',
+                         'ci_pod': {'metadata': {'name': 'fixture'}},
+                         'ci_direct_test_proof': {'rc': 1, 'stderr': 'SYNTHETIC_ORIGINAL_FAILURE'}},
+                'tasks': [{'block': [{'ansible.builtin.fail': {'msg': 'synthetic qualification failure'}}],
+                           'rescue': tasks, 'always': [{'ansible.builtin.copy': {
+                               'content': 'cleanup', 'dest': str(cleanup), 'mode': '0600'}}]}]}]))
+            result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
+                                    capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(cleanup.exists(), result.stdout + result.stderr)
+            retained = json.loads(output.read_text())
+            self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+            self.assertEqual(retained['direct_test']['stderr'], 'SYNTHETIC_ORIGINAL_FAILURE')
+            self.assertEqual(retained['builder_logs']['rc'], 1)
+            self.assertEqual(len(retained['builder_usage']['results']), 3)
+            self.assertNotIn('SYNTHETIC_PRIVATE_DIAGNOSTIC', result.stdout + result.stderr)
+            self.assertNotIn('SYNTHETIC_ORIGINAL_FAILURE', result.stdout + result.stderr)
+
     def test_direct_cleanup_waits_for_native_in_use_records_and_fails_closed(self):
         with patch.object(direct_test_proof.subprocess, 'check_output', return_value='[{"inUse":true}]') as read, \
                 patch.object(direct_test_proof.time, 'sleep') as sleep:
