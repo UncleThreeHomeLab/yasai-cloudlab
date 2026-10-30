@@ -13,4 +13,7 @@ config.force.branchPrefix = 'cloudlab-maintenance/' + crypto.createHash('sha256'
 config.force.includePaths = request.ownerPaths;
 const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 config.force.packageRules.push({matchPackageNames: ['!/^(' + request.dependencies.map(escape).join('|') + ')$/'], enabled: false});
+if (request.base.startsWith('cloudlab-maintenance-fixture/')) {
+  config.force.packageRules.push({matchPackageNames: ['opentofu/opentofu'], allowedVersions: '=1.13.1'});
+}
 module.exports = config;
