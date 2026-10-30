@@ -7,8 +7,11 @@ RUN curl -fsSL --retry 3 https://codeload.github.com/moby/buildkit/tar.gz/refs/t
     && echo 'b51e3a6bb7e0a0381adef47bffb8527817409f477fc5d26054517af29a11ff65  /tmp/source.tgz' | sha256sum -c - \
     && tar -xzf /tmp/source.tgz --strip-components=1
 COPY tools/buildkit/go.mod tools/buildkit/go.sum ./
+COPY testexec/ ./cmd/cloudlab-test/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     go mod download && go mod verify \
+    && go test -mod=readonly ./cmd/cloudlab-test \
+    && go build -mod=readonly -trimpath -ldflags "-s -w -X main.sourceSHA256=$(sha256sum cmd/cloudlab-test/main.go | cut -d ' ' -f 1)" -o /out/cloudlab-test ./cmd/cloudlab-test \
     && go build -mod=readonly -trimpath -ldflags '-s -w -X github.com/moby/buildkit/version.Version=v0.34.0-cloudlab.1' -o /out/buildctl ./cmd/buildctl \
     && go build -mod=readonly -trimpath -tags 'osusergo netgo static_build seccomp' -ldflags '-s -w -X github.com/moby/buildkit/version.Version=v0.34.0-cloudlab.1' -o /out/buildkitd ./cmd/buildkitd
 
@@ -140,7 +143,7 @@ RUN dotnet test Test/Test.csproj --configuration Release --runtime linux-x64 --n
     -p:Version=2.338.0 -p:RuntimeIdentifiers=linux-x64 \
     --filter 'FullyQualifiedName~TrustedWorkflow|FullyQualifiedName~JobRunnerL0' \
     --logger 'trx;LogFileName=cloudlab-gate.trx' --results-directory /test-results \
-    && grep -Eq 'total="28".*passed="28"' /test-results/cloudlab-gate.trx
+    && grep -Eq 'total="31".*passed="31"' /test-results/cloudlab-gate.trx
 
 FROM source AS build
 COPY --from=test /test-results/cloudlab-gate.trx /test-results/cloudlab-gate.trx
@@ -166,6 +169,7 @@ COPY --from=build /source/runner/LICENSE /usr/share/doc/cloudlab-runner/LICENSE
 COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY --from=tools /usr/local/bin/cosign /usr/local/bin/cosign
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
+COPY --from=tools /usr/local/bin/cloudlab-test /usr/local/bin/cloudlab-test
 COPY --from=tools /usr/local/bin/crane /usr/local/bin/crane
 COPY --chmod=0444 runner/health.py /usr/local/libexec/cloudlab-ci-health.py
 COPY Dockerfile /usr/share/doc/cloudlab-ci/Dockerfile

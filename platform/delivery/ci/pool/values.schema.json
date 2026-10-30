@@ -6,6 +6,10 @@
   "anyOf": [{"properties": {"eligibility": {"minItems": 1}}},
             {"required": ["workflowTemplates"], "properties": {"workflowTemplates": {"minItems": 1}}}],
   "properties": {
+    "testing": {
+      "type": "object", "additionalProperties": false, "required": ["image"],
+      "properties": {"image": {"type": "string", "pattern": "^[a-z0-9.-]+/cloudlab-public/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}$"}}
+    },
     "publishing": {
       "type": "object", "additionalProperties": false,
       "required": ["application", "source_repository", "source_repository_id", "visibility", "registry", "project", "release_repository", "release_repository_id", "workflow_identity"],
@@ -34,7 +38,7 @@
           "workflow_path": {"const": ".github/workflows/ci.yaml"},
           "workflow_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
           "job_workflow_ref": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/(application-(test|publish)[.]yaml@[a-f0-9]{40}|ci[.]yaml@refs/heads/main)$"},
-          "job": {"enum": ["test", "publish"]},
+          "job": {"enum": ["test", "build", "publish"]},
           "visibility": {"enum": ["public", "private"]}
         }
       }

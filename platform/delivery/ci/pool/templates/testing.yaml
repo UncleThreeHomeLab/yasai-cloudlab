@@ -1,0 +1,39 @@
+{{- with .Values.testing }}
+{{- if $.Values.publishing }}
+{{- fail "Test environment inputs cannot be mounted in a publisher pool" }}
+{{- end }}
+{{- $volumes := dict }}
+{{- range $.Values.arc.template.spec.volumes }}
+{{- if hasKey $volumes .name }}{{- fail "Duplicate runner volume" }}{{- end }}
+{{- $_ := set $volumes .name . }}
+{{- end }}
+{{- $mounts := dict }}
+{{- range (index $.Values.arc.template.spec.containers 0).volumeMounts }}
+{{- if hasKey $mounts .name }}{{- fail "Duplicate runner mount" }}{{- end }}
+{{- $_ := set $mounts .name . }}
+{{- end }}
+{{- $config := dict "name" "testing" "configMap" (dict "name" "cloudlab-testing" "defaultMode" 292) }}
+{{- $pull := dict "name" "test-pull" "secret" (dict "secretName" "harbor-tools-pull" "defaultMode" 288 "items" (list (dict "key" ".dockerconfigjson" "path" "config.json"))) }}
+{{- if or (not (eq (toJson (get $volumes "testing")) (toJson $config)))
+    (not (eq (toJson (get $volumes "test-pull")) (toJson $pull))) }}
+{{- fail "Test inputs must use the owned configuration and existing pull-only credential" }}
+{{- end }}
+{{- range $name, $path := dict "testing" "/run/cloudlab-test/config" "test-pull" "/run/cloudlab-test/registry" }}
+{{- if not (deepEqual (get $mounts $name) (dict "name" $name "mountPath" $path "readOnly" true)) }}
+{{- fail "Test inputs require fixed read-only runner mounts" }}
+{{- end }}
+{{- end }}
+{{- range $.Values.arc.template.spec.initContainers }}
+{{- range .volumeMounts }}
+{{- if has .name (list "testing" "test-pull") }}
+{{- fail "The builder must not mount test configuration or pull credentials" }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: cloudlab-testing, namespace: {{ $.Release.Namespace }}}
+data:
+  config.json: {{ toJson . | quote }}
+{{- end }}
+

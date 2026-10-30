@@ -83,6 +83,20 @@
   ansible.builtin.assert:
     that: ci_tcp_workers.stdout is search('org.mobyproject.buildkit.worker.oci.process-mode:\s+sandbox')
 
+- name: Prove direct tests use the native offline sandbox and release child processes
+  ansible.builtin.command:
+    argv: >-
+      {{ ci_kubectl + ['exec', '-n', ci_namespace, ci_pod.metadata.name, '-c', 'runner', '--',
+      'python3', '-I', '-S', '/proof/direct-test-proof.py'] }}
+  register: ci_direct_test_proof
+  changed_when: false
+  no_log: true
+
+- name: Require uncached offline execution, isolation and cancellation cleanup
+  ansible.builtin.assert:
+    that: "'CLOUDLAB_DIRECT_TEST_QUALIFIED' in ci_direct_test_proof.stdout"
+    fail_msg: The published direct executor did not complete native qualification.
+
 - name: Prove the health token cannot read secrets or pods or create a workload
   ansible.builtin.command:
     argv: >-

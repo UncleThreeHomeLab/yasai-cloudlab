@@ -60,6 +60,74 @@ namespace GitHub.Runner.Common.Tests.Worker
         }
 
         [Fact]
+        public void PublicDevelopmentTestsRequireCurrentHeadAndOriginalCurrentWriter()
+        {
+            var fixture = TemplateFixture(owned: true);
+            var prefix = "repos/" + fixture.Values["repository"];
+            ((Dictionary<string, object>)fixture.Responses[prefix])["private"] = false;
+            var policy = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(fixture.Policy)
+                .Replace("\"visibility\":\"private\"", "\"visibility\":\"public\""));
+            fixture.Values["ref"] = "refs/heads/feat/test";
+            fixture.Values["workflow_ref"] = fixture.Values["repository"] + "/.github/workflows/ci.yaml@" + fixture.Values["ref"];
+            fixture.Values["actor"] = "author";
+            fixture.Values["actor_id"] = "7";
+            TrustedWorkflowFixtures.SetGithub(fixture.Message, fixture.Values);
+            var path = prefix + "/git/ref/heads/feat%2Ftest";
+            fixture.Responses[path] = new { @ref = fixture.Values["ref"], @object = new { type = "commit", sha = fixture.Values["sha"] } };
+            JsonDocument Fetch(string endpoint) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[endpoint]));
+            Assert.True(TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+            fixture.Responses[path] = new { @ref = fixture.Values["ref"], @object = new { type = "commit", sha = new string('b', 40) } };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+            fixture.Responses[path] = new { @ref = fixture.Values["ref"], @object = new { type = "commit", sha = fixture.Values["sha"] } };
+            fixture.Responses[prefix + "/collaborators/author/permission"] = new { permission = "read", user = new { login = "author", id = 7 } };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+            fixture.Responses[prefix + "/collaborators/author/permission"] = new { permission = "write", user = new { login = "author", id = 8 } };
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+        }
+
+        [Fact]
+        public void DevelopmentTestsCannotUseEnvironmentActorOrExactRevisionBypass()
+        {
+            var fixture = TemplateFixture(owned: true);
+            var prefix = "repos/" + fixture.Values["repository"];
+            ((Dictionary<string, object>)fixture.Responses[prefix])["private"] = false;
+            var policy = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(fixture.Policy)
+                .Replace("\"visibility\":\"private\"", "\"visibility\":\"public\""));
+            fixture.Values["ref"] = "refs/heads/dev";
+            fixture.Values["workflow_ref"] = fixture.Values["repository"] + "/.github/workflows/ci.yaml@refs/heads/dev";
+            TrustedWorkflowFixtures.SetGithub(fixture.Message, fixture.Values);
+            fixture.Responses[prefix + "/git/ref/heads/dev"] = new { @ref = "refs/heads/dev", @object = new { type = "commit", sha = fixture.Values["sha"] } };
+            fixture.Message.Variables["GITHUB_ACTOR"] = new GitHub.DistributedTask.WebApi.VariableValue { Value = "author" };
+            fixture.Message.Variables["system.github.actor"] = new GitHub.DistributedTask.WebApi.VariableValue { Value = "author" };
+            fixture.Message.Variables["GITHUB_ACTOR_ID"] = new GitHub.DistributedTask.WebApi.VariableValue { Value = "7" };
+            JsonDocument Fetch(string endpoint) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[endpoint]));
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+            Assert.False(TrustedWorkflow.Allows(fixture.Message, TrustedWorkflowFixtures.Policy(fixture.Values)));
+            foreach (var @ref in new[] { "refs/heads/../escape", "refs/heads/feat//test", "refs/heads/test.lock", "refs/tags/test" })
+                Assert.False(TrustedWorkflow.DevelopmentRef(@ref));
+        }
+
+        [Fact]
+        public void RepositoryOwnedBuildRoleIsMainOnlyAndCannotUseReusableIdentity()
+        {
+            foreach (bool pr in new[] { false, true })
+            {
+                var fixture = TemplateFixture(pr, owned: true);
+                ((Dictionary<string, object>)fixture.Responses["repos/" + fixture.Values["repository"]])["private"] = false;
+                var policy = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(fixture.Policy)
+                    .Replace("\"visibility\":\"private\"", "\"visibility\":\"public\"")
+                    .Replace("\"job\":\"test\"", "\"job\":\"build\""));
+                fixture.Message.Variables["system.github.job"].Value = "build";
+                JsonDocument Fetch(string endpoint) => JsonDocument.Parse(JsonSerializer.Serialize(fixture.Responses[endpoint]));
+                Assert.Equal(!pr, TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+                fixture.Values["ref"] = "refs/heads/dev";
+                fixture.Values["workflow_ref"] = fixture.Values["repository"] + "/.github/workflows/ci.yaml@refs/heads/dev";
+                TrustedWorkflowFixtures.SetGithub(fixture.Message, fixture.Values);
+                Assert.False(TrustedWorkflow.Allows(fixture.Message, policy, Fetch));
+            }
+        }
+
+        [Fact]
         public void RepositoryOwnedJobsRequireOriginalWorkflowIdentityAndCurrentTrustedSource()
         {
             foreach (bool pr in new[] { false, true })

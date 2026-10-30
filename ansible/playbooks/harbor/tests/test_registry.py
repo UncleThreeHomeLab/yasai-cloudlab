@@ -111,3 +111,27 @@ class RegistryTests(unittest.TestCase):
                     client.reference('cloudlab-public', repository=repository)
             with self.assertRaises(ValueError):
                 client.reference('cloudlab-public', tag='release-test/other')
+
+    def test_environment_repository_and_missing_response_are_scoped_to_the_requested_application(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            client = Registry('harbor.internal.example.invalid', {}, Path(temporary) / 'diagnostics')
+            repository = 'example-app-test-environment'
+            reference = client.reference('cloudlab-public', repository=repository, tag='release-test')
+            self.assertTrue(reference.endswith('/' + repository + ':release-test'))
+            for project, name in (('cloudlab-private', repository), ('cloudlab-public', 'other'),
+                                  ('cloudlab-public', '../example-app-test-environment'),
+                                  ('cloudlab-public', 'Example-test-environment')):
+                with self.subTest(project=project, repository=name), self.assertRaises(ValueError):
+                    client.reference(project, repository=name)
+            for name, project, accepted in ((repository, 'cloudlab-public', True),
+                    ('other-app-test-environment', 'cloudlab-public', False),
+                    (repository, 'cloudlab-private', False)):
+                message = ('HEAD https://' + client.host + '/v2/' + project + '/' + name +
+                           '/manifests/release-test: NOT_FOUND: repository not found').encode()
+                with self.subTest(name=name, project=project), patch('playbooks.harbor.files.registry.subprocess.run',
+                        return_value=subprocess.CompletedProcess([], 1, b'', message)):
+                    if accepted:
+                        self.assertIsNone(client.digest(reference, missing=True))
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            client.digest(reference, missing=True)

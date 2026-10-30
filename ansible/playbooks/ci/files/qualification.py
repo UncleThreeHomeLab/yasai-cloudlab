@@ -37,6 +37,14 @@ def images(document):
     return document['images']
 
 
+def direct_test_profile():
+    return hashlib.sha256(b''.join(path.read_bytes() for path in (
+        ROOT / 'platform/delivery/ci/testexec/main.go',
+        ROOT / 'platform/delivery/ci/runner/TrustedWorkflow.cs',
+        ROOT / 'platform/delivery/ci/runner/TrustedTemplate.cs',
+        Path(__file__).with_name('direct_test_proof.py')))).hexdigest()
+
+
 def bundle(references, namespace):
     if not re.fullmatch(r'cloudlab-ci-proof-[a-f0-9]{12}', namespace):
         raise ValueError('Qualification must use a fresh disposable namespace')
@@ -71,7 +79,13 @@ def bundle(references, namespace):
     proof = {'apiVersion': 'v1', 'kind': 'ConfigMap',
              'metadata': {'name': 'proof', 'namespace': namespace, 'labels': labels}, 'data': {
                  'build-proof.sh': (ROOT / 'ansible/playbooks/buildkit/files/build-proof.sh').read_text(),
-                 'api-denial.py': (Path(__file__).parent / 'api-denial.py').read_text()}}
+                 'api-denial.py': (Path(__file__).parent / 'api-denial.py').read_text(),
+                 'direct-test-proof.py': Path(__file__).with_name('direct_test_proof.py').read_text(),
+                 'test-config.json': json.dumps({'image': references['runner']}),
+                 'test-meta.json': json.dumps({
+                     'source_sha256': hashlib.sha256((ROOT / 'platform/delivery/ci/testexec/main.go').read_bytes()).hexdigest(),
+                     'gate_overlays': {name: hashlib.sha256((ROOT / 'platform/delivery/ci/runner' / name).read_bytes()).hexdigest()
+                                       for name in ('TrustedWorkflow.cs', 'TrustedTemplate.cs')}})}}
     quota = {'apiVersion': 'v1', 'kind': 'ResourceQuota',
              'metadata': {'name': 'build-budget', 'namespace': namespace, 'labels': labels}, 'spec': {'hard': {
                  'pods': '1', 'count/jobs.batch': '1', 'limits.cpu': '3', 'limits.memory': '6Gi',
@@ -88,6 +102,11 @@ def bundle(references, namespace):
     for container in (runner, builder):
         container['volumeMounts'].append({'name': 'proof', 'mountPath': '/proof', 'readOnly': True})
     pod['volumes'].append({'name': 'proof', 'configMap': {'name': 'proof', 'defaultMode': 292}})
+    runner['volumeMounts'].append({'name': 'proof', 'mountPath': '/run/cloudlab-test/config/config.json',
+                                   'subPath': 'test-config.json', 'readOnly': True})
+    pod['volumes'].append({'name': 'test-pull', 'secret': {'secretName': 'harbor-tools-pull', 'defaultMode': 288,
+                                                        'items': [{'key': '.dockerconfigjson', 'path': 'config.json'}]}})
+    runner['volumeMounts'].append({'name': 'test-pull', 'mountPath': '/run/cloudlab-test/registry', 'readOnly': True})
     return {'namespace': {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {
                 'name': namespace, 'labels': dict(labels, **{
                     'cloudlab.io/service-secrets': 'approved',
@@ -135,6 +154,7 @@ def main():
             atomic(api.WORK / 'ci/qualified.json', {
                 'revision': revision, 'image_revision': document['revision'], 'images': references,
                 'profile_sha256': profile_fingerprint(), 'nodes_verified': 2, 'max_build_pods': 1,
+                'direct_test_nodes_verified': 2, 'direct_test_profile_sha256': direct_test_profile(),
                 'health_access_loss_shutdown_bound_seconds': 90, 'workload_api_writes_denied': True,
                 'github_or_signing_credentials_provisioned': False})
         raise SystemExit(result.returncode)

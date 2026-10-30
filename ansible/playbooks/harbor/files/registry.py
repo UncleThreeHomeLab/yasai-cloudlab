@@ -9,6 +9,7 @@ from playbooks.harbor.files.transport import hostname
 from playbooks.harbor.files.api_policy import POLICY
 
 BOOTSTRAP_REPOSITORIES = ('bootstrap', 'ci-controller', 'ci-runner', 'ci-builder')
+TEST_ENVIRONMENT_REPOSITORY = r'[a-z][a-z0-9-]{0,34}-test-environment'
 
 
 class Registry:
@@ -20,10 +21,16 @@ class Registry:
     def command(self, *arguments, input_data=None, denied=False, missing=False, immutable=False):
         result = subprocess.run(['crane', '--platform=linux/amd64', *arguments], env=self.environment,
                                 input=input_data, capture_output=True, timeout=600)
+        repositories = list(BOOTSTRAP_REPOSITORIES)
+        if len(arguments) == 2 and arguments[0] == 'digest':
+            requested = re.fullmatch(re.escape(self.host) + r'/cloudlab-public/(' + TEST_ENVIRONMENT_REPOSITORY +
+                                     r')(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|@sha256:[a-f0-9]{64})', arguments[1])
+            if requested:
+                repositories.append(requested[1])
         harbor_absent = any(re.search(
             rb'(?:GET|HEAD) https://' + re.escape(self.host.encode()) + rb'/v2/' + re.escape(project.encode()) +
             rb'/' + re.escape(repository.encode()) + rb'/manifests/[A-Za-z0-9_:.-]+:\s*NOT_FOUND\b', result.stderr)
-            for project in POLICY['projects'] for repository in BOOTSTRAP_REPOSITORIES
+            for project in POLICY['projects'] for repository in repositories
             if repository == 'bootstrap' or project == 'cloudlab-public')
         if missing and result.returncode and (re.search(rb'MANIFEST_UNKNOWN|NAME_UNKNOWN', result.stderr) or harbor_absent):
             return None
@@ -59,10 +66,11 @@ class Registry:
             raise ValueError('OCI proof escaped its designated projects')
         if digest is not None and not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
             raise ValueError('OCI proof requires an exact SHA-256 image digest')
-        if (repository not in BOOTSTRAP_REPOSITORIES or
+        environment = isinstance(repository, str) and re.fullmatch(TEST_ENVIRONMENT_REPOSITORY, repository)
+        if (repository not in BOOTSTRAP_REPOSITORIES and not environment or
                 (repository != 'bootstrap' and project != 'cloudlab-public') or
                 not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', tag)):
-            raise ValueError('OCI publication escaped its designated bootstrap repositories')
+            raise ValueError('OCI publication escaped its designated CI repositories')
         return self.host + '/' + project + '/' + repository + ('@' + digest if digest else ':' + tag)
 
     def digest(self, reference, missing=False):

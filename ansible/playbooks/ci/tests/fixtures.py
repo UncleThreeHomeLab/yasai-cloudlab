@@ -5,7 +5,7 @@ import sys
 import yaml
 
 from playbooks.ci.files.chart import POOL, ROOT
-from playbooks.ci.files.qualification import ansible_inputs, profile_fingerprint
+from playbooks.ci.files.qualification import ansible_inputs, profile_fingerprint, direct_test_profile
 
 
 def pool_values():
@@ -28,8 +28,9 @@ def bootstrap_document():
         for kind in ('controller', 'runner', 'builder')}}
 
 
-def qualified_tools():
-    return {'images': bootstrap_document()['images'], 'image_revision': 'b' * 40, 'revision': 'c' * 40,
+def qualified_tools(*, direct=False):
+    return {**({'direct_test_nodes_verified': 2, 'direct_test_profile_sha256': direct_test_profile()} if direct else {}),
+            'images': bootstrap_document()['images'], 'image_revision': 'b' * 40, 'revision': 'c' * 40,
             'nodes_verified': 2, 'max_build_pods': 1, 'workload_api_writes_denied': True,
             'health_access_loss_shutdown_bound_seconds': 90,
             'github_or_signing_credentials_provisioned': False, 'profile_sha256': profile_fingerprint()}

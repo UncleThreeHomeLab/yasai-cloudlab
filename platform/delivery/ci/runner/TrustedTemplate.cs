@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using GitHub.DistributedTask.Pipelines;
+using GitHub.DistributedTask.Pipelines.ContextData;
 
 namespace GitHub.Runner.Worker
 {
@@ -42,7 +43,8 @@ namespace GitHub.Runner.Worker
                         Value("workflow_path") + "@refs/heads/main";
                     if (!Regex.IsMatch(Value("workflow_path"), @"\A\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml\z") ||
                         !Regex.IsMatch(Value("workflow_sha256"), @"\A[a-f0-9]{64}\z") ||
-                        Value("job") is not ("test" or "publish") ||
+                        Value("job") is not ("test" or "build" or "publish") ||
+                        (Value("job") == "build" && (!owned || Value("visibility") != "public")) ||
                         (!owned && (!Regex.IsMatch(Value("job_workflow_ref"), @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/application-(test|publish)\.yaml@[a-f0-9]{40}\z") ||
                         !Value("job_workflow_ref").Contains("/application-" + Value("job") + ".yaml@", StringComparison.Ordinal))) ||
                         Value("visibility") is not ("public" or "private") ||
@@ -62,7 +64,10 @@ namespace GitHub.Runner.Worker
                 // Bind direct roles to original server variables and reusable roles to their pinned called workflow.
                 var identity = actual.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
                 identity["job"] = expected.GetProperty("job").GetString();
-                if (!TrustedWorkflow.Valid(identity)) return false;
+                bool development = expected.GetProperty("visibility").GetString() == "public" &&
+                    expected.GetProperty("job_workflow_ref").GetString() == actual["repository"] + "/" +
+                        expected.GetProperty("workflow_path").GetString() + "@refs/heads/main";
+                if (!TrustedWorkflow.Valid(identity, development)) return false;
                 diagnostic?.Invoke("job-token");
                 using var client = fetch == null ? Client(message) : null;
                 if (fetch == null && client == null) return false;
@@ -85,6 +90,24 @@ namespace GitHub.Runner.Worker
                 {
                     if (branch.RootElement.GetProperty("commit").GetProperty("sha").GetString() != actual["sha"])
                         return false;
+                }
+                else if (development && TrustedWorkflow.DevelopmentRef(actual["ref"]))
+                {
+                    diagnostic?.Invoke("development-head");
+                    using var head = fetch(prefix + "/git/ref/heads/" + Uri.EscapeDataString(actual["ref"]["refs/heads/".Length..]));
+                    var current = head.RootElement;
+                    if (current.GetProperty("ref").GetString() != actual["ref"] ||
+                        current.GetProperty("object").GetProperty("type").GetString() != "commit" ||
+                        current.GetProperty("object").GetProperty("sha").GetString() != actual["sha"])
+                        return false;
+                    // Only original server context identifies the pusher; environment variables cannot grant access.
+                    if (message.ContextData["github"] is not DictionaryContextData github ||
+                        !github.TryGetValue("actor", out var actor) || actor is not StringContextData login ||
+                        !github.TryGetValue("actor_id", out var actorId) || actorId is not StringContextData id ||
+                        !Regex.IsMatch(id.Value, @"\A[1-9][0-9]{0,18}\z") || !long.TryParse(id.Value, out var numericId))
+                        return false;
+                    diagnostic?.Invoke("development-writer");
+                    if (!Writer(prefix, login.Value, numericId, fetch)) return false;
                 }
                 else
                 {
@@ -114,13 +137,7 @@ namespace GitHub.Runner.Worker
                         !Regex.IsMatch(login, @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?\z"))
                         return false;
                     diagnostic?.Invoke("pull-request-author-permission");
-                    using var permission = fetch(prefix + "/collaborators/" + Uri.EscapeDataString(login) + "/permission");
-                    var writer = permission.RootElement;
-                    if (writer.GetProperty("permission").GetString() is not ("write" or "admin") ||
-                        writer.GetProperty("user").GetProperty("id").GetInt64() != authorId ||
-                        !string.Equals(writer.GetProperty("user").GetProperty("login").GetString(), login,
-                                       StringComparison.OrdinalIgnoreCase))
-                        return false;
+                    if (!Writer(prefix, login, authorId, fetch)) return false;
                 }
                 diagnostic?.Invoke("workflow-content");
                 var workflowPath = expected.GetProperty("workflow_path").GetString();
@@ -150,6 +167,17 @@ namespace GitHub.Runner.Worker
                 if (failure != null) diagnostic?.Invoke(failure);
                 return false;
             }
+        }
+
+        private static bool Writer(string prefix, string login, long id, Func<string, JsonDocument> fetch)
+        {
+            if (id <= 0 || login == null || !Regex.IsMatch(login, @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?\z"))
+                return false;
+            using var permission = fetch(prefix + "/collaborators/" + Uri.EscapeDataString(login) + "/permission");
+            var writer = permission.RootElement;
+            return (writer.GetProperty("permission").GetString() is "write" or "admin") &&
+                writer.GetProperty("user").GetProperty("id").GetInt64() == id &&
+                string.Equals(writer.GetProperty("user").GetProperty("login").GetString(), login, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool DirectJob(AgentJobRequestMessage message, string expected)
