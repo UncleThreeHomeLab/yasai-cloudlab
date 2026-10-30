@@ -526,3 +526,67 @@ class MaintenanceAPI:
             self.row['head']['sha'] = body['sha']
             return {}
         raise AssertionError('Unexpected synthetic Git operation')
+
+
+class DependencyFixtureAPI(MaintenanceAPI):
+    """Fixed public fixture refs and native Bot PR, with real expected-head races."""
+
+    def __init__(self, source):
+        super().__init__(source, source)
+        self.refs = {'main': self.base}
+        self.native = False
+        self.lose = None
+        self.reject_ref = False
+        self.race_delete = False
+
+    def native_pr(self, base, head):
+        from playbooks.dependencies.files.gate import branch_prefix
+        self.native = True
+        self.row['base'].update(ref=base, sha=self.refs[base])
+        self.row['head'].update(ref=branch_prefix(base)+'tofu', sha=head)
+        self.refs[self.row['head']['ref']] = head
+
+    def request(self, method, path, body=None, missing=False):
+        import copy
+        from playbooks.argocd.files.github_setup import GitHubHTTPError
+        if path == 'repos/example/platform':
+            self.calls.append((method, path, body))
+            return {'id': 1, 'node_id': 'REPO_1', 'full_name': 'example/platform', 'private': False,
+                    'fork': False, 'default_branch': 'main'}
+        if '/git/ref/heads/' in path:
+            self.calls.append((method, path, body))
+            branch = path.split('/git/ref/heads/', 1)[1]
+            if branch not in self.refs:
+                if missing: return None
+                raise GitHubHTTPError(404)
+            return {'object': {'sha': self.refs[branch]}}
+        if path.endswith('/pulls?state=open&per_page=100'):
+            self.calls.append((method, path, body))
+            return [copy.deepcopy(self.row)] if self.native and self.row['state'] == 'open' else []
+        if method == 'POST' and path.endswith('/git/refs'):
+            self.calls.append((method, path, body))
+            branch = body['ref'].removeprefix('refs/heads/')
+            if self.reject_ref or branch in self.refs: raise GitHubHTTPError(422)
+            self.refs[branch] = body['sha']
+            if self.lose == 'create-ref': self.lose = None; raise RuntimeError('synthetic response loss')
+            return {'object': {'sha': body['sha']}}
+        if method == 'PATCH' and path.endswith('/pulls/7'):
+            self.calls.append((method, path, body)); self.row['state'] = body['state']
+            if self.lose == 'close': self.lose = None; raise RuntimeError('synthetic response loss')
+            return copy.deepcopy(self.row)
+        if path == 'graphql' and 'updateRefs' in body['query']:
+            self.calls.append((method, path, body))
+            mutation = body['variables']['input']
+            row = mutation['refUpdates'][0]; branch = row['name'].removeprefix('refs/heads/')
+            if self.race_delete: self.refs[branch] = 'f'*40
+            if self.refs.get(branch) != row['beforeOid'] or row['force'] is not False: raise GitHubHTTPError(422)
+            if row['afterOid'] != '0'*40: raise AssertionError('Only exact deletion is supported')
+            del self.refs[branch]
+            if self.lose == 'delete': self.lose = None; raise RuntimeError('synthetic response loss')
+            return {'data': {'updateRefs': {'clientMutationId': mutation['clientMutationId']}}}
+        result = super().request(method, path, body)
+        if method == 'POST' and path.endswith('/git/commits'):
+            self.commits[result['sha']].update(message=body['message'], parents=[{'sha': value} for value in body['parents']])
+        if method == 'PATCH' and '/git/refs/heads/' in path:
+            self.refs[path.split('/git/refs/heads/', 1)[1]] = body['sha']
+        return result

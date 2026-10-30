@@ -97,12 +97,13 @@ class GateTests(unittest.TestCase):
         self.assertFalse(any('/git/blobs' in call[1] for call in self.api.calls))
 
     def test_stale_head_base_or_tampered_receipt_never_promotes(self):
+        expected = {key: EVIDENCE[key] for key in ('candidateTree', 'pinset', 'helpers', 'toolchain', 'checks')}
         for field in ('head', 'base'):
             self.api.row['head']['sha'], self.api.row['base']['sha'] = HEAD, BASE
             self.gate.stamp(7, EVIDENCE)
             self.api.row[field]['sha'] = '5' * 40
             with self.assertRaises(ValueError):
-                self.gate.ready(7, {})
+                self.gate.ready(7, expected)
             self.assertTrue(self.api.row['draft'])
         self.api.row['head']['sha'], self.api.row['base']['sha'] = HEAD, BASE
         self.gate.stamp(7, EVIDENCE)
@@ -111,7 +112,7 @@ class GateTests(unittest.TestCase):
         document['body']['head'] = '6' * 40
         receipt.write_text(json.dumps(document))
         with self.assertRaises(ValueError):
-            self.gate.ready(7, {})
+            self.gate.ready(7, expected)
 
     def test_exact_final_head_promotes_but_race_redrafts(self):
         expected = {key: EVIDENCE[key] for key in ('candidateTree', 'pinset', 'helpers', 'toolchain', 'checks')}

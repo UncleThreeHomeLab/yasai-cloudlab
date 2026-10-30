@@ -64,6 +64,16 @@ changes refuse promotion. A collaborator push requires fresh export and
 verification; merge only the exact tested SHA through existing protection.
 Automatic merging and native branch pruning are disabled.
 
+Disposable OpenTofu fixtures use `playbooks.dependencies.tests.live_fixture` through
+the existing control service with stages `prepare`, `create`, `record-native`,
+`expect-publication`, `bind-verified` and `cleanup`, supplying the same 32-hex
+`nonce` (and `number` only for `record-native`). Copy the prepared public descriptor
+from `control/fixtures/<nonce>.public.json` to `DEPENDENCY_FIXTURE_DIR/input.json`,
+then run `fixture-artifact` without credentials. Ordinary propose, export, repair,
+verification, publication and ready commands retain authority; fixture cleanup
+closes only its recorded Bot PR and deletes its exact refs with expected-head guards.
+Keep fixture journals and proof data; never merge the disposable update.
+
 ## Owner qualifications
 
 The [maintenance entry point](files/command.py) accepts explicit JSON requests on
