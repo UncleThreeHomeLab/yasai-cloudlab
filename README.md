@@ -70,6 +70,7 @@ not repeat bootstrap. [Required inputs](ansible/playbooks/infrastructure/files/c
 remain outside deployment jobs; `infra-github verify github` checks governance
 alongside `prove`.
 
+Start application onboarding with the [step-by-step guide](docs/service-onboarding.md).
 Application onboarding uses the [service contract](charts/service/README.md),
 administrator-controlled ApplicationSets and scoped data/OIDC references. The
 [notes example](apps/notes/README.md) contains the web/API demonstration. Enable
