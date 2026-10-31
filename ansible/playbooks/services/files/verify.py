@@ -44,6 +44,7 @@ def run(payload):
     if not converged(payload):
         raise RuntimeError('Direct Git catalog has not converged at both reviewed revisions')
     checked = 0
+    composition_evidence = []
     for entry in payload['values']['catalog']:
         request = {'definition': entry['definition'], 'approval': entry['approval']}
         if entry['publication'] == 'retired':
@@ -55,7 +56,9 @@ def run(payload):
             unauthorized_destination(entry, payload)
             unauthorized_destination(entry, payload, unauthorized_source=True)
             from playbooks.services.files.transport import run as transport_proof
-            transport_proof(entry, payload['proof_image'])
+            evidence = transport_proof(entry, payload['proof_image'])
+            if entry['approval'].get('composition'):
+                composition_evidence.append(evidence)
         checked += 1
     active = [entry for entry in payload['values']['catalog'] if entry['publication'] != 'retired']
     stability = {'tested': False, 'active_namespaces': 0}
@@ -68,7 +71,7 @@ def run(payload):
         for entry in active:
             inspect({'definition': entry['definition'], 'approval': entry['approval'], 'action': 'backend'})
     return {'services_checked': checked, 'owner_convergence': True, 'unauthorized_destinations_denied': True,
-            'controller_stability': stability, 'data_removal': False}
+            'controller_stability': stability, 'composition_transport': composition_evidence, 'data_removal': False}
 
 
 if __name__ == '__main__':

@@ -19,7 +19,7 @@ class AdmissionTests(unittest.TestCase):
     def test_policy_modes_are_explicit_and_reject_partial_or_conflicting_actions(self):
         for actions in (['Audit', 'Warn'], ['Deny']):
             with self.subTest(actions=actions):
-                self.assertTrue(all(row['spec']['validationActions'] == actions for row in
+                self.assertTrue(all(row['spec']['validationActions'] == (['Deny'] if row['metadata']['name'] == 'cloudlab-composition-namespace' else actions) for row in
                                     render(True, {'validationActions': actions, 'runnerValidationActions': actions})))
         for actions in ([], ['Warn'], ['Deny', 'Warn'], ['Audit'], ['Deny', 'Deny']):
             for key in ('validationActions', 'runnerValidationActions'):

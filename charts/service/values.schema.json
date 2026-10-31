@@ -2,15 +2,31 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "previewWaypoint": {"type": "boolean"},
+    "previewWaypoint": {
+      "type": "boolean"
+    },
     "previewIdentity": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "instance": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
-        "approvalDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "runtimeStateUID": {"type": "string", "pattern": "^[a-z0-9-]{1,64}$"}
+        "instance": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "approvalDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeStateUID": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,64}$"
+        }
       },
-      "required": ["instance", "approvalDigest", "runtimeStateUID"]
+      "required": [
+        "instance",
+        "approvalDigest",
+        "runtimeStateUID"
+      ]
     },
     "name": {
       "type": "string",
@@ -546,6 +562,75 @@
             "const": "harbor-application-pull"
           }
         }
+      }
+    },
+    "routeOnly": {
+      "type": "boolean"
+    },
+    "routeBackends": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "port",
+          "selector"
+        ],
+        "properties": {
+          "service": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,30}$"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "selector": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 8,
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9._-]{1,63}$"
+            }
+          },
+          "readiness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "statuses"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/[a-zA-Z0-9/_-]{0,127}$"
+              },
+              "statuses": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 6,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    200,
+                    204,
+                    400,
+                    401,
+                    403
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "minProperties": 0,
+      "maxProperties": 8,
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$"
       }
     }
   },

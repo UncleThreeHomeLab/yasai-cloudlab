@@ -1,0 +1,18 @@
+{{- if or (not (regexMatch "^[a-z][a-z0-9-]{0,30}$" .Values.name)) (not (regexMatch "^[a-f0-9]{64}$" .Values.approval)) }}
+{{- fail "Composition release state requires its approved name and profile hash" }}
+{{- end }}
+{{- range $name, $image := .Values.images }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9./:_-]+@sha256:[a-f0-9]{64}$" $image) }}{{ fail "Composition release images require immutable digests" }}{{ end }}
+{{- end }}
+{{- if .Values.primaryComponent }}
+{{- if or (ne .Values.primaryComponent .Values.primaryRelease) (not (hasKey .Values.images .Values.primaryComponent)) (not (hasSuffix (printf "@%s" .Values.primaryDigest) (index .Values.images .Values.primaryComponent))) }}
+{{- fail "Composition primary image must match the same approved component release record" }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "composition-%s" .Values.name }}
+  namespace: cloudlab-policy
+data:
+  release.json: {{ dict "approval" .Values.approval "images" .Values.images | toJson | quote }}

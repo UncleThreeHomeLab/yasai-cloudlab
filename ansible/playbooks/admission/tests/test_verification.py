@@ -7,6 +7,47 @@ from playbooks.admission.files import verify
 
 
 class VerificationTests(unittest.TestCase):
+    def test_global_composition_guard_requires_native_ready_owner_and_real_dry_run_denial(self):
+        policy = {'metadata': {'generation': 1, 'annotations': {
+            'argocd.argoproj.io/tracking-id': 'cloudlab-workload-policy:owned'}},
+            'status': {'conditionStatus': {'ready': True, 'conditions': [{'status': 'True'}]}},
+            'spec': {'validationActions': ['Deny'], 'failurePolicy': 'Fail', 'evaluation': {'admission': {'enabled': True}},
+                'matchConstraints': {'resourceRules': [{'apiGroups': [''], 'apiVersions': ['v1'],
+                    'operations': ['CREATE', 'UPDATE'], 'resources': ['namespaces']}]}}}
+        def get(kind, name): return policy if name == 'cloudlab-composition-namespace' else None
+        with patch.object(verify, 'get', side_effect=get), patch.object(verify, 'wait'), patch.object(verify, 'kube',
+                return_value=subprocess.CompletedProcess([], 1, '', 'cloudlab-composition-namespace')) as kube:
+            verify.composition_guard()
+            self.assertIn('--dry-run=server', kube.call_args.args)
+            for result in (subprocess.CompletedProcess([], 0, '', ''), subprocess.CompletedProcess([], 1, '', 'unrelated')):
+                kube.return_value = result
+                with self.assertRaises(RuntimeError): verify.composition_guard()
+            policy['spec']['failurePolicy'] = 'Ignore'
+            with self.assertRaises(RuntimeError): verify.composition_guard()
+            policy.clear()
+            with self.assertRaises(RuntimeError): verify.composition_guard()
+
+    def test_privileged_namespace_needs_catalog_and_real_composition_verification(self):
+        namespace = {'metadata': {'name': 'cloudlab-app-composition', 'labels': {
+            'cloudlab.io/composition': 'approved', 'pod-security.kubernetes.io/enforce': 'privileged'}}}
+        entry = {'publication': 'ready', 'approval': {'namespace': namespace['metadata']['name'], 'composition': {'approved': True}}}
+        with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [])
+        with patch('playbooks.services.files.composition_verify.admission', return_value={'ephemeral_denied': True}) as proof:
+            self.assertEqual(verify.namespaces([namespace], True, [entry]), (1, 1, 0))
+            self.assertEqual(proof.call_args.args[0], entry)
+        with patch('playbooks.services.files.composition_verify.admission', side_effect=RuntimeError('missing guard')):
+            with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [entry])
+        with self.assertRaises(RuntimeError): verify.namespaces([], True, [entry])
+        with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [entry, entry])
+
+    def test_ordinary_restricted_namespaces_keep_existing_admission_proof(self):
+        namespace = {'metadata': {'name': 'cloudlab-app-notes', 'labels': {'pod-security.kubernetes.io/enforce': 'restricted'}}}
+        with patch.object(verify, 'admission') as admit, patch.object(verify, 'ephemeral_admission', return_value=True):
+            self.assertEqual(verify.namespaces([namespace], True, []), (1, 0, 1))
+            admit.assert_called_once_with('cloudlab-app-notes', True)
+        namespace['metadata']['labels']['pod-security.kubernetes.io/enforce'] = 'privileged'
+        with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [])
+
     def test_layered_repository_denial_requires_the_exact_policy_rule_and_message(self):
         parts = ('application-artifacts', 'approved-repositories',
                  'Images require the approved application repository or retained bootstrap digest.')

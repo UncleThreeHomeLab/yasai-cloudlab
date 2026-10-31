@@ -1,0 +1,61 @@
+{{- range .Values.catalog }}
+{{- $a := .approval }}
+{{- $entry := . }}
+{{- $artifact := $a.artifact | default dict }}
+{{- with $a.composition }}
+{{- $c := . }}
+{{- $images := deepCopy .images }}
+{{- range ($artifact.components | default list) }}
+{{- if not (hasKey $c.images .) }}{{ fail "Released components must have approved composition profiles" }}{{ end }}
+{{- $_ := set $images . (printf "%s@{{ index .components %q }}" $a.artifact.repository .) }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: {{ $a.name }}-profile, namespace: argocd}
+spec:
+  sourceRepos: {{ list $.Values.repository $a.repository | uniq | toJson }}
+  destinations: [{server: 'https://kubernetes.default.svc', namespace: cloudlab-policy}]
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: [{group: '', kind: ConfigMap}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: {name: {{ $a.name }}-profile, namespace: argocd}
+spec:
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    {{- if $a.artifact }}
+    - git:
+        repoURL: {{ $a.repository | quote }}
+        revision: main
+        files: [{path: {{ $a.artifact.releasePath | quote }}}]
+    {{- else }}
+    - list: {elements: [{name: {{ $a.name }}}]}
+    {{- end }}
+  syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
+  template:
+    metadata: {name: {{ $a.name }}-profile, annotations: {argocd.argoproj.io/sync-wave: '-1'}}
+    spec:
+      project: {{ $a.name }}-profile
+      source:
+        repoURL: {{ $.Values.repository | quote }}
+        targetRevision: {{ $.Values.revision | quote }}
+        path: platform/delivery/service-profile
+        helm:
+          valuesObject:
+            name: {{ $a.name }}
+            approval: {{ toJson $c | sha256sum | quote }}
+            images: {{ $images | toJson }}
+            {{- if $artifact }}
+            primaryComponent: {{ $artifact.primaryComponent | quote }}
+            primaryRelease: '{{ "{{ .primary_component }}" }}'
+            primaryDigest: '{{ "{{ .digest }}" }}'
+            {{- end }}
+      destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-policy}
+      syncPolicy:
+        automated: {prune: false, selfHeal: true, allowEmpty: false}
+        syncOptions: [FailOnSharedResource=true]
+{{- end }}
+{{- end }}

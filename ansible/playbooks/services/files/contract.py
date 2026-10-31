@@ -19,6 +19,13 @@ def artifact_approval(approval):
     if artifact is None:
         return
     fields = {'repository', 'project', 'releasePath', 'sourceRepository', 'identities', 'action'}
+    if 'components' in artifact:
+        fields |= {'components', 'primaryComponent'}
+        if (not isinstance(artifact['components'], list) or not 1 <= len(artifact['components']) <= 12 or
+                len(set(artifact['components'])) != len(artifact['components']) or
+                artifact.get('primaryComponent') not in artifact['components'] or
+                any(not re.fullmatch(r'[a-z][a-z0-9-]{0,30}', value) for value in artifact['components'])):
+            raise ValueError('Artifact components require bounded distinct names and their primary component')
     if (set(artifact) != fields or artifact['project'] != 'cloudlab-' + approval.get('visibility', 'public') or
             not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,252}/' + re.escape(artifact['project']) + '/' +
                              re.escape(approval['name']), artifact['repository']) or
@@ -44,6 +51,8 @@ def render(definition, namespace='cloudlab-service-proof'):
 
 
 def validate(definition):
+    if {'routeOnly', 'routeBackends'} & set(definition):
+        raise ValueError('Routing controls belong to the administrator catalog renderer')
     render(definition)
     value = copy.deepcopy(definition)
     ports = value['ports']

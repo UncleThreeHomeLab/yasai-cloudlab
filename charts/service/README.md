@@ -22,6 +22,22 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
 
 Source visibility (`approval.visibility`) is independent of network exposure.
+Administrator-approved multi-workload charts use optional `approval.composition` in
+the same private catalog. Its exact chart source, image value paths, rendered pod
+profiles, named backends/selectors, retained claims, aggregate secret item fields and namespace
+budget are validated by [the composition owner](../../ansible/playbooks/services/files/compositions.py).
+Converge composition namespace admission before enabling the catalog. The workload
+project cannot write policies, secrets or release state; a separate platform-owned
+ApplicationSet binds every component to the same reviewed release record. Private
+values and release metadata stay in `approval.repository`; the application
+chart has its own immutable source. Composition `backends` keys exactly match declared exposure hostnames; each
+entry supplies its actual Service name, port and pod selector (one backend per host).
+Optional listener readiness selects an approved path/status separately from workload
+health; it does not prove OAuth consent or application login. Composition canaries are unsupported; ordinary
+service and Notes defaults stay unchanged.
+Current composition transport checks require a primary exposure, Python in its
+backend and an existing healthy Python caller in another restricted service
+namespace. Confirm these before onboarding; checks do not create running probe pods.
 Rollouts require the Git-owned [controller and pinned plugin](../../platform/delivery/rollouts/),
 an exposed stateless service and `http-metrics:9091`. The exporter must label
 `cloudlab_http_requests_total`, `cloudlab_http_duration_seconds_bucket` and

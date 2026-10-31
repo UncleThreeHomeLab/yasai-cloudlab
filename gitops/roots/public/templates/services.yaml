@@ -17,6 +17,7 @@ spec:
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-policy}
   clusterResourceWhitelist:
     - {group: '', kind: Namespace}
+    - {group: policies.kyverno.io, kind: ValidatingPolicy}
   namespaceResourceWhitelist:
     - {group: '', kind: ResourceQuota}
     - {group: '', kind: ConfigMap}

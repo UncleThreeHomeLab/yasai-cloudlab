@@ -6,11 +6,24 @@ from playbooks.services.files.contract import validate, artifact_approval
 def resources(definition, approval, platform_repository, platform_revision):
     definition = validate(definition)
     required = {'name', 'repository', 'revision', 'valuesPath', 'namespace', 'secretReferences', 'configMaps'}
-    if not required <= set(approval) <= required | {'visibility', 'chartPath', 'artifact'} or approval.get('visibility', 'public') not in ('public', 'private'):
+    if not required <= set(approval) <= required | {'visibility', 'chartPath', 'artifact', 'composition'} or approval.get('visibility', 'public') not in ('public', 'private'):
         raise ValueError('Administrator approval requires an exact source and namespace')
     if approval.get('chartPath', 'charts/service') not in ('charts/service', 'apps/notes'):
         raise ValueError('Service chart source is not approved')
     artifact_approval(approval)
+    from playbooks.services.files.compositions import validate as composition
+    composed = composition(approval)
+    if composed:
+        exposures = [row for row in [definition['exposure']] + definition.get('additionalExposures', []) if row['class'] != 'none']
+        if (definition['rollouts']['enabled'] or set(composed['backends']) != {row['hostname'] for row in exposures} or
+                any(composed['backends'][row['hostname']]['port'] != row['port'] for row in exposures)):
+            raise ValueError('Composition routes require exact exposure host and real backend ports; canaries are unsupported')
+        for exposure in exposures:
+            selected = composed['backends'][exposure['hostname']]
+            prefix = exposure['path'].rstrip('/')
+            if 'readiness' in selected and not (selected['readiness']['path'] == prefix or
+                    selected['readiness']['path'].startswith(prefix + '/')):
+                raise ValueError('Composition listener readiness must remain under its approved exposure path')
     name, namespace = approval['name'], approval['namespace']
     if (not re.fullmatch(r'[a-z][a-z0-9-]{0,30}', name) or
             namespace != 'cloudlab-app-' + name or

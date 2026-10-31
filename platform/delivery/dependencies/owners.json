@@ -1926,6 +1926,21 @@
       "nativeDependencies": [],
       "aliasFor": "image:ci-scan"
     },
+    "pin:platform/delivery/service-profile/Chart.yaml": {
+      "sources": [
+        "platform/delivery/service-profile/Chart.yaml"
+      ],
+      "companions": [],
+      "group": "pin:platform/delivery/service-profile/Chart.yaml",
+      "updater": "native",
+      "checks": [
+        "ansible/runner/tests/test_tools.py"
+      ],
+      "writePaths": [],
+      "nativeDependencies": [],
+      "disposition": "existing-owner",
+      "owner": "first-party declarative component"
+    },
     "pin:platform/delivery/services/Chart.yaml": {
       "sources": [
         "platform/delivery/services/Chart.yaml"

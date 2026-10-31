@@ -28,8 +28,14 @@ spec:
 {{- end }}
 {{- range .Values.catalog }}
 {{- $a := .approval }}
+{{- $artifact := $a.artifact | default dict }}
 {{- $bootstrap := .definition.image }}
 {{- $bootstrapReferences := list $bootstrap }}
+{{- with $a.composition }}
+{{- range $name, $image := .images }}
+{{- if not (has $name ($artifact.components | default list)) }}{{ $bootstrapReferences = append $bootstrapReferences $image }}{{ end }}
+{{- end }}
+{{- end }}
 {{- if not (contains "/" $bootstrap) }}{{ $bootstrapReferences = append $bootstrapReferences (printf "docker.io/library/%s" $bootstrap) }}{{- end }}
 {{- with $a.artifact }}
 {{- $private := eq ($a.visibility | default "public") "private" }}

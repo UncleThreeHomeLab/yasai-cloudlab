@@ -75,7 +75,7 @@ class ContractTests(unittest.TestCase):
         appset = next(obj for obj in objects if obj['kind'] == 'ApplicationSet')['spec']['template']['spec']
         self.assertEqual(appset['project'], 'synthetic')
         self.assertEqual(appset['destination'], {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-app-synthetic'})
-        self.assertEqual(appset['sources'][0]['helm']['valuesObject'], value)
+        self.assertEqual(appset['sources'][0]['helm']['valuesObject'], dict(value, routeOnly=False, routeBackends={}))
         policy = next(obj for obj in objects if obj['kind'] == 'AuthorizationPolicy')
         self.assertEqual(policy['spec']['rules'][0]['from'][0]['source']['principals'],
                          ['cluster.local/ns/cloudlab-app-synthetic/sa/synthetic'])
@@ -107,13 +107,13 @@ class ContractTests(unittest.TestCase):
         spec = next(o for o in objects if o['kind'] == 'ApplicationSet')['spec']['template']['spec']
         self.assertNotIn('sources', spec)
         self.assertEqual(spec['source']['targetRevision'], 'b' * 40)
-        self.assertEqual(spec['source']['helm'], {'valuesObject': value})
+        self.assertEqual(spec['source']['helm'], {'valuesObject': dict(value, routeOnly=False, routeBackends={})})
         allowed['repository'] = 'https://github.com/example/other.git'
         objects = resources(value, allowed, repository, 'b' * 40)
         sources = next(o for o in objects if o['kind'] == 'ApplicationSet')['spec']['template']['spec']['sources']
         self.assertEqual(len(sources), 2)
         self.assertEqual(sources[1]['targetRevision'], 'a' * 40)
-        self.assertEqual(sources[0]['helm']['valuesObject'], value)
+        self.assertEqual(sources[0]['helm']['valuesObject'], dict(value, routeOnly=False, routeBackends={}))
 
 
 if __name__ == '__main__':
