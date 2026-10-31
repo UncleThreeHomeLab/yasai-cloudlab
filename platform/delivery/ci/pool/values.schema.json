@@ -16,6 +16,8 @@
       "allOf": [
         {"if": {"required": ["components"]}, "then": {"required": ["primary_component"]}},
         {"if": {"required": ["primary_component"]}, "then": {"required": ["components"]}},
+        {"if": {"required": ["release_mode"], "properties": {"release_mode": {"const": "manual"}}},
+         "then": {"required": ["release_visibility"], "properties": {"release_visibility": {"const": "private"}}}},
         {"if": {"properties": {"visibility": {"const": "private"}}},
          "then": {"properties": {"release_visibility": {"const": "private"}}}}
       ],
@@ -33,6 +35,7 @@
         },
         "primary_component": {"type": "string", "pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$"},
         "release_visibility": {"enum": ["public", "private"]},
+        "release_mode": {"enum": ["automatic", "manual"]},
         "application": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,34}$"},
         "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"},
         "source_repository_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},

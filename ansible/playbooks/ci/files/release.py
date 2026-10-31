@@ -52,10 +52,7 @@ def api(method, path, document=None, *, token=None):
         raise ReleaseFailure('Release API unavailable; existing branches and PRs retained') from None
 
 
-def propose(repository, path, desired):
-    if (not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository) or
-            not re.fullmatch(r'apps/releases/[a-z][a-z0-9-]{0,34}[.]json', path)):
-        raise ValueError('Release proposal requires its approved repository and artifact file')
+def validate(desired):
     base_fields = {'digest', 'source_revision', 'workflow_run_id'}
     if (set(desired) not in (base_fields, base_fields | {'components', 'primary_component'}) or
             not all(isinstance(desired.get(key), str) for key in base_fields) or
@@ -71,6 +68,14 @@ def propose(repository, path, desired):
                     not isinstance(digest, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest)
                     for name, digest in components.items())):
             raise ValueError('Component releases require bounded named digests matching their explicit primary')
+    return desired
+
+
+def propose(repository, path, desired):
+    if (not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository) or
+            not re.fullmatch(r'apps/releases/[a-z][a-z0-9-]{0,34}[.]json', path)):
+        raise ValueError('Release proposal requires its approved repository and artifact file')
+    validate(desired)
     prefix = 'repos/' + repository
 
     with tempfile.TemporaryDirectory(prefix='cloudlab-release-') as directory:

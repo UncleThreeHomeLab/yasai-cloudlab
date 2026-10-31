@@ -163,7 +163,8 @@ class ApplicationConfigurationTests(unittest.TestCase):
             application_configuration(qualified_tools(), public, public_current, workflows=workflows, exact_reusable=True)
 
     def test_publisher_uses_one_shared_budget_with_role_scoped_credentials_and_no_builder_secret_mounts(self):
-        for scope, release_scope in (('public', 'public'), ('private', 'private'), ('public', 'private')):
+        for scope, release_scope, mode in (('public', 'public', 'automatic'), ('private', 'private', 'automatic'),
+                                           ('public', 'private', 'automatic'), ('public', 'private', 'manual')):
             application, current = self.inputs('example', scope)
             application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-public/test-env@sha256:' + 'a' * 64}
             templates = [{'repository_id': str(current['id']), 'repository': current['full_name'],
@@ -180,6 +181,9 @@ class ApplicationConfigurationTests(unittest.TestCase):
                 application.update(releaseRepository='example/gitops', primaryComponent='agent',
                                    components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}})
                 publishing.update(release_visibility=release_scope, components=application['components'], primary_component='agent')
+            if mode == 'manual':
+                application['releaseMode'] = 'manual'
+                publishing['release_mode'] = 'manual'
             documents = application_configuration(qualified_tools(direct=True), application, current,
                                                    templates=templates, publishing=publishing)
             self.assertEqual(set(documents), {'controller.json', 'runner.json', 'publisher.json'})
@@ -198,6 +202,12 @@ class ApplicationConfigurationTests(unittest.TestCase):
             items = {entry['extract']['key'] for row in secrets for entry in row['spec']['dataFrom']}
             expected = {'github-release-' + release_scope, 'harbor-cloudlab-' + scope + '-pull',
                         'harbor-cloudlab-' + scope + '-push'}
+            if mode == 'manual':
+                expected.remove('github-release-' + release_scope)
+                self.assertFalse(any(v['name'] == 'publish-github' for v in publisher['arc']['template']['spec']['volumes']))
+                bad = copy.deepcopy(publisher)
+                bad['arc']['template']['spec']['volumes'].append({'name': 'publish-github', 'secret': {'secretName': 'cloudlab-release'}})
+                with self.assertRaises(subprocess.CalledProcessError): render(bad, chart=POOL, namespace=namespace)
             if scope == 'private':
                 expected |= {'ci-private-signer', 'ci-private-verifier'}
             self.assertEqual(items, expected)
@@ -239,6 +249,11 @@ class ApplicationConfigurationTests(unittest.TestCase):
             fields.assert_called_once_with('github-release-private', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
             guard.assert_called_once_with(api, 'example/private-config')
             self.assertEqual(verify.call_args.args[1], {'example/private-config': True})
+            fields.reset_mock(); guard.reset_mock(); verify.reset_mock()
+            manual = command.publication(api, {}, dict(application, releaseMode='manual'), current, qualified_tools(), [template])
+            self.assertEqual(manual['release_mode'], 'manual')
+            self.assertEqual(manual['release_visibility'], 'private')
+            fields.assert_not_called(); guard.assert_not_called(); verify.assert_not_called()
             fields.reset_mock(); api.reset_mock()
             for target in ('example/unapproved', 'foreign/private-config'):
                 with self.subTest(target=target), self.assertRaises(ValueError):

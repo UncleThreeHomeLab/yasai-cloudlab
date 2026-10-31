@@ -137,10 +137,13 @@ def application_configuration(qualified, application, current, workflows=(), tem
     from playbooks.ci.files.publisher import component_configuration
     references = qualified_images(qualified)
     if (not {'name', 'repository', 'visibility'} <= set(application) or
-            set(application) - {'name', 'repository', 'visibility', 'testing', 'components', 'primaryComponent', 'releaseRepository'} or
+            set(application) - {'name', 'repository', 'visibility', 'testing', 'components', 'primaryComponent', 'releaseRepository', 'releaseMode'} or
             not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application.get('name', '')) or
             application.get('visibility') not in ('public', 'private')):
         raise ValueError('Application registration requires a name, repository and visibility')
+    if (application.get('releaseMode', 'automatic') not in ('automatic', 'manual') or
+            application.get('releaseMode') == 'manual' and 'releaseRepository' not in application):
+        raise ValueError('Manual promotion requires an explicit private release target')
     if 'components' in application or 'primaryComponent' in application:
         component_configuration(application.get('components'), application.get('primaryComponent'))
     if 'releaseRepository' in application and (not isinstance(application['releaseRepository'], str) or
@@ -218,6 +221,7 @@ def application_configuration(qualified, application, current, workflows=(), tem
                     publishing['source_repository_id'] != str(current['id']) or publishing['visibility'] != scope or
                     publishing.get('components') != application.get('components') or
                     publishing.get('primary_component') != application.get('primaryComponent') or
+                    publishing.get('release_mode', 'automatic') != application.get('releaseMode', 'automatic') or
                     'releaseRepository' in application and publishing['release_repository'] != application['releaseRepository']):
                 raise ValueError('Publishing inputs must match the registered application repository')
             publisher = copy.deepcopy(values)
@@ -240,8 +244,9 @@ def application_configuration(qualified, application, current, workflows=(), tem
             next(row for row in spec['volumes'] if row['name'] == 'eligibility')['configMap']['name'] = publisher['policyName']
             mounts = [('config', {'configMap': {'name': 'cloudlab-publishing', 'defaultMode': 288}}),
                       ('pull', {'secret': {'secretName': 'cloudlab-publish-pull', 'defaultMode': 288}}),
-                      ('push', {'secret': {'secretName': 'cloudlab-publish-push', 'defaultMode': 288}}),
-                      ('github', {'secret': {'secretName': 'cloudlab-release', 'defaultMode': 288}})]
+                      ('push', {'secret': {'secretName': 'cloudlab-publish-push', 'defaultMode': 288}})]
+            if publishing.get('release_mode') != 'manual':
+                mounts.append(('github', {'secret': {'secretName': 'cloudlab-release', 'defaultMode': 288}}))
             if scope == 'private':
                 mounts.append(('signer', {'secret': {'secretName': 'cloudlab-ci-signing', 'defaultMode': 288}}))
             for key, volume in mounts:
@@ -294,6 +299,10 @@ def publication(api, values, application, current, qualified, templates):
             raise ValueError('Release target must match one designated GitOps repository')
         role, = matches
     target, private = designated[role]
+    manual = application.get('releaseMode') == 'manual'
+    if application.get('releaseMode', 'automatic') not in ('automatic', 'manual') or manual and (
+            role != 'private-config' or not private or 'releaseRepository' not in application):
+        raise ValueError('Manual promotion requires the explicitly designated private GitOps target')
     if scope == 'private' and not private:
         raise ValueError('Private source releases must remain in private GitOps')
     row, = [row for row in templates if row['job'] == 'publish']
@@ -302,20 +311,21 @@ def publication(api, values, application, current, qualified, templates):
             metadata.get('fork') or metadata.get('archived') or metadata.get('disabled') or
             metadata.get('default_branch') != 'main' or type(metadata.get('id')) is not int):
         raise ValueError('Publishing requires the accepted owning GitOps repository')
-    from playbooks.ci.files.workflow_permissions import require_release_guard
-    require_release_guard(api, target)
-    title = 'github-release-' + ('private' if private else 'public')
-    roles, permissions = APPS[title]
-    original = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
-    os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
-    try:
-        verify_app(fields(title, ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')),
-                   dict(designated[key] for key in roles), permissions)
-    finally:
-        if original is None:
-            os.environ.pop('OP_SERVICE_ACCOUNT_TOKEN', None)
-        else:
-            os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = original
+    if not manual:
+        from playbooks.ci.files.workflow_permissions import require_release_guard
+        require_release_guard(api, target)
+        title = 'github-release-' + ('private' if private else 'public')
+        roles, permissions = APPS[title]
+        original = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
+        os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
+        try:
+            verify_app(fields(title, ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')),
+                       dict(designated[key] for key in roles), permissions)
+        finally:
+            if original is None:
+                os.environ.pop('OP_SERVICE_ACCOUNT_TOKEN', None)
+            else:
+                os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = original
     document = {'application': application['name'], 'source_repository': current['full_name'],
             'source_repository_id': str(current['id']), 'visibility': scope,
             'registry': qualified_images(qualified)['runner'].split('/')[0],
@@ -323,6 +333,8 @@ def publication(api, values, application, current, qualified, templates):
             'release_repository_id': metadata['id'], 'workflow_identity': 'https://github.com/' + row['job_workflow_ref']}
     if 'releaseRepository' in application:
         document['release_visibility'] = 'private' if private else 'public'
+    if manual:
+        document['release_mode'] = 'manual'
     if 'components' in application:
         document.update(components=copy.deepcopy(application['components']), primary_component=application['primaryComponent'])
     return document

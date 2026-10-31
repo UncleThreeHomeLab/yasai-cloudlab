@@ -126,13 +126,16 @@ def environment_application(path):
     value = json.loads(path.read_text(encoding='utf-8'))
     required = {'name', 'repository', 'visibility'}
     if (not isinstance(value, dict) or not required <= set(value) or
-            set(value) - required - {'testing', 'components', 'primaryComponent', 'releaseRepository'} or
+            set(value) - required - {'testing', 'components', 'primaryComponent', 'releaseRepository', 'releaseMode'} or
             not isinstance(value.get('name'), str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', value['name']) or
             not isinstance(value.get('repository'), str) or
             not re.fullmatch(r'https://github[.]com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git',
                              value.get('repository', '')) or value.get('visibility') != 'public' or
             ('testing' in value and not isinstance(value['testing'], dict))):
         raise ValueError('Environment producer requires an approved public application identity')
+    if value.get('releaseMode', 'automatic') not in ('automatic', 'manual') or (
+            value.get('releaseMode') == 'manual' and 'releaseRepository' not in value):
+        raise ValueError('Manual promotion requires an explicit private release target')
     if 'components' in value or 'primaryComponent' in value:
         from playbooks.ci.files.publisher import component_configuration
         component_configuration(value.get('components'), value.get('primaryComponent'))
