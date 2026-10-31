@@ -40,7 +40,7 @@ class DashboardTests(unittest.TestCase):
                  (ROOT / 'platform/observability/prometheus/dashboards').glob('*.json')}
         self.assertEqual(config['data'], files)
         dashboards = [json.loads(raw) for raw in files.values()]
-        self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes', 'cloudlab-rollouts'})
+        self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes', 'cloudlab-rollouts', 'cloudlab-services'})
         settings = values('prometheus')['grafana']
         sources = {d['uid'] for d in settings['datasources']['datasources.yaml']['datasources']}
         for dashboard in dashboards:
@@ -69,6 +69,23 @@ class DashboardTests(unittest.TestCase):
         nodes = next(d for d in dashboards if d['uid'] == 'cloudlab-nodes')
         self.assertFalse(any(p['type'] == 'table' for p in nodes['panels']))
         self.assertTrue(any(link.get('url') == '/d/cloudlab-rollouts' for link in nodes['links']))
+
+    def test_service_view_uses_collected_workload_metrics_without_masking_missing_data(self):
+        dashboard = json.loads((ROOT / 'platform/observability/prometheus/dashboards/services.json').read_text())
+        namespace, = dashboard['templating']['list']
+        self.assertEqual(namespace['name'], 'namespace')
+        self.assertEqual(namespace['query'], 'label_values(kube_deployment_spec_replicas, namespace)')
+        self.assertEqual(namespace['current'], {'text': 'All', 'value': '$__all'})
+        self.assertIn('without readiness probes', dashboard['description'])
+        expressions = [target['expr'] for panel in dashboard['panels'] for target in panel['targets']]
+        self.assertEqual(len(expressions), 6)
+        for expression in expressions:
+            self.assertIn('namespace=~"$namespace"', expression)
+            self.assertNotIn('or vector(0)', expression)
+        for metric in ('kube_deployment_spec_replicas', 'kube_deployment_status_replicas_available',
+                       'kube_pod_status_ready', 'kube_pod_container_status_restarts_total',
+                       'container_cpu_usage_seconds_total', 'container_memory_working_set_bytes'):
+            self.assertTrue(any(metric in expression for expression in expressions))
 
     def test_release_dashboard_distinguishes_configured_measured_idle_and_missing_data(self):
         dashboard = json.loads((ROOT / 'platform/observability/prometheus/dashboards/releases.json').read_text())
