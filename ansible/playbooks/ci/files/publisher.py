@@ -126,7 +126,7 @@ def registry_environment(directory, registry, project, role, environment, creden
     return dict(environment, DOCKER_CONFIG=str(path))
 
 
-def build_and_scan(source, directory, environment, component=None):
+def build_and_scan(source, directory, environment, component=None, *, cache=None):
     archive = directory / 'image.tar'
     options = ['--opt', 'target=runtime']
     if component is not None:
@@ -152,7 +152,8 @@ def build_and_scan(source, directory, environment, component=None):
     scan_environment = {key: environment[key] for key in ('PATH', 'HOME') if key in environment}
     execute(['trivy', 'image', '--quiet', '--no-progress', '--config', '/dev/null', '--ignorefile', '/dev/null',
              '--ignore-unfixed=false', '--input', str(archive), '--timeout', '15m', '--parallel', '2',
-             '--cache-dir', str(directory / 'trivy'), '--db-repository', scan['database'], '--offline-scan',
+             '--cache-dir', str(cache if cache is not None else directory / 'trivy'),
+             '--db-repository', scan['database'], '--offline-scan',
              '--skip-java-db-update', '--scanners', 'vuln,secret', '--severity', ','.join(scan['severities']),
              '--exit-code', '1', '--format', 'json', '--output', str(report)], scan_environment, timeout=1000)
     document = json.loads(report.read_text())
@@ -338,7 +339,7 @@ def publish(document, source, environment):
             output = directory / 'components' / name if name else directory
             if name:
                 output.mkdir(mode=0o700)
-            archive, digest = (build_and_scan(source, output, pull, component) if component is not None else
+            archive, digest = (build_and_scan(source, output, pull, component, cache=directory / 'trivy') if component is not None else
                                build_and_scan(source, output, pull))
             print('Application scan passed', flush=True)
             # App Dockerfiles receive only pull authentication through BuildKit's session.

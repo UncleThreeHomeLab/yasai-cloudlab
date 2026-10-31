@@ -1,6 +1,7 @@
 """Publication ordering, repository boundaries and credential separation without service access."""
 from contextlib import contextmanager
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,9 +12,75 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from playbooks.ci.files import publisher
+from playbooks.ci.tests.fixtures import manual_publication
 
 
 class PublisherTests(unittest.TestCase):
+    def test_six_components_share_one_private_run_cache_keep_separate_reports_and_refuse_partial_candidate(self):
+        document, environment = self.inputs()
+        document = manual_publication()
+        components = ('agent', 'google', 'mcp', 'postgres', 'telegram', 'worker')
+        document['components'] = {name: {'dockerfile': name + '.Dockerfile'} for name in components}
+        previous_cache = None
+        for failure in (None, 'worker'):
+            caches, reports, archives, created_databases = [], [], [], []
+            def execute(arguments, native, **options):
+                if arguments[0] == 'buildctl':
+                    if arguments[-2] == '--output':
+                        archive = Path(arguments[-1].split('dest=', 1)[1])
+                        archive.write_bytes(b'synthetic-image')
+                        archives.append(archive)
+                    return b''
+                if arguments[0] == 'trivy':
+                    cache = Path(arguments[arguments.index('--cache-dir') + 1])
+                    report = Path(arguments[arguments.index('--output') + 1])
+                    caches.append(cache); reports.append(report)
+                    self.assertEqual(set(native), {'PATH', 'HOME'})
+                    self.assertIn('--ignore-unfixed=false', arguments)
+                    self.assertIn('--ignorefile', arguments)
+                    self.assertEqual(arguments[arguments.index('--ignorefile') + 1], '/dev/null')
+                    self.assertEqual(arguments[arguments.index('--scanners') + 1], 'vuln,secret')
+                    self.assertEqual(arguments[arguments.index('--severity') + 1], 'HIGH,CRITICAL')
+                    self.assertEqual(arguments[arguments.index('--exit-code') + 1], '1')
+                    policy = json.loads(Path(publisher.__file__).resolve().parents[4].joinpath('platform/delivery/ci/scan.lock.json').read_text())
+                    self.assertEqual(arguments[arguments.index('--db-repository') + 1], policy['database'])
+                    cache.mkdir(mode=0o700, exist_ok=True)
+                    database = cache / 'synthetic.db'
+                    if not database.exists():
+                        database.write_bytes(b'one-database-per-run'); created_databases.append(database)
+                    if report.parent.name == failure:
+                        raise publisher.NativeFailure('Synthetic scanner failure')
+                    report.write_text(json.dumps({'SchemaVersion': 2, 'ArtifactType': 'container_image',
+                                                  'Results': [{'Vulnerabilities': [], 'Secrets': []}]}))
+                    return b''
+                if options.get('missing'): return None
+                if arguments[1] == 'push': return b''
+                if '--tarball' in arguments:
+                    return ('sha256:' + hashlib.sha256(Path(arguments[-1]).parent.name.encode()).hexdigest()).encode()
+                return arguments[-1].rsplit('@', 1)[-1].encode()
+            with tempfile.TemporaryDirectory() as temporary:
+                source = Path(temporary)
+                for name in components: (source / (name + '.Dockerfile')).write_text('FROM scratch')
+                with patch.object(publisher, 'registry_environment', side_effect=lambda directory, registry, project, role, native: dict(native, DOCKER_CONFIG=role)), \
+                        patch.object(publisher, 'execute', side_effect=execute), patch.object(publisher, 'sign'), \
+                        patch.object(publisher, 'publish_candidate', return_value={'candidate_published': True}) as candidate:
+                    if failure:
+                        with self.assertRaises(publisher.NativeFailure): publisher.publish(document, source, environment)
+                        candidate.assert_not_called()
+                    else:
+                        self.assertTrue(publisher.publish(document, source, environment)['candidate_published'])
+                        candidate.assert_called_once()
+            self.assertEqual(len(caches), 6)
+            self.assertEqual(len(set(caches)), 1)
+            self.assertEqual(len(set(reports)), 6)
+            self.assertEqual(len(set(archives)), 6)
+            self.assertEqual(len(created_databases), 1)
+            self.assertEqual({path.parent.name for path in reports}, set(components))
+            self.assertTrue(all(path.parent.parent.parent == caches[0].parent for path in reports))
+            self.assertFalse(caches[0].exists(), 'Run-scoped cache must be cleaned after success or failure')
+            self.assertNotEqual(caches[0], previous_cache, 'Different publication runs must never share caches')
+            previous_cache = caches[0]
+
     def test_component_inputs_are_bounded_and_cannot_escape_the_source_or_choose_commands(self):
         document, environment = self.inputs()
         document.update(components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}}, primary_component='agent',
@@ -53,6 +120,8 @@ class PublisherTests(unittest.TestCase):
                     command = next(c for c in calls if c[0] == 'buildctl')
                     self.assertIn('filename=deploy/agent.Dockerfile', command)
                     self.assertEqual('target=runtime' in command, target is not None)
+                    scan = next(c for c in calls if c[0] == 'trivy')
+                    self.assertEqual(scan[scan.index('--cache-dir') + 1], str(output / 'trivy'))
                     calls.clear()
             (source / 'deploy/agent.Dockerfile').unlink()
             (source / 'deploy/agent.Dockerfile').symlink_to(source / 'outside')
@@ -72,7 +141,7 @@ class PublisherTests(unittest.TestCase):
                 self.assertEqual(project, 'cloudlab-public')
                 events.append(role)
                 return dict(native, DOCKER_CONFIG=role)
-            def scan(source, directory, native, component):
+            def scan(source, directory, native, component, *, cache=None):
                 name = directory.name
                 events.append('scan-' + name)
                 if failure == 'scan' and name == 'worker': raise RuntimeError('scan refused')
