@@ -1,7 +1,10 @@
 """Disposable enforcement cannot affect production names or treat auth failures as signature proof."""
 import copy
 import builtins
+import json
+from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -51,6 +54,7 @@ class ApplicationReleaseTests(unittest.TestCase):
                      ('github-arc-public', 'harbor-cloudlab-public-pull', 'harbor-cloudlab-public-push', 'github-release-public')]
         sets = {'items': [{'spec': {'maxRunners': 1, 'template': {'spec': {'serviceAccountName': 'cloudlab-ci-health'}}}}] * 2}
         quota = {'spec': {'hard': {'pods': '1', 'limits.cpu': '3', 'limits.memory': '6Gi'}}}
+        config = {}
         def get(kind, name=None, namespace=None):
             if kind == 'namespace':
                 return {'items': [{'metadata': {'name': name}} for name in
@@ -61,6 +65,7 @@ class ApplicationReleaseTests(unittest.TestCase):
                 self.assertEqual(name, 'runner-budget')
                 return quota
             if kind == 'externalsecrets': return {'items': externals}
+            if kind == 'configmap': return config
             raise AssertionError(kind)
         denied = subprocess.CompletedProcess([], 1, 'no\n', '')
         with patch('playbooks.istio.files.kube.get', side_effect=get), \
@@ -78,6 +83,41 @@ class ApplicationReleaseTests(unittest.TestCase):
             quota['spec']['hard']['pods'] = '1'
             kube.return_value = subprocess.CompletedProcess([], 0, 'yes\n', '')
             with self.assertRaises(RuntimeError): proof.public_pool({'name': 'example'})
+            kube.return_value = denied
+            config.update(data={'config.json': json.dumps({'release_mode': 'manual', 'release_visibility': 'private'})})
+            externals.pop()
+            proof.public_pool({'name': 'example'})
+            sets['items'][0]['spec']['template']['spec']['volumes'] = [{'name': 'publish-github', 'secret': {'secretName': 'cloudlab-release'}}]
+            with self.assertRaisesRegex(RuntimeError, 'release writer'): proof.public_pool({'name': 'example'})
+
+    def test_composition_dry_run_uses_real_primary_profile_without_an_admission_exception(self):
+        initial = 'registry.example.invalid/app@sha256:' + 'a' * 64
+        entry = {'approval': {'namespace': 'cloudlab-app-example', 'artifact': {'primaryComponent': 'main'},
+            'composition': {'images': {'main': initial}, 'workloads': [{'name': 'backend', 'podSpec': {
+                'containers': [{'name': 'sidecar', 'image': 'other'}, {'name': 'application', 'image': initial}]}}]}}}
+        deployment = {'spec': {'template': {'spec': {'containers': [{'name': 'sidecar', 'image': 'other'},
+                     {'name': 'application', 'image': 'current-approved-release'}], 'automountServiceAccountToken': False}}}}
+        pod, index = proof.composition_probe(entry, lambda *args: deployment)
+        self.assertEqual(index, 1)
+        self.assertEqual(pod['metadata']['ownerReferences'][0]['name'], 'backend-proof')
+        self.assertEqual(pod['spec'], deployment['spec']['template']['spec'])
+        pod['spec']['containers'][index]['image'] = 'synthetic-rejection'
+        self.assertEqual(deployment['spec']['template']['spec']['containers'][index]['image'], 'current-approved-release')
+
+    def test_independent_signature_denial_rejects_success_transport_and_unknown_errors(self):
+        def evaluate(diagnostic, code):
+            def run(*args, **options):
+                options['stderr'].write(diagnostic)
+                return subprocess.CompletedProcess(args, code)
+            with tempfile.TemporaryDirectory() as temporary, \
+                    patch.object(proof, 'signature_commands', return_value=[['cosign', 'verify', 'synthetic']]), \
+                    patch.object(proof.subprocess, 'run', side_effect=run):
+                return proof.signature_denied(Mock(environment={}), 'synthetic', {}, {}, Path(temporary))
+        self.assertTrue(evaluate(b'no matching signatures: no certificate found', 1))
+        for diagnostic, code in ((b'no signatures found', 0), (b'UNAUTHORIZED no signatures found', 1),
+                                 (b'no matching signatures: connection refused', 1), (b'unknown private diagnostic', 1)):
+            with self.subTest(diagnostic=diagnostic), self.assertRaises(RuntimeError):
+                evaluate(diagnostic, code)
 
     def test_enforcement_fixture_preserves_production_and_matches_only_its_exact_name_and_nonce(self):
         production = policy()

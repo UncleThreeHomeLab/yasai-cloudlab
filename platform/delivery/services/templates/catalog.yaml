@@ -5,7 +5,10 @@
 {{- end }}
 {{- range .Values.catalog }}
 {{- $v := .definition }}
+{{- if or (hasKey $v "routeOnly") (hasKey $v "routeBackends") }}{{ fail "Routing controls belong to the administrator catalog renderer" }}{{ end }}
 {{- $a := .approval }}
+{{- $composition := $a.composition | default dict }}
+{{- if and $composition $v.rollouts.enabled }}{{ fail "Composition canaries require a separate supported contract" }}{{ end }}
 {{- $releaseService := $v.name }}
 {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}{{ $releaseService = "notes-web" }}{{- end }}
 {{- $namespace := printf "cloudlab-app-%s" $a.name }}
@@ -41,10 +44,17 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ $namespace }}
-  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+  annotations: {argocd.argoproj.io/sync-wave: '-2', argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
   labels:
     cloudlab.io/owner: service-platform
+    {{- if $composition }}
+    cloudlab.io/composition: approved
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    {{- else }}
     pod-security.kubernetes.io/enforce: restricted
+    {{- end }}
     pod-security.kubernetes.io/enforce-version: v1.36
     istio.io/dataplane-mode: ambient
     cloudlab.io/service-secrets: approved
@@ -60,6 +70,11 @@ kind: ResourceQuota
 metadata: {name: budget, namespace: {{ $namespace }}}
 spec:
   hard:
+    {{- if $composition }}
+    {{- range $key, $value := $composition.budget }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+    {{- else }}
     requests.cpu: '1'
     requests.memory: 1Gi
     limits.cpu: '2'
@@ -67,8 +82,10 @@ spec:
     pods: '8'
     persistentvolumeclaims: '2'
     requests.storage: 4Gi
+    {{- end }}
     services.loadbalancers: '0'
     services.nodeports: '0'
+{{- if not $composition }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -86,13 +103,16 @@ spec:
     - from:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ printf "cloudlab-gateway-%s" . }}}}
     {{- end }}
+{{- end }}
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata: {name: platform-workloads, namespace: {{ $namespace }}}
 spec:
+  {{- if not $composition }}
   selector:
     matchLabels: {cloudlab.io/owner: {{ $v.owner | quote }}}
+  {{- end }}
   action: ALLOW
   rules:
     - from:
@@ -101,11 +121,19 @@ spec:
               {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
               - {{ printf "cluster.local/ns/%s/sa/notes-web" $namespace | quote }}
               - {{ printf "cluster.local/ns/%s/sa/notes-api" $namespace | quote }}
+              {{- else if $composition }}
+              {{- $accounts := list }}
+              {{- range $composition.workloads }}{{ $accounts = append $accounts (.podSpec.serviceAccountName | default "default") }}{{ end }}
+              {{- range $accounts | uniq }}
+              - {{ printf "cluster.local/ns/%s/sa/%s" $namespace . | quote }}
+              {{- end }}
               {{- else }}
               - {{ printf "cluster.local/ns/%s/sa/%s" $namespace $v.name | quote }}
               {{- end }}
+              {{- if not $composition }}
               {{- range $classes }}
               - {{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" . | quote }}
+              {{- end }}
               {{- end }}
 {{- if $v.rollouts.enabled }}
 ---
@@ -138,7 +166,7 @@ metadata:
   name: {{ $a.name }}
   namespace: argocd
 spec:
-  sourceRepos: {{ list $.Values.repository $a.repository | uniq | toJson }}
+  sourceRepos: {{ if $composition }}{{ list $.Values.repository $a.repository $composition.chart.repository | uniq | toJson }}{{ else }}{{ list $.Values.repository $a.repository | uniq | toJson }}{{ end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: {{ $namespace }}}
   clusterResourceWhitelist: []
@@ -148,6 +176,9 @@ spec:
     - {group: '', kind: ConfigMap}
     - {group: '', kind: PersistentVolumeClaim}
     - {group: apps, kind: Deployment}
+    {{- if $composition }}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    {{- end }}
     - {group: gateway.networking.k8s.io, kind: HTTPRoute}
     {{- if $v.rollouts.enabled }}
     - {group: argoproj.io, kind: Rollout}
@@ -181,6 +212,10 @@ spec:
       name: {{ if $artifact }}{{ printf "%s-%s" $a.name $v.name | quote }}{{ else }}{{ printf "%s-{{.name}}" $a.name | quote }}{{ end }}
       {{- if $artifact }}
       annotations:
+        {{- if $composition }}
+        cloudlab.io/artifact-components: '{{ "{{ .components | toJson }}" }}'
+        cloudlab.io/primary-component: '{{ "{{ .primary_component }}" }}'
+        {{- end }}
         cloudlab.io/artifact-digest: '{{ "{{ .digest }}" }}'
         cloudlab.io/source-revision: '{{ "{{ .source_revision }}" }}'
         cloudlab.io/workflow-run: '{{ "{{ .workflow_run_id }}" }}'
@@ -188,6 +223,8 @@ spec:
     spec:
       project: {{ $a.name }}
       {{- $workload := deepCopy $v }}
+      {{- $_ := set $workload "routeOnly" false }}
+      {{- $_ := set $workload "routeBackends" dict }}
       {{- if $artifact }}
       {{- $_ := set $workload "image" (printf "%s@{{ .digest }}" $artifact.repository) }}
       {{- $_ := set $workload "imagePullSecrets" (list (dict "name" "harbor-application-pull")) }}
@@ -196,13 +233,22 @@ spec:
       {{- $helm := dict "valuesObject" $workload }}
       {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
       {{- $_ := set $helm "valuesObject" (dict "definition" $workload "issuer" $.Values.issuer "telemetry" $.Values.telemetry) }}
+      {{- $_ := set $helm.valuesObject "web" (dict "routeOnly" false "routeBackends" dict) }}
+      {{- $_ := set $helm.valuesObject "api" (dict "routeOnly" false "routeBackends" dict) }}
       {{- if $artifact }}
       {{- $_ := set $helm.valuesObject "packaged" true }}
       {{- $_ := set $helm.valuesObject "imagePullSecrets" $workload.imagePullSecrets }}
       {{- end }}
       {{- end }}
       {{- $source := dict "repoURL" $.Values.repository "targetRevision" $.Values.revision "path" ($a.chartPath | default "charts/service") "helm" $helm }}
-      {{- if eq $a.repository $.Values.repository }}
+      {{- if $composition }}
+      {{- $images := include "cloudlab.composition.images" (dict "composition" $composition "artifact" $artifact) | fromJson }}
+      {{- if $artifact }}{{ $_ := set $images "imagePullSecrets" (list (dict "name" "harbor-application-pull")) }}{{ end }}
+      {{- $_ := set $helm "valuesObject" (dict "routeOnly" true "routeBackends" $composition.backends | mergeOverwrite (deepCopy $workload)) }}
+      {{- $appSource := dict "repoURL" $composition.chart.repository "targetRevision" $composition.chart.revision "path" $composition.chart.path "helm" (dict "releaseName" $a.name "valueFiles" (list (printf "$values/%s" $a.valuesPath)) "valuesObject" $images) }}
+      sources:
+{{ toYaml (list $source $appSource (dict "repoURL" $a.repository "targetRevision" $a.revision "ref" "values")) | indent 8 }}
+      {{- else if eq $a.repository $.Values.repository }}
       source:
 {{ toYaml $source | indent 8 }}
       {{- else }}

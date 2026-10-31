@@ -1,3 +1,3 @@
-{{- if not .Values.renderDisabled }}
+{{- if and (not .Values.renderDisabled) (not .Values.routeOnly) }}
 {{ include "cloudlab.service.workload" . }}
 {{- end }}

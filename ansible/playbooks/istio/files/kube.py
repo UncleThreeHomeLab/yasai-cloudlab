@@ -52,6 +52,17 @@ def condition(obj, name):
                              for c in obj.get('status', {}).get('conditions', []))
 
 
+def condition_status_ready(obj):
+    """Controllers using conditionStatus must report readiness for the current generation."""
+    if not obj:
+        return False
+    state = obj.get('status', {}).get('conditionStatus', {})
+    conditions = state.get('conditions', [])
+    return state.get('ready') is True and bool(conditions) and all(
+        row.get('status') == 'True' and row.get('observedGeneration', obj['metadata']['generation']) ==
+        obj['metadata']['generation'] for row in conditions)
+
+
 def application_ready(name, revision):
     obj = get('application.argoproj.io', name, 'argocd') or {}
     status = obj.get('status', {})

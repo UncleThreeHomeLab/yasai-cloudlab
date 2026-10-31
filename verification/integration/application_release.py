@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import secrets
 import shlex
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -32,6 +33,17 @@ def public_pool(approval):
     sets = (get('autoscalingrunnersets.actions.github.com', namespace=pool_namespace) or {}).get('items', [])
     quota = get('resourcequota', 'runner-budget', pool_namespace)
     allowed = {'github-arc-public', 'harbor-cloudlab-public-pull', 'harbor-cloudlab-public-push', 'github-release-public'}
+    config = get('configmap', 'cloudlab-publishing', pool_namespace) or {}
+    publishing = json.loads(config.get('data', {}).get('config.json', '{}'))
+    manual = publishing.get('release_mode') == 'manual'
+    if manual:
+        if publishing.get('release_visibility') != 'private':
+            raise RuntimeError('Manual promotion must preserve its explicit private release destination')
+        allowed.remove('github-release-public')
+        if any(volume.get('name') == 'publish-github' or
+               volume.get('secret', {}).get('secretName') == 'cloudlab-release'
+               for obj in sets for volume in obj['spec']['template']['spec'].get('volumes', [])):
+            raise RuntimeError('Manual promotion cannot mount a release writer into CI')
     externals = (get('externalsecrets', namespace=pool_namespace) or {}).get('items', [])
     if any(obj['spec'].get('secretStoreRef') != {'name': 'cloudlab', 'kind': 'ClusterSecretStore'} or
            obj['spec'].get('data') or any('extract' not in row for row in obj['spec'].get('dataFrom', [])) for obj in externals):
@@ -76,6 +88,25 @@ def keyless_denials(fixture, pod, kube, wait):
         wait(rejected, 'isolated keyless ' + field + ' rejection', timeout=90)
 
 
+def composition_probe(entry, get):
+    """Use an approved real template for dry-runs; never exempt proof pods from admission."""
+    approval = entry['approval']
+    composition, artifact = approval['composition'], approval['artifact']
+    initial = composition['images'][artifact['primaryComponent']]
+    for workload in composition['workloads']:
+        matches = [index for index, row in enumerate(workload['podSpec']['containers']) if row['image'] == initial]
+        if not matches:
+            continue
+        deployment = get('deployment', workload['name'], approval['namespace'])
+        if not deployment:
+            raise RuntimeError('Composition proof requires its real approved primary workload')
+        return {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'namespace': approval['namespace'],
+            'ownerReferences': [{'apiVersion': 'apps/v1', 'kind': 'ReplicaSet', 'name': workload['name'] + '-proof',
+                                 'uid': '00000000-0000-0000-0000-000000000001', 'controller': True}]},
+            'spec': copy.deepcopy(deployment['spec']['template']['spec'])}, matches[0]
+    raise RuntimeError('Composition primary release has no approved runtime container')
+
+
 def remote(request):
     sys.path.insert(0, '/opt/cloudlab')
     from playbooks.istio.files.kube import condition, get, kube, wait
@@ -92,8 +123,12 @@ def remote(request):
         if approval['artifact']['project'] == 'cloudlab-public':
             public_pool(approval)
         application = get('application.argoproj.io', approval['name'] + '-' + entry['definition']['name'], 'argocd')
-        return {key: application['metadata']['annotations']['cloudlab.io/' + field] for key, field in (
+        release = {key: application['metadata']['annotations']['cloudlab.io/' + field] for key, field in (
             ('digest', 'artifact-digest'), ('source_revision', 'source-revision'), ('workflow_run_id', 'workflow-run'))}
+        if approval.get('composition'):
+            release['components'] = json.loads(application['metadata']['annotations']['cloudlab.io/artifact-components'])
+            release['primary_component'] = application['metadata']['annotations']['cloudlab.io/primary-component']
+        return release
     if action != 'admission':
         raise ValueError('Unsupported application release proof')
     pod = copy.deepcopy(request['pod'])
@@ -105,6 +140,10 @@ def remote(request):
             [row[0] for row in images] != ['signed', 'unsigned', 'untrusted', 'other-project'] or
             [row[2] for row in images] != [None, 'trusted-signature', 'trusted-signature', 'approved-repositories']):
         raise ValueError('Admission proof requires every declared positive and negative case')
+    composition = bool(approval.get('composition'))
+    container_index = 0
+    if composition:
+        pod, container_index = composition_probe(entry, get)
     nonce = secrets.token_hex(6)
     pod_name, name = 'artifact-proof-' + nonce, 'artifact-release-proof'
     fixture = isolated_policy(policy, pod_name, nonce)
@@ -127,22 +166,23 @@ def remote(request):
         pod['metadata'].update(name=pod_name, labels={'cloudlab.io/release-proof': nonce})
         pod['spec']['imagePullSecrets'] = [{'name': 'harbor-application-pull'}]
         for label, image, rule in request['images']:
-            pod['spec']['containers'][0]['image'] = image
+            pod['spec']['containers'][container_index]['image'] = image
             result = kube('create', '--dry-run=server', '-f', '-', document=pod, allow_failure=True)
             if rule is None:
                 if result.returncode:
                     raise RuntimeError('Approved signed application did not pass isolated admission')
-            elif not result.returncode or rule not in result.stderr:
+            elif not result.returncode or (('cloudlab-composition-' + approval['name']) if composition else rule) not in result.stderr:
                 raise RuntimeError('Application rejection did not reach its required signature or repository rule')
             elif re.search(r'UNAUTHORIZED|status code (?:401|403)|no such host|connection refused', result.stderr):
                 raise RuntimeError('Registry transport failure cannot count as signature rejection')
         public = approval['artifact'].get('project') == 'cloudlab-public'
         if public:
-            pod['spec']['containers'][0]['image'] = request['images'][0][1]
+            pod['spec']['containers'][container_index]['image'] = request['images'][0][1]
             keyless_denials(fixture, pod, kube, wait)
         return {'signed_admitted': True, 'unsigned_denied': True, 'untrusted_signer_denied': True,
                 'other_repository_denied': True, 'keyless_identity_denied': public,
-                'keyless_issuer_denied': public, 'test_pods_created': 0}
+                'keyless_issuer_denied': public, 'test_pods_created': 0,
+                'composition_pinned_image_denials': composition}
     finally:
         actual = get('policy.kyverno.io', name, namespace)
         if actual and (actual['metadata']['uid'] != uid or actual['metadata'].get('labels', {}).get('cloudlab.io/fixture') != nonce or
@@ -159,25 +199,50 @@ def on_node(client, request):
     return json.loads(response)
 
 
-def verify_signature(registry, reference, artifact, release, directory):
-    from playbooks.ci.files.publisher import execute, NativeFailure
+def signature_commands(reference, artifact, release, directory):
     if artifact['project'] == 'cloudlab-private':
         from playbooks.secrets.files.vault import fields
         verifier = directory / 'private-verifier.pub'
-        verifier.write_text(fields('ci-private-verifier', ('public_key',))['public_key'])
-        execute(['cosign', 'verify', '--insecure-ignore-tlog=true', '--key', str(verifier), reference], registry.environment)
-        return
-    for identity in artifact['identities']:
+        if not verifier.exists():
+            verifier.write_text(fields('ci-private-verifier', ('public_key',))['public_key'])
+        return [['cosign', 'verify', '--insecure-ignore-tlog=true', '--key', str(verifier), reference]]
+    return [['cosign', 'verify', '--certificate-identity', identity,
+             '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com',
+             '--certificate-github-workflow-repository', artifact['sourceRepository'],
+             '--certificate-github-workflow-ref', 'refs/heads/main',
+             '--certificate-github-workflow-sha', release['source_revision'], reference]
+            for identity in artifact['identities']]
+
+
+def verify_signature(registry, reference, artifact, release, directory):
+    from playbooks.ci.files.publisher import execute, NativeFailure
+    for command in signature_commands(reference, artifact, release, directory):
         try:
-            execute(['cosign', 'verify', '--certificate-identity', identity,
-                     '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com',
-                     '--certificate-github-workflow-repository', artifact['sourceRepository'],
-                     '--certificate-github-workflow-ref', 'refs/heads/main',
-                     '--certificate-github-workflow-sha', release['source_revision'], reference], registry.environment)
+            execute(command, registry.environment)
             return
         except NativeFailure:
             pass
     raise RuntimeError('Application signature does not match any retained approved workflow identity')
+
+
+def signature_denied(registry, reference, artifact, release, directory):
+    """A transport error cannot substitute for independently observed signature rejection."""
+    commands = signature_commands(reference, artifact, release, directory)
+    if not commands:
+        raise RuntimeError('Signature rejection requires an approved verifier')
+    for command in commands:
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            result = subprocess.run(command, env=registry.environment, stdout=output, stderr=errors,
+                                    timeout=120, check=False)
+            errors.seek(0)
+            diagnostic = errors.read(1048577)
+        if (result.returncode == 0 or len(diagnostic) > 1048576 or
+                re.search(rb'UNAUTHORIZED|DENIED|no such host|connection refused|timed? ?out|timeout|'
+                          rb'context deadline|context canceled|TLS handshake|x509:|status code [45][0-9][0-9]',
+                          diagnostic, re.I) or
+                not re.search(rb'no signatures found|no matching signatures|signature is not valid', diagnostic, re.I)):
+            raise RuntimeError('Signature denial was not independently established')
+    return True
 
 
 def fixtures(registry, reference, directory):
@@ -213,6 +278,11 @@ def prove(client, entry):
     if artifact['repository'] != repository:
         raise ValueError('Application proof cannot send credentials to an unapproved registry')
     release = on_node(client, {'action': 'inspect', 'entry': entry})
+    components = release.get('components', {'primary': release['digest']})
+    if (not isinstance(components, dict) or not components or
+            any(not re.fullmatch(r'sha256:[a-f0-9]{64}', digest) for digest in components.values()) or
+            (entry['approval'].get('composition') and set(components) != set(artifact['components']))):
+        raise RuntimeError('Composition proof requires its exact approved component release')
     reference = repository + '@' + release['digest']
     registry = Registry(client.private['host'], client.env, client.path / 'artifacts/application-diagnostics.txt')
     other_project = 'cloudlab-private' if project == 'cloudlab-public' else 'cloudlab-public'
@@ -223,9 +293,11 @@ def prove(client, entry):
     with tempfile.TemporaryDirectory(prefix='application-admission-') as temporary:
         directory = Path(temporary)
         with registry.identity(client.private['robots'][project + '-pull']):
-            if registry.command('digest', reference).decode().strip() != release['digest']:
-                raise RuntimeError('Approved application artifact is not obtainable')
-            verify_signature(registry, reference, artifact, release, directory)
+            for digest in components.values():
+                component = repository + '@' + digest
+                if registry.command('digest', component).decode().strip() != digest:
+                    raise RuntimeError('Approved application artifact is not obtainable')
+                verify_signature(registry, component, artifact, release, directory)
             registry.command('digest', forbidden, denied=True)
         with registry.identity(client.private['robots'][project + '-push']):
             unsigned, untrusted = fixtures(registry, reference, directory)
@@ -233,14 +305,20 @@ def prove(client, entry):
             for image in (unsigned, untrusted):
                 if registry.command('digest', image).decode().strip() != image.split('@')[1]:
                     raise RuntimeError('Signature rejection requires an existing readable proof artifact')
+                if entry['approval'].get('composition'):
+                    signature_denied(registry, image, artifact, release, directory)
+            if entry['approval'].get('composition'):
+                verify_signature(registry, reference, artifact, release, directory)
         admitted = on_node(client, {'action': 'admission', 'entry': entry,
             'pod': probe(entry['approval']['namespace']), 'images': [
             ['signed', reference, None], ['unsigned', unsigned, 'trusted-signature'],
             ['untrusted', untrusted, 'trusted-signature'], ['other-project', forbidden, 'approved-repositories']]})
-    pulls = verify_nodes(client, {'projects': {project: {'repository': name, 'digest': release['digest']}}})
-    if pulls != 2:
+    pulls = sum(verify_nodes(client, {'projects': {project: {'repository': name, 'digest': digest}}})
+                for digest in components.values())
+    if pulls != 2 * len(components):
         raise RuntimeError('Application image must pull by digest on both node host networks')
-    return dict(admitted, node_digest_pulls=pulls, cross_project_pull_denied=True,
+    return dict(admitted, node_digest_pulls=pulls, component_signatures_verified=len(components),
+                independent_signature_denials=bool(entry['approval'].get('composition')), cross_project_pull_denied=True,
                 fixture_artifacts_retained=True, production_policy_changed=False,
                 public_pool_secret_denial=project == 'cloudlab-public')
 

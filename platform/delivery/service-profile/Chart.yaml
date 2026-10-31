@@ -1,0 +1,4 @@
+apiVersion: v2
+name: service-profile
+description: Protected release bindings for administrator-approved service compositions.
+version: 0.1.0

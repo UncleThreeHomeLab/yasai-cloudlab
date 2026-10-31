@@ -1,0 +1,57 @@
+{{- range .Values.catalog }}
+{{- $entry := . }}
+{{- $a := .approval }}
+{{- with $a.composition }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-deny
+  namespace: {{ $a.namespace }}
+  annotations: {argocd.argoproj.io/sync-wave: '-1'}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+{{- range $host, $backend := .backends }}
+{{- $name := $host | sha256sum | trunc 12 }}
+{{- $classes := list }}
+{{- range concat (list $entry.definition.exposure) ($entry.definition.additionalExposures | default list) }}
+{{- if and (ne .class "none") (eq .hostname $host) }}{{ $classes = append $classes .class }}{{ end }}
+{{- end }}
+{{- $classes = $classes | uniq }}
+{{- if $classes }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: {{ printf "platform-ingress-%s" $name }}, namespace: {{ $a.namespace }}}
+spec:
+  podSelector: {matchLabels: {{ $backend.selector | toJson }}}
+  policyTypes: [Ingress]
+  ingress:
+    {{- range $classes }}
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ printf "cloudlab-gateway-%s" . }}}}
+      ports: [{protocol: TCP, port: {{ $backend.port }}}, {protocol: TCP, port: 15008}]
+    {{- end }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: {{ printf "platform-gateway-%s" $name }}, namespace: {{ $a.namespace }}}
+spec:
+  selector: {matchLabels: {{ $backend.selector | toJson }}}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              {{- range $classes }}
+              - {{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" . | quote }}
+              {{- end }}
+      to:
+        - operation: {ports: [{{ $backend.port | quote }}]}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

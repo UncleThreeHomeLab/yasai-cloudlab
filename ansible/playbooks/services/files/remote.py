@@ -77,6 +77,9 @@ def inspect(request):
                 if actual: kube('delete', 'pod', pod_name, '-n', namespace, '--wait=true')
             return {'retained_volume_read': True}
         raise ValueError('Unsupported disposable fixture check')
+    elif action == 'backend' and approval.get('composition'):
+        from playbooks.services.files.compositions import backend
+        return backend(definition, approval, get, condition)
     elif action == 'backend':
         application = get('application.argoproj.io', approval['name'] + '-' + name, 'argocd')
         if not application or application['spec']['project'] != approval['name'] or application['spec']['destination'] != {
@@ -176,6 +179,12 @@ def inspect(request):
                 raise RuntimeError('An approved service credential is not owned by ready ESO')
             if definition['oidc'].get('secretReference') == mounted['name'] and set(secret['data']) != {'client_secret'}:
                 raise RuntimeError('Service OIDC credential contains values outside its client scope')
+        for binding in approval.get('composition', {}).get('secrets', []):
+            secret = get('secret', binding['name'], namespace)
+            external = get('externalsecret.external-secrets.io', binding['name'], namespace)
+            if (not condition(external, 'Ready') or not secret or set(secret.get('data', {})) != set(binding['fields']) or
+                    not any(owner.get('uid') == external['metadata']['uid'] for owner in secret['metadata'].get('ownerReferences', []))):
+                raise RuntimeError('Composition credentials lack their exact ready ESO owner')
     elif action == 'tls':
         for index, exposure in enumerate([definition['exposure']] + definition.get('additionalExposures', [])):
             if exposure['class'] == 'none': continue
@@ -190,9 +199,14 @@ def inspect(request):
                                for c in parent.get('conditions', [])) for kind in ('Accepted', 'ResolvedRefs')) for parent in parents):
                 raise RuntimeError('Service route is not accepted at its current generation')
             address = get('service', 'cloudlab-istio', gateway_namespace)['spec']['clusterIP']
-            status, _ = direct_https('https://' + exposure['hostname'] + exposure['path'], address,
+            path, statuses = exposure['path'], (200, 401, 403)
+            if approval.get('composition'):
+                backend = approval['composition']['backends'][exposure['hostname']]
+                probe = backend.get('readiness', {})
+                path, statuses = probe.get('path', path), probe.get('statuses', statuses)
+            status, _ = direct_https('https://' + exposure['hostname'] + path, address,
                                      {'Host': exposure['hostname'], 'User-Agent': 'CloudLab-Service-Proof/1.0'})
-            if status not in (200, 401, 403):
+            if status not in statuses:
                 raise RuntimeError('TLS origin did not reach the ready backend')
     elif action == 'api-protection':
         if not notes: raise ValueError('Reference API check requires the approved notes adapter')

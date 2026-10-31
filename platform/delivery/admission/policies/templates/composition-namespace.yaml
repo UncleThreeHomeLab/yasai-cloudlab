@@ -1,0 +1,45 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-composition-namespace
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+  matchConditions:
+    - name: approved-composition
+      expression: >-
+        has(object.metadata.labels) && 'cloudlab.io/composition' in object.metadata.labels
+  variables:
+    - name: policy
+      expression: >-
+        resource.Get('policies.kyverno.io/v1', 'validatingpolicies', '',
+          'cloudlab-composition-' + object.metadata.name.substring(13))
+  validations:
+    - expression: >-
+        object.metadata.name.startsWith('cloudlab-app-') &&
+        object.metadata.labels['cloudlab.io/composition'] == 'approved' &&
+        object.metadata.labels['cloudlab.io/owner'] == 'service-platform' &&
+        object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'privileged' &&
+        object.metadata.labels['pod-security.kubernetes.io/enforce-version'] == 'v1.36' &&
+        object.metadata.labels['pod-security.kubernetes.io/audit'] == 'restricted' &&
+        object.metadata.labels['pod-security.kubernetes.io/warn'] == 'restricted' &&
+        variables.policy.spec.validationActions == ['Deny'] &&
+        variables.policy.spec.failurePolicy == 'Fail' &&
+        variables.policy.status.conditionStatus.ready &&
+        size(variables.policy.status.conditionStatus.conditions) > 0 &&
+        variables.policy.status.conditionStatus.conditions.all(c,
+          c.status == 'True' && (!has(c.observedGeneration) || c.observedGeneration == variables.policy.metadata.generation))
+      message: Composition namespace privileges require their ready fail-closed workload policy first.

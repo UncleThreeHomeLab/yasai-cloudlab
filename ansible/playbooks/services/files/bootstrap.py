@@ -46,6 +46,10 @@ def application(payload):
 def configure(payload):
     if set(payload) != {'repository', 'revision', 'private_repository', 'private_revision', 'telemetry', 'values'}:
         raise ValueError('Catalog configuration requires its complete committed source')
+    if any(row['approval'].get('composition') for row in payload['values']['catalog']):
+        from playbooks.istio.files.kube import condition_status_ready as policy_ready
+        wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', 'cloudlab-composition-namespace')),
+             'composition namespace admission readiness', timeout=600)
     desired = application(payload)
     with Path('/run/lock/cloudlab-services.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -1,0 +1,116 @@
+{{- range .Values.catalog }}
+{{- $a := .approval }}
+{{- with $a.composition }}
+{{- $c := . }}
+{{- $profiles := include "cloudlab.composition.profiles" . | fromJsonArray }}
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: {{ printf "cloudlab-composition-%s" $a.name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-3'
+    cloudlab.io/composition-profile: {{ toJson $c | sha256sum | quote }}
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: {{ $a.namespace }}}
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods, pods/ephemeralcontainers, pods/resize]
+  variables:
+    - name: state
+      expression: {{ printf "yaml.parse(resource.Get('v1', 'configmaps', 'cloudlab-policy', 'composition-%s').data['release.json'])" $a.name | quote }}
+    - name: profiles
+      expression: {{ printf "yaml.parse(%s)" ($profiles | toJson | toJson) | quote }}
+    - name: components
+      expression: {{ $c.images | toJson | quote }}
+    - name: defaultTolerations
+      expression: {{ printf "yaml.parse(%s)" (list
+        (dict "key" "node.kubernetes.io/not-ready" "operator" "Exists" "effect" "NoExecute" "tolerationSeconds" 300)
+        (dict "key" "node.kubernetes.io/unreachable" "operator" "Exists" "effect" "NoExecute" "tolerationSeconds" 300)
+        (dict "key" "node.kubernetes.io/memory-pressure" "operator" "Exists" "effect" "NoSchedule") | toJson | toJson) | quote }}
+  validations:
+    - expression: {{ printf "variables.state.approval == '%s'" (toJson $c | sha256sum) | quote }}
+      message: Composition release state must match its current administrator approval.
+    - expression: >-
+        !has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0
+      message: Composition ephemeral containers are not approved.
+    - expression: >-
+        object.spec.automountServiceAccountToken == false && object.spec.enableServiceLinks == false &&
+        (!has(object.spec.hostNetwork) || !object.spec.hostNetwork) &&
+        (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) &&
+        object.spec.securityContext.seccompProfile == {'type': 'RuntimeDefault'} &&
+        (!has(object.spec.securityContext.sysctls) || object.spec.securityContext.sysctls ==
+          [{'name': 'net.ipv6.conf.all.disable_ipv6', 'value': '1'}]) &&
+        (!has(object.spec.volumes) || object.spec.volumes.all(v,
+          v.all(k, k in ['name', 'emptyDir', 'secret', 'configMap', 'persistentVolumeClaim']))) &&
+        (!has(object.spec.tolerations) || object.spec.tolerations.all(t,
+          t in variables.defaultTolerations &&
+          size(object.spec.tolerations.filter(other, has(other.key) && other.key == t.key)) == 1)) &&
+        ((request.operation == 'UPDATE' && object.spec == oldObject.spec) || object.spec.all(k,
+          k in ['containers', 'initContainers', 'volumes', 'automountServiceAccountToken', 'enableServiceLinks',
+            'terminationGracePeriodSeconds', 'securityContext', 'dnsPolicy', 'dnsConfig', 'serviceAccountName',
+            'imagePullSecrets', 'restartPolicy', 'schedulerName', 'serviceAccount', 'priority', 'preemptionPolicy', 'tolerations'])) &&
+        object.spec.securityContext.all(k, k in ['runAsUser', 'runAsGroup', 'runAsNonRoot', 'fsGroup',
+          'supplementalGroups', 'seccompProfile', 'sysctls']) &&
+        (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c,
+          c.all(k, k in ['name', 'image', 'imagePullPolicy', 'command', 'args', 'workingDir', 'env', 'resources',
+            'securityContext', 'volumeMounts', 'ports', 'readinessProbe', 'livenessProbe', 'startupProbe',
+            'terminationMessagePath', 'terminationMessagePolicy']) &&
+          (!has(c.ports) || c.ports.all(p, (!has(p.hostPort) || p.hostPort == 0) &&
+            (!has(p.hostIP) || p.hostIP == ''))) &&
+          c.securityContext.readOnlyRootFilesystem == true && c.securityContext.allowPrivilegeEscalation == false &&
+          c.securityContext.all(k, k in ['runAsUser', 'runAsGroup', 'runAsNonRoot', 'readOnlyRootFilesystem',
+            'allowPrivilegeEscalation', 'capabilities']) &&
+          c.securityContext.capabilities.drop == ['ALL'] &&
+          c.resources.all(t, t in ['requests', 'limits']) &&
+          ['requests', 'limits'].all(t,
+            c.resources[t].all(k, k in ['cpu', 'memory']) &&
+            quantity(c.resources[t].cpu).isGreaterThan(quantity('0')) &&
+            quantity(c.resources[t].memory).isGreaterThan(quantity('0'))) &&
+          (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(cap,
+            cap in ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETUID', 'SETGID', 'SYS_CHROOT', 'SETPCAP', 'NET_ADMIN', 'KILL']))) &&
+        (!has(object.spec.initContainers) || object.spec.initContainers.all(c,
+          !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(cap,
+            cap in ['CHOWN', 'FOWNER', 'DAC_OVERRIDE'])))
+      message: Reviewed compositions cannot grant privileged containers, host access, token projections or unbounded security exceptions.
+    - expression: >-
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec) ||
+        variables.profiles.exists(p,
+          object.metadata.ownerReferences.exists(o, o.kind == 'ReplicaSet' && has(o.controller) && o.controller &&
+            o.name.startsWith(p.name + '-')) &&
+          p.podSpec.all(k, k in object.spec &&
+            (k in ['containers', 'initContainers'] || object.spec[k] == p.podSpec[k])) &&
+          object.spec.all(k, k in p.podSpec ||
+            k == 'tolerations' ||
+            (k == 'serviceAccount' && object.spec[k] == p.podSpec.serviceAccountName) ||
+            (k == 'priority' && object.spec[k] == 0) ||
+            (k == 'preemptionPolicy' && object.spec[k] == 'PreemptLowerPriority')) &&
+          ['containers', 'initContainers'].all(kind,
+            (kind in p.podSpec ? kind in object.spec &&
+              size(object.spec[kind]) == size(p.podSpec[kind]) &&
+              object.spec[kind].all(c, p.podSpec[kind].exists(expected,
+                c.name == expected.name &&
+                c.image == variables.state.images[variables.components.filter(component,
+                  variables.components[component] == expected.image)[0]] &&
+                expected.all(k, k in c && (k in ['image', 'resources'] || c[k] == expected[k])) &&
+                c.all(k, k in expected) &&
+                ['requests', 'limits'].all(t,
+                  c.resources[t].all(k, k in expected.resources[t]) &&
+                  expected.resources[t].all(k, k in c.resources[t] &&
+                    quantity(c.resources[t][k]).compareTo(quantity(expected.resources[t][k])) == 0))))
+            : !(kind in object.spec) || size(object.spec[kind]) == 0)))
+      message: Composition pods require their exact approved source, containers, commands, permissions, mounts and budgets.
+{{- end }}
+{{- end }}

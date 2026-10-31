@@ -8,7 +8,7 @@ import urllib.parse
 
 sys.path.insert(0, '/opt/cloudlab')
 
-from playbooks.istio.files.kube import application_ready, condition, get, kube, wait
+from playbooks.istio.files.kube import application_ready, condition, get, kube, wait, condition_status_ready as policy_ready
 
 
 def probe(namespace):
@@ -91,16 +91,6 @@ def ephemeral_admission(namespace, enforce):
                 (not mutable and (result.returncode or warned))):
             raise RuntimeError('Ephemeral image admission did not preserve its declared digest rule')
     return True
-
-
-def policy_ready(policy):
-    if not policy:
-        return False
-    ready = policy.get('status', {}).get('conditionStatus', {})
-    conditions = ready.get('conditions', [])
-    return ready.get('ready') is True and bool(conditions) and all(
-        row.get('status') == 'True' and row.get('observedGeneration', policy['metadata']['generation']) ==
-        policy['metadata']['generation'] for row in conditions)
 
 
 def controllers():

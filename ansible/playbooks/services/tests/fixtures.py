@@ -19,6 +19,32 @@ def catalog_payload():
             'telemetry': False, 'values': {'catalog': [], 'dataApprovals': []}}
 
 
+def composition_approval():
+    value = approval()
+    images = {'web': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'a' * 64,
+              'worker': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'b' * 64}
+    workloads = []
+    for name, image in images.items():
+        workloads.append({'name': name, 'replicas': 1, 'podSpec': {
+            'automountServiceAccountToken': False, 'enableServiceLinks': False,
+            'securityContext': {'runAsUser': 0, 'runAsGroup': 0, 'runAsNonRoot': False,
+                                'seccompProfile': {'type': 'RuntimeDefault'}},
+            'containers': [{'name': name, 'image': image, 'command': ['sh', '/' + name],
+                'securityContext': {'readOnlyRootFilesystem': True, 'allowPrivilegeEscalation': False,
+                                    'capabilities': {'drop': ['ALL'], 'add': ['CHOWN']}},
+                'resources': {'requests': {'cpu': '100m', 'memory': '128Mi'},
+                              'limits': {'cpu': '200m', 'memory': '256Mi'}}}], 'volumes': []}})
+    value['composition'] = {
+        'chart': {'repository': 'https://github.com/example/application.git', 'revision': 'c' * 40,
+                  'path': 'deploy/helm/application'},
+        'images': images, 'imageValues': {'web': 'images.web', 'worker': 'images.worker'},
+        'workloads': workloads, 'claims': [],
+        'budget': {'requests.cpu': '500m', 'requests.memory': '512Mi', 'limits.cpu': '1000m',
+                   'limits.memory': '1024Mi', 'pods': 4, 'persistentvolumeclaims': 0, 'requests.storage': '1Gi'},
+        'backends': {'web.internal.example.invalid': {'service': 'web', 'port': 8080, 'selector': {'component': 'web'}}}, 'secrets': []}
+    return value
+
+
 """Pre-handoff semantic reference used only by parity checks."""
 import copy
 import hashlib
@@ -87,3 +113,10 @@ def notes_values(definition, issuer, database_ca, telemetry=False):
                 raise ValueError('Combined notes workloads exceed their namespace budget')
     for name in ('web', 'api'): validate(result[name])
     return result
+
+
+def composition_definition():
+    value = definition()
+    value['exposure'] = {'class': 'private', 'hostname': 'web.internal.example.invalid',
+                         'access': 'tailnet', 'path': '/', 'port': 8080}
+    return value
