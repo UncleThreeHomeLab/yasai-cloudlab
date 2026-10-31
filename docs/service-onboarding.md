@@ -958,6 +958,11 @@ input with the observability owner; do not invent a separate provisioning path.
 
 ### 8.3 Write the dashboard JSON — Agent
 
+For readiness, replicas, restarts, CPU and memory, first use the provisioned
+**Services** dashboard (`cloudlab-services`) and select the namespace at runtime.
+Reuse this view when sufficient; add JSON only for additional service-specific panels.
+Workload readiness does not prove login, Telegram delivery or model access.
+
 1. Create public platform
    `platform/observability/prometheus/dashboards/example-app.json`.
    Use existing [nodes.json](../platform/observability/prometheus/dashboards/nodes.json)
