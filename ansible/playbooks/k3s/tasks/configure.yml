@@ -14,6 +14,13 @@
       node-ip: "{{ wireguard_address }}"
       flannel-iface: "{{ wireguard_interface }}"
 
+- name: Allow only the explicitly reviewed namespaced workload sysctl
+  ansible.builtin.set_fact:
+    k3s_node_config: >-
+      {{ k3s_node_config | combine({'kubelet-arg': ['allowed-unsafe-sysctls=' ~
+        (k3s_allowed_unsafe_sysctls | join(','))]}) }}
+  when: k3s_allowed_unsafe_sysctls | default([]) | length > 0
+
 - name: Compose server settings
   ansible.builtin.set_fact:
     k3s_effective_config: >-

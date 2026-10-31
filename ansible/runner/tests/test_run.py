@@ -454,6 +454,19 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             with self.subTest(action=action), self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
                 self.invoke(action)
 
+    def test_workload_sysctl_input_is_exact_and_clears_inherited_value(self):
+        with patch.dict(os.environ, {'K3S_ALLOWED_UNSAFE_SYSCTLS': '["kernel.shmmax"]'}):
+            self.invoke()
+            self.assertEqual(json.loads(os.environ['K3S_ALLOWED_UNSAFE_SYSCTLS']), [])
+            self.values['K3S_ALLOWED_UNSAFE_SYSCTLS'] = '["net.ipv6.conf.all.disable_ipv6"]'
+            self.invoke()
+            self.assertEqual(json.loads(os.environ['K3S_ALLOWED_UNSAFE_SYSCTLS']), ['net.ipv6.conf.all.disable_ipv6'])
+            for value in ('invalid', 'null', '"net.ipv6.conf.all.disable_ipv6"', '["net.*"]',
+                          '["net.ipv6.conf.all.disable_ipv6","net.ipv6.conf.all.disable_ipv6"]'):
+                self.values['K3S_ALLOWED_UNSAFE_SYSCTLS'] = value
+                with self.subTest(value=value), self.assertRaisesRegex(SystemExit, 'K3S_ALLOWED_UNSAFE_SYSCTLS'):
+                    self.invoke()
+
     def test_external_secrets_token_remains_literal_and_clears_inherited_value(self):
         with patch.dict(os.environ, {}, clear=True):
             self.invoke()

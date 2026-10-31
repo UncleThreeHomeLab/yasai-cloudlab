@@ -4,3 +4,4 @@ wireguard_port: 51820
 wireguard_mtu: 1380
 k3s_pod_cidr: 10.42.0.0/16
 k3s_service_cidr: 10.43.0.0/16
+k3s_allowed_unsafe_sysctls: "{{ lookup('env', 'K3S_ALLOWED_UNSAFE_SYSCTLS') | default('[]', true) | from_json }}"
