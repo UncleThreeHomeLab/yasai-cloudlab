@@ -20,7 +20,7 @@
     src: '/workspace/ansible/playbooks/services/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/services/files/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, contract.py, compositions.py, remote.py, repair_source_owner.py, transport.py, verify.py]
+  loop: [bootstrap.py, contract.py, compositions.py, composition_verify.py, remote.py, repair_source_owner.py, transport.py, verify.py]
 
 - name: Create the approved notes schema directory
   ansible.builtin.file:

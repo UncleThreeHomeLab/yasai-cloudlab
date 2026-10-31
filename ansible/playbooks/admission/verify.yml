@@ -5,12 +5,26 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
+    - name: Resolve the approved catalog for composition security verification
+      ansible.builtin.command: python -m playbooks.services.files.payload
+      args: {chdir: /workspace}
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: admission_service_catalog
+      when: admission_enabled | bool and services_enabled | bool
+
     - name: Verify published admission controllers and declared policy behavior
-      ansible.builtin.script:
-        cmd: >-
-          files/verify.py {{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}
-          {{ (lookup('file', '/workspace/platform/delivery/admission/policies/values.yaml') | from_yaml).validationActions | to_json | quote }}
-        executable: python3
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ lookup('file', '/workspace/ansible/playbooks/admission/files/verify.py') }}"
+          - '{{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}'
+          - "{{ (lookup('file', '/workspace/platform/delivery/admission/policies/values.yaml') | from_yaml).validationActions | to_json }}"
+      args:
+        stdin: "{{ ((admission_service_catalog.stdout | from_json)['values']['catalog'] if services_enabled | bool else []) | to_json }}"
       changed_when: false
       no_log: true
       register: admission_verified

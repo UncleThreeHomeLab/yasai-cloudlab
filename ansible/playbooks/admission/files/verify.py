@@ -108,7 +108,63 @@ def controllers():
                   for row in pods if condition(row, 'Ready'))
 
 
-def run(revision, actions):
+def composition_guard():
+    name = 'cloudlab-composition-namespace'
+    wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
+         'composition namespace guard readiness', timeout=180)
+    policy = get('validatingpolicy.policies.kyverno.io', name)
+    if (not policy_ready(policy) or policy['spec'].get('validationActions') != ['Deny'] or
+            policy['spec'].get('failurePolicy') != 'Fail' or
+            policy['spec'].get('evaluation', {}).get('admission') != {'enabled': True} or
+            policy['spec'].get('matchConstraints', {}).get('resourceRules') != [{
+                'apiGroups': [''], 'apiVersions': ['v1'], 'operations': ['CREATE', 'UPDATE'], 'resources': ['namespaces']}] or
+            not policy['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-workload-policy:')):
+        raise RuntimeError('Composition namespace guard is absent or differs from its fail-closed owner')
+    namespace = 'cloudlab-app-admission-proof'
+    if get('namespace', namespace) or get('validatingpolicy.policies.kyverno.io', 'cloudlab-composition-admission-proof'):
+        raise RuntimeError('Composition guard proof requires its unused synthetic name')
+    result = kube('create', '--dry-run=server', '-f', '-', allow_failure=True, document={
+        'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': namespace, 'labels': {
+            'cloudlab.io/owner': 'service-platform', 'cloudlab.io/composition': 'approved',
+            'pod-security.kubernetes.io/enforce': 'privileged', 'pod-security.kubernetes.io/enforce-version': 'v1.36',
+            'pod-security.kubernetes.io/audit': 'restricted', 'pod-security.kubernetes.io/warn': 'restricted'}}})
+    if not result.returncode or name not in result.stderr:
+        raise RuntimeError('Composition namespace without a profile was not denied by its native guard')
+
+
+def namespaces(workloads, enforce, catalog):
+    approved = {}
+    for entry in catalog or []:
+        if entry['approval'].get('composition') and entry['publication'] != 'retired':
+            namespace = entry['approval']['namespace']
+            if namespace in approved: raise RuntimeError('Composition namespace approval is ambiguous')
+            approved[namespace] = entry
+    ephemeral_checked = 0
+    composition_checked = 0
+    restricted_checked = 0
+    if set(approved) - {row['metadata']['name'] for row in workloads}:
+        raise RuntimeError('Approved composition namespace has not converged')
+    for row in workloads:
+        namespace = row['metadata']['name']
+        if namespace in approved or row['metadata']['labels'].get('cloudlab.io/composition'):
+            if namespace not in approved:
+                raise RuntimeError('Privileged composition namespace has no current catalog approval')
+            from playbooks.services.files.composition_verify import admission as composition_admission
+            evidence = composition_admission(approved[namespace], get, condition, kube)
+            composition_checked += 1
+            ephemeral_checked += bool(evidence['ephemeral_denied'])
+        else:
+            if row['metadata']['labels'].get('pod-security.kubernetes.io/enforce') != 'restricted':
+                raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
+            admission(namespace, enforce)
+            ephemeral_checked += ephemeral_admission(namespace, enforce)
+            restricted_checked += 1
+    if not ephemeral_checked:
+        raise RuntimeError('Ephemeral admission requires at least one existing ready workload')
+    return ephemeral_checked, composition_checked, restricted_checked
+
+
+def run(revision, actions, catalog=None):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
     if actions not in (['Audit', 'Warn'], ['Deny']):
@@ -133,17 +189,12 @@ def run(revision, actions):
     namespace = get('namespace', 'cloudlab-policy')
     if namespace['metadata'].get('labels', {}).get('pod-security.kubernetes.io/enforce') != 'restricted':
         raise RuntimeError('Admission controllers require restricted Pod Security')
+    composition_guard()
     workloads = [row for row in get('namespace')['items'] if
                  row['metadata'].get('labels', {}).get('cloudlab.io/owner') == 'service-platform']
-    if not workloads or any(row['metadata']['labels'].get('pod-security.kubernetes.io/enforce') != 'restricted'
-                            for row in workloads):
+    if not workloads:
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
-    ephemeral_checked = 0
-    for row in workloads:
-        admission(row['metadata']['name'], enforce)
-        ephemeral_checked += ephemeral_admission(row['metadata']['name'], enforce)
-    if not ephemeral_checked:
-        raise RuntimeError('Ephemeral admission requires at least one existing ready workload')
+    ephemeral_checked, composition_checked, restricted_checked = namespaces(workloads, enforce, catalog)
     initial = controllers()
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
@@ -155,12 +206,15 @@ def run(revision, actions):
             **{name + '_' + outcome: True for name in (
                 'mutable_image', 'zero_resources', 'projected_token', 'ephemeral_image')},
             'ephemeral_namespaces_checked': ephemeral_checked,
-            'restricted_workload_admitted': True,
+            'composition_namespaces_checked': composition_checked,
+            'unapproved_composition_namespace_denied': True,
+            'restricted_workload_admitted': restricted_checked > 0,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2])), sort_keys=True))
+        raw = sys.stdin.read() if not sys.stdin.isatty() else ''
+        print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2]), json.loads(raw) if raw.strip() else []), sort_keys=True))
     except Exception:
         raise SystemExit('Admission verification incomplete; existing workloads and policy mode retained') from None

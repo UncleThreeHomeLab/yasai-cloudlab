@@ -35,6 +35,9 @@ entry supplies its actual Service name, port and pod selector (one backend per h
 Optional listener readiness selects an approved path/status separately from workload
 health; it does not prove OAuth consent or application login. Composition canaries are unsupported; ordinary
 service and Notes defaults stay unchanged.
+Current composition transport checks require a primary exposure, Python in its
+backend and an existing healthy Python caller in another restricted service
+namespace. Confirm these before onboarding; checks do not create running probe pods.
 Rollouts require the Git-owned [controller and pinned plugin](../../platform/delivery/rollouts/),
 an exposed stateless service and `http-metrics:9091`. The exporter must label
 `cloudlab_http_requests_total`, `cloudlab_http_duration_seconds_bucket` and
