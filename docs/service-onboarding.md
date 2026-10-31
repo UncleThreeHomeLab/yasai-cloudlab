@@ -46,8 +46,13 @@ the user's explicit choice.
 3. **User:** leave force pushes and branch deletion disabled. Save the rule.
 4. **Agent:** confirm GitHub reports `main` as protected. Check the saved rule
    requires PRs and blocks force pushes and deletion.
-5. **User:** after CI produces its first successful test check, add that check
-   as a required status check. Do not require a check that has never run.
+5. **User:** after the first successful test check, open **Settings > Branches**
+   and edit the `main` rule. Enable **Require status checks to pass before merging**.
+   In **Search for status checks**, search the actual successful name, for example `test`.
+   Click the matching result so it appears in the required list, then save.
+   The checkbox alone is insufficient; do not require a check that has never run.
+   **Agent:** verify the named check appears in classic protection's `contexts`/`checks`
+   or the active ruleset's required checks. An enabled rule with empty lists is incomplete.
 
 **Done when:** protection is active. Required CI checks must be added once CI works.
 
@@ -510,9 +515,13 @@ deploy runners, create registry credentials or publish an application image.
 3. **User:** if publishing, review and merge the release PR through branch protection.
    **Agent:** verify the release file records the expected `digest`,
    `source_revision` and `workflow_run_id`. The release App never merges its own PR.
-4. **User:** where branch protection is supported, add the successful test check on application
-   `main`, using the actual check name shown by GitHub.
-   **Agent:** confirm the saved rule. Keep manual protection changes with the user.
+4. **User:** where protection is supported, open **Settings > Branches** and edit
+   the application `main` rule. Enable **Require status checks to pass before merging**.
+   In **Search for status checks**, search the actual successful check name, for example `test`.
+   Click the matching result to add it to the required list, then save.
+   **Agent:** verify GitHub reports that named required check in classic protection
+   or an active ruleset, not merely an enabled checkbox or empty `contexts`/`checks`.
+   Keep these manual protection changes with the user.
 5. **Agent:** if publishing, retain the published digest for service deployment.
    If workflow bytes change, renew workflow approval before expecting jobs to run.
    Private exact-revision mode also needs renewed approval for each source commit.
