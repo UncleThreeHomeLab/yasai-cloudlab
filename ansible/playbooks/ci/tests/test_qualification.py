@@ -1,5 +1,6 @@
 """Check the qualification trust boundary and preserve the real pool profile."""
 import json
+import shlex
 import shutil
 import stat
 import subprocess
@@ -243,7 +244,7 @@ class QualificationTests(unittest.TestCase):
         proof, = [row for row in objects if row['kind'] == 'ConfigMap' and row['metadata']['name'] == 'proof']
         compile(proof['data']['api-denial.py'], '/proof/api-denial.py', 'exec')
         compile(proof['data']['direct-test-proof.py'], '/proof/direct-test-proof.py', 'exec')
-        self.assertEqual(json.loads(proof['data']['test-config.json']), {'image': references['runner']})
+        self.assertEqual(json.loads(proof['data']['test-config.json']), {'image': references['builder']})
         self.assertEqual(len(json.loads(proof['data']['test-meta.json'])['gate_overlays']), 2)
         runner, = actual['containers']
         self.assertIn({'name': 'proof', 'mountPath': '/run/cloudlab-test/config/config.json',
@@ -259,3 +260,16 @@ class QualificationTests(unittest.TestCase):
         path = ROOT / 'ansible/playbooks/buildkit/files/build-proof.sh'
         subprocess.run(['/bin/sh', '-n', str(path)], check=True, timeout=10)
         self.assertIn('BUILD_PROOF_WORKSPACE:-/workspace', path.read_text())
+
+    def test_compact_direct_probe_uses_valid_posix_shell(self):
+        subprocess.run(['/bin/sh', '-n'], input=direct_test_proof.PROGRAM, text=True, check=True, timeout=10)
+        arguments = shlex.split(next(line for line in direct_test_proof.PROGRAM.splitlines() if line.startswith('su ')))
+        child = arguments[arguments.index('-c') + 1]
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'ownership'
+            for flag in ('-u', '-g', '-G'):
+                with self.subTest(flag=flag):
+                    identity = 'id() { if [ "$1" = "' + flag + '" ]; then printf 1001; else printf 1000; fi; }; '
+                    result = subprocess.run(['/bin/sh', '-c', identity + child, 'proof', str(output)], timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
