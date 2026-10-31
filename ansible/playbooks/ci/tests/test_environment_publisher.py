@@ -20,7 +20,7 @@ class EnvironmentPublisherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'application.json'
             application = dict(self.application, components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}},
-                               primaryComponent='agent', releaseRepository='UncleThreeHomeLab/private-config')
+                               primaryComponent='agent', releaseRepository='UncleThreeHomeLab/private-config', releaseMode='manual')
             path.write_text(json.dumps(application))
             self.assertEqual(bootstrap.environment_application(path), application)
             for change in ({'primaryComponent': 'missing'}, {'releaseRepository': 'foreign/private'},

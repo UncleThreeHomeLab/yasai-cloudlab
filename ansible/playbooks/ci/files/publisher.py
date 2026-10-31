@@ -2,12 +2,15 @@
 import base64
 from contextlib import contextmanager
 import importlib.util
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import secrets
 import subprocess
+import tarfile
 import tempfile
 import time
 
@@ -47,7 +50,9 @@ def component_configuration(components, primary):
 def publication_configuration(document):
     fields = {'application', 'source_repository', 'source_repository_id', 'visibility', 'registry',
               'project', 'release_repository', 'release_repository_id', 'workflow_identity'}
-    if (not fields <= set(document) or set(document) - fields - {'components', 'primary_component', 'release_visibility'} or
+    if (not fields <= set(document) or set(document) - fields - {'components', 'primary_component', 'release_visibility', 'release_mode'} or
+            document.get('release_mode', 'automatic') not in ('automatic', 'manual') or
+            document.get('release_mode') == 'manual' and document.get('release_visibility') != 'private' or
             document.get('release_visibility', document['visibility']) not in ('public', 'private') or
             document['visibility'] not in ('public', 'private') or
             document['visibility'] == 'private' and document.get('release_visibility', 'private') != 'private' or
@@ -107,13 +112,15 @@ def credential(name):
     return (SECRETS / name).read_text().strip()
 
 
-def registry_environment(directory, registry, project, role, environment):
+def registry_environment(directory, registry, project, role, environment, credentials=None):
     path = directory / role
     path.mkdir(mode=0o700)
-    username = credential(role + '/username')
-    if username != 'robot$' + project + '+' + role or credential(role + '/secret_version') != '1':
+    values = credentials if credentials is not None else {key: credential(role + '/' + key)
+                                                        for key in ('username', 'password', 'secret_version')}
+    username = values['username']
+    if username != 'robot$' + project + '+' + role or values['secret_version'] != '1':
         raise PublicationFailure('Registry credential differs from its approved project and retained version')
-    auth = base64.b64encode((username + ':' + credential(role + '/password')).encode()).decode()
+    auth = base64.b64encode((username + ':' + values['password']).encode()).decode()
     (path / 'config.json').write_text(json.dumps({'auths': {registry: {'auth': auth}}}))
     (path / 'config.json').chmod(0o600)
     return dict(environment, DOCKER_CONFIG=str(path))
@@ -166,11 +173,7 @@ def sign(reference, document, directory, environment, source, identity):
         execute(['cosign', 'sign', '--yes', '--new-bundle-format=false', '--use-signing-config=false',
                  '--sign-container-identity=https://github.com/' + document['source_repository'],
                  reference], signing, timeout=300)
-        execute(['cosign', 'verify', '--certificate-identity', document['workflow_identity'],
-                 '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com',
-                 '--certificate-github-workflow-repository', document['source_repository'],
-                 '--certificate-github-workflow-ref', 'refs/heads/main',
-                 '--certificate-github-workflow-sha', source, reference], environment, timeout=300)
+        verify_signature(reference, document, environment, source)
     else:
         private, public = SECRETS / 'signer/private_key', SECRETS / 'signer/public_key'
         if execute(['openssl', 'pkey', '-in', str(private), '-pubout'], environment) != public.read_bytes():
@@ -181,12 +184,118 @@ def sign(reference, document, directory, environment, source, identity):
         execute(['cosign', 'sign', '--yes', '--new-bundle-format=false',
                  '--use-signing-config=false', '--tlog-upload=false',
                  '--key', str(prefix.with_suffix('.key')), reference], signing, timeout=300)
+        verify_signature(reference, document, environment, source, public)
+
+
+def verify_signature(reference, document, environment, source, public=None):
+    if document['visibility'] == 'public':
+        execute(['cosign', 'verify', '--certificate-identity', document['workflow_identity'],
+                 '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com',
+                 '--certificate-github-workflow-repository', document['source_repository'],
+                 '--certificate-github-workflow-ref', 'refs/heads/main',
+                 '--certificate-github-workflow-sha', source, reference], environment, timeout=300)
+    else:
+        if public is None:
+            raise PublicationFailure('Private signature verification requires its retained public verifier')
         execute(['cosign', 'verify', '--insecure-ignore-tlog=true', '--key', str(public), reference],
                 environment, timeout=300)
 
 
+def configuration_digest(document):
+    return hashlib.sha256(json.dumps(document, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def candidate_document(document, desired, attempt):
+    release.validate(desired)
+    if (not isinstance(attempt, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', attempt) or
+            set(desired.get('components', {})) != set(document.get('components', {})) or
+            desired.get('primary_component') != document.get('primary_component')):
+        raise PublicationFailure('Release candidate differs from its approved components or run attempt')
+    return {'configuration_sha256': configuration_digest(document), 'workflow_run_attempt': attempt, 'release': desired}
+
+
+def candidate_tar(candidate):
+    payload = json.dumps(candidate, sort_keys=True, separators=(',', ':')).encode()
+    if len(payload) > 65536:
+        raise PublicationFailure('Release candidate exceeds its metadata bound')
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+        member = tarfile.TarInfo('release.json')
+        member.size = len(payload)
+        member.mode = 0o444
+        archive.addfile(member, io.BytesIO(payload))
+    return stream.getvalue()
+
+
+def read_candidate(raw, document, source, run, attempt):
+    if len(raw) > 1048576:
+        raise PublicationFailure('Release candidate exceeds its archive bound')
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+        member = archive.next()
+        if (member is None or member.name != 'release.json' or not member.isfile() or not 0 < member.size <= 65536 or
+                member.pax_headers):
+            raise PublicationFailure('Release candidate requires one bounded regular metadata file')
+        candidate = json.loads(archive.extractfile(member).read(65537))
+        if archive.next() is not None:
+            raise PublicationFailure('Release candidate cannot contain additional files')
+    if (not isinstance(candidate, dict) or set(candidate) != {'configuration_sha256', 'workflow_run_attempt', 'release'} or
+            candidate != candidate_document(document, candidate['release'], attempt) or
+            candidate['release']['source_revision'] != source or candidate['release']['workflow_run_id'] != run):
+        raise PublicationFailure('Release candidate does not match the explicit configuration and source run')
+    return candidate['release']
+
+
+def fetch_candidate(reference, document, source, run, attempt, environment):
+    manifest = json.loads(execute(['crane', 'manifest', reference], environment))
+    layers = manifest.get('layers', [])
+    if (manifest.get('schemaVersion') != 2 or len(layers) != 1 or
+            type(layers[0].get('size')) is not int or not 0 < layers[0]['size'] <= 131072 or
+            type(manifest.get('config', {}).get('size')) is not int or not 0 < manifest['config']['size'] <= 65536):
+        raise PublicationFailure('Release candidate requires one bounded OCI metadata layer')
+    return read_candidate(execute(['crane', 'export', reference, '-'], environment), document, source, run, attempt)
+
+
+def candidate_tag(repository, source, run, attempt):
+    return repository + ':release-candidate-' + source + '-' + run + '-' + attempt
+
+
+def publish_candidate(document, desired, attempt, directory, pull, push, identity):
+    candidate = candidate_document(document, desired, attempt)
+    layer = directory / 'release.tar'
+    layer.write_bytes(candidate_tar(candidate))
+    archive = directory / 'release-image.tar'
+    execute(['crane', 'append', '--oci-empty-base', '--new_layer', str(layer), '--new_tag', 'candidate',
+             '--output', str(archive)], pull)
+    if not archive.is_file() or archive.stat().st_size > 1048576:
+        raise PublicationFailure('Release candidate image exceeds its artifact bound')
+    digest = execute(['crane', 'digest', '--tarball', str(archive)], pull).decode().strip()
+    if not re.fullmatch(DIGEST, digest):
+        raise PublicationFailure('Release candidate requires an immutable artifact digest')
+    repository = document['registry'] + '/' + document['project'] + '/' + document['application']
+    tag = candidate_tag(repository, desired['source_revision'], desired['workflow_run_id'], attempt)
+    absent = (rb'(?:GET|HEAD) https://' + re.escape((document['registry'] + '/v2/' +
+        document['project'] + '/' + document['application'] + '/manifests/' + tag.rsplit(':', 1)[-1]).encode()) +
+        rb':\s*NOT_FOUND\b')
+    existing = execute(['crane', 'digest', tag], pull, missing=absent)
+    if existing is not None and existing.decode().strip() != digest:
+        raise PublicationFailure('Existing release candidate differs; original artifact preserved')
+    if existing is None:
+        execute(['crane', 'push', str(archive), tag], push)
+    reference = repository + '@' + digest
+    if execute(['crane', 'digest', reference], pull).decode().strip() != digest:
+        raise PublicationFailure('Release candidate is not obtainable through its authenticated pull robot')
+    fetch_candidate(reference, document, desired['source_revision'], desired['workflow_run_id'], attempt, pull)
+    signing = directory / 'candidate-signature'
+    signing.mkdir(mode=0o700)
+    sign(reference, document, signing, push, desired['source_revision'], identity)
+    return {'candidate_digest': digest, 'candidate_published': True, 'scanned': True, 'signed': True,
+            'release_proposed': False}
+
+
 @contextmanager
 def release_token(document, environment):
+    if document.get('release_mode') == 'manual':
+        raise PublicationFailure('Manual promotion never loads release App credentials')
     app_id, installation_id = credential('github/app_id'), credential('github/installation_id')
     if not all(re.fullmatch(r'[1-9][0-9]{0,19}', value) for value in (app_id, installation_id)):
         raise PublicationFailure('Release App identifiers must be numeric')
@@ -259,6 +368,8 @@ def publish(document, source, environment):
                    'workflow_run_id': environment['GITHUB_RUN_ID']}
         if 'components' in document:
             desired.update(components=digests, primary_component=document['primary_component'])
+        if document.get('release_mode') == 'manual':
+            return publish_candidate(document, desired, environment['GITHUB_RUN_ATTEMPT'], directory, pull, push, environment)
         with release_token(document, native_environment) as token:
             original = dict(os.environ)
             os.environ.clear()

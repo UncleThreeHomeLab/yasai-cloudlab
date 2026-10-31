@@ -46,6 +46,14 @@ def release_document():
     return {'digest': 'sha256:' + 'a' * 64, 'source_revision': 'b' * 40, 'workflow_run_id': '123'}
 
 
+def manual_publication():
+    return {'application': 'example', 'source_repository': 'example/app', 'source_repository_id': '123',
+            'visibility': 'public', 'registry': 'registry.example.invalid', 'project': 'cloudlab-public',
+            'release_repository': 'example/gitops', 'release_repository_id': 456, 'release_visibility': 'private',
+            'release_mode': 'manual', 'workflow_identity': 'https://github.com/example/app/.github/workflows/ci.yaml@refs/heads/main',
+            'components': {'agent': {'dockerfile': 'deploy/agent.Dockerfile'}}, 'primary_component': 'agent'}
+
+
 def workflow_permissions():
     desired = {'owner': 'example', 'repositories': {
         'public_platform': {'name': 'public-gitops', 'id': 100, 'node_id': 'R_public'},

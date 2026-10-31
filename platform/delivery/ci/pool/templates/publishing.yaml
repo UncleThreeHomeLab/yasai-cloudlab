@@ -1,6 +1,7 @@
 {{- with .Values.publishing }}
 {{- $scope := .visibility }}
 {{- $releaseScope := .release_visibility | default $scope }}
+{{- $manual := eq (.release_mode | default "automatic") "manual" }}
 {{- $project := printf "cloudlab-%s" $scope }}
 {{- with .components }}
 {{- if not (hasKey . $.Values.publishing.primary_component) }}{{ fail "Publishing requires an explicit component primary" }}{{- end }}
@@ -36,6 +37,16 @@
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if $manual }}
+{{- range $.Values.arc.template.spec.volumes }}
+{{- if or (eq .name "publish-github") (and .secret (eq .secret.secretName "cloudlab-release")) }}{{ fail "Manual promotion cannot mount release App credentials" }}{{- end }}
+{{- end }}
+{{- range $.Values.arc.template.spec.containers }}
+{{- range .volumeMounts }}
+{{- if hasPrefix "/run/cloudlab-publisher/github" .mountPath }}{{ fail "Manual promotion cannot mount release App credentials" }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata: {name: cloudlab-publishing, namespace: {{ $.Release.Namespace }}}
@@ -55,6 +66,7 @@ spec:
     deletionPolicy: Retain
   dataFrom: [{extract: {key: {{ printf "harbor-%s-%s" $project $role }}}}]
 {{- end }}
+{{- if not $manual }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -74,6 +86,7 @@ spec:
         private_key: |-
 {{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: {{ printf "github-release-%s" $releaseScope }}}}]
+{{- end }}
 {{- if eq $scope "private" }}
 ---
 apiVersion: external-secrets.io/v1

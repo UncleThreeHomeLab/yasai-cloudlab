@@ -96,7 +96,8 @@ See GitHub's [installed App instructions](https://docs.github.com/en/apps/using-
 
 ### Keep release access separate
 
-When publishing is enabled, release Apps propose image-update PRs in the owning GitOps repo.
+With automatic promotion, release Apps propose image-update PRs in the owning GitOps repo.
+Manual private promotion uses local human authentication; CI receives no release App credentials.
 Do not add the application source repo to a release App for runner registration.
 
 | Source repo | Release App credential | GitOps destination |
@@ -414,10 +415,10 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
    `harbor-cloudlab-private-pull` and `harbor-cloudlab-private-push` equivalents.
    Required fields: `username`, `password`, `secret_version`.
    Use existing credential owners to create missing items; preserve existing values.
-3. Confirm the matching release App can propose PRs in the destination below.
+3. For automatic promotion, confirm the matching release App can propose PRs in the destination below.
    Use the [Harbor installation contract](../ansible/playbooks/harbor/files/contract.json)
    for App fields and grants. Keep App keys in 1Password.
-4. Confirm the destination has the required server-enforced release merge guard:
+4. For automatic promotion, confirm the destination has the required server-enforced release merge guard:
    approved administrators merge through PRs; release Apps cannot merge.
    Use the existing [workflow policy owner](../infra/github-workflows/merge-guard.tf).
    Private exact-revision approval does not waive this guard. If the destination
@@ -445,8 +446,35 @@ All components use the application's approved registry repository. The publisher
 scans, publishes and verifies every signature before proposing one release file.
 That file adds `components` and `primary_component`; its `digest` remains the primary image.
 
-**Done when:** registry credentials, signing inputs and protected release destination
-are available through their existing owners.
+#### Manual private promotion
+
+Set `releaseMode: "manual"` with an explicit private `releaseRepository` in
+`application.json`. Regenerate with the same `--publish` command in section 5.3.
+The generator verifies the designated private destination but reads no release App keys.
+No CI pod receives GitOps write credentials. Automatic promotion's guards stay unchanged.
+
+CI scans and signs all images, then signs an immutable candidate in the same
+authenticated Harbor application repository. Its tag is
+`release-candidate-SOURCE_SHA-RUN_ID-ATTEMPT`, covered by existing immutable `release-*` policy.
+CI prints only `candidate_digest`;
+release JSON stays in Harbor until local promotion opens a private PR.
+
+After the main workflow completes successfully, run from the platform checkout:
+
+```sh
+gh auth token | docker compose --profile ci run -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --entrypoint python ci-bootstrap -m playbooks.ci.files.promotion --publisher-file /application/publisher.json --candidate-digest CANDIDATE_DIGEST --source-revision SOURCE_SHA --workflow-run-id RUN_ID --workflow-run-attempt ATTEMPT
+```
+
+Use human `gh` authentication with private-repository write access, the existing
+CloudLab read-only vault token in `.env`, and the reviewed generated `publisher.json`.
+Copy the entire `candidate_digest` value, including `sha256:`.
+The command verifies protected-main history, completed run/attempt, approved local
+jobs, candidate configuration and all signatures before proposing one private
+`apps/releases/example-app.json`. It never merges. Review that PR normally.
+Do not upload candidate JSON to public GitHub artifacts or release files.
+
+**Done when:** registry/signing inputs and either guarded automatic promotion or
+local human private promotion are configured.
 
 ### 5.3 Generate runner configuration — Agent
 
@@ -854,29 +882,33 @@ workflow/publishing approval is ready for the release run.
    `cloudlab-example-app-publish`.
 2. Confirm direct tests pass before main-only builds, image scan, publication and signing.
    Tests run the current source in the pinned dependency environment; they build no image.
-   The main build job uses approved application Dockerfiles; the existing publisher
-   builds root `Dockerfile`'s `runtime` target.
+   The publisher builds the reviewed component Dockerfiles and optional targets,
+   or root `Dockerfile`'s `runtime` target for a single-image declaration.
    Ordinary releases need no edits to workflow or runner configuration files.
-3. Find the release PR created by the publisher. If a job fails, fix the owning
+3. Find the release PR created by automatic promotion, or run section 5.2's local
+   promotion command for a manual private candidate. If a job fails, fix the owning
    application or approved configuration before retrying.
 
 **Done when:** CI has published a signed digest and proposed its release record.
 
 ### 7.3 Review the release PR — User, then Agent
 
-The publisher changes this file in the owning release repo:
+Automatic publication or local human promotion changes this file in the selected release repo:
 
 | Application source visibility | Release file |
 | --- | --- |
-| Public | Public platform repo: `apps/releases/example-app.json` |
+| Public, default destination | Public platform repo: `apps/releases/example-app.json` |
+| Public, explicit private destination | Private GitOps repo: `apps/releases/example-app.json` |
 | Private | Private GitOps repo: `apps/releases/example-app.json` |
 
 1. **Agent:** check the PR changes only the expected release record.
    Verify `digest` matches the signed image, `source_revision` matches the approved
    application commit, and `workflow_run_id` identifies the successful publishing run.
    All three fields are strings.
-2. **User:** review and merge through branch protection. The release App proposes
-   the PR; it cannot merge it.
+   For component releases, verify every approved component digest and confirm
+   `primary_component` selects the image recorded in `digest`.
+2. **User:** review and merge through the repository's configured review process.
+   Automatic release Apps cannot merge; manual promotion only proposes a PR.
 
 **Done when:** the reviewed release record is on the owning repo's `main` branch.
 
