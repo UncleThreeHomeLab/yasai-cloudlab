@@ -10,48 +10,40 @@ import tempfile
 import time
 
 
-PROGRAM = '''import errno, os, socket, subprocess, sys, tempfile, time
-from pathlib import Path
-assert os.getuid() == 0
-assert 'GITHUB_TOKEN' not in os.environ
-for path in ['/app/.git', '/app/.env', '/run/cloudlab-test/registry/config.json',
-             '/var/run/cloudlab-health/token', '/run/cloudlab-publisher/github/private_key']:
- assert not Path(path).exists(), 'runner state entered sandbox'
-assert Path('/app/proof.py').read_text().startswith('import errno')
-try:
- with open('/app/proof.py', 'a') as output: output.write('unexpected write')
-except OSError as error:
- assert error.errno in (errno.EROFS, errno.EACCES, errno.EPERM)
-else: raise AssertionError('source is writable')
-connection = socket.socket()
-connection.settimeout(0.5)
-try: connection.connect(('1.1.1.1', 443))
-except OSError: pass
-else: raise AssertionError('offline container reached the network')
-finally: connection.close()
-with tempfile.TemporaryDirectory() as directory:
- os.chmod(directory, 0o755)
- path = Path(directory) / 'ownership'
- path.write_text('initial')
- os.chown(path, 1001, 1001)
- child = os.fork()
- if child == 0:
-  os.setgroups([]); os.setgid(1001); os.setuid(1001)
-  path.write_text('mapped user')
-  os._exit(0)
- _, status = os.waitpid(child, 0)
- assert status == 0 and path.read_text() == 'mapped user'
- assert path.stat().st_uid == 1001
-if sys.argv[1] == 'fail':
- print('EXPECTED_TEST_FAILURE', flush=True)
- raise SystemExit(17)
-if sys.argv[1] == 'cancel':
- subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
- print('DIRECT_TEST_CHILD_STARTED', flush=True)
- time.sleep(120)
-assert not Path('/tmp/previous-test-run').exists()
-Path('/tmp/previous-test-run').write_text('fresh execution')
-print('CLOUDLAB_DIRECT_TEST_OK', flush=True)
+PROGRAM = '''set -eu
+test "$(id -u)" -eq 0
+test "${GITHUB_TOKEN+x}" != x
+for path in /app/.git /app/.env /run/cloudlab-test/registry/config.json \\
+  /var/run/cloudlab-health/token /run/cloudlab-publisher/github/private_key; do
+ test ! -e "$path"
+done
+test "$(head -n 1 /app/proof.sh)" = 'set -eu'
+if (printf 'unexpected write' >> /app/proof.sh) 2>/dev/null; then exit 1; fi
+command -v nc >/dev/null
+network_status=0
+nc -z -w 1 1.1.1.1 443 || network_status=$?
+test "$network_status" -eq 1
+directory=$(mktemp -d)
+chmod 0755 "$directory"
+printf initial > "$directory/ownership"
+chown 1000:1000 "$directory/ownership"
+su -s /bin/sh user -c 'set -eu; test "$(id -u)" -eq 1000; test "$(id -g)" -eq 1000; test "$(id -G)" = 1000; printf "mapped user" > "$1"' proof "$directory/ownership"
+test "$(cat "$directory/ownership")" = 'mapped user'
+test "$(stat -c %u:%g "$directory/ownership")" = 1000:1000
+rm "$directory/ownership"
+rmdir "$directory"
+case "$1" in
+ fail) printf 'EXPECTED_TEST_FAILURE\\n'; exit 17 ;;
+ cancel)
+  sleep 120 &
+  child=$!
+  printf 'DIRECT_TEST_CHILD_STARTED\\n'
+  wait "$child"
+  ;;
+esac
+test ! -e /tmp/previous-test-run
+printf 'fresh execution' > /tmp/previous-test-run
+printf 'CLOUDLAB_DIRECT_TEST_OK\\n'
 '''
 
 
@@ -121,12 +113,12 @@ def main():
         raise RuntimeError('Published workflow gate differs from qualification')
     with tempfile.TemporaryDirectory(prefix='ci-direct-proof-') as directory:
         source = Path(directory)
-        (source / 'proof.py').write_text(PROGRAM)
+        (source / 'proof.sh').write_text(PROGRAM)
         (source / '.env').write_text('SYNTHETIC_UNTRACKED_SECRET=never_forward\n')
-        for arguments in (['init', '-q'], ['add', 'proof.py']):
+        for arguments in (['init', '-q'], ['add', 'proof.sh']):
             subprocess.run(['git', *arguments], cwd=source, check=True, capture_output=True)
         command = ['cloudlab-test', '--source', str(source),
-                   '--timeout', '4m', '--', 'python3', '/app/proof.py']
+                   '--timeout', '4m', '--', 'sh', '/app/proof.sh']
         environment = dict(os.environ, GITHUB_TOKEN='SYNTHETIC_MUST_NOT_ENTER_TEST')
         for _ in range(2):
             try:

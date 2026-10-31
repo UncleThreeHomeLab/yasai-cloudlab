@@ -81,7 +81,7 @@ def bundle(references, namespace):
                  'build-proof.sh': (ROOT / 'ansible/playbooks/buildkit/files/build-proof.sh').read_text(),
                  'api-denial.py': (Path(__file__).parent / 'api-denial.py').read_text(),
                  'direct-test-proof.py': Path(__file__).with_name('direct_test_proof.py').read_text(),
-                 'test-config.json': json.dumps({'image': references['runner']}),
+                 'test-config.json': json.dumps({'image': references['builder']}),
                  'test-meta.json': json.dumps({
                      'source_sha256': hashlib.sha256((ROOT / 'platform/delivery/ci/testexec/main.go').read_bytes()).hexdigest(),
                      'gate_overlays': {name: hashlib.sha256((ROOT / 'platform/delivery/ci/runner' / name).read_bytes()).hexdigest()
