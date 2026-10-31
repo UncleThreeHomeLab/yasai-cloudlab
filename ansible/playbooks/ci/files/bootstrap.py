@@ -119,18 +119,27 @@ def local_path(path):
 
 
 def environment_application(path):
+    from playbooks.argocd.files.github_setup import repository
     path = local_path(path)
     if not path.is_file() or path.stat().st_size > 65536:
         raise ValueError('Environment publication requires a bounded application input')
     value = json.loads(path.read_text(encoding='utf-8'))
     required = {'name', 'repository', 'visibility'}
-    if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - {'testing'} or
+    if (not isinstance(value, dict) or not required <= set(value) or
+            set(value) - required - {'testing', 'components', 'primaryComponent', 'releaseRepository'} or
             not isinstance(value.get('name'), str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', value['name']) or
             not isinstance(value.get('repository'), str) or
             not re.fullmatch(r'https://github[.]com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git',
                              value.get('repository', '')) or value.get('visibility') != 'public' or
             ('testing' in value and not isinstance(value['testing'], dict))):
         raise ValueError('Environment producer requires an approved public application identity')
+    if 'components' in value or 'primaryComponent' in value:
+        from playbooks.ci.files.publisher import component_configuration
+        component_configuration(value.get('components'), value.get('primaryComponent'))
+    if 'releaseRepository' in value and (not isinstance(value['releaseRepository'], str) or
+            not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', value['releaseRepository']) or
+            value['releaseRepository'].split('/')[0].lower() != repository(value['repository']).split('/')[0].lower()):
+        raise ValueError('Environment application requires a same-organization release repository')
     return value
 
 

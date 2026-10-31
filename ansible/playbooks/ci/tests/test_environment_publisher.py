@@ -16,6 +16,19 @@ from playbooks.harbor.files.registry import Registry
 
 
 class EnvironmentPublisherTests(unittest.TestCase):
+    def test_extended_application_inputs_preserve_environment_source_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'application.json'
+            application = dict(self.application, components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}},
+                               primaryComponent='agent', releaseRepository='UncleThreeHomeLab/private-config')
+            path.write_text(json.dumps(application))
+            self.assertEqual(bootstrap.environment_application(path), application)
+            for change in ({'primaryComponent': 'missing'}, {'releaseRepository': 'foreign/private'},
+                           {'components': {'agent': {'dockerfile': '../Dockerfile'}}}):
+                path.write_text(json.dumps(dict(application, **change)))
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    bootstrap.environment_application(path)
+
     application = {'name': 'example-app', 'repository': 'https://github.com/UncleThreeHomeLab/example-app.git',
                    'visibility': 'public'}
     digest = 'sha256:' + 'a' * 64

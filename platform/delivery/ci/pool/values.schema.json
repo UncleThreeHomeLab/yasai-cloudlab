@@ -13,7 +13,26 @@
     "publishing": {
       "type": "object", "additionalProperties": false,
       "required": ["application", "source_repository", "source_repository_id", "visibility", "registry", "project", "release_repository", "release_repository_id", "workflow_identity"],
+      "allOf": [
+        {"if": {"required": ["components"]}, "then": {"required": ["primary_component"]}},
+        {"if": {"required": ["primary_component"]}, "then": {"required": ["components"]}},
+        {"if": {"properties": {"visibility": {"const": "private"}}},
+         "then": {"properties": {"release_visibility": {"const": "private"}}}}
+      ],
       "properties": {
+        "components": {
+          "type": "object", "minProperties": 1, "maxProperties": 8,
+          "propertyNames": {"pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$"},
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false, "required": ["dockerfile"],
+            "properties": {
+              "dockerfile": {"type": "string", "maxLength": 180, "pattern": "^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+              "target": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"}
+            }
+          }
+        },
+        "primary_component": {"type": "string", "pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$"},
+        "release_visibility": {"enum": ["public", "private"]},
         "application": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,34}$"},
         "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"},
         "source_repository_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},

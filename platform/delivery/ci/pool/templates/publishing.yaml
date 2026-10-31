@@ -1,6 +1,15 @@
 {{- with .Values.publishing }}
 {{- $scope := .visibility }}
+{{- $releaseScope := .release_visibility | default $scope }}
 {{- $project := printf "cloudlab-%s" $scope }}
+{{- with .components }}
+{{- if not (hasKey . $.Values.publishing.primary_component) }}{{ fail "Publishing requires an explicit component primary" }}{{- end }}
+{{- range . }}
+{{- range splitList "/" .dockerfile }}
+{{- if has . (list "." "..") }}{{ fail "Component Dockerfiles must remain inside source" }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if or (ne $.Values.policyName "cloudlab-ci-eligibility-publish") $.Values.manageSharedResources
     (ne $.Release.Namespace (printf "cloudlab-ci-%s-%s" $scope .application))
     (ne $.Values.arc.runnerScaleSetName (printf "cloudlab-%s-publish" .application))
@@ -64,7 +73,7 @@ spec:
         installation_id: '{{ "{{ .INSTALLATION_ID }}" }}'
         private_key: |-
 {{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
-  dataFrom: [{extract: {key: {{ printf "github-release-%s" $scope }}}}]
+  dataFrom: [{extract: {key: {{ printf "github-release-%s" $releaseScope }}}}]
 {{- if eq $scope "private" }}
 ---
 apiVersion: external-secrets.io/v1

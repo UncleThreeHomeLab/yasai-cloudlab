@@ -134,11 +134,19 @@ def application_templates(api, current, revision, pull_request=None, *, platform
 
 def application_configuration(qualified, application, current, workflows=(), templates=(), publishing=None,
                               exact_reusable=False):
+    from playbooks.ci.files.publisher import component_configuration
     references = qualified_images(qualified)
-    if (set(application) not in ({'name', 'repository', 'visibility'}, {'name', 'repository', 'visibility', 'testing'}) or
+    if (not {'name', 'repository', 'visibility'} <= set(application) or
+            set(application) - {'name', 'repository', 'visibility', 'testing', 'components', 'primaryComponent', 'releaseRepository'} or
             not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application.get('name', '')) or
             application.get('visibility') not in ('public', 'private')):
         raise ValueError('Application registration requires a name, repository and visibility')
+    if 'components' in application or 'primaryComponent' in application:
+        component_configuration(application.get('components'), application.get('primaryComponent'))
+    if 'releaseRepository' in application and (not isinstance(application['releaseRepository'], str) or
+            not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', application['releaseRepository']) or
+            application['releaseRepository'].split('/')[0].lower() != repository(application['repository']).split('/')[0].lower()):
+        raise ValueError('Release repository must be an explicit same-organization repository')
     name = application['name']
     testing = application.get('testing')
     if (testing is not None or any(row.get('job') == 'build' for row in templates)) and (
@@ -207,7 +215,10 @@ def application_configuration(qualified, application, current, workflows=(), tem
             from playbooks.ci.files.publisher import publication_configuration
             publication_configuration(publishing)
             if (publishing['application'] != name or publishing['source_repository'] != full_name or
-                    publishing['source_repository_id'] != str(current['id']) or publishing['visibility'] != scope):
+                    publishing['source_repository_id'] != str(current['id']) or publishing['visibility'] != scope or
+                    publishing.get('components') != application.get('components') or
+                    publishing.get('primary_component') != application.get('primaryComponent') or
+                    'releaseRepository' in application and publishing['release_repository'] != application['releaseRepository']):
                 raise ValueError('Publishing inputs must match the registered application repository')
             publisher = copy.deepcopy(values)
             publisher.pop('testing', None)
@@ -274,9 +285,17 @@ def publication(api, values, application, current, qualified, templates):
     from playbooks.harbor.files.scopes import APPS, verify_app
     from playbooks.secrets.files.vault import fields
     scope = application['visibility']
-    role = 'public-platform' if scope == 'public' else 'private-config'
     designated = {key: (name, private) for key, name, private in designated_repositories(values)}
+    role = 'public-platform' if scope == 'public' else 'private-config'
+    if 'releaseRepository' in application:
+        matches = [key for key in ('public-platform', 'private-config')
+                   if designated[key][0] == application['releaseRepository']]
+        if len(matches) != 1:
+            raise ValueError('Release target must match one designated GitOps repository')
+        role, = matches
     target, private = designated[role]
+    if scope == 'private' and not private:
+        raise ValueError('Private source releases must remain in private GitOps')
     row, = [row for row in templates if row['job'] == 'publish']
     metadata = api.request('GET', 'repos/' + target)
     if (metadata.get('full_name') != target or metadata.get('private') is not private or
@@ -285,7 +304,7 @@ def publication(api, values, application, current, qualified, templates):
         raise ValueError('Publishing requires the accepted owning GitOps repository')
     from playbooks.ci.files.workflow_permissions import require_release_guard
     require_release_guard(api, target)
-    title = 'github-release-' + scope
+    title = 'github-release-' + ('private' if private else 'public')
     roles, permissions = APPS[title]
     original = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
@@ -297,11 +316,16 @@ def publication(api, values, application, current, qualified, templates):
             os.environ.pop('OP_SERVICE_ACCOUNT_TOKEN', None)
         else:
             os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = original
-    return {'application': application['name'], 'source_repository': current['full_name'],
+    document = {'application': application['name'], 'source_repository': current['full_name'],
             'source_repository_id': str(current['id']), 'visibility': scope,
             'registry': qualified_images(qualified)['runner'].split('/')[0],
             'project': 'cloudlab-' + scope, 'release_repository': target,
             'release_repository_id': metadata['id'], 'workflow_identity': 'https://github.com/' + row['job_workflow_ref']}
+    if 'releaseRepository' in application:
+        document['release_visibility'] = 'private' if private else 'public'
+    if 'components' in application:
+        document.update(components=copy.deepcopy(application['components']), primary_component=application['primaryComponent'])
+    return document
 
 
 def main():
