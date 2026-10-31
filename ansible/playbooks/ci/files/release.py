@@ -56,12 +56,21 @@ def propose(repository, path, desired):
     if (not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository) or
             not re.fullmatch(r'apps/releases/[a-z][a-z0-9-]{0,34}[.]json', path)):
         raise ValueError('Release proposal requires its approved repository and artifact file')
-    if (set(desired) != {'digest', 'source_revision', 'workflow_run_id'} or
-            not all(isinstance(value, str) for value in desired.values()) or
+    base_fields = {'digest', 'source_revision', 'workflow_run_id'}
+    if (set(desired) not in (base_fields, base_fields | {'components', 'primary_component'}) or
+            not all(isinstance(desired.get(key), str) for key in base_fields) or
             not re.fullmatch(r'sha256:[a-f0-9]{64}', desired['digest']) or
             not re.fullmatch(r'[a-f0-9]{40}', desired['source_revision']) or
             not re.fullmatch(r'[1-9][0-9]{0,19}', desired['workflow_run_id'])):
         raise ValueError('Release proposals require an immutable digest, source revision and workflow run')
+    if 'components' in desired:
+        components, primary = desired['components'], desired['primary_component']
+        if (not isinstance(components, dict) or not 1 <= len(components) <= 8 or
+                not isinstance(primary, str) or primary not in components or components[primary] != desired['digest'] or
+                any(not isinstance(name, str) or not re.fullmatch(r'[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?', name) or
+                    not isinstance(digest, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest)
+                    for name, digest in components.items())):
+            raise ValueError('Component releases require bounded named digests matching their explicit primary')
     prefix = 'repos/' + repository
 
     with tempfile.TemporaryDirectory(prefix='cloudlab-release-') as directory:

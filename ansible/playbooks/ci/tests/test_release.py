@@ -13,6 +13,15 @@ from playbooks.ci.tests.fixtures import release_document
 
 
 class ReleaseRequestTests(unittest.TestCase):
+    def test_component_releases_refuse_incomplete_or_mutable_bundles_before_git(self):
+        desired = dict(release_document(), components={'agent': 'sha256:' + 'a' * 64}, primary_component='agent')
+        for change in ({'components': {}}, {'primary_component': 'missing'}, {'components': {'agent': 'latest'}},
+                {'digest': 'sha256:' + 'c' * 64}, {'components': {'agent/worker': desired['digest']}},
+                {'components': {str(n): desired['digest'] for n in range(9)}}, {'primary_component': []}):
+            with self.subTest(change=change), patch.object(release, 'native') as native, self.assertRaises(ValueError):
+                release.propose('example/gitops', 'apps/releases/example.json', dict(desired, **change))
+            native.assert_not_called()
+
     def test_failures_expose_only_status_or_exit_code_without_private_output(self):
         from unittest.mock import Mock
         opener = Mock()
@@ -63,6 +72,16 @@ class ReleaseRequestTests(unittest.TestCase):
 
 
 class ReleaseGitTests(unittest.TestCase):
+    def test_component_bundle_is_one_reviewed_file_with_explicit_primary_and_repeat_safe_pr(self):
+        self.desired.update(components={'agent': self.desired['digest'], 'worker': 'sha256:' + 'c' * 64},
+                            primary_component='agent')
+        self.propose(); self.propose()
+        branch, = self.branches()
+        actual = json.loads(self.original('git', '--git-dir=' + str(self.remote), 'show', self.ref(branch) + ':' + self.path))
+        self.assertEqual(actual, self.desired)
+        self.assertEqual(self.pr_creations, 1)
+        self.assertEqual(self.ref('main'), self.base)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

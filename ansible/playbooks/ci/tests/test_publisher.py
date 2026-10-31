@@ -14,8 +14,108 @@ from playbooks.ci.files import publisher
 
 
 class PublisherTests(unittest.TestCase):
+    def test_component_inputs_are_bounded_and_cannot_escape_the_source_or_choose_commands(self):
+        document, environment = self.inputs()
+        document.update(components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}}, primary_component='agent',
+                        release_visibility='private')
+        self.assertEqual(publisher.configuration(document, environment), document)
+        for components, primary in (({}, 'agent'), ({str(n): {'dockerfile': 'Dockerfile'} for n in range(9)}, '0'),
+                ({'agent-': {'dockerfile': 'Dockerfile'}}, 'agent-'),
+                ({'Agent': {'dockerfile': 'Dockerfile'}}, 'Agent'), ({'agent': {'dockerfile': '../Dockerfile'}}, 'agent'),
+                ({'agent': {'dockerfile': '/Dockerfile'}}, 'agent'), ({'agent': {'dockerfile': './Dockerfile'}}, 'agent'),
+                ({'agent': {'dockerfile': 'x/../Dockerfile'}}, 'agent'), ({'agent': {'dockerfile': 'x//Dockerfile'}}, 'agent'),
+                ({'agent': {'dockerfile': 'Dockerfile', 'target': '--command'}}, 'agent'),
+                ({'agent': {'dockerfile': 'Dockerfile', 'command': 'bad'}}, 'agent'), (document['components'], 'missing')):
+            with self.subTest(components=components), self.assertRaises(ValueError):
+                publisher.configuration(dict(document, components=components, primary_component=primary), environment)
+
+    def test_component_build_uses_reviewed_filename_optional_target_and_refuses_symlinks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'source'; source.mkdir()
+            (source / 'deploy').mkdir()
+            (source / 'deploy/agent.Dockerfile').write_text('FROM scratch')
+            output = Path(temporary) / 'output'; output.mkdir()
+            calls = []
+            digest = 'sha256:' + 'a' * 64
+            def execute(arguments, environment, **kwargs):
+                calls.append(arguments)
+                if arguments[0] == 'buildctl': (output / 'image.tar').write_bytes(b'archive')
+                if arguments[0] == 'crane': return digest.encode()
+                if arguments[0] == 'trivy':
+                    (output / 'scan.json').write_text(json.dumps({'SchemaVersion': 2,
+                        'ArtifactType': 'container_image', 'Results': [{'Vulnerabilities': [], 'Secrets': []}]}))
+                return b''
+            with patch.object(publisher, 'execute', side_effect=execute):
+                for target in (None, 'runtime'):
+                    build = {'dockerfile': 'deploy/agent.Dockerfile'}
+                    if target: build['target'] = target
+                    publisher.build_and_scan(source, output, {}, build)
+                    command = next(c for c in calls if c[0] == 'buildctl')
+                    self.assertIn('filename=deploy/agent.Dockerfile', command)
+                    self.assertEqual('target=runtime' in command, target is not None)
+                    calls.clear()
+            (source / 'deploy/agent.Dockerfile').unlink()
+            (source / 'deploy/agent.Dockerfile').symlink_to(source / 'outside')
+            with patch.object(publisher, 'execute') as native, self.assertRaises(ValueError):
+                publisher.build_and_scan(source, output, {}, {'dockerfile': 'deploy/agent.Dockerfile'})
+            native.assert_not_called()
+
+    def test_component_publication_is_repeat_safe_and_proposes_only_after_every_signature(self):
+        document, environment = self.inputs()
+        document.update(components={name: {'dockerfile': name + '.Dockerfile'} for name in ('agent', 'pull', 'push', 'worker')},
+                        primary_component='worker', release_visibility='private')
+        digests = {name: 'sha256:' + digit * 64 for name, digit in zip(('agent', 'pull', 'push', 'worker'), 'cdf0')}
+        for failure in (None, 'scan', 'sign', 'collision'):
+            events = []
+            def credentials(directory, registry, project, role, native):
+                self.assertEqual(set(native), {'PATH', 'HOME'})
+                self.assertEqual(project, 'cloudlab-public')
+                events.append(role)
+                return dict(native, DOCKER_CONFIG=role)
+            def scan(source, directory, native, component):
+                name = directory.name
+                events.append('scan-' + name)
+                if failure == 'scan' and name == 'worker': raise RuntimeError('scan refused')
+                archive = directory / 'image.tar'; archive.write_bytes(b'scanned')
+                return archive, digests[name]
+            def native(arguments, native, **options):
+                self.assertNotIn('GH_TOKEN', native)
+                if options.get('missing'):
+                    self.assertTrue(arguments[-1].startswith('registry.example.invalid/cloudlab-public/example:release-'))
+                    if failure == 'collision': return ('sha256:' + 'e' * 64).encode()
+                    return digests[arguments[-1].rsplit('-', 1)[-1]].encode()
+                if arguments[0] == 'buildctl': return b''
+                self.assertNotEqual(arguments[1], 'push', 'Matching immutable artifacts must not be pushed again')
+                return arguments[-1].rsplit('@', 1)[-1].encode()
+            def sign(reference, document, directory, native, source, identity):
+                events.append('sign-' + directory.name)
+                if failure == 'sign' and directory.name == 'worker': raise RuntimeError('signature refused')
+            @contextmanager
+            def token(document, native):
+                events.append('token'); yield 'synthetic'; events.append('revoke')
+            def propose(repository, path, desired):
+                events.append('proposal')
+                self.assertEqual(desired, {'digest': digests['worker'], 'components': digests, 'primary_component': 'worker',
+                    'source_revision': environment['GITHUB_SHA'], 'workflow_run_id': '123'})
+                return {'release_changed': True}
+            with self.subTest(failure=failure), patch.object(publisher, 'registry_environment', side_effect=credentials), \
+                    patch.object(publisher, 'build_and_scan', side_effect=scan), \
+                    patch.object(publisher, 'execute', side_effect=native), patch.object(publisher, 'sign', side_effect=sign), \
+                    patch.object(publisher, 'release_token', side_effect=token) as release_token, \
+                    patch.object(publisher.release, 'propose', side_effect=propose) as proposal:
+                if failure:
+                    with self.assertRaises((RuntimeError, ValueError)):
+                        publisher.publish(document, Path('/source'), environment)
+                    release_token.assert_not_called(); proposal.assert_not_called()
+                else:
+                    publisher.publish(document, Path('/source'), environment)
+                    self.assertEqual(events, ['pull', 'scan-agent', 'push', 'sign-agent', 'scan-pull', 'sign-pull',
+                                              'scan-push', 'sign-push', 'scan-worker', 'sign-worker',
+                                              'token', 'proposal', 'revoke'])
+
     def test_release_token_uses_native_rsa_jwt_one_repository_permissions_and_revocation_on_interruption(self):
         document, environment = self.inputs()
+        document['release_visibility'] = 'private'
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         calls = []
         def api(method, path, data=None, *, token=None):
@@ -33,7 +133,7 @@ class PublisherTests(unittest.TestCase):
                 return {'token': 'synthetic-one-repository-token'}
             self.assertEqual(token, 'synthetic-one-repository-token')
             if method == 'GET':
-                return {'id': 456, 'fork': False, 'archived': False, 'private': False,
+                return {'id': 456, 'fork': False, 'archived': False, 'private': True,
                         'full_name': 'example/gitops', 'default_branch': 'main'}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

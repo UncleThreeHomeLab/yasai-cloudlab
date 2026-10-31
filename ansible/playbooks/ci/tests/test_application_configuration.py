@@ -163,7 +163,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
             application_configuration(qualified_tools(), public, public_current, workflows=workflows, exact_reusable=True)
 
     def test_publisher_uses_one_shared_budget_with_role_scoped_credentials_and_no_builder_secret_mounts(self):
-        for scope in ('public', 'private'):
+        for scope, release_scope in (('public', 'public'), ('private', 'private'), ('public', 'private')):
             application, current = self.inputs('example', scope)
             application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-public/test-env@sha256:' + 'a' * 64}
             templates = [{'repository_id': str(current['id']), 'repository': current['full_name'],
@@ -176,6 +176,10 @@ class ApplicationConfigurationTests(unittest.TestCase):
                           'registry': 'registry.example.invalid', 'project': 'cloudlab-' + scope,
                           'release_repository': 'example/gitops', 'release_repository_id': 456,
                           'workflow_identity': 'https://github.com/' + templates[1]['job_workflow_ref']}
+            if release_scope != scope:
+                application.update(releaseRepository='example/gitops', primaryComponent='agent',
+                                   components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}})
+                publishing.update(release_visibility=release_scope, components=application['components'], primary_component='agent')
             documents = application_configuration(qualified_tools(direct=True), application, current,
                                                    templates=templates, publishing=publishing)
             self.assertEqual(set(documents), {'controller.json', 'runner.json', 'publisher.json'})
@@ -192,11 +196,16 @@ class ApplicationConfigurationTests(unittest.TestCase):
             objects = render(publisher, chart=POOL, namespace=namespace, release='publisher')
             secrets = [row for row in objects if row['kind'] == 'ExternalSecret']
             items = {entry['extract']['key'] for row in secrets for entry in row['spec']['dataFrom']}
-            expected = {'github-release-' + scope, 'harbor-cloudlab-' + scope + '-pull',
+            expected = {'github-release-' + release_scope, 'harbor-cloudlab-' + scope + '-pull',
                         'harbor-cloudlab-' + scope + '-push'}
             if scope == 'private':
                 expected |= {'ci-private-signer', 'ci-private-verifier'}
             self.assertEqual(items, expected)
+            if release_scope != scope:
+                bad = copy.deepcopy(publisher)
+                bad['publishing']['primary_component'] = 'missing'
+                with self.assertRaises(subprocess.CalledProcessError):
+                    render(bad, chart=POOL, namespace=namespace)
             unsafe = copy.deepcopy(publisher)
             unsafe['arc']['template']['spec']['initContainers'][0]['volumeMounts'].append(
                 {'name': 'publish-push', 'mountPath': '/tmp/credential'})
@@ -205,6 +214,40 @@ class ApplicationConfigurationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 application_configuration(qualified_tools(), application, current,
                     templates=templates[:1], publishing=publishing)
+
+    def test_release_target_is_independent_but_confined_to_the_designated_repository_and_app(self):
+        application, current = self.inputs('example', 'public')
+        application.update(releaseRepository='example/private-config', primaryComponent='agent',
+                           components={'agent': {'dockerfile': 'deploy/agent.Dockerfile'}})
+        template = {'job': 'publish', 'job_workflow_ref': 'example/example/.github/workflows/ci.yaml@refs/heads/main'}
+        designated = [('public-platform', 'example/platform', False), ('private-config', 'example/private-config', True)]
+        api = Mock()
+        api.request.return_value = {'id': 456, 'full_name': 'example/private-config', 'private': True,
+                                    'fork': False, 'archived': False, 'default_branch': 'main'}
+        with patch('playbooks.argocd.files.github_setup.configuration', return_value=designated), \
+                patch('playbooks.ci.files.workflow_permissions.require_release_guard') as guard, \
+                patch('playbooks.secrets.files.vault.fields', return_value={}) as fields, \
+                patch('playbooks.harbor.files.scopes.verify_app') as verify:
+            document = command.publication(api, {}, application, current, qualified_tools(), [template])
+            self.assertEqual(document['visibility'], 'public')
+            self.assertEqual(document['project'], 'cloudlab-public')
+            self.assertEqual(document['release_visibility'], 'private')
+            self.assertEqual(document['release_repository'], 'example/private-config')
+            self.assertEqual(document['release_repository_id'], 456)
+            self.assertEqual(document['components'], application['components'])
+            self.assertEqual(document['primary_component'], 'agent')
+            fields.assert_called_once_with('github-release-private', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+            guard.assert_called_once_with(api, 'example/private-config')
+            self.assertEqual(verify.call_args.args[1], {'example/private-config': True})
+            fields.reset_mock(); api.reset_mock()
+            for target in ('example/unapproved', 'foreign/private-config'):
+                with self.subTest(target=target), self.assertRaises(ValueError):
+                    command.publication(api, {}, dict(application, releaseRepository=target), current, qualified_tools(), [template])
+            api.request.assert_not_called(); fields.assert_not_called()
+            private, private_current = self.inputs('example', 'private')
+            with self.assertRaises(ValueError):
+                command.publication(api, {}, dict(private, releaseRepository='example/platform'), private_current,
+                                    qualified_tools(), [template])
 
     def test_reviewed_template_uses_native_gate_and_rejects_foreign_or_mixed_policies(self):
         application, current = self.inputs()

@@ -18,6 +18,7 @@ SECRETS = Path('/run/cloudlab-publisher')
 SHA = r'[a-f0-9]{40}'
 DIGEST = r'sha256:[a-f0-9]{64}'
 REPOSITORY = r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+'
+COMPONENT = r'[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?'
 
 
 class NativeFailure(RuntimeError):
@@ -28,10 +29,28 @@ class PublicationFailure(ValueError):
     """Fixed boundary failures contain no service addresses or credential values."""
 
 
+def component_configuration(components, primary):
+    if (not isinstance(components, dict) or not 1 <= len(components) <= 8 or
+            not isinstance(primary, str) or primary not in components):
+        raise PublicationFailure('Components require a bounded map and an explicit primary component')
+    for name, build in components.items():
+        if (not isinstance(name, str) or not re.fullmatch(COMPONENT, name) or
+                not isinstance(build, dict) or set(build) not in ({'dockerfile'}, {'dockerfile', 'target'}) or
+                not isinstance(build['dockerfile'], str) or not re.fullmatch(
+                    r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', build['dockerfile']) or
+                len(build['dockerfile']) > 180 or any(part in ('.', '..') for part in build['dockerfile'].split('/')) or
+                'target' in build and (not isinstance(build['target'], str) or
+                    not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}', build['target']))):
+            raise PublicationFailure('Components require fixed relative Dockerfiles and optional named targets')
+
+
 def publication_configuration(document):
     fields = {'application', 'source_repository', 'source_repository_id', 'visibility', 'registry',
               'project', 'release_repository', 'release_repository_id', 'workflow_identity'}
-    if (set(document) != fields or document['visibility'] not in ('public', 'private') or
+    if (not fields <= set(document) or set(document) - fields - {'components', 'primary_component', 'release_visibility'} or
+            document.get('release_visibility', document['visibility']) not in ('public', 'private') or
+            document['visibility'] not in ('public', 'private') or
+            document['visibility'] == 'private' and document.get('release_visibility', 'private') != 'private' or
             not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', document['application']) or
             not re.fullmatch(REPOSITORY, document['source_repository']) or
             not re.fullmatch(REPOSITORY, document['release_repository']) or
@@ -45,6 +64,8 @@ def publication_configuration(document):
                 document['workflow_identity'] == 'https://github.com/' + document['source_repository'] +
                     '/.github/workflows/ci.yaml@refs/heads/main')):
         raise PublicationFailure('Publication requires matching application, project, workflow and GitOps boundaries')
+    if 'components' in document or 'primary_component' in document:
+        component_configuration(document.get('components'), document.get('primary_component'))
     return document
 
 
@@ -98,11 +119,20 @@ def registry_environment(directory, registry, project, role, environment):
     return dict(environment, DOCKER_CONFIG=str(path))
 
 
-def build_and_scan(source, directory, environment):
+def build_and_scan(source, directory, environment, component=None):
     archive = directory / 'image.tar'
+    options = ['--opt', 'target=runtime']
+    if component is not None:
+        dockerfile = source / component['dockerfile']
+        if (any(path.is_symlink() for path in (dockerfile, *dockerfile.parents)) or
+                not dockerfile.is_file() or not dockerfile.resolve().is_relative_to(source.resolve())):
+            raise PublicationFailure('Component Dockerfile must be a regular file inside the checked-out source')
+        options = ['--opt', 'filename=' + component['dockerfile']]
+        if 'target' in component:
+            options += ['--opt', 'target=' + component['target']]
     execute(['buildctl', '--addr', 'tcp://127.0.0.1:1234', 'build', '--frontend', 'dockerfile.v0',
              '--local', 'context=' + str(source), '--local', 'dockerfile=' + str(source),
-             '--opt', 'target=runtime', '--opt', 'platform=linux/amd64',
+             *options, '--opt', 'platform=linux/amd64',
              '--output', 'type=docker,name=application,dest=' + str(archive)], environment, timeout=1200)
     if not archive.is_file() or archive.stat().st_size > 4 * 1024 ** 3:
         raise PublicationFailure('Publication requires an application archive within the 4 GiB build budget')
@@ -174,7 +204,7 @@ def release_token(document, environment):
     try:
         target = release.api('GET', 'repos/' + document['release_repository'], token=token)
         if (target['id'] != document['release_repository_id'] or target['fork'] or target['archived'] or
-                target['private'] is not (document['visibility'] == 'private') or
+                target['private'] is not (document.get('release_visibility', document['visibility']) == 'private') or
                 target['full_name'] != document['release_repository'] or target['default_branch'] != 'main'):
             raise PublicationFailure('Release token is not bound to the approved GitOps repository')
         yield token
@@ -189,27 +219,46 @@ def publish(document, source, environment):
     with tempfile.TemporaryDirectory(prefix='cloudlab-publish-') as temporary:
         directory = Path(temporary)
         pull = registry_environment(directory, document['registry'], document['project'], 'pull', native_environment)
-        archive, digest = build_and_scan(source, directory, pull)
-        print('Application scan passed', flush=True)
-        # App Dockerfiles receive only pull authentication through BuildKit's session.
-        push = registry_environment(directory, document['registry'], document['project'], 'push', native_environment)
         repository = document['registry'] + '/' + document['project'] + '/' + document['application']
-        tag = repository + ':release-' + '-'.join(environment[key] for key in
+        base_tag = repository + ':release-' + '-'.join(environment[key] for key in
             ('GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'))
-        absent = (rb'(?:GET|HEAD) https://' + re.escape((document['registry'] + '/v2/' +
-            document['project'] + '/' + document['application'] + '/manifests/' + tag.rsplit(':', 1)[-1]).encode()) +
-            rb':\s*NOT_FOUND\b')
-        existing = execute(['crane', 'digest', tag], push, missing=absent)
-        if existing is not None and existing.decode().strip() != digest:
-            raise PublicationFailure('Existing release tag differs; original artifact preserved')
-        if existing is None:
-            execute(['crane', 'push', str(archive), tag], push)
-        reference = repository + '@' + digest
-        if execute(['crane', 'digest', reference], pull).decode().strip() != digest:
-            raise PublicationFailure('Published digest is not obtainable through the project pull robot')
-        print('Application digest published', flush=True)
-        sign(reference, document, directory, push, environment['GITHUB_SHA'], environment)
-        print('Application signature verified', flush=True)
+        if 'components' in document:
+            (directory / 'components').mkdir(mode=0o700)
+        digests, push = {}, None
+        for name, component in sorted(document.get('components', {'': None}).items()):
+            output = directory / 'components' / name if name else directory
+            if name:
+                output.mkdir(mode=0o700)
+            archive, digest = (build_and_scan(source, output, pull, component) if component is not None else
+                               build_and_scan(source, output, pull))
+            print('Application scan passed', flush=True)
+            # App Dockerfiles receive only pull authentication through BuildKit's session.
+            if push is None:
+                push = registry_environment(directory, document['registry'], document['project'], 'push', native_environment)
+            tag = base_tag + ('-' + name if name else '')
+            absent = (rb'(?:GET|HEAD) https://' + re.escape((document['registry'] + '/v2/' +
+                document['project'] + '/' + document['application'] + '/manifests/' + tag.rsplit(':', 1)[-1]).encode()) +
+                rb':\s*NOT_FOUND\b')
+            existing = execute(['crane', 'digest', tag], push, missing=absent)
+            if existing is not None and existing.decode().strip() != digest:
+                raise PublicationFailure('Existing release tag differs; original artifact preserved')
+            if existing is None:
+                execute(['crane', 'push', str(archive), tag], push)
+            reference = repository + '@' + digest
+            if execute(['crane', 'digest', reference], pull).decode().strip() != digest:
+                raise PublicationFailure('Published digest is not obtainable through the project pull robot')
+            print('Application digest published', flush=True)
+            sign(reference, document, output, push, environment['GITHUB_SHA'], environment)
+            print('Application signature verified', flush=True)
+            digests[name] = digest
+            if component is not None:
+                archive.unlink()
+                execute(['buildctl', '--addr', 'tcp://127.0.0.1:1234', 'prune', '--all'], pull)
+        digest = digests[document.get('primary_component', '')]
+        desired = {'digest': digest, 'source_revision': environment['GITHUB_SHA'],
+                   'workflow_run_id': environment['GITHUB_RUN_ID']}
+        if 'components' in document:
+            desired.update(components=digests, primary_component=document['primary_component'])
         with release_token(document, native_environment) as token:
             original = dict(os.environ)
             os.environ.clear()
@@ -218,8 +267,7 @@ def publish(document, source, environment):
             try:
                 result = release.propose(document['release_repository'],
                     'apps/releases/' + document['application'] + '.json',
-                    {'digest': digest, 'source_revision': environment['GITHUB_SHA'],
-                     'workflow_run_id': environment['GITHUB_RUN_ID']})
+                    desired)
             finally:
                 os.environ.clear()
                 os.environ.update(original)

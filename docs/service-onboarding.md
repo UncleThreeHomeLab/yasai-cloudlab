@@ -430,8 +430,20 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
 
 | Source repo | Release App credential | Release file destination |
 | --- | --- | --- |
-| Public | `github-release-public` | Public platform repo: `apps/releases/example-app.json` |
+| Public, default destination | `github-release-public` | Public platform repo: `apps/releases/example-app.json` |
+| Public, explicit private destination | `github-release-private` | Private GitOps repo: `apps/releases/example-app.json` |
 | Private | `github-release-private` | Private GitOps repo: `apps/releases/example-app.json` |
+
+Set optional `releaseRepository: "OWNER/PRIVATE_CONFIG_REPO"` in private
+`platform/ci/pools/example-app/application.json` to select the designated private
+GitOps destination. Registry project and signing still follow source visibility.
+Private source releases cannot target public GitOps.
+
+For multiple images, add `components`, mapping each component name to its relative
+`dockerfile` and optional build `target`, plus an explicit `primaryComponent`.
+All components use the application's approved registry repository. The publisher
+scans, publishes and verifies every signature before proposing one release file.
+That file adds `components` and `primary_component`; its `digest` remains the primary image.
 
 **Done when:** registry credentials, signing inputs and protected release destination
 are available through their existing owners.
@@ -508,13 +520,16 @@ deploy runners, create registry credentials or publish an application image.
    Do not switch jobs to GitHub-hosted runners to resolve a queued job.
 2. **Agent:** confirm the real test suite passes against the current source.
    Only protected `main` then runs configured image builds. Skip publishing when not requested.
-   When enabled, publishing builds root `Dockerfile`'s `runtime`
-   target, scans the image, pushes it to the matching Harbor project and signs
-   the digest. It then proposes `apps/releases/example-app.json` in the destination
+   When enabled, publishing builds root `Dockerfile`'s `runtime` target, or the
+   reviewed component Dockerfiles and targets. It scans each image, pushes it to
+   the matching Harbor project and verifies its signature. It then proposes
+   `apps/releases/example-app.json` in the destination
    from section 5.2.
 3. **User:** if publishing, review and merge the release PR through branch protection.
    **Agent:** verify the release file records the expected `digest`,
-   `source_revision` and `workflow_run_id`. The release App never merges its own PR.
+   `source_revision` and `workflow_run_id`. For component releases, check every
+   component digest and that `primary_component` matches `digest`.
+   The release App never merges its own PR.
 4. **User:** where protection is supported, open **Settings > Branches** and edit
    the application `main` rule. Enable **Require status checks to pass before merging**.
    In **Search for status checks**, search the actual successful check name, for example `test`.
