@@ -191,6 +191,17 @@ ExecStart=/usr/local/bin/k3s server
                 self.assertEqual(show.call_count,2)
                 self.assertEqual(show.call_args_list[0],show.call_args_list[1])
                 self.assertEqual(session.observe(), baseline)
+                config_path = '/etc/rancher/k3s/config.yaml'
+                original_config = files[config_path]
+                files[config_path] = original_config + b'kubelet-arg: [allowed-unsafe-sysctls=net.ipv6.conf.all.disable_ipv6]\n'
+                del session.initial
+                session.observe()
+                session.initial = baseline
+                for argument in ('allowed-unsafe-sysctls=net.*', 'allowed-unsafe-sysctls=kernel.shmmax',
+                                 'anonymous-auth=true'):
+                    files[config_path] = original_config + ('kubelet-arg: [' + argument + ']\n').encode()
+                    with self.subTest(argument=argument), self.assertRaises(ValueError): session.observe()
+                files[config_path] = original_config
                 rows=observation().splitlines(); scalar_rows=rows[:len(properties)]; env_rows=rows[len(properties):]
                 invalid=[rows+['Unknown=value'], rows+['malformed'], rows+[''], rows[:2]+['']+rows[2:]]
                 for row in scalar_rows:

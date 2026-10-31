@@ -272,6 +272,13 @@ def main():
 
     # No interpolation: passwords containing ${...} must remain literal.
     values = dotenv_values('/workspace/.env', interpolate=False)
+    try:
+        workload_sysctls = json.loads(values.get('K3S_ALLOWED_UNSAFE_SYSCTLS') or '[]')
+    except (ValueError, TypeError):
+        raise SystemExit('K3S_ALLOWED_UNSAFE_SYSCTLS must be a JSON list of supported workload sysctl names.') from None
+    if workload_sysctls not in ([], ['net.ipv6.conf.all.disable_ipv6']):
+        raise SystemExit('K3S_ALLOWED_UNSAFE_SYSCTLS permits only [] or ["net.ipv6.conf.all.disable_ipv6"].')
+    os.environ['K3S_ALLOWED_UNSAFE_SYSCTLS'] = json.dumps(workload_sysctls)
     for name in ('TAILSCALE_HOSTS_ENABLED', 'TAILSCALE_ADMIN_LOGIN', 'K3S_BACKUP_ENABLED'):
         os.environ[name] = values.get(name) or ''
     for name in ('TAILSCALE_HOSTS_ENABLED', 'K3S_BACKUP_ENABLED'):

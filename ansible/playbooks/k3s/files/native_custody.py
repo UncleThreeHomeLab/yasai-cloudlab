@@ -402,8 +402,10 @@ class Session:
         environment_policy(environment)
         configuration = yaml.safe_load(self.read('/etc/rancher/k3s/config.yaml'))
         allowed = {'node-name', 'node-ip', 'flannel-iface', 'write-kubeconfig-mode', 'advertise-address', 'tls-san',
-                   'cluster-cidr', 'service-cidr', 'flannel-backend', 'disable'}
+                   'cluster-cidr', 'service-cidr', 'flannel-backend', 'disable', 'kubelet-arg'}
         if not isinstance(configuration, dict) or set(configuration) - allowed: refused()
+        if ('kubelet-arg' in configuration and configuration['kubelet-arg'] !=
+                ['allowed-unsafe-sysctls=net.ipv6.conf.all.disable_ipv6']): refused()
         supplements = Path('/etc/rancher/k3s/config.yaml.d')
         if supplements.exists() and (supplements.is_symlink() or any(supplements.iterdir())): refused()
         kubeconfig = yaml.safe_load(self.read('/etc/rancher/k3s/k3s.yaml'))

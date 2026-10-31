@@ -1,4 +1,21 @@
 ---
+- name: Read the managed node configuration
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/config.yaml
+  register: verified_node_config
+  no_log: true
+
+- name: Check the exact reviewed workload sysctl allowlist
+  ansible.builtin.assert:
+    that:
+      - k3s_allowed_unsafe_sysctls | default([]) in [[], ['net.ipv6.conf.all.disable_ipv6']]
+      - >-
+        ((verified_node_config.content | b64decode | from_yaml).get('kubelet-arg', []) |
+        select('match', '^allowed-unsafe-sysctls(?:=|$)') | list) ==
+        (['allowed-unsafe-sysctls=net.ipv6.conf.all.disable_ipv6']
+         if k3s_allowed_unsafe_sysctls | default([]) | length > 0 else [])
+    fail_msg: The installed kubelet workload sysctl allowlist differs from its reviewed declaration.
+
 - name: Check k3s is active
   ansible.builtin.command:
     argv: [systemctl, is-active, "{{ k3s_service_name }}"]

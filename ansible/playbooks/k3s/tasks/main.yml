@@ -4,12 +4,18 @@
     argument_spec: "{{ (lookup('file', '/workspace/ansible/playbooks/k3s/argument_specs.yml') | from_yaml).argument_specs.main.options }}"
     provided_arguments:
       k3s_mode: "{{ k3s_mode }}"
+      k3s_allowed_unsafe_sysctls: "{{ k3s_allowed_unsafe_sysctls | default([]) }}"
       k3s_service_name: "{{ k3s_service_name }}"
       k3s_version: "{{ k3s_version }}"
       k3s_binaries: "{{ k3s_binaries }}"
       lab_node_name: "{{ lab_node_name }}"
       wireguard_address: "{{ wireguard_address }}"
       wireguard_interface: "{{ wireguard_interface }}"
+
+- name: Require the bounded reviewed workload sysctl allowlist
+  ansible.builtin.assert:
+    that: k3s_allowed_unsafe_sysctls | default([]) in [[], ['net.ipv6.conf.all.disable_ipv6']]
+    fail_msg: Only the explicitly approved workload IPv6 sysctl is supported; wildcards and duplicates are refused.
 
 - name: Check the existing K3s installation
   ansible.builtin.import_tasks: preflight.yml
