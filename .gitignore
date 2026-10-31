@@ -34,7 +34,8 @@ __pycache__/
 /infra-inventory/
 
 # Documentation stays local until explicitly requested.
-/docs/
+/docs/*
 *.md
 !/README.md
 !AGENTS.md
+!/docs/service-onboarding.md
