@@ -105,7 +105,7 @@ class CandidateTests(unittest.TestCase):
         environment = dict(PATH='/usr/bin', HOME='/tmp', RUNNER_ENVIRONMENT='self-hosted', GITHUB_REPOSITORY='example/app',
             GITHUB_REPOSITORY_ID='123', GITHUB_REF='refs/heads/main', GITHUB_EVENT_NAME='push', GITHUB_SHA='b' * 40,
             GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1')
-        def scan(source, directory, native, component):
+        def scan(source, directory, native, component, *, cache=None):
             archive = directory / 'image.tar'; archive.write_bytes(b'archive')
             return archive, desired['digest']
         def execute(arguments, environment, **kwargs):
@@ -131,7 +131,7 @@ class CandidateTests(unittest.TestCase):
             GITHUB_REPOSITORY_ID='123', GITHUB_REF='refs/heads/main', GITHUB_EVENT_NAME='push', GITHUB_SHA='b' * 40,
             GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1')
         artifacts, pushes = {}, []
-        def scan(source, directory, native, component):
+        def scan(source, directory, native, component, *, cache=None):
             archive = directory / 'image.tar'; archive.write_bytes(b'scanned-runtime')
             return archive, image_digest
         def execute(arguments, native, **options):
