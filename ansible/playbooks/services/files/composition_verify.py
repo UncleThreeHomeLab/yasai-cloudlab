@@ -132,7 +132,8 @@ def admission(entry, get, condition, kube):
     def dry(document):
         return kube('create', '--dry-run=server', '-f', '-', document=document, allow_failure=True)
     for field, change in (
-            ('privileged', lambda p: p['spec']['containers'][0]['securityContext'].update(privileged=True)),
+            ('privileged', lambda p: p['spec']['containers'][0]['securityContext'].update(
+                privileged=True, allowPrivilegeEscalation=True)),
             ('command', lambda p: p['spec']['containers'][0].update(command=['unapproved-command'])),
             ('host', lambda p: p['spec'].update(hostPID=True)),
             ('token', lambda p: p['spec'].update(automountServiceAccountToken=True))):

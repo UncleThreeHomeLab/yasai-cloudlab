@@ -137,6 +137,10 @@ class CompositionVerificationTests(unittest.TestCase):
             if document.get('kind') == 'Namespace':
                 return subprocess.CompletedProcess(args, 1, '', 'cloudlab-composition-namespace')
             spec = document['spec']
+            security = spec['containers'][0]['securityContext']
+            if security.get('privileged') and security.get('allowPrivilegeEscalation') is False:
+                return subprocess.CompletedProcess(args, 1, '',
+                    'Invalid: privileged containers cannot set allowPrivilegeEscalation=false')
             denied = ('ephemeralContainers' in spec or spec.get('hostPID') or spec.get('automountServiceAccountToken') or
                 spec['containers'][0]['securityContext'].get('privileged') or
                 spec['containers'][0].get('command') == ['unapproved-command'])
