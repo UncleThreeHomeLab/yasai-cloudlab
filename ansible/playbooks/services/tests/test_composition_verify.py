@@ -89,6 +89,13 @@ class CompositionVerificationTests(unittest.TestCase):
     def test_missing_stale_or_differently_owned_security_authority_fails(self):
         for kind, name, change in (
                 ('ValidatingPolicy', 'cloudlab-composition-namespace', lambda obj: obj.clear()),
+                ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj.clear()),
+                ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['metadata'].update(generation=2)),
+                ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['status'].clear()),
+                ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['spec'].update(validationActions=['Audit'])),
+                ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['spec'].update(failurePolicy='Ignore')),
+                ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['metadata']['annotations'].update(
+                    {'argocd.argoproj.io/tracking-id': 'synthetic-synthetic:forged'})),
                 ('ValidatingPolicy', 'cloudlab-composition-synthetic', lambda obj: obj['status'].clear()),
                 ('ValidatingPolicy', 'cloudlab-composition-synthetic', lambda obj: obj['metadata']['annotations'].update(
                     {'argocd.argoproj.io/tracking-id': 'synthetic-synthetic:forged'})),
@@ -150,3 +157,33 @@ class CompositionVerificationTests(unittest.TestCase):
         self.assertTrue(result['ephemeral_denied'])
         with self.assertRaises(RuntimeError):
             verification.admission(entry, get, condition, lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, '', 'unrelated API failure'))
+
+    def test_shared_floor_attribution_is_exact_and_only_accepts_token_mutation(self):
+        for selected, policy, accepted in (
+                ('token', 'cloudlab-workload-contract', True),
+                ('token', 'cloudlab-workload-ephemeral', False),
+                ('token', 'cloudlab-workload-contract-forged', False),
+                ('privileged', 'cloudlab-workload-contract', False),
+                ('command', 'cloudlab-workload-contract', False),
+                ('host', 'cloudlab-workload-contract', False),
+                ('metadata', 'cloudlab-workload-contract', False),
+                ('ephemeral', 'cloudlab-workload-contract', False)):
+            entry, _, get = composition_runtime(graph=True)
+            def kube(*args, document, allow_failure):
+                self.assertTrue(allow_failure)
+                self.assertTrue('--dry-run=server' in args or any('dryRun=All' in arg for arg in args))
+                if document.get('kind') == 'Namespace':
+                    return subprocess.CompletedProcess(args, 1, '', 'cloudlab-composition-namespace')
+                spec = document['spec']
+                mutation = ('token' if spec.get('automountServiceAccountToken') else
+                    'privileged' if spec['containers'][0]['securityContext'].get('privileged') else
+                    'command' if spec['containers'][0].get('command') == ['unapproved-command'] else
+                    'host' if spec.get('hostPID') else 'ephemeral' if 'ephemeralContainers' in spec else
+                    'metadata' if document['metadata'].get('labels', {}).get('component') == 'unapproved-identity' else '')
+                denial = policy if mutation == selected else 'cloudlab-composition-synthetic'
+                return subprocess.CompletedProcess(args, int(bool(mutation)), '', denial if mutation else '')
+            with self.subTest(selected=selected, policy=policy):
+                if accepted:
+                    self.assertTrue(verification.admission(entry, get, condition, kube)['profile_mutations_denied'])
+                else:
+                    with self.assertRaises(RuntimeError): verification.admission(entry, get, condition, kube)

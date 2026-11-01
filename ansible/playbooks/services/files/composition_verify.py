@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import re
 import urllib.parse
 
 from playbooks.istio.files.kube import condition_status_ready
@@ -35,6 +36,7 @@ def authority(entry, get):
             not actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:')):
         raise RuntimeError('Composition namespace lacks its reviewed security owner')
     for name, owner in (('cloudlab-composition-namespace', 'cloudlab-workload-policy:'),
+                        ('cloudlab-workload-contract', 'cloudlab-workload-policy:'),
                         ('cloudlab-composition-' + approval['name'], 'cloudlab-services:')):
         policy = get('validatingpolicy.policies.kyverno.io', name)
         if (not condition_status_ready(policy) or policy['spec'].get('validationActions') != ['Deny'] or
@@ -140,7 +142,9 @@ def admission(entry, get, condition, kube):
         bad = copy.deepcopy(positive)
         change(bad)
         result = dry(bad)
-        if not result.returncode or 'cloudlab-composition-' + entry['approval']['name'] not in result.stderr:
+        shared_token_floor = field == 'token' and re.search(
+            r'(?<![\w.-])cloudlab-workload-contract(?![\w.-])', result.stderr)
+        if not result.returncode or ('cloudlab-composition-' + entry['approval']['name'] not in result.stderr and not shared_token_floor):
             raise RuntimeError('Composition mutation did not reach its fail-closed profile policy')
     if 'connections' in entry['approval']['composition']:
         impersonation = copy.deepcopy(target)
