@@ -107,13 +107,21 @@ spec:
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
-metadata: {name: platform-workloads, namespace: {{ $namespace }}}
+metadata:
+  name: platform-workloads
+  namespace: {{ $namespace }}
+{{- if and $composition (hasKey $composition "connections") }}
+  annotations: {argocd.argoproj.io/sync-wave: '-1'}
+{{- end }}
 spec:
   {{- if not $composition }}
   selector:
     matchLabels: {cloudlab.io/owner: {{ $v.owner | quote }}}
   {{- end }}
   action: ALLOW
+  {{- if and $composition (hasKey $composition "connections") }}
+  rules: []
+  {{- else }}
   rules:
     - from:
         - source:
@@ -135,6 +143,7 @@ spec:
               - {{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" . | quote }}
               {{- end }}
               {{- end }}
+  {{- end }}
 {{- if $v.rollouts.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

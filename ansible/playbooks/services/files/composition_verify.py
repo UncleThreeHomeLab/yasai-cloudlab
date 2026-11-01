@@ -5,7 +5,7 @@ import json
 import urllib.parse
 
 from playbooks.istio.files.kube import condition_status_ready
-from playbooks.services.files.compositions import DEFAULT_TOLERATIONS, backend, normalized_spec
+from playbooks.services.files.compositions import DEFAULT_TOLERATIONS, backend, normalized_spec, workload_labels
 
 
 def profile_hash(value):
@@ -57,6 +57,7 @@ def authority(entry, get):
             variables['state'] != "yaml.parse(resource.Get('v1', 'configmaps', 'cloudlab-policy', 'composition-" +
                 approval['name'] + "').data['release.json'])" or
             any(a['name'] != b['name'] or a['replicas'] != b['replicas'] or
+                a.get('selector') != b.get('selector') or
                 normalized_spec(a['podSpec']) != normalized_spec(b['podSpec']) for a, b in zip(profiles, expected))):
         raise RuntimeError('Composition policy differs from the exact reviewed workload profiles')
     state = get('configmap', 'composition-' + approval['name'], 'cloudlab-policy') or {}
@@ -93,6 +94,8 @@ def owned_pods(entry, images, get, condition):
             component = next(name for name, image in value['images'].items() if image == row['image'])
             row['image'] = images[component]
         for pod in actual:
+            if 'connections' in value:
+                workload_labels(workload, pod['metadata'])
             spec = copy.deepcopy(pod['spec'])
             node = spec.pop('nodeName', '')
             if (node not in nodes or pod['metadata'].get('deletionTimestamp') or pod.get('status', {}).get('phase') != 'Running' or
@@ -115,15 +118,19 @@ def admission(entry, get, condition, kube):
     if not guard.returncode or 'cloudlab-composition-namespace' not in guard.stderr:
         raise RuntimeError('Composition namespace guard did not deny unreviewed security settings')
     target = pods[0]
+    unchanged = copy.deepcopy(target)
+    unchanged['metadata'].setdefault('annotations', {})['cloudlab.io/admission-proof'] = 'dry-run'
+    result = kube('replace', '--dry-run=server', '-f', '-', document=unchanged, allow_failure=True)
+    if result.returncode:
+        raise RuntimeError('Exact approved composition profile did not pass server update admission')
     positive = copy.deepcopy(target)
     positive['metadata'] = {'name': 'composition-admission-proof', 'namespace': entry['approval']['namespace'],
-                            'ownerReferences': copy.deepcopy(target['metadata']['ownerReferences'])}
+                            'ownerReferences': copy.deepcopy(target['metadata']['ownerReferences']),
+                            'labels': copy.deepcopy(target['metadata'].get('labels', {}))}
     positive.pop('status', None)
     positive['spec'].pop('nodeName', None)
     def dry(document):
         return kube('create', '--dry-run=server', '-f', '-', document=document, allow_failure=True)
-    if dry(positive).returncode:
-        raise RuntimeError('Exact approved composition profile did not pass server admission')
     for field, change in (
             ('privileged', lambda p: p['spec']['containers'][0]['securityContext'].update(privileged=True)),
             ('command', lambda p: p['spec']['containers'][0].update(command=['unapproved-command'])),
@@ -134,6 +141,15 @@ def admission(entry, get, condition, kube):
         result = dry(bad)
         if not result.returncode or 'cloudlab-composition-' + entry['approval']['name'] not in result.stderr:
             raise RuntimeError('Composition mutation did not reach its fail-closed profile policy')
+    if 'connections' in entry['approval']['composition']:
+        impersonation = copy.deepcopy(target)
+        workload = next(row for row in entry['approval']['composition']['workloads']
+                        if row['podSpec']['serviceAccountName'] == target['spec']['serviceAccountName'])
+        label = next(iter(workload['selector']))
+        impersonation['metadata']['labels'][label] = 'unapproved-identity'
+        result = kube('replace', '--dry-run=server', '-f', '-', document=impersonation, allow_failure=True)
+        if not result.returncode or 'cloudlab-composition-' + entry['approval']['name'] not in result.stderr:
+            raise RuntimeError('Composition metadata impersonation did not reach its profile policy')
     ephemeral = copy.deepcopy(target)
     ephemeral['spec']['ephemeralContainers'] = [{'name': 'unapproved-debug', 'image': positive['spec']['containers'][0]['image'],
                                                 'command': ['true']}]

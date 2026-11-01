@@ -29,7 +29,7 @@ def _validate(approval):
     if value is None:
         return None
     required = {'chart', 'imageValues', 'images', 'workloads', 'claims', 'budget', 'backends', 'secrets'}
-    if not isinstance(value, dict) or set(value) != required:
+    if not isinstance(value, dict) or not required <= set(value) <= required | {'connections'}:
         raise ValueError('Composition requires its complete reviewed source and workload contract')
     chart = value['chart']
     if (not isinstance(chart, dict) or set(chart) != {'repository', 'revision', 'path'} or
@@ -105,7 +105,7 @@ def _validate(approval):
     request = {'cpu': 0, 'memory': 0}
     limit = {'cpu': 0, 'memory': 0}
     for workload in value['workloads']:
-        if (set(workload) != {'name', 'replicas', 'podSpec'} or not re.fullmatch(NAME, workload['name']) or
+        if (set(workload) != {'name', 'replicas', 'podSpec'} | ({'selector'} if 'connections' in value else set()) or not re.fullmatch(NAME, workload['name']) or
                 type(workload['replicas']) is not int or not 1 <= workload['replicas'] <= 3):
             raise ValueError('Composition workloads require exact names and bounded replicas')
         spec = workload['podSpec']
@@ -174,7 +174,66 @@ def _validate(approval):
         for unit, suffix in (('cpu', 'm'), ('memory', 'Mi')):
             if totals[unit] > int(budget[kind + '.' + unit][:-len(suffix)]):
                 raise ValueError('Composition container totals exceed its namespace budget')
+    if 'connections' in value:
+        connections(value)
     return copy.deepcopy(value)
+
+
+def connections(value):
+    """Bind approved ambient peers to distinct workload identities and TCP listeners."""
+    workloads = {row['name']: row for row in value['workloads']}
+    accounts, selectors = set(), []
+    for row in workloads.values():
+        selector, account = row['selector'], row['podSpec'].get('serviceAccountName', '')
+        listeners = [port for container in row['podSpec']['containers'] for port in container.get('ports', [])]
+        if (len(listeners) > 16 or any(type(port.get('containerPort')) is not int or
+                not 1 <= port['containerPort'] <= 65535 or port.get('protocol', 'TCP') != 'TCP' for port in listeners)):
+            raise ValueError('Composition connections require bounded TCP workload listeners')
+        if (not isinstance(selector, dict) or not 1 <= len(selector) <= 8 or
+                any(not re.fullmatch(r'[a-zA-Z0-9./_-]{1,100}', key) or
+                    not re.fullmatch(r'[a-zA-Z0-9._-]{1,63}', label) for key, label in selector.items()) or
+                not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', account) or account == 'default' or account in accounts):
+            raise ValueError('Composition connections require exact selectors and distinct non-default service accounts')
+        if any(not any(key in other and other[key] != label for key, label in selector.items()) for other in selectors):
+            raise ValueError('Composition workload selectors must be mutually exclusive')
+        accounts.add(account)
+        selectors.append(selector)
+    for backend in value['backends'].values():
+        selected = [row for row in workloads.values() if row['selector'] == backend['selector']]
+        if len(selected) != 1 or backend['port'] not in tcp_ports(selected[0]):
+            raise ValueError('Composition backend must select one approved workload listener')
+    graph = value['connections']
+    if not isinstance(graph, list) or len(graph) > 144:
+        raise ValueError('Composition connections exceed their bounded graph')
+    pairs = set()
+    for edge in graph:
+        if (not isinstance(edge, dict) or set(edge) != {'source', 'destination', 'ports'} or
+                edge['source'] not in workloads or edge['destination'] not in workloads or
+                not isinstance(edge['ports'], list) or not 1 <= len(edge['ports']) <= 16 or
+                any(type(port) is not int or not 1 <= port <= 65535 for port in edge['ports']) or
+                len(set(edge['ports'])) != len(edge['ports']) or
+                not set(edge['ports']) <= tcp_ports(workloads[edge['destination']])):
+            raise ValueError('Composition connections require declared peers and exact TCP destination ports')
+        pair = edge['source'], edge['destination']
+        if pair in pairs:
+            raise ValueError('Composition connections must have distinct peer pairs')
+        pairs.add(pair)
+
+
+def tcp_ports(workload):
+    return {port['containerPort'] for container in workload['podSpec']['containers']
+            for port in container.get('ports', []) if port.get('protocol', 'TCP') == 'TCP'}
+
+
+def workload_labels(workload, metadata):
+    labels, annotations = metadata.get('labels', {}), metadata.get('annotations', {})
+    if (any(labels.get(key) != label for key, label in workload['selector'].items()) or
+            labels.get('istio.io/dataplane-mode', 'ambient') != 'ambient' or
+            any(key in labels for key in ('istio.io/use-waypoint', 'istio.io/use-waypoint-namespace', 'sidecar.istio.io/inject')) or
+            any(key.startswith(('sidecar.istio.io/', 'traffic.sidecar.istio.io/')) or
+                key == 'ambient.istio.io/bypass-inbound-capture' for key in annotations) or
+            annotations.get('ambient.istio.io/redirection', 'enabled') != 'enabled'):
+        raise RuntimeError('Composition labels or mesh capture differ from their approved workload identity')
 
 
 def validate(approval):
@@ -324,6 +383,10 @@ def backend(definition, approval, get, condition):
                 any(deployment.get('status', {}).get(field, 0) != 0 for field in ('unavailableReplicas', 'terminatingReplicas'))):
             raise RuntimeError('Composition workload is not ready at its approved replica count')
         spec = deployment['spec']['template']['spec']
+        if 'connections' in value:
+            if deployment['spec'].get('selector') != {'matchLabels': workload['selector']}:
+                raise RuntimeError('Composition Deployment selector differs from its approved workload identity')
+            workload_labels(workload, deployment['spec']['template'].get('metadata', {}))
         expected_spec = copy.deepcopy(workload['podSpec'])
         for kind in ('containers', 'initContainers'):
             expected = workload['podSpec'].get(kind, [])

@@ -16,6 +16,37 @@ from playbooks.services.tests.fixtures import definition, approval as ordinary_a
 
 
 class CompositionTests(unittest.TestCase):
+    def test_connections_restore_exact_peer_and_original_port_identity(self):
+        approval = composition_approval(graph=True)
+        objects = self.render(approval)
+        policies = {row['metadata']['name']: row['spec'] for row in objects if row['kind'] == 'AuthorizationPolicy'}
+        self.assertEqual(policies['platform-workloads'], {'action': 'ALLOW', 'rules': []})
+        self.assertEqual(policies['platform-peer-web'], {'selector': {'matchLabels': {'component': 'web'}},
+            'action': 'ALLOW', 'rules': [{'from': [{'source': {'principals': [
+                'cluster.local/ns/cloudlab-app-synthetic/sa/synthetic-worker']}}],
+                'to': [{'operation': {'ports': ['8080']}}]}]})
+        self.assertEqual(policies['platform-peer-worker']['rules'], [])
+        self.assertEqual(next(spec for name, spec in policies.items() if name.startswith('platform-gateway-'))['rules'][0][
+            'to'], [{'operation': {'ports': ['8080']}}])
+        approval['composition']['connections'] = []
+        self.assertTrue(all(not row['spec']['rules'] for row in self.render(approval)
+            if row['kind'] == 'AuthorizationPolicy' and not row['metadata']['name'].startswith('platform-gateway-')))
+
+    def test_connections_reject_undeclared_ports_peers_and_identity_overlap(self):
+        for mutate in (
+                lambda c: c['connections'][0].update(source='unknown'),
+                lambda c: c['connections'][0].update(ports=[8082]),
+                lambda c: c['connections'][0].update(ports=[True]),
+                lambda c: c['connections'].append(copy.deepcopy(c['connections'][0])),
+                lambda c: c['workloads'][0]['podSpec'].update(serviceAccountName='default'),
+                lambda c: c['workloads'][1]['podSpec'].update(serviceAccountName='synthetic-web'),
+                lambda c: c['workloads'][1].update(selector={'different': 'label'}),
+                lambda c: c['backends']['web.internal.example.invalid'].update(selector={'component': 'unknown'}),
+                lambda c: c['workloads'][0].pop('selector')):
+            approval = composition_approval(graph=True)
+            mutate(approval['composition'])
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError): validate(approval)
+
     def render(self, approval=None):
         return resources(composition_definition(), approval or composition_approval(),
                          'https://github.com/example/platform.git', 'd' * 40)
@@ -260,8 +291,8 @@ class CompositionTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError): backend(value, approval, get, None)
                 application, state, deployments = saved
 
-    def evaluate(self, changes=None, state_change=None, default_tolerations=None):
-        approval = composition_approval()
+    def evaluate(self, changes=None, state_change=None, default_tolerations=None, graph=False, update=False):
+        approval = composition_approval(graph)
         policy = next(row for row in self.render(approval) if row['kind'] == 'ValidatingPolicy')
         self.assertEqual(policy['spec']['failurePolicy'], 'Fail')
         expression = next(row['expression'] for row in policy['spec']['variables'] if row['name'] == 'profiles')
@@ -269,7 +300,8 @@ class CompositionTests(unittest.TestCase):
         good = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'accepted', 'namespace': approval['namespace'],
                 'ownerReferences': [{'apiVersion': 'apps/v1', 'kind': 'ReplicaSet', 'name': 'web-123', 'uid': 'synthetic', 'controller': True}]},
                 'spec': profiles[0]['podSpec']}
-        good['spec'].update(serviceAccount='default', priority=0, preemptionPolicy='PreemptLowerPriority',
+        if graph: good['metadata']['labels'] = {'component': 'web'}
+        good['spec'].update(serviceAccount=good['spec'].get('serviceAccountName', 'default'), priority=0, preemptionPolicy='PreemptLowerPriority',
                             tolerations=copy.deepcopy(default_tolerations if default_tolerations is not None else DEFAULT_TOLERATIONS[:2]))
         pods = [good]
         if changes:
@@ -293,6 +325,8 @@ class CompositionTests(unittest.TestCase):
                     'policies': ['policy.yaml'], 'resources': ['pods.yaml'], 'variables': 'values.yaml', 'context': 'context.yaml',
                     'results': [{'isValidatingPolicy': True, 'kind': 'Pod', 'policy': policy['metadata']['name'],
                         'resources': [pod['metadata']['name']], 'result': 'error' if unavailable else 'pass' if pod is good and not state_change else 'fail'} for pod in pods]}}
+            if update:
+                files['values.yaml']['globalValues'] = {'request.operation': 'UPDATE', 'oldObject': copy.deepcopy(good)}
             for name, value in files.items():
                 (directory / name).write_text(yaml.safe_dump_all(value) if isinstance(value, list) else yaml.safe_dump(value))
             result = subprocess.run(['kyverno', 'test', str(directory)], capture_output=True, text=True, timeout=90)
@@ -313,6 +347,16 @@ class CompositionTests(unittest.TestCase):
         for name, mutation in mutations.items():
             with self.subTest(name=name): self.evaluate(mutation)
         self.evaluate(state_change=lambda state: state['data'].update({'release.json': json.dumps({'approval': 'stale', 'images': {}})}))
+
+    def test_native_graph_policy_binds_labels_identity_and_ambient_capture(self):
+        for mutation in (
+                lambda pod: pod['metadata']['labels'].update(component='worker'),
+                lambda pod: pod['metadata']['labels'].update({'istio.io/dataplane-mode': 'none'}),
+                lambda pod: pod['metadata'].update(annotations={'ambient.istio.io/redirection': 'disabled'}),
+                lambda pod: pod['metadata'].update(annotations={'traffic.sidecar.istio.io/excludeInboundPorts': '*'}),
+                lambda pod: pod['spec'].update(serviceAccountName='synthetic-worker')):
+            with self.subTest(mutation=mutation): self.evaluate(mutation, graph=True)
+        self.evaluate(lambda pod: pod['metadata']['labels'].update(component='worker'), graph=True, update=True)
 
     def test_absent_protected_release_state_cannot_grant_a_pod_profile(self):
         self.evaluate(state_change=lambda state: state['metadata'].update(name='absent-profile'))
