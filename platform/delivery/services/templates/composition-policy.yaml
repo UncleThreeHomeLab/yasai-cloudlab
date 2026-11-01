@@ -41,6 +41,24 @@ spec:
         (dict "key" "node.kubernetes.io/unreachable" "operator" "Exists" "effect" "NoExecute" "tolerationSeconds" 300)
         (dict "key" "node.kubernetes.io/memory-pressure" "operator" "Exists" "effect" "NoSchedule") | toJson | toJson) | quote }}
   validations:
+    {{- if hasKey $c "connections" }}
+    - expression: >-
+        (!has(object.metadata.labels) ||
+          (!('istio.io/dataplane-mode' in object.metadata.labels) || object.metadata.labels['istio.io/dataplane-mode'] == 'ambient') &&
+          !('istio.io/use-waypoint' in object.metadata.labels) && !('istio.io/use-waypoint-namespace' in object.metadata.labels) &&
+          !('sidecar.istio.io/inject' in object.metadata.labels)) &&
+        (!has(object.metadata.annotations) ||
+          object.metadata.annotations.all(k, !k.startsWith('sidecar.istio.io/') && !k.startsWith('traffic.sidecar.istio.io/')) &&
+          (!('ambient.istio.io/redirection' in object.metadata.annotations) || object.metadata.annotations['ambient.istio.io/redirection'] == 'enabled') &&
+          !('ambient.istio.io/bypass-inbound-capture' in object.metadata.annotations))
+      message: Composition pods must retain ambient capture without alternate mesh routing.
+    - expression: >-
+        variables.profiles.exists(p,
+          has(object.metadata.labels) && p.selector.all(k, k in object.metadata.labels && object.metadata.labels[k] == p.selector[k]) &&
+          object.spec.serviceAccountName == p.podSpec.serviceAccountName &&
+          object.metadata.ownerReferences.exists(o, o.kind == 'ReplicaSet' && has(o.controller) && o.controller && o.name.startsWith(p.name + '-')))
+      message: Composition pod labels and service account must retain their approved workload identity.
+    {{- end }}
     - expression: {{ printf "variables.state.approval == '%s'" (toJson $c | sha256sum) | quote }}
       message: Composition release state must match its current administrator approval.
     - expression: >-
@@ -88,6 +106,9 @@ spec:
     - expression: >-
         (request.operation == 'UPDATE' && object.spec == oldObject.spec) ||
         variables.profiles.exists(p,
+          {{- if hasKey $c "connections" }}
+          has(object.metadata.labels) && p.selector.all(k, k in object.metadata.labels && object.metadata.labels[k] == p.selector[k]) &&
+          {{- end }}
           object.metadata.ownerReferences.exists(o, o.kind == 'ReplicaSet' && has(o.controller) && o.controller &&
             o.name.startsWith(p.name + '-')) &&
           p.podSpec.all(k, k in object.spec &&

@@ -17,6 +17,15 @@ def composition(entry):
     accounts = list(dict.fromkeys(row['podSpec'].get('serviceAccountName', 'default') for row in value['workloads']))
     expected = {'platform-workloads': {'action': 'ALLOW', 'rules': [{'from': [{'source': {
         'principals': ['cluster.local/ns/' + namespace + '/sa/' + name for name in accounts]}}]}]}}
+    if 'connections' in value:
+        expected['platform-workloads']['rules'] = []
+        workloads = {row['name']: row for row in value['workloads']}
+        for name, row in workloads.items():
+            expected['platform-peer-' + name] = {'selector': {'matchLabels': row['selector']}, 'action': 'ALLOW',
+                'rules': [{'from': [{'source': {'principals': ['cluster.local/ns/' + namespace + '/sa/' +
+                    workloads[edge['source']]['podSpec']['serviceAccountName']]}}],
+                    'to': [{'operation': {'ports': [str(port) for port in edge['ports']]}}]}
+                    for edge in value['connections'] if edge['destination'] == name]}
     networks = {'platform-deny': {'podSelector': {}, 'policyTypes': ['Ingress', 'Egress'], 'ingress': [], 'egress': []}}
     exposures = [definition['exposure']] + definition.get('additionalExposures', [])
     for host, selected in value['backends'].items():
@@ -96,12 +105,83 @@ print('allowed' if allowed else 'denied')
     for source_namespace, pod, required in ((namespace, target, 'allowed'), (other_namespace, foreign, 'denied'),
                                              (namespace, target, 'allowed')):
         container, executable = python_container(pod)
+        probe = code
+        if 'connections' in value and source_namespace == namespace:
+            local = 'http://127.0.0.1:' + str(selected['port']) + definition['health']['readiness']['path']
+            probe = code.replace(repr(url), repr(local))
         if kube('exec', '-n', source_namespace, pod['metadata']['name'], '-c', container, '--', executable,
-                '-I', '-S', '-c', code).strip() != required:
+                '-I', '-S', '-c', probe).strip() != required:
             raise RuntimeError('Composition real-caller health or network denial was not proved')
+    peer_proof = composition_peers(value, pods, namespace, python_container) if 'connections' in value else {}
     return {'owned_pods': len(pods), 'ambient_capture': True, 'scoped_identity_and_network': True,
             'existing_caller_denied': True, 'cross_node_caller': foreign['spec'].get('nodeName') != target['spec'].get('nodeName'),
-            'probe_pods_created': 0}
+            'probe_pods_created': 0, **peer_proof}
+
+
+def composition_peers(value, pods, namespace, python_container):
+    """Prove real peer transport without application writes or temporary workloads."""
+    from playbooks.services.files.compositions import tcp_ports
+    workloads = {row['name']: row for row in value['workloads']}
+    targets = {name: next(pod for pod in pods if all(pod['metadata']['labels'].get(key) == label
+        for key, label in row['selector'].items())) for name, row in workloads.items()}
+    graph = {(edge['source'], edge['destination']): edge['ports'] for edge in value['connections']}
+    allowed = denied_ports = denied_peers = 0
+    def connect(source, destination, port, required):
+        container, executable = python_container(targets[source])
+        address = '127.0.0.1' if source == destination else str(ipaddress.ip_address(targets[destination]['status']['podIP']))
+        names = [item.get('name', '') for row in workloads[destination]['podSpec']['containers']
+                 for item in row.get('ports', []) if item['containerPort'] == port]
+        if names and all(name.startswith('http') for name in names):
+            handshake = "connection.sendall(b'GET /health HTTP/1.0\\r\\nHost: localhost:PORT\\r\\n\\r\\n'); allowed=connection.recv(64).startswith(b'HTTP/')".replace('PORT', str(port))
+        elif names and all(name == 'ssh' for name in names):
+            handshake = "allowed=connection.recv(64).startswith(b'SSH-')"
+        elif names and all(name == 'postgresql' for name in names):
+            handshake = "connection.sendall(b'\\x00\\x00\\x00\\x08\\x04\\xd2\\x16\\x2f'); allowed=connection.recv(1) in (b'S',b'N')"
+        else:
+            raise RuntimeError('Composition peer proof requires named http, ssh or postgresql TCP listeners')
+        code = """import socket
+try:
+ with socket.create_connection(ADDRESS,timeout=3) as connection:
+  HANDSHAKE
+ print('allowed' if allowed else 'denied')
+except OSError: print('denied')
+""".replace('ADDRESS', repr((address, port))).replace('HANDSHAKE', handshake)
+        if kube('exec', '-n', namespace, targets[source]['metadata']['name'], '-c', container, '--',
+                executable, '-I', '-S', '-c', code).strip() != required:
+            raise RuntimeError('Composition approved peer or original-port boundary was not proved')
+    for (source, destination), ports in graph.items():
+        if not python_container(targets[source]): continue
+        for port in ports:
+            connect(source, destination, port, 'allowed')
+            allowed += 1
+        for port in sorted(tcp_ports(workloads[destination]) - set(ports)):
+            # Destination listener must be live; a closed port is not an isolation proof.
+            if not python_container(targets[destination]):
+                raise RuntimeError('Composition port denial requires an existing Python destination listener check')
+            connect(destination, destination, port, 'allowed')
+            connect(source, destination, port, 'denied')
+            connect(source, destination, ports[0], 'allowed')
+            denied_ports += 1
+    for source in workloads:
+        if not python_container(targets[source]): continue
+        for destination in workloads:
+            if source == destination or (source, destination) in graph: continue
+            listener = next(((caller, port) for (caller, target), ports in graph.items() if target == destination
+                and python_container(targets[caller]) for port in ports), None)
+            if listener is None: continue
+            caller, port = listener
+            connect(caller, destination, port, 'allowed')
+            connect(source, destination, port, 'denied')
+            connect(caller, destination, port, 'allowed')
+            denied_peers += 1
+            break
+    forbidden = any(source != destination and (source, destination) not in graph
+                    for source in workloads for destination in workloads)
+    if graph and (not allowed or forbidden and not denied_peers):
+        raise RuntimeError('Composition graph proof requires existing callers for allowed and forbidden peers')
+    return {'peer_connections_allowed': allowed, 'peer_connections_denied': denied_peers,
+            'original_ports_denied': denied_ports,
+            'peer_callers_unavailable': [name for name in workloads if not python_container(targets[name])]}
 
 
 def policy(entry):

@@ -14,6 +14,35 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress: []
   egress: []
+{{- if hasKey . "connections" }}
+{{- $composition := . }}
+{{- $accounts := dict }}
+{{- range .workloads }}{{ $_ := set $accounts .name .podSpec.serviceAccountName }}{{ end }}
+{{- range $destination := .workloads }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ printf "platform-peer-%s" $destination.name }}
+  namespace: {{ $a.namespace }}
+  annotations: {argocd.argoproj.io/sync-wave: '-1'}
+spec:
+  selector: {matchLabels: {{ $destination.selector | toJson }}}
+  action: ALLOW
+  {{- $incoming := list }}
+  {{- range $composition.connections }}
+  {{- if eq .destination $destination.name }}{{ $incoming = append $incoming . }}{{ end }}
+  {{- end }}
+  rules: {{ if not $incoming }}[]{{ end }}
+  {{- range $incoming }}
+    - from:
+        - source:
+            principals: [{{ printf "cluster.local/ns/%s/sa/%s" $a.namespace (index $accounts .source) | quote }}]
+      to:
+        - operation: {ports: {{ .ports | toStrings | toJson }}}
+  {{- end }}
+{{- end }}
+{{- end }}
 {{- range $host, $backend := .backends }}
 {{- $name := $host | sha256sum | trunc 12 }}
 {{- $classes := list }}

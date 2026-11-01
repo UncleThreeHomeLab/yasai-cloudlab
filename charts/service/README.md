@@ -35,9 +35,21 @@ entry supplies its actual Service name, port and pod selector (one backend per h
 Optional listener readiness selects an approved path/status separately from workload
 health; it does not prove OAuth consent or application login. Composition canaries are unsupported; ordinary
 service and Notes defaults stay unchanged.
+Optional composition `connections` declares source/destination workload names and TCP
+ports. Each workload then requires an exact `selector` and unique non-default
+`podSpec.serviceAccountName`. Ports must belong to declared destination listeners;
+backend selectors must match one workload. The platform owns default-deny mesh
+policies and permits only these identities and original ports. Application network
+policies must allow ambient TCP 15008 only between approved peers. Keep ambient
+capture enabled; workload charts cannot own mesh authorization policies.
 Current composition transport checks require a primary exposure, Python in its
 backend and an existing healthy Python caller in another restricted service
 namespace. Confirm these before onboarding; checks do not create running probe pods.
+Connection checks also use existing Python callers and live listeners to prove
+allowed peers, denied peers and forbidden ports on otherwise allowed peers.
+Declare container listener names as `http*`, `ssh` or `postgresql` for harmless
+HTTP health, SSH banner or PostgreSQL SSL negotiation checks; other protocols
+require a supported verification method before onboarding.
 Rollouts require the Git-owned [controller and pinned plugin](../../platform/delivery/rollouts/),
 an exposed stateless service and `http-metrics:9091`. The exporter must label
 `cloudlab_http_requests_total`, `cloudlab_http_duration_seconds_bucket` and

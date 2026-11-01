@@ -19,7 +19,7 @@ def catalog_payload():
             'telemetry': False, 'values': {'catalog': [], 'dataApprovals': []}}
 
 
-def composition_approval():
+def composition_approval(graph=False):
     value = approval()
     images = {'web': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'a' * 64,
               'worker': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'b' * 64}
@@ -42,6 +42,13 @@ def composition_approval():
         'budget': {'requests.cpu': '500m', 'requests.memory': '512Mi', 'limits.cpu': '1000m',
                    'limits.memory': '1024Mi', 'pods': 4, 'persistentvolumeclaims': 0, 'requests.storage': '1Gi'},
         'backends': {'web.internal.example.invalid': {'service': 'web', 'port': 8080, 'selector': {'component': 'web'}}}, 'secrets': []}
+    if graph:
+        for row in workloads:
+            row['selector'] = {'component': row['name']}
+            row['podSpec']['serviceAccountName'] = 'synthetic-' + row['name']
+            row['podSpec']['containers'][0]['ports'] = [{'containerPort': port} for port in
+                ([8080, 8081] if row['name'] == 'web' else [2222])]
+        value['composition']['connections'] = [{'source': 'worker', 'destination': 'web', 'ports': [8080]}]
     return value
 
 
@@ -122,12 +129,12 @@ def composition_definition():
     return value
 
 
-def composition_runtime():
+def composition_runtime(graph=False):
     """A fully owned synthetic runtime, including native policy and real Pod authority."""
     import copy
     import json
     from playbooks.services.files.gitops import resources
-    definition, approval = composition_definition(), composition_approval()
+    definition, approval = composition_definition(), composition_approval(graph)
     entry = {'definition': definition, 'approval': approval, 'publication': 'ready'}
     namespace = approval['namespace']
     objects = resources(definition, approval, 'https://github.com/example/platform.git', 'd' * 40)
@@ -162,6 +169,9 @@ def composition_runtime():
             'spec': {'replicas': row['replicas'], 'template': {'spec': copy.deepcopy(row['podSpec'])}},
             'status': {'observedGeneration': 1, **{field: row['replicas'] for field in
                 ('replicas', 'updatedReplicas', 'readyReplicas', 'availableReplicas')}}}
+        if graph:
+            state[('Deployment', name, namespace)]['spec']['selector'] = {'matchLabels': row['selector']}
+            state[('Deployment', name, namespace)]['spec']['template']['metadata'] = {'labels': row['selector'].copy()}
         state[('ReplicaSet', name + '-rs', namespace)] = {'metadata': {'name': name + '-rs', 'uid': name + '-rs',
             'ownerReferences': [{'kind': 'Deployment', 'name': name, 'uid': name + '-deployment', 'controller': True}]}}
         spec = copy.deepcopy(row['podSpec'])
