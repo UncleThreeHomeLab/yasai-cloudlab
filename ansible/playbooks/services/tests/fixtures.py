@@ -150,6 +150,9 @@ def composition_runtime(graph=False):
     guard['metadata']['name'] = 'cloudlab-composition-namespace'
     guard['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'cloudlab-workload-policy:owned'
     state[('ValidatingPolicy', guard['metadata']['name'], None)] = guard
+    floor = copy.deepcopy(guard)
+    floor['metadata']['name'] = 'cloudlab-workload-contract'
+    state[('ValidatingPolicy', floor['metadata']['name'], None)] = floor
     for name, target in (('synthetic', application_name), ('synthetic-profile', 'synthetic-profile')):
         app = copy.deepcopy(state[('ApplicationSet', name, 'argocd')]['spec']['template'])
         app['metadata']['name'] = target
