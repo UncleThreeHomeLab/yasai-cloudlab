@@ -162,7 +162,60 @@ class CompositionTests(unittest.TestCase):
         profile = next(row for row in objects if row['kind'] == 'ApplicationSet' and row['metadata']['name'] == 'synthetic-profile')
         self.assertEqual(profile['spec']['generators'], application['spec']['generators'])
         secret = next(row for row in objects if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'application-credentials')
-        self.assertEqual(secret['spec']['data'], [{'secretKey': 'api_token', 'remoteRef': {'key': 'application-credentials', 'property': 'api_token'}}])
+        self.assertNotIn('data', secret['spec'])
+        self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'application-credentials'}}])
+        self.assertEqual(secret['spec']['target']['template']['engineVersion'], 'v2')
+        self.assertEqual(secret['spec']['target']['template']['mergePolicy'], 'Replace')
+        self.assertEqual(set(secret['spec']['target']['template']['data']), {'api_token'})
+
+    def test_composition_secret_templates_keep_only_approved_fields_and_refuse_missing_or_empty_values(self):
+        approval = composition_approval()
+        fields = {f'token_{index:02d}': f'token-{index:02d}' for index in range(14)}
+        fields.update({'api_token': 'api-token', 'worker_host_key.pub': 'worker-host-public',
+                       'worker_client_key.pub': 'worker-client-public'})
+        approval['secretReferences'] = ['application-credentials']
+        approval['composition']['secrets'] = [{'name': 'application-credentials', 'item': 'application-credentials', 'fields': fields}]
+        secret = next(row for row in self.render(approval) if row['kind'] == 'ExternalSecret' and
+                      row['metadata']['name'] == 'application-credentials')
+        spec = secret['spec']
+        self.assertEqual(spec['refreshInterval'], '24h')
+        self.assertEqual(spec['secretStoreRef'], {'name': 'cloudlab', 'kind': 'ClusterSecretStore'})
+        self.assertEqual(spec['target']['creationPolicy'], 'Owner')
+        self.assertEqual(spec['target']['deletionPolicy'], 'Retain')
+        self.assertNotIn('data', spec)
+        self.assertEqual(spec['dataFrom'], [{'extract': {'key': 'application-credentials'}}])
+        template = spec['target']['template']
+        self.assertEqual(template['engineVersion'], 'v2')
+        self.assertEqual(template['mergePolicy'], 'Replace')
+        self.assertEqual(set(template['data']), set(fields))
+        source = {field: f'synthetic-value-{index}' for index, field in enumerate(fields.values())}
+        source.update({'unapproved-field': 'must-not-copy', 'api-token': '0', 'worker-host-public': 'synthetic public value\nwith newline\n'})
+        with tempfile.TemporaryDirectory() as temporary:
+            chart = Path(temporary)
+            (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: secret-template-check\nversion: 0.0.0\n')
+            (chart / 'templates').mkdir()
+            # Evaluate the rendered ESO expressions using the existing Go template engine and pinned-compatible functions.
+            (chart / 'templates/secret.yaml').write_text('apiVersion: v1\nkind: Secret\nmetadata: {name: synthetic}\nstringData:\n'
+                '{{- range $key, $template := .Values.templates }}\n'
+                '  {{ $key | quote }}: {{ tpl $template (merge (dict "Template" $.Template) $.Values.input) | quote }}\n'
+                '{{- end }}\n')
+            def evaluate(data):
+                return subprocess.run(['helm', 'template', 'secret-template-check', str(chart), '-f', '-'],
+                    input=yaml.safe_dump({'templates': template['data'], 'input': data}),
+                    capture_output=True, text=True, timeout=30)
+            valid = evaluate(source)
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            rendered = yaml.safe_load(valid.stdout)
+            self.assertEqual(rendered['stringData'], {key: source[field] for key, field in fields.items()})
+            for missing in (True, False):
+                data = dict(source)
+                if missing: del data['worker-host-public']
+                else: data['worker-host-public'] = ''
+                invalid = evaluate(data)
+                self.assertNotEqual(invalid.returncode, 0)
+                self.assertIn('Required composition secret field is missing or empty', invalid.stderr)
+                self.assertNotIn('<nil>', invalid.stdout)
+                self.assertNotIn('<no value>', invalid.stdout)
 
     def test_backend_requires_each_component_and_its_protected_source(self):
         approval, value = composition_approval(), composition_definition()
