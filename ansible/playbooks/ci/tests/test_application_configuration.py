@@ -14,6 +14,23 @@ from playbooks.ci.tests.fixtures import qualified_tools, pool_values
 
 
 class ApplicationConfigurationTests(unittest.TestCase):
+    def test_private_testing_uses_only_private_pull_credentials(self):
+        application, current = self.inputs('example', 'private')
+        application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-private/test-env@sha256:' + 'a' * 64}
+        workflows = [{'repository_id': str(current['id']), 'repository': current['full_name'],
+                      'workflow_ref': current['full_name'] + '/.github/workflows/ci.yaml@refs/heads/main',
+                      'workflow_sha': 'a' * 40, 'sha': 'a' * 40, 'ref': 'refs/heads/main',
+                      'event_name': 'workflow_dispatch', 'job': 'test'}]
+        values = application_configuration(qualified_tools(direct=True), application, current, workflows)['runner.json']['values']
+        mounts = values['arc']['template']['spec']['volumes']
+        self.assertEqual(next(row for row in mounts if row['name'] == 'test-pull')['secret']['secretName'], 'harbor-test-pull')
+        rendered = render(values, chart=POOL, namespace='cloudlab-ci-private-example')
+        secret = next(row for row in rendered if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'harbor-test-pull')
+        self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'harbor-cloudlab-private-pull'}}])
+        application['testing']['image'] = application['testing']['image'].replace('cloudlab-private', 'cloudlab-public')
+        with self.assertRaises(ValueError):
+            application_configuration(qualified_tools(direct=True), application, current, workflows)
+
     def test_direct_testing_requires_fresh_proof_and_keeps_credentials_out_of_builder(self):
         application, current = self.inputs('example', 'public')
         application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-public/test-env@sha256:' + 'a' * 64}
@@ -166,7 +183,7 @@ class ApplicationConfigurationTests(unittest.TestCase):
         for scope, release_scope, mode in (('public', 'public', 'automatic'), ('private', 'private', 'automatic'),
                                            ('public', 'private', 'automatic'), ('public', 'private', 'manual')):
             application, current = self.inputs('example', scope)
-            application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-public/test-env@sha256:' + 'a' * 64}
+            application['testing'] = {'image': 'harbor.internal.example.invalid/cloudlab-' + scope + '/test-env@sha256:' + 'a' * 64}
             templates = [{'repository_id': str(current['id']), 'repository': current['full_name'],
                           'visibility': scope, 'workflow_path': '.github/workflows/ci.yaml',
                           'workflow_sha256': 'a' * 64, 'job': job,

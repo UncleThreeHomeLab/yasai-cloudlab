@@ -123,7 +123,7 @@ repository. Changed workflow bytes require renewed approval.
 Only `test` runs on PRs and non-main branches; branch tests require the current
 head and original actor's current repository write permission. `build` and `publish`
 require current protected main. Optional application `testing.image` pins a dependency-only
-environment digest in the qualified registry's `cloudlab-public` project. After native
+environment digest in the matching `cloudlab-public` or `cloudlab-private` project. After native
 direct execution qualification on both nodes, `cloudlab-test --source . -- <command>`
 runs current tracked source read-only at `/app`, offline, with fresh writable state.
 Tests never build an image or inherit runner credentials; update the environment
@@ -194,7 +194,8 @@ Shared [network policies](platform/delivery/ci/controller/templates/network-poli
 deny inbound traffic and private egress, except discovered API and Harbor hosts.
 DNS uses CoreDNS; public HTTPS supports CI dependencies. Public HTTPS remains
 an exfiltration path, so only trusted code may use lab runners.
-Application Dockerfiles expose `test` and `runtime` targets. Registration supports
+Application Dockerfiles provide dependency-only test environments and runtime targets.
+The shared test workflow runs `deploy/testing/run_tests.sh` directly. Registration supports
 separate test and publisher pools within that one build budget. Public callers use
 approved workflow bytes and protected main; private repositories can use explicit
 main-commit approval when branch protection is unavailable. Each private source

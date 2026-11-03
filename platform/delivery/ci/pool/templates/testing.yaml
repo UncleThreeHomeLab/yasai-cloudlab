@@ -13,7 +13,11 @@
 {{- $_ := set $mounts .name . }}
 {{- end }}
 {{- $config := dict "name" "testing" "configMap" (dict "name" "cloudlab-testing" "defaultMode" 292) }}
-{{- $pull := dict "name" "test-pull" "secret" (dict "secretName" "harbor-tools-pull" "defaultMode" 288 "items" (list (dict "key" ".dockerconfigjson" "path" "config.json"))) }}
+{{- $private := hasPrefix "cloudlab-ci-private-" $.Release.Namespace }}
+{{- $project := ternary "cloudlab-private" "cloudlab-public" $private }}
+{{- if not (regexMatch (printf "^[^/]+/%s/" $project) .image) }}{{ fail "Test environment must match the pool visibility" }}{{- end }}
+{{- $secret := ternary "harbor-test-pull" "harbor-tools-pull" $private }}
+{{- $pull := dict "name" "test-pull" "secret" (dict "secretName" $secret "defaultMode" 288 "items" (list (dict "key" ".dockerconfigjson" "path" "config.json"))) }}
 {{- if or (not (eq (toJson (get $volumes "testing")) (toJson $config)))
     (not (eq (toJson (get $volumes "test-pull")) (toJson $pull))) }}
 {{- fail "Test inputs must use the owned configuration and existing pull-only credential" }}
@@ -35,4 +39,24 @@ kind: ConfigMap
 metadata: {name: cloudlab-testing, namespace: {{ $.Release.Namespace }}}
 data:
   config.json: {{ toJson . | quote }}
+{{- if $private }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: harbor-test-pull, namespace: {{ $.Release.Namespace }}}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: harbor-test-pull
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: >-
+          {"auths":{"{{ (splitList "/" .image) | first }}":{"username":{{ "{{ .username | toJson }}" }},"password":{{ "{{ .password | toJson }}" }}}}
+  dataFrom: [{extract: {key: harbor-cloudlab-private-pull}}]
+{{- end }}
 {{- end }}

@@ -130,9 +130,9 @@ def environment_application(path):
             not isinstance(value.get('name'), str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', value['name']) or
             not isinstance(value.get('repository'), str) or
             not re.fullmatch(r'https://github[.]com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git',
-                             value.get('repository', '')) or value.get('visibility') != 'public' or
+                             value.get('repository', '')) or value.get('visibility') not in ('public', 'private') or
             ('testing' in value and not isinstance(value['testing'], dict))):
-        raise ValueError('Environment producer requires an approved public application identity')
+        raise ValueError('Environment producer requires an approved application identity')
     if value.get('releaseMode', 'automatic') not in ('automatic', 'manual') or (
             value.get('releaseMode') == 'manual' and 'releaseRepository' not in value):
         raise ValueError('Manual promotion requires an explicit private release target')
@@ -190,8 +190,13 @@ def environment_metadata(archive, application):
     return {'source_revision': revision, 'source_repository': application['repository']}
 
 
-def environment_source(checkout, application, metadata, github):
+def environment_source(checkout, application, metadata, github, approved_private_revision=None):
     """Bind trusted local archive labels to the current protected source main."""
+    private = application['visibility'] == 'private'
+    if private and approved_private_revision != metadata['source_revision']:
+        raise ValueError('Private environments require explicit approval of their exact main revision')
+    if not private and approved_private_revision is not None:
+        raise ValueError('Private revision approval cannot replace public branch protection')
     checkout = local_path(checkout)
     if not checkout.is_dir() or not (checkout / '.git').is_dir() or (checkout / '.git').is_symlink():
         raise ValueError('Environment source requires a normal Git checkout')
@@ -214,9 +219,9 @@ def environment_source(checkout, application, metadata, github):
     current = github.request('GET', 'repos/' + name)
     branch = github.request('GET', 'repos/' + name + '/branches/main')
     if (not isinstance(current, dict) or not isinstance(branch, dict) or
-            current.get('full_name') != name or current.get('visibility') != 'public' or current.get('private') is not False or
+            current.get('full_name') != name or current.get('visibility') != application['visibility'] or current.get('private') is not private or
             current.get('fork') or current.get('archived') or current.get('disabled') or
-            current.get('default_branch') != 'main' or branch.get('protected') is not True or
+            current.get('default_branch') != 'main' or (not private and branch.get('protected') is not True) or
             branch.get('commit', {}).get('sha') != metadata['source_revision']):
         raise ValueError('Environment source is not the current protected public main')
 
@@ -242,7 +247,7 @@ def environment_record(path, value, *, write=False):
 def publish_environment(client, archive, application, metadata, digest, output=None):
     if (not isinstance(digest, str) or not re.fullmatch(DIGEST, digest) or
             not isinstance(application.get('name'), str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application['name']) or
-            application.get('visibility') != 'public' or set(metadata) != {'source_revision', 'source_repository'} or
+            application.get('visibility') not in ('public', 'private') or set(metadata) != {'source_revision', 'source_repository'} or
             not isinstance(metadata['source_revision'], str) or not re.fullmatch(SHA, metadata['source_revision']) or
             metadata['source_repository'] != application.get('repository')):
         raise ValueError('Environment publication requires its scanned image digest')
@@ -252,9 +257,10 @@ def publish_environment(client, archive, application, metadata, digest, output=N
     directory = local_path(directory)
     output = environment_output(output or directory / 'reference.json')
     registry = Registry(client.private['host'], client.env, directory / 'diagnostics.txt')
+    project = 'cloudlab-' + application['visibility']
     options = {'repository': application['name'] + '-test-environment', 'tag': 'release-' + digest.replace(':', '-')}
-    tag = registry.reference(PROJECT, **options)
-    reference = registry.reference(PROJECT, digest, **options)
+    tag = registry.reference(project, **options)
+    reference = registry.reference(project, digest, **options)
     value = {'image': reference}
     environment_record(output, value)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -263,7 +269,7 @@ def publish_environment(client, archive, application, metadata, digest, output=N
     environment_record(receipt, record, write=True)
     if registry.command('digest', '--tarball', str(archive)).decode().strip() != digest:
         raise ValueError('Environment archive changed after scanning')
-    with registry.identity(client.private['robots'][PROJECT + '-push']):
+    with registry.identity(client.private['robots'][project + '-push']):
         existing = registry.digest(tag, missing=True)
         if existing is not None and existing != digest:
             raise ValueError('Existing immutable environment tag differs')
@@ -271,9 +277,9 @@ def publish_environment(client, archive, application, metadata, digest, output=N
             registry.command('push', str(archive), tag)
         if registry.digest(tag) != digest:
             raise RuntimeError('Published environment differs from its scanned digest')
-    with registry.identity(client.private['robots'][PROJECT + '-pull']):
+    with registry.identity(client.private['robots'][project + '-pull']):
         if registry.digest(reference) != digest:
-            raise RuntimeError('Public project pull robot cannot obtain the environment')
+            raise RuntimeError('Scoped project pull robot cannot obtain the environment')
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     environment_record(output, value, write=True)
     return {'published_environments': 1, 'scanned_severities': SCAN['severities'],
@@ -289,7 +295,11 @@ def main():
     parser.add_argument('--source-checkout', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--scan-only', action='store_true')
+    parser.add_argument('--approve-private-revision', metavar='SHA')
     arguments = parser.parse_args()
+    if arguments.approve_private_revision and (not arguments.test_environment_archive or
+            not re.fullmatch(SHA, arguments.approve_private_revision)):
+        parser.error('Private approval requires an environment archive and exact main SHA')
     if arguments.test_environment_archive:
         if not arguments.application_file or (not arguments.scan_only and not arguments.source_checkout):
             parser.error('Environment publication requires an application and its main source checkout')
@@ -311,7 +321,7 @@ def main():
                 return
             from playbooks.argocd.files.github_setup import inputs
             _, github = inputs()
-            environment_source(arguments.source_checkout, application, metadata, github)
+            environment_source(arguments.source_checkout, application, metadata, github, arguments.approve_private_revision)
             client = api.Client()
             with client.connected():
                 print(json.dumps(publish_environment(client, archive, application, metadata, digest,

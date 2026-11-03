@@ -160,9 +160,9 @@ def application_configuration(qualified, application, current, workflows=(), tem
         registry = references['runner'].split('/')[0]
         if (not isinstance(testing, dict) or set(testing) != {'image'} or
                 not isinstance(testing['image'], str) or not re.fullmatch(
-                    re.escape(registry) + r'/cloudlab-public/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}', testing['image']) or
+                    re.escape(registry) + '/cloudlab-' + application['visibility'] + r'/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}', testing['image']) or
                 any(part in ('', '.', '..') for part in testing['image'].split('@')[0].split('/'))):
-            raise ValueError('Testing requires an immutable dependency environment in the qualified public registry project')
+            raise ValueError('Testing requires an immutable dependency environment in the matching qualified registry project')
     full_name = repository(application['repository'])
     scope = application['visibility']
     if (current.get('full_name') != full_name or current.get('html_url') != 'https://github.com/' + full_name or
@@ -203,7 +203,7 @@ def application_configuration(qualified, application, current, workflows=(), tem
             values['testing'] = copy.deepcopy(testing)
             pod['volumes'].extend([
                 {'name': 'testing', 'configMap': {'name': 'cloudlab-testing', 'defaultMode': 292}},
-                {'name': 'test-pull', 'secret': {'secretName': 'harbor-tools-pull', 'defaultMode': 288,
+                {'name': 'test-pull', 'secret': {'secretName': 'harbor-test-pull' if scope == 'private' else 'harbor-tools-pull', 'defaultMode': 288,
                                                'items': [{'key': '.dockerconfigjson', 'path': 'config.json'}]}}])
             pod['containers'][0]['volumeMounts'].extend([
                 {'name': 'testing', 'mountPath': '/run/cloudlab-test/config', 'readOnly': True},

@@ -68,7 +68,7 @@ class Registry:
             raise ValueError('OCI proof requires an exact SHA-256 image digest')
         environment = isinstance(repository, str) and re.fullmatch(TEST_ENVIRONMENT_REPOSITORY, repository)
         if (repository not in BOOTSTRAP_REPOSITORIES and not environment or
-                (repository != 'bootstrap' and project != 'cloudlab-public') or
+                (repository != 'bootstrap' and not environment and project != 'cloudlab-public') or
                 not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', tag)):
             raise ValueError('OCI publication escaped its designated CI repositories')
         return self.host + '/' + project + '/' + repository + ('@' + digest if digest else ':' + tag)
