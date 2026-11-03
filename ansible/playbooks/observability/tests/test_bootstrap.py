@@ -4,10 +4,38 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from playbooks.observability.files.bootstrap import application, seed, run, COMPONENTS
+from playbooks.observability.files.bootstrap import application, seed, run, COMPONENTS, history_patches
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_history_recovery_retains_latest_and_refuses_foreign_sources(self):
+        current = application(self.payload(), 'prometheus')
+        self.assertEqual(current['spec']['revisionHistoryLimit'], 1)
+        current['metadata'].update(uid='owned', resourceVersion='7')
+        source = current['spec']['source']
+        current['status'] = {'history': [{'id': 1, 'source': copy.deepcopy(source)},
+                                         {'id': 2, 'source': copy.deepcopy(source)}]}
+        patches = history_patches(current)
+        self.assertEqual(patches[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'owned'},
+                                      {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '7'}])
+        self.assertEqual(patches[-1], {'op': 'replace', 'path': '/status/history', 'value': current['status']['history'][-1:]})
+        for change in ('owner', 'repository', 'path', 'application'):
+            other = copy.deepcopy(current)
+            if change == 'owner': other['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+            elif change == 'repository': other['status']['history'][0]['source']['repoURL'] = 'https://foreign.invalid/repo'
+            elif change == 'path': other['status']['history'][0]['source']['path'] = 'other'
+            else: other['metadata']['name'] = 'unrelated'
+            with self.assertRaises(RuntimeError): history_patches(other)
+        current['status']['history'] = current['status']['history'][-1:]
+        self.assertEqual(history_patches(current), [])
+
+    def test_oversized_inline_source_fails_before_mutation(self):
+        payload = self.payload()
+        payload['components']['prometheus'] = {'too_large': 'x' * (320 * 1024)}
+        with patch('playbooks.observability.files.bootstrap.kube') as mutate:
+            with self.assertRaisesRegex(ValueError, 'budget'): seed(payload, 'prometheus')
+            mutate.assert_not_called()
+
     def test_cold_configuration_can_resolve_secrets_before_backend_routes_become_healthy(self):
         payload = self.payload()
         current = application(payload, 'configuration')

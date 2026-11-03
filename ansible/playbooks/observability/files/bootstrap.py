@@ -27,13 +27,50 @@ def application(payload, name):
             'targetRevision': payload['revision'], 'path': 'platform/observability' + ('' if configuration else '/' + name),
             'helm': helm},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE},
+            'revisionHistoryLimit': 1,
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                 'syncOptions': ['FailOnSharedResource=true', 'ServerSideApply=true', 'DisableClientSideApplyMigration=true'],
                 'retry': {'limit': 5, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '1m'}}}}}
 
 
+def history_patches(current):
+    """Retain newest controller history; Git remains the recovery source."""
+    history = current.get('status', {}).get('history', [])
+    if len(history) <= 1:
+        return []
+    metadata, spec = current['metadata'], current['spec']
+    source = spec['source']
+    if (metadata.get('labels', {}).get('cloudlab.io/owner') != OWNER or
+            metadata.get('ownerReferences') or metadata.get('finalizers') or metadata.get('deletionTimestamp') or
+            metadata.get('namespace') != 'argocd' or metadata.get('name') != 'cloudlab-prometheus' or
+            spec.get('project') != 'cloudlab-observability' or
+            source.get('path') != 'platform/observability/prometheus' or
+            spec.get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE} or
+            any(row.get('source', {}).get('repoURL') != source.get('repoURL') or
+                row.get('source', {}).get('path') != source['path'] for row in history)):
+        raise RuntimeError('Telemetry history retention refuses foreign ownership or source')
+    return [{'op': 'test', 'path': '/metadata/uid', 'value': metadata['uid']},
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']},
+            {'op': 'test', 'path': '/status/history', 'value': history},
+            {'op': 'replace', 'path': '/status/history', 'value': history[-1:]}]
+
+
+def compact_history():
+    # Recovery can unblock the controller while the normal owner waits for sync.
+    with Path('/run/lock/cloudlab-observability-history.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        current = get('application.argoproj.io', 'cloudlab-prometheus', 'argocd')
+        patches = history_patches(current)
+        if patches:
+            kube('patch', 'application.argoproj.io', 'cloudlab-prometheus', '-n', 'argocd',
+                 '--type=json', '-p', json.dumps(patches))
+        return {'changed': bool(patches), 'history_entries_retained': 1}
+
+
 def seed(payload, name):
     desired = application(payload, name)
+    if len(json.dumps(desired['spec']['source']).encode()) > 320 * 1024:
+        raise ValueError('Telemetry inline source exceeds its bounded controller update budget')
     current = get('application.argoproj.io', desired['metadata']['name'], 'argocd')
     if current and (current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
                     current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers') or
@@ -85,6 +122,6 @@ def run(payload):
 
 
 if __name__ == '__main__':
-    try: print(json.dumps(run(json.load(sys.stdin)), sort_keys=True))
+    try: print(json.dumps(compact_history() if sys.argv[1:] == ['--compact-history'] else run(json.load(sys.stdin)), sort_keys=True))
     except Exception:
         raise SystemExit('Telemetry bootstrap incomplete; credentials, volumes and existing controllers retained') from None
