@@ -1,6 +1,7 @@
 {
   "network": {"enforce": true, "apiServiceCIDRs": [], "apiEndpointCIDRs": [], "registryCIDRs": []},
   "manageSystemNamespace": true,
+  "applicationCapacity": 2,
   "runnerPools": 1,
   "arc": {
     "fullnameOverride": "cloudlab-arc-controller",

@@ -96,6 +96,8 @@ spec:
             valueFiles: [values.json, '$values/platform/ci/config.json']
             parameters:
               {{- if eq $component "controller" }}
+              - name: applicationCapacity
+                value: {{ $.Values.ci.applicationCapacity | default 2 | quote }}
               - name: arc.image.repository
                 value: '{{ "{{ index (splitList \"@\" .images.controller) 0 }}" }}'
               - name: arc.image.tag

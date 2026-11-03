@@ -1,3 +1,4 @@
+{{- $pods := add (mul 3 (int .Values.applicationCapacity)) 2 }}
 {{- if .Values.manageSystemNamespace }}
 apiVersion: v1
 kind: Namespace
@@ -32,11 +33,11 @@ kind: ResourceQuota
 metadata: {name: controller-budget, namespace: cloudlab-ci-system}
 spec:
   hard:
-    pods: '8'
-    limits.cpu: 1600m
-    limits.memory: 2Gi
-    limits.ephemeral-storage: 1Gi
-    count/autoscalinglisteners.actions.github.com: '4'
+    pods: {{ $pods | quote }}
+    limits.cpu: {{ printf "%dm" (mul 200 $pods) }}
+    limits.memory: {{ printf "%dMi" (mul 256 $pods) }}
+    limits.ephemeral-storage: {{ printf "%dMi" (mul 128 $pods) }}
+    count/autoscalinglisteners.actions.github.com: {{ mul 2 (int .Values.applicationCapacity) | quote }}
 ---
 {{- end }}
 apiVersion: v1
