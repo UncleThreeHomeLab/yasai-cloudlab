@@ -738,6 +738,13 @@ Keep private settings in their accepted inputs and secret values in 1Password.
    **Agent:** run `docker compose run --build --rm lab identity-scoped` and verify
    client configuration. The owner generates `identity/configmap.yaml` and changes
    `identity/argo-values.yaml` only when its integration requires it.
+   A completed temporary login fixture is not an application dependency. If its
+   vault item was intentionally removed, retire only its credential delivery:
+   pipe `{"nonce":"EXACT_FIXTURE_NONCE","realm":"applications"}` into
+   `docker compose run -T --rm --entrypoint python lab -m playbooks.keycloak.files.session_fixture --retire-delivery`.
+   Use the fixture's recorded realm. The identity owner requires completed enrollment
+   and exact ownership, removes only its ExternalSecret, and retains its Secret,
+   user and checkpoint. Restore missing active credentials instead of replacing them.
 3. **User:** choose allowed application actions for each role.
    **Agent:** review `definition.oidc.roleMapping` and the application's existing
    authorization code; its filename depends on the app.

@@ -94,6 +94,43 @@ def retained_delivery_patches(external, nonce, application, *, name='keycloak-pr
             if any(metadata['annotations'].get(key) != value for key, value in wanted.items()) else [])
 
 
+def retire_delivery(request):
+    """Remove completed fixture synchronization while retaining its Secret and user."""
+    from playbooks.keycloak.files.maintenance import APP, BASE, NAMESPACE, OWNER
+    from playbooks.data.files.control import atomic
+    from playbooks.istio.files.kube import get, kube, wait
+    nonce = scope(request)
+    with (BASE / 'owner.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        owner = json.loads((BASE / 'ownership.json').read_text())
+        path = BASE / ('proof-' + nonce + '.json')
+        record = json.loads(path.read_text())
+        app = get('application.argoproj.io', APP, 'argocd') or {}
+        values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
+        if (owner.get('phase') != 'scoped' or record.get('nonce') != nonce or
+                record.get('phase') != 'enrolled' or not record.get('user_id') or
+                record.get('realm', 'platform') != request.get('realm', 'platform') or
+                record.get('application_uid') != owner.get('uid') or
+                app.get('metadata', {}).get('uid') != owner.get('uid') or
+                app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
+                app.get('operation') or values.get('operation') or values.get('maintenance') or
+                values.get('bootstrapAdminEnabled') is not False or values.get('bootstrapMode')):
+            raise RuntimeError('Delivery retirement requires its completed idle scoped fixture')
+        external = get('externalsecret.external-secrets.io', 'keycloak-proof', NAMESPACE)
+        if external:
+            retained_delivery_patches(external, nonce, APP)
+            metadata = external['metadata']
+            kube('delete', '--raw', '/apis/external-secrets.io/v1/namespaces/' + NAMESPACE +
+                 '/externalsecrets/keycloak-proof', '-f', '-', document={
+                     'apiVersion': 'v1', 'kind': 'DeleteOptions', 'propagationPolicy': 'Orphan',
+                     'preconditions': {'uid': metadata['uid'], 'resourceVersion': metadata['resourceVersion']}})
+            wait(lambda: not get('externalsecret.external-secrets.io', 'keycloak-proof', NAMESPACE),
+                 'completed proof delivery retirement', timeout=60)
+        record['delivery_retired'] = True
+        changed = atomic(path, record) or bool(external)
+        return {'changed': changed, 'delivery_retired': True, 'secret_retained': True, 'users_changed': 0}
+
+
 def enroll(request, *, stage=False, application_owner=False):
     from playbooks.keycloak.files.bootstrap import private_inputs, writer_idle, reconciled
     from playbooks.keycloak.files.configuration import compile_state, private_request
@@ -113,6 +150,8 @@ def enroll(request, *, stage=False, application_owner=False):
         values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
         checkpoint = BASE / ('proof-' + nonce + '.json')
         saved = json.loads(checkpoint.read_text()) if checkpoint.exists() else {}
+        if saved.get('delivery_retired'):
+            raise RuntimeError('Retired fixture delivery cannot be enrolled again; use a new fixture nonce')
         resume_null = ('operation' in values and values['operation'] is None and
             saved.get('nonce') == nonce and saved.get('application_uid') == owner.get('uid') and
             saved.get('phase') in ('prepared', 'created', 'enrolled'))
@@ -235,7 +274,7 @@ def enroll(request, *, stage=False, application_owner=False):
                 'writer': 'serialized Argo config-cli', 'messages_sent': 0}
 
 
-def local(request, *, stage=False):
+def local(request, *, stage=False, retire=False):
     from dotenv import dotenv_values
     from playbooks.access.files.preflight import ssh
     scope(request)
@@ -243,8 +282,14 @@ def local(request, *, stage=False):
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
         os.environ[key] = environment[key]
     os.environ['VM_PORT'] = environment.get('VM_PORT') or '22'
-    mode = 'stage' if stage else 'enroll'
-    return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 /opt/cloudlab/playbooks/keycloak/files/session_fixture.py ' + mode,
+    mode = 'retire-delivery' if retire else 'stage' if stage else 'enroll'
+    if retire:
+        import shlex
+        source = "__file__='/opt/cloudlab/playbooks/keycloak/files/session_fixture.py';" + Path(__file__).read_text()
+        command = 'python3 -c ' + shlex.quote(source) + ' ' + mode
+    else:
+        command = 'python3 /opt/cloudlab/playbooks/keycloak/files/session_fixture.py ' + mode
+    return json.loads(ssh('VM', os.environ['VM_HOST'], command,
         input=json.dumps(request), timeout=2400))
 
 
@@ -252,9 +297,10 @@ if __name__ == '__main__':
     try:
         request = json.load(sys.stdin)
         mode = sys.argv[1:]
-        if mode not in (['enroll'], ['stage'], ['provision'], ['local'], ['--stage']):
+        if mode not in (['enroll'], ['stage'], ['provision'], ['local'], ['--stage'], ['retire-delivery'], ['--retire-delivery']):
             raise ValueError('Unknown disposable enrollment operation')
-        result = (enroll(request) if mode == ['enroll'] else enroll(request, stage=True) if mode == ['stage'] else
+        result = (retire_delivery(request) if mode == ['retire-delivery'] else local(request, retire=True) if mode == ['--retire-delivery'] else
+                  enroll(request) if mode == ['enroll'] else enroll(request, stage=True) if mode == ['stage'] else
                   provision(request) if mode == ['provision'] else local(request, stage=True) if mode == ['--stage'] else local(request))
         print(json.dumps(result))
     except Exception:

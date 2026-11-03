@@ -7,12 +7,52 @@ from unittest.mock import patch
 
 from playbooks.keycloak.files.configuration import proof_user
 from playbooks.keycloak.files.chart import render
-from playbooks.keycloak.files.session_fixture import scope, enroll, membership, retained_delivery_patches
+from playbooks.keycloak.files.session_fixture import scope, enroll, membership, retained_delivery_patches, retire_delivery
 from playbooks.keycloak.files.bootstrap import enrollment_handoff, branch_handoff_patches
 from playbooks.keycloak.files import bootstrap
 
 
 class ProofUserTests(unittest.TestCase):
+    def test_delivery_retirement_is_scoped_orphaned_and_repeatable(self):
+        nonce = 'a' * 32
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'app'}))
+            path = root / ('proof-' + nonce + '.json')
+            path.write_text(json.dumps({'nonce': nonce, 'phase': 'enrolled', 'user_id': 'user', 'application_uid': 'app'}))
+            app = {'metadata': {'uid': 'app', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}},
+                   'spec': {'source': {'helm': {'valuesObject': {'bootstrapAdminEnabled': False}}}}}
+            external = {'metadata': {'uid': 'delivery', 'resourceVersion': '7', 'annotations': {
+                'argocd.argoproj.io/tracking-id': 'cloudlab-identity:external-secrets.io/ExternalSecret:cloudlab-identity/keycloak-proof'}},
+                'spec': {'dataFrom': [{'extract': {'key': 'keycloak-proof-' + nonce}}],
+                         'target': {'name': 'keycloak-proof', 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain'}}}
+            deleted = []
+            def lookup(kind, *args):
+                return app if kind == 'application.argoproj.io' else None if deleted else external
+            def remove(*args, document):
+                self.assertEqual(args, ('delete', '--raw', '/apis/external-secrets.io/v1/namespaces/cloudlab-identity/externalsecrets/keycloak-proof', '-f', '-'))
+                self.assertEqual(document['propagationPolicy'], 'Orphan')
+                self.assertEqual(document['preconditions'], {'uid': 'delivery', 'resourceVersion': '7'})
+                deleted.append(True)
+            with patch('playbooks.keycloak.files.maintenance.BASE', root), \
+                    patch('playbooks.istio.files.kube.get', side_effect=lookup), \
+                    patch('playbooks.istio.files.kube.kube', side_effect=remove):
+                for alteration in ('active', 'foreign', 'wrong_nonce'):
+                    original = copy.deepcopy(app)
+                    if alteration == 'active': app['operation'] = {'sync': {}}
+                    elif alteration == 'foreign': app['metadata']['uid'] = 'foreign'
+                    else: external['spec']['dataFrom'][0]['extract']['key'] = 'other'
+                    with self.assertRaises(RuntimeError): retire_delivery({'nonce': nonce})
+                    app.clear(); app.update(original)
+                    external['spec']['dataFrom'][0]['extract']['key'] = 'keycloak-proof-' + nonce
+                    self.assertEqual(deleted, [])
+                first = retire_delivery({'nonce': nonce})
+                self.assertTrue(first['changed'])
+                self.assertTrue(first['secret_retained'])
+                self.assertEqual(first['users_changed'], 0)
+                self.assertFalse(retire_delivery({'nonce': nonce})['changed'])
+                self.assertEqual(json.loads(path.read_text())['user_id'], 'user')
+
     def test_application_viewer_keeps_platform_memberships_and_cannot_select_master(self):
         request = {'nonce': self.nonce, 'realm': 'applications'}
         source = {'realms': {'platform': {'memberships': [{'username': 'retained-owner'}]}}}
