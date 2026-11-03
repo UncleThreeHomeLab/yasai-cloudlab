@@ -86,11 +86,32 @@ class EnvironmentPublisherTests(unittest.TestCase):
                         bootstrap.environment_metadata(archive, self.application)
             self.assertFalse((root.parent / 'outside.json').exists())
 
+    def test_private_publication_uses_only_private_registry_robots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            client = self.client(root)
+            client.private['robots'] = {
+                'cloudlab-private-push': {'username': 'private-push'},
+                'cloudlab-private-pull': {'username': 'private-pull'}}
+            application = dict(self.application, visibility='private')
+            metadata = {'source_repository': application['repository'], 'source_revision': 'b' * 40}
+            archive = self.archive(root / 'environment.tar')
+            registry = Registry(client.private['host'], {}, root / 'diagnostics')
+            with patch.object(bootstrap.api, 'WORK', root), patch.object(bootstrap, 'Registry', return_value=registry), \
+                    patch.object(registry, 'command', return_value=self.digest.encode()), \
+                    patch.object(registry, 'identity', return_value=nullcontext()) as identity, \
+                    patch.object(registry, 'digest', return_value=self.digest):
+                bootstrap.publish_environment(client, archive, application, metadata, self.digest)
+            self.assertEqual([call.args[0]['username'] for call in identity.call_args_list],
+                             ['private-push', 'private-pull'])
+            reference = json.loads((root / 'ci/environments/example-app' / ('b' * 40) / 'reference.json').read_text())
+            self.assertIn('/cloudlab-private/', reference['image'])
+
     def test_application_and_output_cannot_expand_publication_scope(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             application = root / 'application.json'
-            for change in ({'visibility': 'private'}, {'name': '../other'}, {'name': 3},
+            for change in ({'visibility': 'internal'}, {'name': '../other'}, {'name': 3},
                            {'repository': 'https://other.invalid/owner/repo.git'}, {'unknown': True}):
                 application.write_text(json.dumps(dict(self.application, **change)))
                 with self.subTest(change=change), self.assertRaises(ValueError):
@@ -164,6 +185,25 @@ class EnvironmentPublisherTests(unittest.TestCase):
                 self.assertEqual(bootstrap.environment_output(Path('.infra-private/reference.json')), target.resolve())
                 with self.assertRaisesRegex(ValueError, 'parent traversal'):
                     bootstrap.local_path(Path('.infra-private/../reference.json'))
+
+    def test_private_environment_requires_exact_main_approval(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'source'
+            revision, github, branch = self.checkout(source)
+            current = github.request('GET', 'repos/UncleThreeHomeLab/example-app')
+            current.update(visibility='private', private=True)
+            branch['protected'] = False
+            application = dict(self.application, visibility='private')
+            metadata = {'source_repository': application['repository'], 'source_revision': revision}
+            for approval in (None, 'd' * 40):
+                with self.assertRaisesRegex(ValueError, 'explicit approval'):
+                    bootstrap.environment_source(source, application, metadata, github, approval)
+            bootstrap.environment_source(source, application, metadata, github, revision)
+            branch['commit']['sha'] = 'e' * 40
+            with self.assertRaises(ValueError):
+                bootstrap.environment_source(source, application, metadata, github, revision)
+            with self.assertRaisesRegex(ValueError, 'cannot replace public'):
+                bootstrap.environment_source(source, self.application, metadata, github, revision)
 
     def test_current_clean_protected_main_is_required(self):
         with tempfile.TemporaryDirectory() as temporary:

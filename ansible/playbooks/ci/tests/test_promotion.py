@@ -191,6 +191,21 @@ class PromotionTests(unittest.TestCase):
                  'runner_name': 'local', 'labels': ['self-hosted', 'cloudlab-example' + ('-publish' if role == 'publish' else '')]}
                 for role in ('test', 'publish')]}}
 
+    def test_private_unprotected_main_requires_exact_approval(self):
+        self.document.update(visibility='private', project='cloudlab-private')
+        self.evidence['repos/example/app']['private'] = True
+        self.evidence['repos/example/app/branches/main']['protected'] = False
+        self.pool['values'].pop('workflowTemplates')
+        self.pool['values']['eligibility'] = [{
+            'sha': 'b' * 40, 'workflow_sha': 'b' * 40, 'repository_id': '123', 'repository': 'example/app',
+            'workflow_ref': 'example/app/.github/workflows/ci.yaml@refs/heads/main',
+            'ref': 'refs/heads/main', 'event_name': 'push', 'job': '__default'}]
+        with patch.object(promotion, 'request', side_effect=lambda token, path: self.evidence[path]):
+            promotion.provenance('gho_synthetic_human', self.pool, 'b' * 40, '123', '1')
+            self.pool['values']['eligibility'][0]['sha'] = 'c' * 40
+            with self.assertRaises(publisher.PublicationFailure):
+                promotion.provenance('gho_synthetic_human', self.pool, 'b' * 40, '123', '1')
+
     def promote(self, *, signature_failure=False, candidate_failure=False):
         events = []
         def read(token, path):

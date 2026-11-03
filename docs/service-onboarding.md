@@ -37,7 +37,14 @@ credentials or diagnostic dumps in this public repo.
 **Done when:** the repo has a `main` commit and its actual visibility matches
 the user's explicit choice.
 
-## 2. Protect main manually
+## 2. Set the source review boundary
+
+Private source repositories do not require branch protection or a plan upgrade.
+Review and merge through PRs, then explicitly approve each exact main revision
+before CI access. Private PR/dev jobs stay disabled in this mode. This does not
+waive the separate automatic release merge guard in section 5.2.
+
+The protection steps below apply to public source repositories only.
 
 1. **User:** open the repo's **Settings > Branches**. Add a branch protection rule
    for `main`, or inspect an existing rule before changing it.
@@ -54,9 +61,10 @@ the user's explicit choice.
    **Agent:** verify the named check appears in classic protection's `contexts`/`checks`
    or the active ruleset's required checks. An enabled rule with empty lists is incomplete.
 
-**Done when:** protection is active. Required CI checks must be added once CI works.
+**Done when:** public protection is active, or private changes use reviewed PRs
+and exact main-revision approval. Add public required CI checks once CI works.
 
-If protection is unavailable for a private repo, stop normal runner registration.
+Private sources use exact-revision approval without requiring branch protection.
 The existing fallback requires explicit approval of each exact `main` revision.
 Private PRs get no runner access in that mode. Never silently use this fallback.
 
@@ -273,8 +281,7 @@ Keep organization policy unchanged and preserve workflow-token defaults:
    `deploy/testing/run_tests.sh`. Run the checked-out source directly with
    `cloudlab-test`, offline at `/app`, with fresh writable test state.
    The checked-out tracked source is read-only; tests receive no runner credentials.
-2. **Agent:** prepare a dependency-only test environment separately from reviewed,
-   protected application `main`, using the procedure below.
+2. **Agent:** prepare a dependency-only test environment separately from reviewed application `main` (protected for public sources), using the procedure below.
    Do not bake application code or tests into the environment or build it inside PR/dev tests.
    Review its immutable `testing.image` pin with private runner configuration.
 3. **Agent:** add or update `.github/workflows/ci.yaml` in the application repo.
@@ -294,7 +301,7 @@ Keep organization policy unchanged and preserve workflow-token defaults:
 | Source repo | `.github/workflows/ci.yaml` form | Assigned runners |
 | --- | --- | --- |
 | Public, protected `main` | Repository-owned direct `test`, main-only `build` and optional `publish` | Tests/builds: `cloudlab-example-app`; publishing: `cloudlab-example-app-publish` |
-| Private | Requires an accepted direct-test workflow interface before enabling this policy | Do not substitute the legacy image-building shared test workflow |
+| Private, exact main approval | Pinned shared direct `test` and main-only `publish` | `cloudlab-example-app` and `cloudlab-example-app-publish`; no PR/dev jobs |
 
 For public repository-owned jobs, put the assigned name directly in `runs-on`.
 Keep test/build logic in the application repo. With an approved test environment
@@ -312,16 +319,25 @@ reviewed platform implementation under `platform/` and the application under
 `application/`, then run
 `python3 -I -S platform/ansible/playbooks/ci/files/publisher.py`.
 
-The legacy [application-test.yaml](../.github/workflows/application-test.yaml)
-builds an image to run tests. Do not approve it for PR/non-main testing under this policy.
-Private repository-owned direct workflows are not accepted by the current registration
-interface; resolve an accepted direct-test interface with its owner before enabling them.
+The pinned [application-test.yaml](../.github/workflows/application-test.yaml)
+runs direct tests through `cloudlab-test` using `deploy/testing/run_tests.sh`.
+For private sources, call this single-job workflow from `test` and approve each
+exact main SHA using `--approve-private-revision`. Do not enable private PR/dev
+jobs or substitute a prior image-building revision. Public repository-owned jobs
+retain their protected-main and approved-workflow requirements.
 Use [application-publish.yaml](../.github/workflows/application-publish.yaml)
 as the reference for main-only publishing layout and permissions.
 Public signing requires `id-token: write`. The shared publishing workflow also
 requests that permission. Test jobs use Contents and Pull requests read access.
 
 #### Prepare and approve the dependency environment — Agent, then User
+
+For public sources, require protected main. For private sources, review the exact
+main recipe and add `--approve-private-revision ENV_MAIN_SHA` to the environment
+publication command. The owner requires clean tracked source, matching labels and
+current GitHub main. Private environments publish to `cloudlab-private`; only the
+private pool receives its pull-only credential. Never place private images or
+source metadata in the public project. Scanning gates remain mandatory.
 
 Run these operations from a normal, clean, published platform clone using the same
 Compose project and retained CI volume as section 4. Its `.git` must be a directory,
@@ -337,7 +353,7 @@ and `deploy/testing/run_tests.sh`.
    gh api repos/OWNER/REPO/branches/main --jq '{protected: .protected, sha: .commit.sha}'
    ```
 
-   Require `protected: true`. Replace `ENV_MAIN_SHA` below with that exact SHA.
+   For public sources, require `protected: true`; private sources use exact revision approval. Replace `ENV_MAIN_SHA` below with that exact SHA.
    Create fresh ignored `.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/tracked-source/`.
    This environment revision is separate from the later workflow-approval SHA.
 2. **Agent:** create a normal Linux clone inside the existing protected client volume.
@@ -494,11 +510,12 @@ For public repository-owned CI without publishing:
 gh auth token | docker compose --profile ci run --build -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --volume ./.infra-private/onboarding:/generated --entrypoint python ci-bootstrap -m playbooks.ci.files.configuration --application-file /application/application.json --approve-repository-workflow --workflow-revision REVIEWED_MAIN_SHA --output /generated/example-app/ci-first
 ```
 
-This command supports public repository-owned direct tests and main-only builds.
-Private registration still rejects `--approve-repository-workflow`; its legacy shared
-test workflow builds an image and does not meet this policy. Do not enable private
-PR/dev testing until an accepted direct-test interface exists.
-Private exact-revision approval remains main-only and is not a workaround for branch tests.
+For private sources, use the pinned shared test/publish interface and replace
+`--approve-repository-workflow --pull-request PR_NUMBER` with
+`--approve-private-revision`. Set `--workflow-revision REVIEWED_MAIN_SHA` to the
+reviewed current main commit. Review and merge its application PR before this
+main-only approval; no private PR job receives runner access. Renew approval for
+every source revision. Repository-owned automatic approval remains public-only.
 
 Without publishing, output is `application_documents: 2`, containing `controller.json` and
 `runner.json`. The controller normally remains unchanged; no second-pool quota is needed.

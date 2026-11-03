@@ -118,7 +118,8 @@ class RegistryTests(unittest.TestCase):
             repository = 'example-app-test-environment'
             reference = client.reference('cloudlab-public', repository=repository, tag='release-test')
             self.assertTrue(reference.endswith('/' + repository + ':release-test'))
-            for project, name in (('cloudlab-private', repository), ('cloudlab-public', 'other'),
+            self.assertIn('/cloudlab-private/', client.reference('cloudlab-private', repository=repository))
+            for project, name in (('cloudlab-private', 'ci-runner'), ('cloudlab-public', 'other'),
                                   ('cloudlab-public', '../example-app-test-environment'),
                                   ('cloudlab-public', 'Example-test-environment')):
                 with self.subTest(project=project, repository=name), self.assertRaises(ValueError):

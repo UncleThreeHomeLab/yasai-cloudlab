@@ -8,7 +8,7 @@
   "properties": {
     "testing": {
       "type": "object", "additionalProperties": false, "required": ["image"],
-      "properties": {"image": {"type": "string", "pattern": "^[a-z0-9.-]+/cloudlab-public/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}$"}}
+      "properties": {"image": {"type": "string", "pattern": "^[a-z0-9.-]+/cloudlab-(public|private)/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}$"}}
     },
     "publishing": {
       "type": "object", "additionalProperties": false,

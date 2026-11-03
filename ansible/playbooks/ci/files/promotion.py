@@ -41,7 +41,8 @@ def provenance(token, pool, source, run, attempt):
             repository.get('private') is not (document['visibility'] == 'private') or repository.get('fork') or
             repository.get('archived') or repository.get('disabled') or repository.get('default_branch') != 'main'):
         raise publisher.PublicationFailure('Promotion source differs from its approved repository identity')
-    if request(token, prefix + '/branches/main').get('protected') is not True:
+    if request(token, prefix + '/branches/main').get('protected') is not True and (
+            document['visibility'] != 'private' or pool['values'].get('workflowTemplates')):
         raise publisher.PublicationFailure('Promotion requires protected source main')
     comparison = request(token, prefix + '/compare/' + source + '...main')
     if comparison.get('status') not in ('ahead', 'identical') or comparison.get('base_commit', {}).get('sha') != source:

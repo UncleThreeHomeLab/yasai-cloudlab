@@ -23,7 +23,7 @@ class ApplicationWorkflowTests(unittest.TestCase):
         checkout, build = job['steps']
         self.assertRegex(checkout['uses'], r'^actions/checkout@[a-f0-9]{40}$')
         self.assertFalse(checkout['with']['persist-credentials'])
-        self.assertIn('buildctl --addr tcp://127.0.0.1:1234 build', build['run'])
+        self.assertEqual(build['run'], 'cloudlab-test --source . -- sh deploy/testing/run_tests.sh')
         self.assertNotIn('secrets.', str(workflow))
 
     def test_publisher_is_local_main_only_with_pinned_platform_code_before_app_checkout(self):
