@@ -20,8 +20,7 @@ spec:
       mergePolicy: Replace
       data:
         client_secret: {{ printf "{{ index (index (.client_secrets | fromJson) %q) %q }}" $oidc.realm $oidc.client | quote }}
-  data:
-    - secretKey: client_secrets
-      remoteRef: {key: keycloak-client-secrets, property: client_secrets}
+  dataFrom:
+    - extract: {key: keycloak-client-secrets}
 {{- end }}
 {{- end }}
