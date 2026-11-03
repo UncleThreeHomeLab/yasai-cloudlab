@@ -168,6 +168,13 @@ def build(service):
         for item in panels:
             x, y, width = positions[item['id']]
             item['gridPos'].update(x=x, y=y, w=width)
+    else:
+        positions = {1: (0, 0, 24, 4), 2: (0, 4, 24, 8), 3: (0, 12, 12, 8),
+                     4: (12, 12, 12, 8), 5: (0, 20, 12, 8), 6: (12, 20, 12, 8),
+                     7: (0, 28, 12, 8), 8: (12, 28, 12, 8), 9: (0, 36, 12, 8)}
+        for item in panels:
+            x, y, width, height = positions[item['id']]
+            item['gridPos'].update(x=x, y=y, w=width, h=height)
     variables = [{'name': 'component', 'label': 'Component', 'type': 'custom',
         'query': ','.join(row['name'] for row in service['workloads']), 'current': {'text': component, 'value': component},
         'includeAll': False, 'multi': False}]
