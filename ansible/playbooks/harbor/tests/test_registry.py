@@ -119,6 +119,17 @@ class RegistryTests(unittest.TestCase):
             reference = client.reference('cloudlab-public', repository=repository, tag='release-test')
             self.assertTrue(reference.endswith('/' + repository + ':release-test'))
             self.assertIn('/cloudlab-private/', client.reference('cloudlab-private', repository=repository))
+            private = client.reference('cloudlab-private', repository=repository, tag='release-test')
+            for project, accepted in (('cloudlab-private', True), ('cloudlab-public', False)):
+                message = ('HEAD https://' + client.host + '/v2/' + project + '/' + repository +
+                           '/manifests/release-test: NOT_FOUND: repository not found').encode()
+                with self.subTest(private_project=project), patch('playbooks.harbor.files.registry.subprocess.run',
+                        return_value=subprocess.CompletedProcess([], 1, b'', message)):
+                    if accepted:
+                        self.assertIsNone(client.digest(private, missing=True))
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            client.digest(private, missing=True)
             for project, name in (('cloudlab-private', 'ci-runner'), ('cloudlab-public', 'other'),
                                   ('cloudlab-public', '../example-app-test-environment'),
                                   ('cloudlab-public', 'Example-test-environment')):
