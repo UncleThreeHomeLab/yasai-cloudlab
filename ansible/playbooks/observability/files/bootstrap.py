@@ -81,7 +81,17 @@ def seed(payload, name):
                     current['spec']['source']['path'] != desired['spec']['source']['path']):
         raise RuntimeError('Telemetry Application ownership conflicts; adoption refused')
     changed = not current or not contains(current, desired)
-    if changed: kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
+    if changed:
+        if not current:
+            kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
+        else:
+            # Large historical objects can lose SSA metadata; update only our declared fields.
+            patches = [{'op': 'test', 'path': '/metadata/uid', 'value': current['metadata']['uid']},
+                       {'op': 'test', 'path': '/metadata/resourceVersion', 'value': current['metadata']['resourceVersion']}]
+            patches += [{'op': 'add', 'path': '/spec/' + key, 'value': value}
+                        for key, value in desired['spec'].items() if not contains(current['spec'].get(key), value)]
+            kube('patch', 'application.argoproj.io', desired['metadata']['name'], '-n', 'argocd',
+                 '--type=json', '--field-manager=' + OWNER, '-p', json.dumps(patches))
     def ready():
         if name != 'configuration': return application_ready(desired['metadata']['name'], payload['revision'])
         # Private routes cannot resolve backend references before child charts exist.
