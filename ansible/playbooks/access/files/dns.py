@@ -97,7 +97,9 @@ def configuration(payload):
         allow net 127.0.0.1/32 10.44.0.0/30 10.42.0.0/16
         block
     }}
-    forward . {' '.join(upstreams)}
+    forward . {' '.join(upstreams)} {{
+        policy sequential
+    }}
     cache 30
     loop
     health 127.0.0.1:18053

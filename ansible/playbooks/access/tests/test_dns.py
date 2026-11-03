@@ -106,6 +106,16 @@ class DNSTests(unittest.TestCase):
         self.assertNotIn('fallthrough', files['Corefile'])
         self.assertNotIn('forward', files['Corefile'].split('.:53')[0])
 
+    def test_public_forwarding_preserves_declared_ipv4_ipv6_priority(self):
+        upstreams = ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111']
+        for ordered in (upstreams, list(reversed(upstreams))):
+            with self.subTest(upstreams=ordered):
+                files = configuration(dict(self.payload, upstreams=ordered))
+                self.assertIn('forward . ' + ' '.join(ordered) + ' {\n        policy sequential\n    }', files['Corefile'])
+                for zone in ('tailnet.zone', 'internal.zone'):
+                    self.assertEqual(files[zone], configuration(self.payload)[zone])
+                self.assertNotIn('forward', files['Corefile'].split('.:53')[0])
+
     def test_labels_cannot_inject_records_or_use_reserved_names(self):
         for name in ['app\nother IN A 1.1.1.1', '*.app', 'ns1', 'app.internal']:
             with self.subTest(name=name), self.assertRaises(ValueError):
