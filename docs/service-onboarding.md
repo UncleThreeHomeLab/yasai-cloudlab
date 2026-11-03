@@ -805,6 +805,7 @@ and their owning configuration has converged for readiness checks.
    **Agent:** complete these checks with existing authorized credentials when available.
    Request user action only for missing credentials or interactive MFA, such as a
    physical passkey. Never weaken authentication or enroll a new key to bypass that step.
+   If the user explicitly waives a check, stop that check and report it as unverified.
 5. **Agent:** run the service contract's relevant verification, including
    `docker compose run --build --rm lab prove` for setup changes.
    Never run disposable fixture retirement checks against the real service.
