@@ -137,7 +137,7 @@ def dashboards_ready(origin, gateway, headers, dashboards):
             query = urllib.parse.urlencode({'query': substitute(expression, expected)})
             if proxy(origin, gateway, headers, 'metrics', '/api/v1/query?' + query).get('status') != 'success':
                 raise RuntimeError('Dashboard variable query failed')
-    for uid in ('notes-user-slo', 'cloudlab-overview', 'cloudlab-workloads', 'cloudlab-notes'):
+    for uid in ('notes-user-slo', 'cloudlab-overview', 'cloudlab-workloads', 'cloudlab-notes', 'cloudlab-services'):
         status, _ = direct_https(origin + '/api/dashboards/uid/' + uid, gateway, headers)
         if status != 404:
             return False
