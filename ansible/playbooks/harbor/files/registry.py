@@ -21,17 +21,17 @@ class Registry:
     def command(self, *arguments, input_data=None, denied=False, missing=False, immutable=False):
         result = subprocess.run(['crane', '--platform=linux/amd64', *arguments], env=self.environment,
                                 input=input_data, capture_output=True, timeout=600)
-        repositories = list(BOOTSTRAP_REPOSITORIES)
+        targets = [(project, repository) for project in POLICY['projects'] for repository in BOOTSTRAP_REPOSITORIES
+                   if repository == 'bootstrap' or project == 'cloudlab-public']
         if len(arguments) == 2 and arguments[0] == 'digest':
-            requested = re.fullmatch(re.escape(self.host) + r'/cloudlab-public/(' + TEST_ENVIRONMENT_REPOSITORY +
+            requested = re.fullmatch(re.escape(self.host) + r'/(cloudlab-public|cloudlab-private)/(' + TEST_ENVIRONMENT_REPOSITORY +
                                      r')(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|@sha256:[a-f0-9]{64})', arguments[1])
             if requested:
-                repositories.append(requested[1])
+                targets.append((requested[1], requested[2]))
         harbor_absent = any(re.search(
             rb'(?:GET|HEAD) https://' + re.escape(self.host.encode()) + rb'/v2/' + re.escape(project.encode()) +
             rb'/' + re.escape(repository.encode()) + rb'/manifests/[A-Za-z0-9_:.-]+:\s*NOT_FOUND\b', result.stderr)
-            for project in POLICY['projects'] for repository in repositories
-            if repository == 'bootstrap' or project == 'cloudlab-public')
+            for project, repository in targets)
         if missing and result.returncode and (re.search(rb'MANIFEST_UNKNOWN|NAME_UNKNOWN', result.stderr) or harbor_absent):
             return None
         if immutable:
