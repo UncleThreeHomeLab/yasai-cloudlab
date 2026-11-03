@@ -945,24 +945,32 @@ with the current data state.
 
 ## 8. Add a service dashboard in Grafana
 
-Dashboards belong to the platform's Git provisioning owner.
-Public and private application sources use the same dashboard location below.
-If content cannot safely enter public Git, stop and agree an accepted private
-input with the observability owner; do not invent a separate provisioning path.
+Each active service requires its own dashboard. The observability owner generates
+private runtime JSON from the reviewed service catalog. Source repository visibility
+does not change this path. Keep the legacy shared Services board during migration;
+remove it only after replacement boards pass live verification. Nodes and Rollouts
+remain separate platform views.
 
 ### 8.1 Choose the service view — User, then Agent
 
 1. **User:** name the questions the dashboard must answer.
-   Start with request rate, errors, latency, health and CPU/memory usage.
+   Start with service health and activity, then component resources and instance details.
+   Use Grafana's [layout guidance](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/)
+   and Prometheus's [workload guidance](https://prometheus.io/docs/practices/instrumentation/).
    Add logs or traces only when their collection is already approved.
 2. **Agent:** inspect the [observability contract](../platform/observability/contract.json)
-   and actual collected metrics. Identify service and namespace labels before
-   writing queries; do not assume application metrics already exist.
+   and actual collected metrics. Bind the view to an approved service label or explicit
+   owned workload set; namespace alone is insufficient when several services share it.
+   Do not assume application metrics already exist.
 3. **Agent:** separate real user traffic from release tests, probes and synthetic
    traffic. User SLO panels must select user traffic only.
    Plan distinct states for valid zero requests, missing telemetry and insufficient evidence.
+4. **Agent:** choose available signals for the workload type: request rate, errors
+   and latency for APIs; backlog, in-flight work and last-processed freshness for workers;
+   last success, duration and failures for batch jobs. CPU/memory describes resources,
+   not successful application behavior. Report missing signals through section 8.2.
 
-**Done when:** required panels and their real telemetry sources are identified.
+**Done when:** one service's questions, workload scope and real telemetry sources are identified.
 
 ### 8.2 Confirm telemetry coverage — Agent, then User
 
@@ -990,60 +998,108 @@ input with the observability owner; do not invent a separate provisioning path.
 
 ### 8.3 Write the dashboard JSON — Agent
 
-For readiness, replicas, restarts, CPU and memory, first use the provisioned
-**Services** dashboard (`cloudlab-services`) and select the namespace at runtime.
-Reuse this view when sufficient; add JSON only for additional service-specific panels.
-Workload readiness does not prove login, Telegram delivery or model access.
-
-1. Create public platform
-   `platform/observability/prometheus/dashboards/example-app.json`.
-   Use existing [nodes.json](../platform/observability/prometheus/dashboards/nodes.json)
-   and [releases.json](../platform/observability/prometheus/dashboards/releases.json)
-   as references. Choose a unique, stable dashboard UID and title.
+1. Keep the approved service definition and workload composition in private GitOps
+   `services/catalog.json`. Ready and published entries receive dashboards, including
+   services without ingress; retired entries are excluded.
+   `ansible/playbooks/services/files/remote.py::bindings` resolves supported workloads.
+   `ansible/playbooks/observability/files/dashboards.py` projects only service, namespace
+   and workload identities. It builds UID `svc-<approval.name>` and runtime filename
+   `svc-<approval.name>.json`. Do not add private per-service JSON to public Git.
 2. Use provisioned data sources: Prometheus UID `metrics`, Loki UID `logs`
    and Tempo UID `traces`. Reference their UIDs; do not embed backend URLs.
-   Scope queries with namespace and service variables using actual metric labels.
-3. Add the agreed panels. Keep user SLOs separate from release/probe/synthetic traffic.
+   Bind every query and variable to the approved service label or owned workload set.
+   Limit [variables](https://grafana.com/docs/grafana/latest/visualizations/dashboards/variables/)
+   to that service's component, pod and container drilldowns.
+   Default detail panels to one component and selected pod/container.
+   Keep the overview and status/capacity tables on all owned components regardless
+   of detail selection. Filters are not access controls.
+3. Arrange the agreed panels from summary to detail using the layout below.
+   Give each panel one question, clear units and a bounded legend.
+   Do not overlay all pods or containers in one graph by default.
+   Use small multiples or repeating panels only for a small, bounded component set
+   supported by the installed Grafana and provisioning checks.
+4. Aggregate compatible replica counts and rates before computing ratios.
+   Where histograms exist, combine compatible buckets before calculating percentiles;
+   never average pod percentiles. Keep user SLOs separate from release/probe/synthetic traffic.
    Display valid zero activity as **No traffic** and missing evidence as **UNKNOWN**
-   or **No data**. Do not turn missing series into healthy zero values.
-4. Keep secrets, private names, endpoints and saved private variable selections
-   out of the JSON. Use generic defaults and label variables.
+   or **No data**; identify stale evidence separately. Do not turn missing series into healthy zero values.
+5. Keep secrets, endpoints and private deployment bindings out of public Git.
+   Runtime JSON contains approved workload identities within existing private Grafana.
+   Select one component, pod and container by default; filters are not authorization.
    Set `editable: false` to match the existing provisioned dashboards.
 
-**Done when:** the JSON defines scoped, readable panels without private deployment details.
+| Order | View | Content |
+| --- | --- | --- |
+| 1 | Service summary | Available health, activity, errors, latency or freshness appropriate to the workload |
+| 2 | Component tables | Narrow status/capacity tables, split as needed: replicas/readiness/restarts and CPU/memory; one component/workload per row, unhealthy first, without averages hiding failures |
+| 3 | Component trends | Separate CPU, memory and available performance time-series panels; aggregate compatible replicas for the selected component |
+| 4 | Instance details | Selected pod/container metrics and links to accepted logs or traces |
+
+**Done when:** the service has its own UID and title, a readable component overview
+and focused drilldowns without private deployment details or a graph of every instance.
 
 ### 8.4 Review and deploy the dashboard — Agent, then User
 
-1. **Agent:** validate JSON and run focused checks of the owning chart.
-   Confirm the rendered `cloudlab-dashboards` ConfigMap includes `example-app.json`.
-   Platform `platform/observability/prometheus/templates/dashboards.yaml` already
-   imports `dashboards/*.json`; routine dashboard additions need no template edit.
+1. **Agent:** run focused dashboard/payload checks and pinned PromQL syntax/behavior fixtures.
+   `ansible/playbooks/observability/files/payload.py` compiles generated JSON into runtime
+   `components.prometheus.serviceDashboards`; verification uses the same builder.
+   `platform/observability/prometheus/templates/dashboards.yaml` appends runtime entries
+   to `cloudlab-dashboards` beside static boards. A ConfigMap annotation retains catalog SHA.
+   Onboarding changes require the explicit observability owner apply below; no automatic
+   catalog watcher exists. Argo continuously repairs the compiled dashboard snapshot.
+   Preserve flat panels, bounded legends, private scope and explicit missing/stale states.
+   Service boards allow at most 12 panels; Nodes/Rollouts keep their eight-panel cap.
+   Keep tables within four fields. Component/pod/container variables are single-select
+   without All; fixed ownership scope still applies when URL selections change.
 2. **Agent:** leave existing `dashboardProviders` and `dashboardsConfigMaps` in
    `platform/observability/prometheus/values.json` unchanged.
    `ansible/playbooks/observability/files/configuration.py` owns Grafana settings;
    adding a service dashboard does not require changing them.
-3. **Agent:** commit the dashboard to a platform branch and open its PR.
+3. **Agent:** review catalog changes in private GitOps and generic builder changes in
+   platform Git. Commit each change through its owning protected PR flow.
    **User:** review and merge through branch protection.
-4. **Agent:** wait for Argo to reconcile the chart and dashboard ConfigMap.
-   Grafana's existing `cloudlab` file provider provisions the dashboard in its
-   **CloudLab** folder from `/var/lib/grafana/dashboards/cloudlab/example-app.json`.
+4. **Agent:** use clean, current published platform `main`. Keep its HEAD fixed through
+   apply, repeat apply and verification. A merged dashboard alone does not advance the
+   explicit source pin retained by the observability Applications.
+5. **Agent:** from that checkout, run the supported owner proof:
+   `docker compose run --build --rm lab observability-prove`.
+   It uses existing runner initialization and GitOps preflight, checks host identity
+   and K3s on both nodes, applies observability `010-bootstrap.yml` and
+   `020-converge.yml` twice, requires zero changes on both nodes on repeat apply,
+   and runs observability verification. Preserve credentials, volumes and controllers.
+   Do not patch Applications manually, use UI-only writes or run unrelated monitor actions.
+6. **Agent:** inspect the owner proof's `ansible/playbooks/observability/verify.yml` results.
+   Confirm Argo's source revision, `cloudlab-dashboards` ConfigMap and Grafana's mounted
+   `/var/lib/grafana/dashboards/cloudlab/svc-<approval.name>.json` match the reviewed JSON.
+   Check `/api/dashboards/uid/DASHBOARD_UID` through private Grafana access;
+   require the service's own UID/title, matching panels/variables/links and
+   `meta.provisioned: true` from its file provider.
 
-**Done when:** the merged dashboard appears through the existing Git provisioning path.
+**Done when:** owner convergence and repeat apply pass; the reviewed dashboard is
+present in the ConfigMap, mounted file and provisioned Grafana API.
 
 ### 8.5 Verify real data and reconciliation — User, then Agent
 
 1. **User/Agent:** open Grafana through its existing private access and Keycloak login.
-   Select the intended service and namespace; check panels against actual metrics.
-2. **Agent:** compare a bounded request sample with observed rate, errors and latency.
-   Check health and resource panels against the selected workloads.
+   Open the service's own UID/title. Confirm default queries exclude another service,
+   including one sharing its namespace. Check all current owned workloads appear in
+   the status table without requiring overlaid per-pod lines.
+2. **Agent:** where approved request metrics exist, compare a bounded sample with
+   observed rate, errors and latency. Check readiness and resource panels against
+   the selected workloads; do not claim unavailable HTTP metrics or functional health.
+   Verify replica aggregates and units; confirm a failing replica stays visible.
    Verify **No traffic** and missing/stale telemetry states using focused queries
    or an isolated fixture; do not interrupt production collection for this test.
-3. **Agent:** verify optional log/trace links use only accepted redacted telemetry.
-   Confirm no unrelated service data enters the selected view.
+3. **Agent:** test component/pod/container drilldowns supported by this board.
+   Confirm changes stay within the service and graphs remain readable.
+   Verify optional log/trace links use only accepted redacted telemetry.
+   Confirm no unrelated service data enters panels, variable options or links.
 4. **Agent:** let normal reconciliation run and confirm the dashboard remains correct.
-   Make lasting edits in the JSON and repeat its PR flow; UI-only changes are not durable.
+   Make lasting edits in the catalog or generic builder and repeat its owning PR flow; UI-only changes are not durable.
 
-**Done when:** real data, zero/missing behavior and Git reconciliation all behave as intended.
+**Done when:** the service's own provisioned board covers current workloads, keeps
+other services out of its view, and passes aggregate, drilldown, zero/missing/stale
+and Git reconciliation checks.
 
 ## 9. Retire a service safely
 

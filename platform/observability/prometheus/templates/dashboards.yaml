@@ -3,8 +3,19 @@ kind: ConfigMap
 metadata:
   name: cloudlab-dashboards
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.serviceCatalogRevision }}
+  annotations:
+    cloudlab.io/service-catalog-revision: {{ . | quote }}
+  {{- end }}
 data:
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
   {{ base $path }}: |
 {{ $.Files.Get $path | indent 4 }}
+{{- end }}
+{{- range $name, $raw := .Values.serviceDashboards | default dict }}
+{{- if or (not (regexMatch "^svc-[a-z][a-z0-9-]{0,30}[.]json$" $name)) ($.Files.Get (printf "dashboards/%s" $name)) }}
+{{- fail "Service dashboard filename is invalid or conflicts with public inventory" }}
+{{- end }}
+  {{ $name }}: |
+{{ $raw | indent 4 }}
 {{- end }}

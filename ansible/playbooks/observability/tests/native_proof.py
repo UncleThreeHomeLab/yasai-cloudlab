@@ -105,28 +105,17 @@ def prepare():
          'exp_samples': [{'labels': '{realm="platform"}', 'value': 1}]}]})
     (FIXTURE / 'slo-test.json').write_text(json.dumps({'rule_files': ['/fixture/slo-rules.json'],
         'evaluation_interval': '30s', 'tests': [{'interval': '1m', 'input_series': series, 'alert_rule_test': cases}] + audit_cases}))
-    dashboards = [json.loads(path.read_text()) for path in
-                  sorted((ROOT / 'platform/observability/prometheus/dashboards').glob('*.json'))]
-    expressions = []
-    for dashboard in dashboards:
-        for panel in dashboard['panels']:
-            if panel['datasource']['uid'] != 'metrics':
-                continue
-            for target in panel['targets']:
-                expression = target['expr']
-                for key, value in (('$__rate_interval', '2m'), ('$__range', '6h'), ('$namespace', '.*'),
-                                   ('$pod', '.*'), ('$instance', '.*'), ('$service', '.*'),
-                                   ('$rollout', '.*'), ('$route', '.*'), ('$traffic', 'user|release')):
-                    expression = expression.replace(key, value)
-                expressions.append({'record': 'dashboard:query_' + str(len(expressions)), 'expr': expression})
-    (FIXTURE / 'dashboard-rules.json').write_text(json.dumps({'groups': [
-        {'name': 'dashboard-syntax', 'rules': expressions}]}))
+    from playbooks.observability.files.dashboards import inventory, query_rules
+    from playbooks.observability.tests.fixtures import service_bindings, service_visibility_tests
+    dashboards = [json.loads(raw) for raw in inventory(service_bindings()).values()]
+    (FIXTURE / 'dashboard-rules.json').write_text(json.dumps(query_rules(dashboards)))
     tests = json.loads((FIXTURE / 'slo-test.json').read_text())
     tests['rule_files'].append('/fixture/dashboard-rules.json')
     from playbooks.observability.tests.fixtures import rollout_visibility_tests
     release_tests = rollout_visibility_tests()
     tests['rule_files'].extend(release_tests['rule_files'])
     tests['tests'].extend(release_tests['tests'])
+    tests['tests'].extend(service_visibility_tests())
     (FIXTURE / 'slo-test.json').write_text(json.dumps(tests))
     print(json.dumps({'fixture_prepared': True, 'production_credentials': False}))
 

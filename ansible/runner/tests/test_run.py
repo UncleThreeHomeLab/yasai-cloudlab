@@ -380,6 +380,63 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                          ['playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml'])
         self.assertEqual(playbook.call_args_list[1].kwargs, {'unchanged': True})
 
+    def test_observability_proof_runs_preflight_then_scoped_repeat_and_verification(self):
+        operations = []
+        with patch.object(runner.sys, 'argv', ['run.py', 'observability-prove']), \
+                patch.object(runner, 'dotenv_values', return_value=self.values), \
+                patch('yaml.safe_load', return_value={'observability': {'enabled': True}}), \
+                patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
+                patch.object(runner, 'gitops_preflight', side_effect=lambda: operations.append(('preflight', {}))), \
+                patch.object(runner, 'playbook', side_effect=lambda name, **kwargs: operations.append((name, kwargs))):
+            runner.main()
+        self.assertEqual(operations, [
+            ('preflight', {}), ('playbooks/observability/setup.yml', {}),
+            ('playbooks/observability/setup.yml', {'unchanged': True}),
+            ('playbooks/observability/verify.yml', {}),
+        ])
+
+    def test_observability_proof_requires_enabled_owner_and_credentials_before_writes(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'observability-prove']), \
+                patch.object(runner, 'dotenv_values', return_value=self.values), \
+                patch('yaml.safe_load', return_value={'observability': {'enabled': True}}) as settings, \
+                patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
+                patch.object(runner, 'gitops_preflight') as preflight, \
+                patch.object(runner, 'playbook') as playbook:
+            for enabled in (False, None, 'false'):
+                with self.subTest(enabled=enabled):
+                    settings.return_value = {'observability': {'enabled': enabled}}
+                    with self.assertRaisesRegex(SystemExit, 'Observability must be enabled'):
+                        runner.main()
+            settings.return_value = {'observability': {'enabled': True}}
+            for field in ('OP_SERVICE_ACCOUNT_TOKEN', 'VM_PASSWORD', 'VM2_PASSWORD'):
+                with self.subTest(field=field), patch.dict(self.values, {field: ''}):
+                    with self.assertRaisesRegex(SystemExit, field):
+                        runner.main()
+            preflight.assert_not_called()
+            playbook.assert_not_called()
+
+    def test_observability_preflight_failure_stops_before_owner_mutation(self):
+        with patch.object(runner.sys, 'argv', ['run.py', 'observability-prove']), \
+                patch.object(runner, 'dotenv_values', return_value=self.values), \
+                patch('yaml.safe_load', return_value={'observability': {'enabled': True}}), \
+                patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
+                patch.object(runner, 'gitops_preflight', side_effect=SystemExit('preflight rejected')), \
+                patch.object(runner, 'playbook') as playbook:
+            with self.assertRaisesRegex(SystemExit, 'preflight rejected'):
+                runner.main()
+            playbook.assert_not_called()
+
+    def test_observability_setup_keeps_both_node_checks_and_only_its_owner_stages(self):
+        import yaml
+        root = Path(__file__).resolve().parents[2] / 'playbooks'
+        setup = root / 'observability/setup.yml'
+        stages = yaml.safe_load(setup.read_text())
+        self.assertEqual([stage['ansible.builtin.import_playbook'] for stage in stages],
+                         ['../host/verify.yml', '../k3s/verify.yml', '010-bootstrap.yml', '020-converge.yml'])
+        for stage in stages[:2]:
+            plays = yaml.safe_load((setup.parent / stage['ansible.builtin.import_playbook']).read_text())
+            self.assertTrue(all(play['hosts'] == 'k3s_cluster' for play in plays))
+
     def test_setup_converges_then_verifies(self):
         playbook = self.invoke('setup')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],

@@ -8,12 +8,74 @@ from playbooks.observability.files.chart import render
 from playbooks.observability.files.configuration import grafana
 from playbooks.observability.files.values import values
 from playbooks.observability.files.verify import dashboards_ready, release_state_matches
+from playbooks.observability.files.dashboards import build, projection, generated, inventory, substitute, query_rules
+from playbooks.observability.tests.fixtures import service_bindings, service_visibility_tests
 
 
 ROOT = Path(__file__).resolve().parents[4]
 
 
 class DashboardTests(unittest.TestCase):
+    def test_runtime_service_views_render_owned_rollouts_and_deployments_without_changing_static_boards(self):
+        services = service_bindings()
+        dynamic = generated(services)
+        config = next(obj for obj in render('prometheus', {'serviceDashboards': dynamic, 'serviceCatalogRevision': 'a' * 40})
+                      if obj['kind'] == 'ConfigMap' and obj['metadata']['name'] == 'cloudlab-dashboards')
+        self.assertEqual(config['data'], inventory(services))
+        self.assertEqual(config['metadata']['annotations']['cloudlab.io/service-catalog-revision'], 'a' * 40)
+        for raw in dynamic.values():
+            board = json.loads(raw)
+            self.assertFalse(board['editable'])
+            self.assertTrue(board['uid'].startswith('svc-'))
+            self.assertLessEqual(len(board['panels']), 12)
+            summary, = [panel for panel in board['panels'] if panel['type'] == 'stat']
+            self.assertTrue(all(target['instant'] and target['range'] is False for target in summary['targets']))
+            for variable in board['templating']['list']:
+                self.assertFalse(variable['multi'])
+                self.assertFalse(variable['includeAll'])
+            for panel in board['panels']:
+                self.assertEqual(panel['fieldConfig']['defaults']['noValue'], 'UNKNOWN')
+                if panel['type'] == 'table':
+                    fields = next(t for t in panel['transformations'] if t['id'] == 'filterFieldsByName')['options']['include']['names']
+                    self.assertLessEqual(len(fields), 4)
+                for target in panel['targets']:
+                    self.assertNotIn('kube_pod_labels', target['expr'])
+                    self.assertNotIn('or vector(0)', target['expr'])
+                    if panel['id'] <= 4:
+                        self.assertNotIn('${component', target['expr'])
+            self.assertTrue(query_rules([board])['groups'][0]['rules'])
+        worker = json.loads(dynamic['svc-example-worker.json'])
+        self.assertEqual(len(worker['panels']), 9)
+        self.assertNotIn('cloudlab_http_', json.dumps(worker))
+        notes = json.loads(dynamic['svc-example-notes.json'])
+        self.assertIn('owner_kind="Rollout"', notes['panels'][4]['targets'][0]['expr'])
+        self.assertIn('owner_name=~"notes-api"', notes['panels'][4]['targets'][0]['expr'])
+        self.assertIn('traffic="user"', notes['panels'][9]['targets'][0]['expr'])
+        self.assertTrue(service_visibility_tests())
+
+    def test_catalog_projection_includes_ready_without_ingress_and_rejects_ambiguous_or_injected_scope(self):
+        def entry(name, publication='ready', **approval):
+            return {'publication': publication, 'definition': {'name': name, 'exposure': {'class': 'none'}, 'rollouts': {'enabled': False}},
+                    'approval': dict(name=name, namespace='shared', **approval)}
+        catalog = {'catalog': [entry('first'), entry('second', 'published'), entry('retired', 'retired')]}
+        result = projection(catalog)
+        self.assertEqual([s['name'] for s in result], ['first', 'second'])
+        self.assertEqual(set(result[0]), {'name', 'namespace', 'workloads'})
+        composed = entry('composed', composition={'workloads': [{'name': 'worker'}]})
+        self.assertEqual(projection({'catalog': [composed]})[0]['workloads'], [{'name': 'worker', 'kind': 'Deployment'}])
+        notes = entry('notes', chartPath='apps/notes')
+        notes['definition']['rollouts']['enabled'] = True
+        self.assertEqual(projection({'catalog': [notes]})[0]['workloads'], [
+            {'name': 'notes-web', 'kind': 'Rollout'}, {'name': 'notes-api', 'kind': 'Deployment'}])
+        for field in ('name', 'namespace'):
+            invalid = copy.deepcopy(result[0]); invalid[field] = 'escape"} or vector(1)'
+            with self.assertRaises(ValueError): build(invalid)
+        with self.assertRaises(ValueError): generated([result[0], result[0]])
+        with self.assertRaises(ValueError): substitute('metric{scope="$unsupported"}')
+        query = substitute(build(result[0])['panels'][4]['targets'][0]['expr'])
+        self.assertIn('namespace="shared"', query)
+        self.assertIn('owner_name=~"first"', query)
+
     def test_release_view_compares_live_weights_and_roles_without_treating_absence_as_zero(self):
         rollout = {'status': {'stableRS': 'old', 'currentPodHash': 'new'}}
         route = {'spec': {'rules': [{'backendRefs': [{'name': 'app', 'weight': 50}, {'name': 'app-canary', 'weight': 50}]}]}}

@@ -1,0 +1,9 @@
+---
+- name: Verify existing host identity
+  ansible.builtin.import_playbook: ../host/verify.yml
+- name: Verify existing Kubernetes nodes
+  ansible.builtin.import_playbook: ../k3s/verify.yml
+- name: Install telemetry runtime
+  ansible.builtin.import_playbook: 010-bootstrap.yml
+- name: Converge telemetry through its guarded owner
+  ansible.builtin.import_playbook: 020-converge.yml

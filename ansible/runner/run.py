@@ -215,7 +215,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'backup', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'charts', 'storage-check', 'setup', 'verify', 'prove', 'observability-prove', 'syntax', 'backup', 'monthly-proof', 'tailnet-policy', 'host-access', 'recovery-monthly', 'recovery-retrieve', 'recovery-preflight', 'recovery-initial', 'recovery-replacement-test', 'k3s-migrate', 'k3s-migrate-rollback', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'publish-platform', 'github-app-check', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test', 'mesh-check', 'access-preflight', 'access-external', 'access-prepare-tags', 'access-bootstrap', 'access-check', 'access-human-proof', 'access-cutover'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as setup, validate, test, verify, or prove.')
     if action in {'publish-platform', 'github-app-check'}:
         module = {'publish-platform': 'publish_snapshot.py',
@@ -296,6 +296,8 @@ def main():
                 json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]') + service_names)))
         import yaml
         public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
+        if action == 'observability-prove' and public_settings.get('observability', {}).get('enabled') is not True:
+            raise SystemExit('Observability must be enabled before observability-prove.')
         sys.path.insert(0, '/workspace')
         from playbooks.keycloak.files.access_inputs import runtime
         runtime(os.environ, public_settings)
@@ -307,7 +309,7 @@ def main():
             os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
         playbook('playbooks/tailscale/policy.yml')
         return
-    if action in {'setup', 'prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
+    if action in {'setup', 'prove', 'observability-prove', 'verify', 'k3s-migrate', 'gitops-bootstrap', 'gitops-source-migrate', 'gitops-private-remove', 'gitops-interruption-test', 'gitops-verify', 'eso-recover', 'eso-interruption-test', 'eso-bootstrap', 'longhorn-bootstrap', 'longhorn-interruption-test', 'longhorn-recover', 'longhorn-backup-bootstrap', 'longhorn-backup-recover', 'longhorn-backup-interruption-test'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
                      for suffix in ('_HOST', '_USER', '_PASSWORD'))
@@ -432,6 +434,11 @@ def main():
     elif action == 'mesh-check':
         gitops_preflight()
         playbook('playbooks/istio/verify.yml')
+    elif action == 'observability-prove':
+        gitops_preflight()
+        playbook('playbooks/observability/setup.yml')
+        playbook('playbooks/observability/setup.yml', unchanged=True)
+        playbook('playbooks/observability/verify.yml')
     elif action == 'host-access':
         playbook('playbooks/tailscale/access.yml')
     elif action in {'recovery-monthly', 'recovery-initial', 'recovery-replacement-test'}:

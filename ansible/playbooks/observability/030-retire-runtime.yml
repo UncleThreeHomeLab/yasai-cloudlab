@@ -9,5 +9,5 @@
       ansible.builtin.file:
         path: /opt/cloudlab/automation/observability/{{ item }}
         state: absent
-      loop: [bootstrap.py, verify.py]
+      loop: [bootstrap.py, verify.py, dashboards.py]
       when: observability_enabled | bool

@@ -7,13 +7,25 @@ from playbooks.istio.files.kube import get, condition, application_ready, kube, 
 from playbooks.keycloak.files.health import direct_https
 
 
+def bindings(entry):
+    """Resolve the supported service charts' declared workload identities."""
+    definition, approval = entry['definition'], entry['approval']
+    if approval.get('composition'):
+        return [{'name': row['name'], 'kind': 'Deployment'}
+                for row in approval['composition']['workloads']]
+    names = ['notes-web', 'notes-api'] if approval.get('chartPath') == 'apps/notes' else [definition['name']]
+    return [{'name': name, 'kind': 'Rollout' if definition.get('rollouts', {}).get('enabled', False)
+             and (approval.get('chartPath') != 'apps/notes' or name == 'notes-web') else 'Deployment'} for name in names]
+
+
 def inspect(request):
     definition, approval = request['definition'], request['approval']
     namespace = approval['namespace']
     action = request['action']
     name = definition['name']
     notes = approval.get('chartPath') == 'apps/notes'
-    workload_names = ['notes-web', 'notes-api'] if notes else [name]
+    owned = bindings(request)
+    workload_names = [name] if approval.get('composition') else [row['name'] for row in owned]
     if action.startswith('fixture-'):
         from playbooks.data.files.service_proof import fixture
         fixture({'definition': definition, 'approval': approval})
@@ -114,7 +126,7 @@ def inspect(request):
                             owner.get('controller') is True for owner in application.get('metadata', {}).get('ownerReferences', []))):
                 raise RuntimeError('Backend release differs from its approved ApplicationSet artifact')
         for workload_name in workload_names:
-            progressive = definition.get('rollouts', {}).get('enabled', False) and (not notes or workload_name == 'notes-web')
+            progressive = next(row['kind'] for row in owned if row['name'] == workload_name) == 'Rollout'
             if progressive and get('deployment', workload_name, namespace):
                 raise RuntimeError('Existing Deployment requires a reviewed controller migration before Rollout acceptance')
             deployed = get('rollout.argoproj.io' if progressive else 'deployment', workload_name, namespace)
