@@ -60,6 +60,22 @@ class HostDNSTests(unittest.TestCase):
         self.assertFalse(self.apply()['changed'])
         self.command.assert_not_called()
 
+    def test_retained_original_resolver_priority_survives_activation_and_repeat(self):
+        original = 'nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 2606:4700:4700::1111\n'
+        self.resolver.write_text(original)
+        self.assertTrue(self.apply()['changed'])
+        self.assertEqual((self.state / 'resolv.conf.original').read_text(), original)
+        corefile = (self.base / 'current' / 'Corefile').read_text()
+        self.assertIn('forward . 8.8.8.8 1.1.1.1 2606:4700:4700::1111 {\n        policy sequential\n    }', corefile)
+        with patch.object(dns_host, 'private_answer'), patch.object(dns_host, 'absent_answer'), \
+                patch.object(dns_host, 'query', return_value={'addresses': ['1.1.1.1']}):
+            self.assertTrue(dns_host.activate()['changed'])
+        self.command.reset_mock()
+        self.assertFalse(self.apply()['changed'])
+        self.assertEqual((self.base / 'current' / 'Corefile').read_text(), corefile)
+        self.assertEqual((self.state / 'resolv.conf.original').read_text(), original)
+        self.command.assert_not_called()
+
     def test_interruption_before_receipt_requires_restart_and_readback(self):
         self.apply()
         (self.state / 'generation').unlink()
