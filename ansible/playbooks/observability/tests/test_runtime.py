@@ -50,6 +50,29 @@ class StorageBoundaryTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, status)
                 self.assertNotIn('private_diagnostic', str(error.exception))
 
+    def test_large_metrics_query_uses_exact_form_post_without_changing_other_gets(self):
+        import urllib.parse
+        origin = 'https://grafana.internal.example.invalid'
+        headers = {'Authorization': 'Basic fixture', 'Accept': 'application/json'}
+        expression = ' or '.join('up{service="fixture-' + str(index) + '"}' for index in range(3000))
+        form = urllib.parse.urlencode({'query': expression, 'time': '123'})
+        self.assertGreater(len(form), 50000)
+        with patch('playbooks.observability.files.verify.direct_https', return_value=(200, b'{"data":{}}')) as request:
+            self.assertEqual(proxy(origin, '10.43.0.1', headers, 'metrics', '/api/v1/query?' + form), {'data': {}})
+            url, gateway, actual_headers = request.call_args.args
+            self.assertEqual(url, origin + '/api/datasources/proxy/uid/metrics/api/v1/query')
+            self.assertLess(len(url), 256)
+            self.assertEqual(gateway, '10.43.0.1')
+            self.assertEqual(actual_headers, dict(headers, **{'Content-Type': 'application/x-www-form-urlencoded'}))
+            self.assertEqual(request.call_args.kwargs, {'data': form.encode()})
+            self.assertEqual(headers, {'Authorization': 'Basic fixture', 'Accept': 'application/json'})
+            for datasource, path in (('logs', '/loki/api/v1/query_range?limit=1'), ('traces', '/api/traces/fixture')):
+                with self.subTest(datasource=datasource):
+                    request.reset_mock()
+                    proxy(origin, '10.43.0.1', headers, datasource, path)
+                    request.assert_called_once_with(origin + '/api/datasources/proxy/uid/' + datasource + path,
+                                                    '10.43.0.1', headers)
+
     def test_operator_backend_must_be_available_and_reconciled_at_current_generation(self):
         ready = {'metadata': {'generation': 3}, 'status': {'conditions': [
             {'type': name, 'status': 'True', 'observedGeneration': 3} for name in ('Available', 'Reconciled')]}}

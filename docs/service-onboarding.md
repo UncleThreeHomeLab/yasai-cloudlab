@@ -945,10 +945,12 @@ with the current data state.
 
 ## 8. Add a service dashboard in Grafana
 
-Each active service requires its own dashboard. The observability owner generates
-private runtime JSON from the reviewed service catalog. Source repository visibility
-does not change this path. Use each service's generated board; the shared Services
-board is retired. Nodes and Rollouts remain separate platform views.
+Use two levels: **Services** for status/navigation, then one focused detail board per service.
+Both are generated from the reviewed private catalog through the existing observability owner.
+Every future active catalog service receives an overview row and detail board on the next owner apply.
+Source repository visibility does not change this path. The retired shared dashboard UID
+`cloudlab-services` stays removed; the overview uses `cloudlab-service-overview`.
+Nodes and Rollouts remain separate platform views.
 
 ### 8.1 Choose the service view — User, then Agent
 
@@ -974,8 +976,7 @@ board is retired. Nodes and Rollouts remain separate platform views.
 ### 8.2 Confirm telemetry coverage — Agent, then User
 
 1. **Agent:** inspect the application's existing metrics/instrumentation code;
-   its filename depends on the app. Use [Notes instrumentation](../apps/notes/telemetry.py)
-   as a reference for bounded, redacted metrics, not as a generic app installer.
+   its filename depends on the app. Require bounded, redacted metrics from their accepted owner.
 2. **Agent:** inspect platform `platform/observability/templates/collector.yaml`
    for approved scrape coverage and `platform/observability/templates/network.yaml`
    for network access. Check operator scope in
@@ -987,11 +988,11 @@ board is retired. Nodes and Rollouts remain separate platform views.
    Continue independent dashboard design, but do not claim its live data is verified.
    A dashboard file does not enable scraping or ingestion.
    Keep `definition.monitoring.enabled` false; do not add an application-owned ServiceMonitor.
-4. **Agent:** for SLOs, use the owning service's approved definition and rules.
-   Existing `apps/notes/slo.json` and `ansible/playbooks/observability/files/slo.py`
-   belong to Notes. Their generated
-   `platform/observability/prometheus/templates/notes-slo.json` is a PrometheusRule,
-   not a Grafana dashboard or generic SLO onboarding interface.
+4. **Agent:** use the owning service's accepted SLO definition and rules.
+   Do not treat a service-specific rule compiler as a generic onboarding interface.
+   Request/error/latency panels require accepted instrumentation; readiness and resources
+   alone do not establish application health. Alert counts require reliable service
+   attribution and rule-evaluation coverage; otherwise leave them unavailable.
 
 **Done when:** accepted collection supplies the metrics and rules required by the dashboard.
 
@@ -1002,16 +1003,23 @@ board is retired. Nodes and Rollouts remain separate platform views.
    services without ingress; retired entries are excluded.
    `ansible/playbooks/services/files/remote.py::bindings` resolves supported workloads.
    `ansible/playbooks/observability/files/dashboards.py` projects only service, namespace
-   and workload identities. It builds UID `svc-<approval.name>` and runtime filename
-   `svc-<approval.name>.json`. Do not add private per-service JSON to public Git.
+   and workload identities. It builds overview UID `cloudlab-service-overview` in runtime
+   `service-overview.json`, plus UID `svc-<approval.name>` in `svc-<approval.name>.json`.
+   Do not add private per-service JSON to public Git.
 2. Use provisioned data sources: Prometheus UID `metrics`, Loki UID `logs`
    and Tempo UID `traces`. Reference their UIDs; do not embed backend URLs.
    Bind every query and variable to the approved service label or owned workload set.
    Limit [variables](https://grafana.com/docs/grafana/latest/visualizations/dashboards/variables/)
    to that service's component, pod and container drilldowns.
-   Default detail panels to one component and selected pod/container.
-   Keep the overview and status/capacity tables on all owned components regardless
-   of detail selection. Filters are not access controls.
+   The overview has one linked row per active service: readiness, ready and desired counts.
+   Missing/stale evidence is UNKNOWN; worst-component readiness prevents rollout surge
+   from hiding a failed component. Do not add CPU, memory or pod lists to this overview.
+   The detail board has no fleet tables. Keep its compact service status independent of
+   selection; scope readiness, restarts, CPU/memory and instance panels to one component.
+   Component options put unknown/unready components first using native query order.
+   An empty saved selection chooses the first option on load; existing user selections
+   remain selected during refresh. Pod/container selectors choose one instance.
+   Filters are not access controls.
 3. Arrange the agreed panels from summary to detail using the layout below.
    Give each panel one question, clear units and a bounded legend.
    Do not overlay all pods or containers in one graph by default.
@@ -1027,15 +1035,15 @@ board is retired. Nodes and Rollouts remain separate platform views.
    Select one component, pod and container by default; filters are not authorization.
    Set `editable: false` to match the existing provisioned dashboards.
 
-| Order | View | Content |
+| Level | View | Content |
 | --- | --- | --- |
-| 1 | Service summary | Available health, activity, errors, latency or freshness appropriate to the workload |
-| 2 | Component tables | Narrow status/capacity tables, split as needed: replicas/readiness/restarts and CPU/memory; one component/workload per row, unhealthy first, without averages hiding failures |
-| 3 | Component trends | Separate CPU, memory and available performance time-series panels; aggregate compatible replicas for the selected component |
-| 4 | Instance details | Selected pod/container metrics and links to accepted logs or traces |
+| Overview | Service status and navigation | One row per active service, UNKNOWN/unready first; linked service name, readiness, ready and desired counts |
+| Detail | Compact status | All-service readiness plus selected-component ready/desired; readiness does not imply functional health |
+| Detail | Component trends | Selected-component restarts, CPU and memory; accepted application performance only |
+| Detail | Instance details | Selected pod/container metrics; return link to Services |
 
-**Done when:** the service has its own UID and title, a readable component overview
-and focused drilldowns without private deployment details or a graph of every instance.
+**Done when:** both levels use stable UIDs, the overview links to each service,
+all detail boards link back, and selectors exclude unrelated workloads.
 
 ### 8.4 Review and deploy the dashboard — Agent, then User
 
@@ -1048,7 +1056,8 @@ and focused drilldowns without private deployment details or a graph of every in
    catalog watcher exists. Argo continuously repairs the compiled dashboard snapshot.
    Preserve flat panels, bounded legends, private scope and explicit missing/stale states.
    Service boards allow at most 12 panels; Nodes/Rollouts keep their eight-panel cap.
-   Keep tables within four fields. Component/pod/container variables are single-select
+   Keep the overview table within four fields; detail boards have no fleet tables.
+   Component/pod/container variables are single-select
    without All; fixed ownership scope still applies when URL selections change.
 2. **Agent:** leave existing `dashboardProviders` and `dashboardsConfigMaps` in
    `platform/observability/prometheus/values.json` unchanged.
@@ -1069,7 +1078,8 @@ and focused drilldowns without private deployment details or a graph of every in
    Do not patch Applications manually, use UI-only writes or run unrelated monitor actions.
 6. **Agent:** inspect the owner proof's `ansible/playbooks/observability/verify.yml` results.
    Confirm Argo's source revision, `cloudlab-dashboards` ConfigMap and Grafana's mounted
-   `/var/lib/grafana/dashboards/cloudlab/svc-<approval.name>.json` match the reviewed JSON.
+   `/var/lib/grafana/dashboards/cloudlab/service-overview.json` and
+   `/var/lib/grafana/dashboards/cloudlab/svc-<approval.name>.json` match reviewed JSON.
    Check `/api/dashboards/uid/DASHBOARD_UID` through private Grafana access;
    require the service's own UID/title, matching panels/variables/links and
    `meta.provisioned: true` from its file provider.
@@ -1080,9 +1090,10 @@ present in the ConfigMap, mounted file and provisioned Grafana API.
 ### 8.5 Verify real data and reconciliation — User, then Agent
 
 1. **User/Agent:** open Grafana through its existing private access and Keycloak login.
-   Open the service's own UID/title. Confirm default queries exclude another service,
-   including one sharing its namespace. Check all current owned workloads appear in
-   the status table without requiring overlaid per-pod lines.
+   Open Services: require one linked row per active service, readiness and replica counts,
+   with UNKNOWN/unready rows first. Open a service link and use its return link.
+   Confirm the detail has compact service status and selected-component panels, with no
+   fleet tables. Defaults must exclude unrelated workloads, including a shared namespace.
 2. **Agent:** where approved request metrics exist, compare a bounded sample with
    observed rate, errors and latency. Check readiness and resource panels against
    the selected workloads; do not claim unavailable HTTP metrics or functional health.

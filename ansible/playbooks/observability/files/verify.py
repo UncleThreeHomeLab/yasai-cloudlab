@@ -74,8 +74,14 @@ def storage(claims, volumes):
 def proxy(origin, gateway, headers, datasource, path):
     if datasource not in ('metrics', 'logs', 'traces'):
         raise ValueError('Telemetry proof requires a native provisioned datasource')
-    url = origin + '/api/datasources/proxy/uid/' + datasource + path
-    status, raw = direct_https(url, gateway, headers)
+    endpoint, separator, query = path.partition('?')
+    if datasource == 'metrics' and endpoint == '/api/v1/query' and separator:
+        url = origin + '/api/datasources/proxy/uid/metrics' + endpoint
+        status, raw = direct_https(url, gateway,
+            dict(headers, **{'Content-Type': 'application/x-www-form-urlencoded'}), data=query.encode())
+    else:
+        url = origin + '/api/datasources/proxy/uid/' + datasource + path
+        status, raw = direct_https(url, gateway, headers)
     if status != 200: raise urllib.error.HTTPError(url, status, 'Private datasource query failed', {}, None)
     return json.loads(raw)
 

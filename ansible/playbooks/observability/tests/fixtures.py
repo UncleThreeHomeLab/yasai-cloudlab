@@ -12,10 +12,14 @@ def service_bindings():
 
 def service_visibility_tests():
     """Run generated expressions against ownership, missing evidence and counter resets."""
-    from playbooks.observability.files.dashboards import build, substitute
+    from playbooks.observability.files.dashboards import build, substitute, overview, component_priority
     board = build(service_bindings()[0])
+    # Deterministic selected-component cases; provisioned boards leave selection empty for priority ordering.
+    board['templating']['list'][0]['current'] = {'value': 'notes-api', 'text': 'notes-api'}
+    panels = {panel['id']: panel for panel in board['panels']}
+    fleet = overview(service_bindings())
     def expression(panel, target=0):
-        return substitute(board['panels'][panel - 1]['targets'][target]['expr'], board)
+        return substitute(panels[panel]['targets'][target]['expr'], board)
     def series(metric, labels, values='1+0x32'):
         return {'series': metric + '{namespace="fixture",' + labels + '}', 'values': values}
     def check(expr, value, labels='{}', when='4m'):
@@ -38,32 +42,28 @@ def service_visibility_tests():
                                ('kube_pod_container_status_restarts_total', '0+0x32')]:
             inputs.append(series(metric, 'pod="' + pod + '",container="app",image="fixture"', values))
     cases = [{'name': 'service-ownership-and-failing-replica', 'input_series': inputs, 'promql_expr_test': [
-        check(expression(1), 0.5),
-        {'expr': expression(2), 'eval_time': '4m', 'exp_samples': [
-            {'labels': '{component="notes-api"}', 'value': 2}, {'labels': '{component="notes-web"}', 'value': 1}]},
-        {'expr': expression(3), 'eval_time': '4m', 'exp_samples': [
-            {'labels': '{component="notes-api"}', 'value': 1}, {'labels': '{component="notes-web"}', 'value': 1}]},
+        check(expression(1), 0),
+        check(expression(2), 1, '{component="notes-api"}'), check(expression(2, 1), 2, '{component="notes-api"}'),
+        check(expression(3), 0, '{component="notes-api"}'),
+        check('topk(1, -1 * ' + component_priority(service_bindings()[0]) + ')', 1, '{component="notes-api"}'),
         check(expression(5), 2, '{component="notes-api"}'), check(expression(6), 200, '{component="notes-api"}')]}]
     cases.append({'name': 'missing-is-unknown-not-zero', 'input_series': [], 'promql_expr_test': [
-        check(expression(1), None), check(expression(5), None), check(expression(10), None),
-        {'expr': expression(2), 'eval_time': '4m', 'exp_samples': [
-            {'labels': '{component="notes-api"}', 'value': -1}, {'labels': '{component="notes-web"}', 'value': -1}]}]})
+        check(expression(1), -1), check(expression(5), None), check(expression(10), None), check(expression(2), None)]})
     stale = copy.deepcopy(inputs)
     for row in stale:
         row['values'] = row['values'].replace('x32', 'x8')
     cases.append({'name': 'stale-controller-and-resources', 'input_series': stale, 'promql_expr_test': [
-        check(expression(1), None), check(expression(5), None), {'expr': expression(2), 'eval_time': '4m', 'exp_samples': [
-            {'labels': '{component="notes-api"}', 'value': -2}, {'labels': '{component="notes-web"}', 'value': -2}]}]})
+        check(expression(1), -1), check(expression(5), None), check(expression(2), -2, '{component="notes-api"}')]})
     reset = copy.deepcopy(inputs)
     for row in reset:
         if row['series'].startswith('container_cpu_usage_seconds_total'):
             row['values'] = '0+15x8 0+15x24'
     cases.append({'name': 'counter-reset-keeps-positive-component-rate', 'input_series': reset,
         'promql_expr_test': [check('count(' + expression(5) + ' > 0)', 1)]})
-    tampered = board['panels'][6]['targets'][0]['expr'].replace('${pod:regex}', 'other').replace('${container:regex}', 'app')
+    tampered = panels[7]['targets'][0]['expr'].replace('${pod:regex}', 'other').replace('${container:regex}', 'app')
     cases.append({'name': 'same-namespace-unowned-pod-selection-stays-empty', 'input_series': inputs,
                   'promql_expr_test': [check(substitute(tampered, board), None)]})
-    wildcard = substitute(board['panels'][4]['targets'][0]['expr'].replace('${component:regex}', '.*'), board)
+    wildcard = substitute(panels[5]['targets'][0]['expr'].replace('${component:regex}', '.*'), board)
     cases.append({'name': 'url-component-wildcard-cannot-include-other-service', 'input_series': inputs,
                   'promql_expr_test': [check('count(' + wildcard + ')', 2), check('sum(' + wildcard + ')', 3)]})
     for label, values, rate, state in [('zero', '0+0x32', 0, -1), ('low', '0+0.1x32', 0.1 / 15, -2), ('busy', '0+15x32', 1, 0)]:
@@ -83,6 +83,35 @@ def service_visibility_tests():
     stale_http = [dict(row, values=row['values'].replace('x32', 'x8')) for row in histogram]
     cases.append({'name': 'stale-http-is-explicit-not-idle', 'input_series': inputs + stale_http,
                   'promql_expr_test': [check(expression(10), -3), check(expression(11), -3)]})
+    def overview_checks(status, ready, desired):
+        return [{'expr': fleet['panels'][0]['targets'][index]['expr'], 'eval_time': '4m', 'exp_samples': [
+            {'labels': '{service="example-notes"}', 'value': value},
+            {'labels': '{service="example-worker"}', 'value': other}]}
+                for index, (value, other) in enumerate(zip((status, ready, desired), (1, 9, 9)))]
+    cases.append({'name': 'overview-one-row-per-service-same-namespace', 'input_series': inputs,
+                  'promql_expr_test': overview_checks(0, 2, 3)})
+    surge = copy.deepcopy(inputs)
+    for row in surge:
+        if row['series'].startswith('cloudlab_rollout_replicas_available'):
+            row['values'] = '3+0x32'
+    cases.append({'name': 'surge-cannot-hide-another-failed-component', 'input_series': surge,
+                  'promql_expr_test': overview_checks(0, 4, 3)})
+    scaled = copy.deepcopy(inputs)
+    for row in scaled:
+        if row['series'].startswith(('kube_deployment_spec_replicas', 'kube_deployment_status_replicas_available',
+                                     'cloudlab_rollout_replicas_')) and 'worker' not in row['series']:
+            row['values'] = '0+0x32'
+    cases.append({'name': 'scaled-to-zero-is-distinct-from-unknown', 'input_series': scaled,
+                  'promql_expr_test': overview_checks(2, 0, 0)})
+    partial = [row for row in inputs if not row['series'].startswith('cloudlab_rollout_replicas_available')]
+    cases.append({'name': 'partial-missing-component-makes-overview-unknown', 'input_series': partial,
+                  'promql_expr_test': overview_checks(-1, -1, -1)})
+    for name, rows in [('absent', []), ('stale', stale)]:
+        cases.append({'name': 'overview-' + name + '-is-never-ready', 'input_series': rows,
+            'promql_expr_test': [{'expr': fleet['panels'][0]['targets'][index]['expr'], 'eval_time': '4m', 'exp_samples': [
+                {'labels': '{service="' + service['name'] + '"}', 'value': -1} for service in service_bindings()]} for index in range(3)]})
+    cases.append({'name': 'empty-catalog-has-no-synthetic-service-row', 'input_series': inputs,
+                  'promql_expr_test': [check(target['expr'], None) for target in overview([])['panels'][0]['targets']]})
     return [dict(case, interval='15s') for case in cases]
 
 
