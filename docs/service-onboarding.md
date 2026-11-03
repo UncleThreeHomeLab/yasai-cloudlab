@@ -1102,12 +1102,13 @@ all detail boards link back, and selectors exclude unrelated workloads.
    to `cloudlab-dashboards` beside static boards. A ConfigMap annotation retains catalog SHA.
    Onboarding changes require the explicit observability owner apply below; no automatic
    catalog watcher exists. Argo continuously repairs the compiled dashboard snapshot.
-   Dashboard JSON is compact and telemetry Applications retain one Argo history entry
+   Dashboard JSON is compact and Prometheus disables native Argo revision history
    to bound repeated inline source snapshots. Git retains configuration recovery.
    The source owner rejects oversized payloads before applying them. For an existing
    size-blocked Prometheus operation, its versioned `bootstrap.py --compact-history`
-   recovery retains the newest history entry with exact ownership and version guards;
-   it does not change sources, the pending operation, dashboards or telemetry data.
+   recovery applies that history limit and removes older entries with exact ownership
+   and version guards. It does not change sources, the pending operation, dashboards
+   or telemetry data; Argo clears remaining native history on convergence.
    Preserve flat panels, bounded legends, private scope and explicit missing/stale states.
    Service boards allow at most 12 panels; Nodes/Rollouts keep their eight-panel cap.
    Keep the overview table within four fields; detail boards have no fleet tables.
