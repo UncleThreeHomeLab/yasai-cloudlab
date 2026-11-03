@@ -27,6 +27,44 @@ Kubernetes convergence, and native provider configurations for accepted external
 resources. Preserve required continuous repair. Destructive actions require an
 explicit resource and data scope.
 
+## Declarative changes
+
+Before changing a capability, identify its desired-state source, field owner,
+reconciler, credentials and deletion policy. Routine onboarding and configuration
+must use reviewed Git declarations consumed directly by the accepted owner.
+Use YAML for supported user inputs; native Helm, provider HCL, dashboard JSON,
+application code and workflow scripts can keep their established formats.
+Changing file format alone is not a declarative migration.
+
+Keep Ansible for hosts, infrastructure prerequisites, initial controller bootstrap
+and scoped operations such as recovery. Do not add service playbooks, per-service
+scripts, runner command branches or SSH/API installers for workloads, dashboards,
+identity, DNS or other routine application settings. Do not compile Git intent
+into a runtime snapshot that needs another operator apply to advance. Extend
+existing charts, controllers and native providers; keep one writer per field.
+
+After reviewed merge, owners must apply supported changes, report readiness and
+failures, and repair drift. Preserve source/workflow approvals and provider plan,
+locking and credential gates. External resources retain their native owner and
+require approved trusted execution; never assume application CI has that authority.
+If a capability is unsupported, report the gap and use an explicitly scoped
+platform change, not a new imperative onboarding workaround. Do not claim a
+planned interface works before its full reconciliation path is verified.
+
+Public exposure declarations belong in public Git; private exposure declarations,
+private source bindings and sensitive inventory belong in private Git. Resolve
+approved service/backend references without exposing private details publicly.
+
+Removal from an accepted complete Git revision is deletion intent for owned
+resources under their accepted policy. Ordinary owned workloads, routes,
+dashboards and monitors should be cleaned up automatically. Persistent data,
+vault items and shared infrastructure default to retention. Automatic data
+deletion requires a previously approved policy with exact resource/data scope;
+do not ask again for that same authorized scope. Source failure, invalid input
+or incomplete discovery is never deletion intent. Preserve ownership/policy
+records until ordered cleanup finishes; report blockers and retained data.
+Verify pruning, cascading cleanup and backing-storage reclaim behavior together.
+
 ## Reproducibility
 
 A clean checkout, `.env`, and Docker Compose must apply and verify the lab on
@@ -67,6 +105,13 @@ Configuration reproducibility does not replace backup and restore testing.
   for a demonstrated gap, with one owner, clear inputs/outputs and behavior checks.
 - Split files when responsibilities differ. Remove replaced code, update references,
   and verify preserved behavior.
+- A migration is incomplete until replaced Ansible tasks/playbooks, helpers,
+  runner/Compose commands, generated inputs and deployed runtime are retired.
+  Update imports, setup/verify entry points, packaging, callers, tests and docs
+  together. Move needed logic to its owner once; leave no duplicate or fallback
+  writers. Preserve active bootstrap, validation, locks and recovery paths.
+  Remove obsolete installed files/units through scoped repeatable retirement;
+  retain compatibility steps only while supported upgrades require them.
 - Before deleting or merging files, check imports, runner commands, deployment
   references and tests. Preserve validation, error handling and safety gates;
   do not combine different responsibilities merely to reduce file count.
@@ -78,6 +123,9 @@ Configuration reproducibility does not replace backup and restore testing.
   standalone VM modules use overlapping import names.
 - Update callers, deployed runtime paths, portable checks and concise documentation
   together. Keep operations repeatable and resumable; preserve recovery paths.
+- For declarative migrations, verify creation, updates, drift repair and removal
+  under the accepted policy, including data retention and deletion blockers.
+  Check a clean checkout and prove later setup cannot recreate the retired writer.
 
 ## Documentation
 
@@ -117,11 +165,22 @@ without asking again. Use a separate service account with Read Items and Write
 Items access to that vault. Keep `OP_SERVICE_ACCOUNT_TOKEN` read-only for ESO.
 The provisioning token stays local; never deliver it to hosts or Kubernetes.
 Check for existing items before creation, preserve their values on repeat runs,
-and stop on duplicate titles or incompatible fields. Generate secrets securely
-and send sensitive item JSON through standard input, never command arguments or
-logs. Do not overwrite, rotate, delete, share items, or create vaults unless the
-task separately authorizes that action. Missing write access is a prerequisite
-to report, not permission to expand the reader's privileges.
+and stop on duplicate titles or incompatible fields. For application secrets,
+default to creating the approved item with empty required fields for the user
+to fill in 1Password. Preserve partially completed items. Report pending items
+and missing field names without values; empty fields block delivery/readiness
+and must not replace valid deployed credentials. Once completed, the supported
+reconciler should resume without another operator apply. If placeholder creation
+or completion detection is unsupported, report that gap rather than treating
+empty credentials as valid or silently generating values.
+
+Generate application secret values securely only for an explicitly approved
+profile or request; preserve automatic node bootstrap generation. Send sensitive
+item JSON through standard input, never command arguments or logs. Do not
+overwrite, rotate, delete, share items, or create vaults without exact authorized
+scope. Removing a delivery declaration does not authorize vault item deletion.
+Missing write access is a prerequisite to report, not permission to expand the
+reader's privileges.
 
 ## Scope
 
@@ -133,6 +192,8 @@ ask before adding tools, services, or changes outside the agreed scope.
 Use Docker Compose for automation on Linux, macOS, and Windows. Do not add
 PowerShell scripts. Keep automation provider-neutral.
 
-Keep deployment addresses, private repository inputs, credentials, and diagnostic
-dumps out of Git. Generic private tunnel ranges may be configuration defaults.
+Keep private deployment addresses, private repository inputs, credentials and
+diagnostic dumps out of public Git. Version non-secret declarations in their
+owning public or private repository; secrets and provider state stay outside Git.
+Generic private tunnel ranges may be configuration defaults.
 Review tracked files and Git history before making the repository public.
