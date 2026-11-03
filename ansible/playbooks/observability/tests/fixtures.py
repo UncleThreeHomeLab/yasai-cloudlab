@@ -4,6 +4,88 @@ import copy
 from playbooks.observability.files.uptimerobot import desired
 
 
+def service_bindings():
+    return [{'name': 'example-notes', 'namespace': 'fixture', 'workloads': [
+        {'name': 'notes-api', 'kind': 'Deployment'}, {'name': 'notes-web', 'kind': 'Rollout'}]},
+        {'name': 'example-worker', 'namespace': 'fixture', 'workloads': [{'name': 'worker', 'kind': 'Deployment'}]}]
+
+
+def service_visibility_tests():
+    """Run generated expressions against ownership, missing evidence and counter resets."""
+    from playbooks.observability.files.dashboards import build, substitute
+    board = build(service_bindings()[0])
+    def expression(panel, target=0):
+        return substitute(board['panels'][panel - 1]['targets'][target]['expr'], board)
+    def series(metric, labels, values='1+0x32'):
+        return {'series': metric + '{namespace="fixture",' + labels + '}', 'values': values}
+    def check(expr, value, labels='{}', when='4m'):
+        return {'expr': 'round((' + expr + '), 0.000001)', 'eval_time': when,
+                'exp_samples': [] if value is None else [{'labels': labels, 'value': round(value, 6)}]}
+    inputs = []
+    for kind, name, count, available in [('Deployment', 'notes-api', 2, 1), ('Rollout', 'notes-web', 1, 1), ('Deployment', 'worker', 9, 9)]:
+        if kind == 'Deployment':
+            metrics = [('kube_deployment_spec_replicas', count), ('kube_deployment_status_replicas_available', available)]
+            label = 'deployment'
+        else:
+            metrics = [('cloudlab_rollout_replicas_desired', count), ('cloudlab_rollout_replicas_available', available)]
+            label = 'rollout'
+        inputs.extend(series(metric, label + '="' + name + '"', str(value) + '+0x32') for metric, value in metrics)
+        inputs.append(series('kube_replicaset_owner', 'replicaset="' + name + '-rs",owner_name="' + name + '",owner_kind="' + kind + '",owner_is_controller="true"'))
+    for pod, name, ready in [('api-a', 'notes-api', 1), ('api-b', 'notes-api', 0), ('web-a', 'notes-web', 1), ('other', 'worker', 1)]:
+        inputs.append(series('kube_pod_owner', 'pod="' + pod + '",owner_name="' + name + '-rs",owner_kind="ReplicaSet",owner_is_controller="true"'))
+        inputs.append(series('kube_pod_status_ready', 'pod="' + pod + '",condition="true"', str(ready) + '+0x32'))
+        for metric, values in [('container_cpu_usage_seconds_total', '0+15x32'), ('container_memory_working_set_bytes', '100+0x32'),
+                               ('kube_pod_container_status_restarts_total', '0+0x32')]:
+            inputs.append(series(metric, 'pod="' + pod + '",container="app",image="fixture"', values))
+    cases = [{'name': 'service-ownership-and-failing-replica', 'input_series': inputs, 'promql_expr_test': [
+        check(expression(1), 0.5),
+        {'expr': expression(2), 'eval_time': '4m', 'exp_samples': [
+            {'labels': '{component="notes-api"}', 'value': 2}, {'labels': '{component="notes-web"}', 'value': 1}]},
+        {'expr': expression(3), 'eval_time': '4m', 'exp_samples': [
+            {'labels': '{component="notes-api"}', 'value': 1}, {'labels': '{component="notes-web"}', 'value': 1}]},
+        check(expression(5), 2, '{component="notes-api"}'), check(expression(6), 200, '{component="notes-api"}')]}]
+    cases.append({'name': 'missing-is-unknown-not-zero', 'input_series': [], 'promql_expr_test': [
+        check(expression(1), None), check(expression(5), None), check(expression(10), None),
+        {'expr': expression(2), 'eval_time': '4m', 'exp_samples': [
+            {'labels': '{component="notes-api"}', 'value': -1}, {'labels': '{component="notes-web"}', 'value': -1}]}]})
+    stale = copy.deepcopy(inputs)
+    for row in stale:
+        row['values'] = row['values'].replace('x32', 'x8')
+    cases.append({'name': 'stale-controller-and-resources', 'input_series': stale, 'promql_expr_test': [
+        check(expression(1), None), check(expression(5), None), {'expr': expression(2), 'eval_time': '4m', 'exp_samples': [
+            {'labels': '{component="notes-api"}', 'value': -2}, {'labels': '{component="notes-web"}', 'value': -2}]}]})
+    reset = copy.deepcopy(inputs)
+    for row in reset:
+        if row['series'].startswith('container_cpu_usage_seconds_total'):
+            row['values'] = '0+15x8 0+15x24'
+    cases.append({'name': 'counter-reset-keeps-positive-component-rate', 'input_series': reset,
+        'promql_expr_test': [check('count(' + expression(5) + ' > 0)', 1)]})
+    tampered = board['panels'][6]['targets'][0]['expr'].replace('${pod:regex}', 'other').replace('${container:regex}', 'app')
+    cases.append({'name': 'same-namespace-unowned-pod-selection-stays-empty', 'input_series': inputs,
+                  'promql_expr_test': [check(substitute(tampered, board), None)]})
+    wildcard = substitute(board['panels'][4]['targets'][0]['expr'].replace('${component:regex}', '.*'), board)
+    cases.append({'name': 'url-component-wildcard-cannot-include-other-service', 'input_series': inputs,
+                  'promql_expr_test': [check('count(' + wildcard + ')', 2), check('sum(' + wildcard + ')', 3)]})
+    for label, values, rate, state in [('zero', '0+0x32', 0, -1), ('low', '0+0.1x32', 0.1 / 15, -2), ('busy', '0+15x32', 1, 0)]:
+        counters = [series('cloudlab_http_requests_total', 'pod="api-a",service="notes-api",route="/api/notes",traffic="user",status="200"', values),
+                    series('cloudlab_http_requests_total', 'pod="other",service="notes-api",route="/api/notes",traffic="user",status="500"', '0+1500x32'),
+                    series('cloudlab_http_requests_total', 'pod="api-a",service="notes-api",route="/api/notes",traffic="release",status="500"', '0+1500x32')]
+        cases.append({'name': 'user-traffic-' + label, 'input_series': inputs + counters, 'promql_expr_test': [
+            check(expression(10), rate), check(expression(11), state)]})
+    histogram = []
+    for pod in ('api-a', 'api-b'):
+        labels = 'pod="' + pod + '",service="notes-api",route="/api/notes",traffic="user",status="200"'
+        histogram.append(series('cloudlab_http_requests_total', labels, '0+15x32'))
+        for le, step in [('0.5', 15 if pod == 'api-a' else 0), ('1', 15), ('+Inf', 15)]:
+            histogram.append(series('cloudlab_http_duration_seconds_bucket', labels + ',le="' + le + '"', '0+' + str(step) + 'x32'))
+    cases.append({'name': 'histograms-combine-replica-buckets-before-percentile', 'input_series': inputs + histogram,
+                  'promql_expr_test': [check(expression(12), 0.95)]})
+    stale_http = [dict(row, values=row['values'].replace('x32', 'x8')) for row in histogram]
+    cases.append({'name': 'stale-http-is-explicit-not-idle', 'input_series': inputs + stale_http,
+                  'promql_expr_test': [check(expression(10), -3), check(expression(11), -3)]})
+    return [dict(case, interval='15s') for case in cases]
+
+
 class FakeAPI:
     def __init__(self):
         self.user = {'email': 'operator@example.com', 'monitorLimit': 50,

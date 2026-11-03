@@ -10,6 +10,7 @@ import urllib.error
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from playbooks.istio.files.kube import get, kube, application_ready, condition, wait
 from playbooks.keycloak.files.health import direct_https
+from playbooks.observability.files.dashboards import substitute, variable_queries
 
 NAMESPACE = 'cloudlab-observability'
 
@@ -122,11 +123,7 @@ def dashboards_ready(origin, gateway, headers, dashboards):
             return False
         for panel in expected['panels']:
             for target in panel['targets']:
-                expression = target['expr']
-                for variable, value in (('$__rate_interval', '2m'), ('$__range', '6h'),
-                                        ('$namespace', '.*'), ('$pod', '.*'), ('$instance', '.*'),
-                                        ('$service', '.*'), ('$rollout', '.*'), ('$route', '.*'), ('$traffic', 'user|release')):
-                    expression = expression.replace(variable, value)
+                expression = substitute(target['expr'], expected)
                 datasource = panel['datasource']['uid']
                 parameters = {'query': expression}
                 if datasource == 'logs':
@@ -136,6 +133,10 @@ def dashboards_ready(origin, gateway, headers, dashboards):
                 result = proxy(origin, gateway, headers, datasource, endpoint + query)
                 if result.get('status') != 'success':
                     raise RuntimeError('Dashboard query failed')
+        for expression in variable_queries(expected):
+            query = urllib.parse.urlencode({'query': substitute(expression, expected)})
+            if proxy(origin, gateway, headers, 'metrics', '/api/v1/query?' + query).get('status') != 'success':
+                raise RuntimeError('Dashboard variable query failed')
     for uid in ('notes-user-slo', 'cloudlab-overview', 'cloudlab-workloads', 'cloudlab-notes'):
         status, _ = direct_https(origin + '/api/dashboards/uid/' + uid, gateway, headers)
         if status != 404:
@@ -164,6 +165,9 @@ def run(payload):
     storage(claims, volumes)
     collector = get('configmap', 'cloudlab-alloy', NAMESPACE)['data']['config.alloy']
     if collector != payload['collector']: raise RuntimeError('Telemetry collector differs from its redacted committed pipeline')
+    if (get('configmap', 'cloudlab-dashboards', NAMESPACE).get('metadata', {}).get('annotations', {}).get(
+            'cloudlab.io/service-catalog-revision') != payload['service_catalog_revision']):
+        raise RuntimeError('Service dashboards differ from their reviewed private catalog snapshot')
     for configurations in payload['backend_configurations'].values():
         for name, data in configurations.items():
             if get('configmap', name, NAMESPACE)['data'] != data:
