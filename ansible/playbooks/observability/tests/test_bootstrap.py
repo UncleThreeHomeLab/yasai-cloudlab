@@ -15,13 +15,17 @@ class BootstrapTests(unittest.TestCase):
         current['metadata'].update(uid='owned', resourceVersion='7')
         current['spec']['unrelated'] = {'retain': True}
         payload['revision'] = 'b' * 40
+        payload['components']['prometheus'] = {'large': 'x' * 150000}
         with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
                 patch('playbooks.observability.files.bootstrap.kube') as mutate, \
                 patch('playbooks.observability.files.bootstrap.wait'):
             self.assertTrue(seed(payload, 'prometheus'))
         args = mutate.call_args.args
         self.assertEqual(args[0], 'patch')
-        patches = json.loads(args[-1])
+        self.assertEqual(args[-2:], ('--patch-file', '/dev/stdin'))
+        self.assertLess(sum(len(arg) for arg in args), 1024)
+        patches = mutate.call_args.kwargs['document']
+        self.assertGreater(len(json.dumps(patches)), 131072)
         self.assertEqual(patches[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'owned'},
                                       {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '7'}])
         self.assertEqual([p['path'] for p in patches[2:]], ['/spec/source'])

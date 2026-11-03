@@ -91,7 +91,7 @@ def seed(payload, name):
             patches += [{'op': 'add', 'path': '/spec/' + key, 'value': value}
                         for key, value in desired['spec'].items() if not contains(current['spec'].get(key), value)]
             kube('patch', 'application.argoproj.io', desired['metadata']['name'], '-n', 'argocd',
-                 '--type=json', '--field-manager=' + OWNER, '-p', json.dumps(patches))
+                 '--type=json', '--field-manager=' + OWNER, '--patch-file', '/dev/stdin', document=patches)
     def ready():
         if name != 'configuration': return application_ready(desired['metadata']['name'], payload['revision'])
         # Private routes cannot resolve backend references before child charts exist.
