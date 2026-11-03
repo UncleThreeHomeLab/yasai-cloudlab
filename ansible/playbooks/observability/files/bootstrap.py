@@ -50,9 +50,8 @@ def history_patches(current):
                 row.get('source', {}).get('path') != source['path'] for row in history)):
         raise RuntimeError('Telemetry history retention refuses foreign ownership or source')
     return [{'op': 'test', 'path': '/metadata/uid', 'value': metadata['uid']},
-            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']},
-            {'op': 'test', 'path': '/status/history', 'value': history},
-            {'op': 'replace', 'path': '/status/history', 'value': history[-1:]}]
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']}] + [
+            {'op': 'remove', 'path': '/status/history/0'} for _ in history[:-1]]
 
 
 def compact_history():

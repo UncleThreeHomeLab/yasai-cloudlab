@@ -1,4 +1,5 @@
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,7 +19,11 @@ class BootstrapTests(unittest.TestCase):
         patches = history_patches(current)
         self.assertEqual(patches[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'owned'},
                                       {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '7'}])
-        self.assertEqual(patches[-1], {'op': 'replace', 'path': '/status/history', 'value': current['status']['history'][-1:]})
+        self.assertEqual(patches[-1], {'op': 'remove', 'path': '/status/history/0'})
+        large = copy.deepcopy(current)
+        for row in large['status']['history']:
+            row['source']['helm']['valuesObject'] = {'large': 'x' * 400000}
+        self.assertLess(len(json.dumps(history_patches(large))), 1024)
         for change in ('owner', 'repository', 'path', 'application'):
             other = copy.deepcopy(current)
             if change == 'owner': other['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
