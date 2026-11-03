@@ -55,8 +55,7 @@ spec:
       engineVersion: v2
       type: kubernetes.io/dockerconfigjson
       data:
-        .dockerconfigjson: >-
-          {"auths":{"{{ (splitList "/" .image) | first }}":{"username":{{ "{{ .username | toJson }}" }},"password":{{ "{{ .password | toJson }}" }}}}
+        .dockerconfigjson: {{ printf "{{ dict %q (dict %q (dict %q .username %q .password)) | toJson }}" "auths" ((splitList "/" .image) | first) "username" "password" | quote }}
   dataFrom: [{extract: {key: harbor-cloudlab-private-pull}}]
 {{- end }}
 {{- end }}
