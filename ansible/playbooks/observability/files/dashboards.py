@@ -47,7 +47,9 @@ def substitute(expression, dashboard=None):
     if dashboard:
         for variable in dashboard.get('templating', {}).get('list', []):
             if variable['name'] == 'component':
-                replacements['component'] = json.dumps(re.escape(variable['current']['value']))[1:-1]
+                current = variable.get('current', {}).get('value')
+                if current:
+                    replacements['component'] = json.dumps(re.escape(current))[1:-1]
     for name, value in replacements.items():
         expression = expression.replace('${' + name + ':regex}', value).replace('$' + name, value)
     if re.search(r'\$(?:\{|[A-Za-z_])', expression):
@@ -73,7 +75,7 @@ def ownership(service, selected=False):
     return '(' + pod + ' * on(namespace,replicaset) group_left(component) ' + rs + ')'
 
 
-def replicas(service, available=False):
+def replicas(service, available=False, selected=False):
     rows = []
     for row in service['workloads']:
         if row['kind'] == 'Deployment':
@@ -83,13 +85,37 @@ def replicas(service, available=False):
             metric = 'cloudlab_rollout_replicas_' + ('available' if available else 'desired')
             selector = 'rollout'
         raw = metric + '{namespace=' + json.dumps(service['namespace']) + ',' + selector + '=' + json.dumps(row['name']) + '}'
+        if selected:
+            raw = raw[:-1] + ',' + selector + '=~"${component:regex}"}'
         fresh = '(' + raw + ' and (time() - timestamp(' + raw + ') < 120))'
         stale = '(0 * last_over_time(' + raw + '[10m]) - 2)'
         # Keep every approved component visible; negative values are explicitly unknown/stale.
         observed = 'max by(component) (label_replace((' + fresh + ' or ' + stale + '), "component", ' + json.dumps(row['name']) + ', "' + selector + '", ".*"))'
         missing = 'label_replace(vector(-1), "component", ' + json.dumps(row['name']) + ', "", "")'
-        rows.append('(' + observed + ' or on(component) ' + missing + ')')
+        rows.append(observed if selected else '(' + observed + ' or on(component) ' + missing + ')')
     return '(' + ' or '.join(rows) + ')'
+
+
+def service_readiness(service):
+    desired, ready = replicas(service), replicas(service, True)
+    complete = '(min(' + ready + ') >= 0) and (min(' + desired + ') >= 0)'
+    ratio = '(min((' + ready + ' >= 0) / on(component) (' + desired + ' > 0)) and ' + complete + ')'
+    status = ('(0 * (' + ratio + ' < 1)) or (1 + 0 * (' + ratio + ' >= 1)) or '
+              '(2 + 0 * ((sum(' + desired + ') == 0) and ' + complete + ')) or vector(-1)')
+    counts = ['((sum(' + value + ') and ' + complete + ') or vector(-1))' for value in (ready, desired)]
+    return status, *counts
+
+
+def component_priority(service):
+    desired, ready = replicas(service), replicas(service, True)
+    return ('((-100000 + 0 * (' + ready + ' < 0)) or (-100000 + 0 * (' + desired + ' < 0)) or '
+            '((' + ready + ' >= 0) - on(component) (' + desired + ' >= 0)))')
+
+
+def readiness_mappings():
+    return {'type': 'value', 'options': {'-1': {'text': 'UNKNOWN', 'color': 'gray'},
+        '0': {'text': 'Unready', 'color': 'red'}, '1': {'text': 'Ready', 'color': 'green'},
+        '2': {'text': 'Scaled to zero', 'color': 'gray'}}}
 
 
 def measured(service, metric, selected=False, detail=False, rate=False):
@@ -119,38 +145,25 @@ def panel(identifier, title, expressions, unit, kind='timeseries', fields=None, 
         'options': {'legend': {'displayMode': 'table', 'placement': 'bottom'}},
         'description': description or 'Only approved owned workloads. Missing or stale telemetry is not healthy zero.',
         'targets': [{'refId': chr(65 + index), 'expr': expression, 'legendFormat': '{{component}}' if not title.startswith('Selected pod') else '{{container}}',
-                     **({'format': 'table', 'instant': True} if kind == 'table' else
+                     **({'format': 'table', 'instant': True, 'range': False} if kind == 'table' else
                         {'instant': True, 'range': False} if kind == 'stat' else {})}
                     for index, expression in enumerate(expressions)]}
     if kind == 'table':
-        labels = {'All component replicas': ('Desired', 'Available'),
-                  'All component readiness and restarts': ('Ready pods', 'Restarts / second'),
-                  'All component CPU and memory': ('CPU cores', 'Memory bytes')}[title]
         result['transformations'] = [{'id': 'merge', 'options': {}},
             {'id': 'filterFieldsByName', 'options': {'include': {'names': fields}}},
-            {'id': 'sortBy', 'options': {'sort': [{'field': 'Value #C' if title == 'All component replicas' else 'Value #B', 'desc': False}]}},
-            {'id': 'organize', 'options': {'renameByName': {'Value #A': labels[0], 'Value #B': labels[1], 'Value #C': 'Replica gap'}}}]
-        if title == 'All component CPU and memory':
-            result['fieldConfig']['overrides'] = [
-                {'matcher': {'id': 'byName', 'options': name}, 'properties': [{'id': 'unit', 'value': unit}]}
-                for name, unit in zip(labels, ('cores', 'bytes'))]
+            {'id': 'sortBy', 'options': {'sort': [{'field': 'Value #A', 'desc': False}]}},
+            {'id': 'organize', 'options': {'renameByName': {'service': 'Service', 'Value #A': 'Readiness',
+                'Value #B': 'Ready', 'Value #C': 'Desired'}}}]
     return result
 
 
 def build(service):
     validate([service])
-    desired, available = replicas(service), replicas(service, True)
-    ready = measured(service, 'kube_pod_status_ready')
-    restarts = measured(service, 'kube_pod_container_status_restarts_total', rate=True)
-    cpu = measured(service, 'container_cpu_usage_seconds_total', rate=True)
-    memory = measured(service, 'container_memory_working_set_bytes')
-    panels = [panel(1, 'Replica availability (readiness only)',
-        ['min((' + available + ' >= 0) / on(component) (' + desired + ' > 0)) and (min(' + available + ') >= 0) and (min(' + desired + ') >= 0)'], 'percentunit', 'stat',
-        description='Readiness is not functional health. Components without probes need application-specific evidence.'),
-        panel(2, 'All component replicas', [desired, available, '(' + available + ' >= 0) - on(component) (' + desired + ' >= 0)'],
-              'short', 'table', ['component', 'Value #A', 'Value #B', 'Value #C']),
-        panel(3, 'All component readiness and restarts', [ready, restarts], 'short', 'table', ['component', 'Value #A', 'Value #B']),
-        panel(4, 'All component CPU and memory', [cpu, memory], 'short', 'table', ['component', 'Value #A', 'Value #B']),
+    panels = [panel(1, 'Service readiness', [service_readiness(service)[0]], 'short', 'stat',
+        description='All approved components. UNKNOWN includes missing/stale evidence. Readiness is not functional health.'),
+        panel(2, 'Component ready / desired', [replicas(service, True, True), replicas(service, False, True)], 'short', 'stat',
+              description='Selected component only. Ready counts available controller replicas; readiness does not prove application behavior.'),
+        panel(3, 'Component restarts per second', [measured(service, 'kube_pod_container_status_restarts_total', True, rate=True)], 'ops'),
         panel(5, 'Component CPU', [measured(service, 'container_cpu_usage_seconds_total', True, rate=True)], 'cores'),
         panel(6, 'Component memory', [measured(service, 'container_memory_working_set_bytes', True)], 'bytes'),
         panel(7, 'Selected pod CPU', [measured(service, 'container_cpu_usage_seconds_total', True, True, True)], 'cores'),
@@ -160,24 +173,21 @@ def build(service):
     policy = definition()
     if policy['service'] in {w['name'] for w in service['workloads']}:
         panels.extend(performance(service, policy))
-    component = policy['service'] if policy['service'] in {w['name'] for w in service['workloads']} else service['workloads'][0]['name']
-    if len(panels) == 12:
-        positions = {1: (0, 0, 12), 10: (12, 0, 12), 11: (0, 8, 12), 12: (12, 8, 12),
-                     2: (0, 16, 24), 3: (0, 24, 12), 4: (12, 24, 12), 5: (0, 32, 12),
-                     6: (12, 32, 12), 7: (0, 40, 12), 8: (12, 40, 12), 9: (0, 48, 12)}
-        for item in panels:
-            x, y, width = positions[item['id']]
-            item['gridPos'].update(x=x, y=y, w=width)
-    else:
-        positions = {1: (0, 0, 24, 4), 2: (0, 4, 24, 8), 3: (0, 12, 12, 8),
-                     4: (12, 12, 12, 8), 5: (0, 20, 12, 8), 6: (12, 20, 12, 8),
-                     7: (0, 28, 12, 8), 8: (12, 28, 12, 8), 9: (0, 36, 12, 8)}
-        for item in panels:
-            x, y, width, height = positions[item['id']]
-            item['gridPos'].update(x=x, y=y, w=width, h=height)
-    variables = [{'name': 'component', 'label': 'Component', 'type': 'custom',
-        'query': ','.join(row['name'] for row in service['workloads']), 'current': {'text': component, 'value': component},
-        'includeAll': False, 'multi': False}]
+    panels[0]['fieldConfig']['defaults']['mappings'][-1] = readiness_mappings()
+    panels[0]['targets'][0]['legendFormat'] = 'Readiness'
+    for target, legend in zip(panels[1]['targets'], ('Ready', 'Desired')):
+        target['legendFormat'] = legend
+    offset = 7 if len(panels) == 11 else 0
+    positions = {1: (0, 0, 8, 4), 2: (8, 0, 16, 4), 3: (0, 4 + offset, 24, 6),
+                 5: (0, 10 + offset, 12, 7), 6: (12, 10 + offset, 12, 7),
+                 7: (0, 17 + offset, 12, 7), 8: (12, 17 + offset, 12, 7), 9: (0, 24 + offset, 24, 6),
+                 10: (0, 4, 8, 7), 11: (8, 4, 8, 7), 12: (16, 4, 8, 7)}
+    for item in panels:
+        x, y, width, height = positions[item['id']]
+        item['gridPos'].update(x=x, y=y, w=width, h=height)
+    variables = [{'name': 'component', 'label': 'Component', 'type': 'query', 'datasource': SOURCE,
+        'query': 'query_result(sort(' + component_priority(service) + '))', 'regex': '/component="([^\"]+)"/',
+        'refresh': 2, 'sort': 0, 'current': {}, 'includeAll': False, 'multi': False}]
     pod_query = 'query_result(count by(pod) (' + ownership(service, True) + '))'
     container_query = 'query_result(' + measured(service, 'kube_pod_container_info', True, True) + ')'
     # Container options must not depend on their own current selection.
@@ -192,7 +202,34 @@ def build(service):
         'Approved service workloads only. Readiness and resources do not prove application behavior. '
         'UNKNOWN means missing evidence; STALE means last controller evidence is older than 120s. '
         'No application performance panels means accepted HTTP/worker instrumentation is unavailable.',
-        'templating': {'list': variables}, 'links': [{'type': 'link', 'title': 'Nodes', 'url': '/d/cloudlab-nodes'}], 'panels': panels}
+        'templating': {'list': variables}, 'links': [
+            {'type': 'link', 'title': 'Services', 'url': '/d/cloudlab-service-overview'},
+            {'type': 'link', 'title': 'Nodes', 'url': '/d/cloudlab-nodes'}], 'panels': panels}
+
+
+def overview(services):
+    validate(services)
+    expressions = []
+    for index in range(3):
+        rows = ['label_replace((' + service_readiness(service)[index] + '), "service", ' +
+                json.dumps(service['name']) + ', "", "")' for service in services]
+        expressions.append(' or '.join(rows) if rows else 'vector(0) unless vector(0)')
+    table = panel(1, 'Service readiness', expressions, 'short', 'table', ['service', 'Value #A', 'Value #B', 'Value #C'])
+    table['gridPos'].update(x=0, y=0, w=24, h=max(5, min(16, 3 + len(services))))
+    for target in table['targets']:
+        target['legendFormat'] = '{{service}}'
+    table['fieldConfig']['overrides'] = [
+        {'matcher': {'id': 'byName', 'options': 'Service'}, 'properties': [{'id': 'links', 'value': [
+            {'title': 'Open service', 'url': '/d/svc-${__value.raw}', 'targetBlank': False}]}]},
+        {'matcher': {'id': 'byName', 'options': 'Readiness'}, 'properties': [
+            {'id': 'mappings', 'value': [readiness_mappings()]}]}]
+    table['description'] = ('One row per active catalog service; UNKNOWN/unready first. Ready means available controller replicas, '
+        'not functional application health. Missing/stale counts remain UNKNOWN. Alert counts are unavailable without accepted service attribution and evaluation coverage.')
+    return {'schemaVersion': 41, 'uid': 'cloudlab-service-overview', 'title': 'Services', 'editable': False,
+        'version': 1, 'tags': ['cloudlab', 'service'], 'timezone': 'browser', 'refresh': '30s',
+        'time': {'from': 'now-6h', 'to': 'now'}, 'description': table['description'],
+        'templating': {'list': []}, 'links': [{'type': 'link', 'title': 'Nodes', 'url': '/d/cloudlab-nodes'},
+            {'type': 'link', 'title': 'Rollouts', 'url': '/d/cloudlab-rollouts'}], 'panels': [table]}
 
 
 def performance(service, policy):
@@ -229,6 +266,7 @@ def generated(services):
     validate(services)
     result = {'svc-' + row['name'] + '.json': json.dumps(build(row), sort_keys=True, indent=2) + '\n'
               for row in services}
+    result['service-overview.json'] = json.dumps(overview(services), sort_keys=True, indent=2) + '\n'
     if sum(len(raw.encode()) for raw in result.values()) > 768 * 1024:
         raise ValueError('Generated service dashboards exceed their ConfigMap budget')
     return result

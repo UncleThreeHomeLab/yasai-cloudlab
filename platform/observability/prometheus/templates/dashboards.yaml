@@ -13,7 +13,7 @@ data:
 {{ $.Files.Get $path | indent 4 }}
 {{- end }}
 {{- range $name, $raw := .Values.serviceDashboards | default dict }}
-{{- if or (not (regexMatch "^svc-[a-z][a-z0-9-]{0,30}[.]json$" $name)) ($.Files.Get (printf "dashboards/%s" $name)) }}
+{{- if or (not (regexMatch "^(svc-[a-z][a-z0-9-]{0,30}|service-overview)[.]json$" $name)) ($.Files.Get (printf "dashboards/%s" $name)) }}
 {{- fail "Service dashboard filename is invalid or conflicts with public inventory" }}
 {{- end }}
   {{ $name }}: |

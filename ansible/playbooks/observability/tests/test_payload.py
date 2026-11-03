@@ -36,7 +36,7 @@ class PayloadTests(unittest.TestCase):
         value = compile_payload({'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40},
                                 metadata, service_bindings(), 'b' * 40)
         prometheus = value['components']['prometheus']
-        self.assertEqual(set(prometheus['serviceDashboards']), {'svc-example-notes.json', 'svc-example-worker.json'})
+        self.assertEqual(set(prometheus['serviceDashboards']), {'service-overview.json', 'svc-example-notes.json', 'svc-example-worker.json'})
         self.assertEqual(prometheus['serviceCatalogRevision'], 'b' * 40)
         self.assertNotIn('secret', json.dumps(prometheus['serviceDashboards']))
         with self.assertRaises(ValueError): compile_payload({'repository': 'fixture', 'revision': 'a' * 40}, metadata, [], 'main')

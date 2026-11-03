@@ -8,7 +8,7 @@ from playbooks.observability.files.chart import render
 from playbooks.observability.files.configuration import grafana
 from playbooks.observability.files.values import values
 from playbooks.observability.files.verify import dashboards_ready, release_state_matches
-from playbooks.observability.files.dashboards import build, projection, generated, inventory, substitute, query_rules
+from playbooks.observability.files.dashboards import build, projection, generated, inventory, substitute, query_rules, overview
 from playbooks.observability.tests.fixtures import service_bindings, service_visibility_tests
 
 
@@ -16,6 +16,26 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 class DashboardTests(unittest.TestCase):
+    def test_runtime_queries_both_levels_and_unsaved_component_variables(self):
+        expected = {'overview': overview(service_bindings()), 'detail': build(service_bindings()[1])}
+        responses = [(200, json.dumps({'meta': {'provisioned': True}, 'dashboard': board}).encode())
+                     for board in expected.values()] + [(404, b'{}')] * 5
+        with patch('playbooks.observability.files.verify.direct_https', side_effect=responses), \
+                patch('playbooks.observability.files.verify.proxy', return_value={'status': 'success'}) as query:
+            self.assertTrue(dashboards_ready('https://grafana.example.invalid', 'fixture', {}, expected))
+        from urllib.parse import parse_qs, urlsplit
+        expressions = [parse_qs(urlsplit(call.args[-1]).query)['query'][0] for call in query.call_args_list]
+        self.assertTrue(any('sort(' in expression for expression in expressions))
+        self.assertTrue(all('${' not in expression for expression in expressions))
+        self.assertTrue(all('namespace="fixture"' in expression for expression in expressions))
+
+    def test_overview_height_is_bounded_and_empty_catalog_has_no_fake_service(self):
+        self.assertEqual(overview([])['panels'][0]['gridPos']['h'], 5)
+        services = [{'name': 'service-' + str(index), 'namespace': 'fixture',
+                     'workloads': [{'name': 'workload-' + str(index), 'kind': 'Deployment'}]} for index in range(20)]
+        self.assertEqual(overview(services)['panels'][0]['gridPos']['h'], 16)
+        self.assertEqual(overview([])['templating'], {'list': []})
+
     def test_runtime_service_views_render_owned_rollouts_and_deployments_without_changing_static_boards(self):
         services = service_bindings()
         dynamic = generated(services)
@@ -23,13 +43,35 @@ class DashboardTests(unittest.TestCase):
                       if obj['kind'] == 'ConfigMap' and obj['metadata']['name'] == 'cloudlab-dashboards')
         self.assertEqual(config['data'], inventory(services))
         self.assertEqual(config['metadata']['annotations']['cloudlab.io/service-catalog-revision'], 'a' * 40)
-        for raw in dynamic.values():
+        for name, raw in dynamic.items():
             board = json.loads(raw)
             self.assertFalse(board['editable'])
+            if name == 'service-overview.json':
+                self.assertEqual(board['uid'], 'cloudlab-service-overview')
+                self.assertEqual(len(board['panels']), 1)
+                table, = board['panels']
+                self.assertEqual(table['type'], 'table')
+                self.assertEqual(table['gridPos']['w'], 24)
+                self.assertEqual(table['gridPos']['h'], 5)
+                for target in table['targets']:
+                    self.assertTrue(target['instant'])
+                    self.assertFalse(target['range'])
+                    self.assertNotIn('container_', target['expr'])
+                    self.assertNotIn('kube_pod_', target['expr'])
+                    self.assertNotIn('ALERTS', target['expr'])
+                self.assertIn('/d/svc-${__value.raw}', json.dumps(table['fieldConfig']['overrides']))
+                self.assertEqual(table['transformations'][2]['options']['sort'], [{'field': 'Value #A', 'desc': False}])
+                continue
             self.assertTrue(board['uid'].startswith('svc-'))
             self.assertLessEqual(len(board['panels']), 12)
-            summary, = [panel for panel in board['panels'] if panel['type'] == 'stat']
-            self.assertTrue(all(target['instant'] and target['range'] is False for target in summary['targets']))
+            self.assertTrue(all(target['instant'] and target['range'] is False for panel in board['panels']
+                                if panel['type'] == 'stat' for target in panel['targets']))
+            self.assertFalse(any(panel['type'] == 'table' for panel in board['panels']))
+            component = board['templating']['list'][0]
+            self.assertEqual(component['sort'], 0)
+            self.assertEqual(component['current'], {})
+            self.assertTrue(component['query'].startswith('query_result(sort('))
+            self.assertTrue(any(link['url'] == '/d/cloudlab-service-overview' for link in board['links']))
             for variable in board['templating']['list']:
                 self.assertFalse(variable['multi'])
                 self.assertFalse(variable['includeAll'])
@@ -41,19 +83,18 @@ class DashboardTests(unittest.TestCase):
                 for target in panel['targets']:
                     self.assertNotIn('kube_pod_labels', target['expr'])
                     self.assertNotIn('or vector(0)', target['expr'])
-                    if panel['id'] <= 4:
+                    if panel['id'] == 1:
                         self.assertNotIn('${component', target['expr'])
             self.assertTrue(query_rules([board])['groups'][0]['rules'])
         worker = json.loads(dynamic['svc-example-worker.json'])
-        self.assertEqual(len(worker['panels']), 9)
-        self.assertEqual(worker['panels'][0]['gridPos'], {'x': 0, 'y': 0, 'w': 24, 'h': 4})
-        self.assertEqual(worker['panels'][1]['gridPos'], {'x': 0, 'y': 4, 'w': 24, 'h': 8})
+        self.assertEqual(len(worker['panels']), 8)
+        self.assertEqual(worker['panels'][0]['gridPos'], {'x': 0, 'y': 0, 'w': 8, 'h': 4})
         self.assertNotIn('cloudlab_http_', json.dumps(worker))
         notes = json.loads(dynamic['svc-example-notes.json'])
-        self.assertEqual(notes['panels'][1]['gridPos'], {'x': 0, 'y': 16, 'w': 24, 'h': 8})
-        self.assertIn('owner_kind="Rollout"', notes['panels'][4]['targets'][0]['expr'])
-        self.assertIn('owner_name=~"notes-api"', notes['panels'][4]['targets'][0]['expr'])
-        self.assertIn('traffic="user"', notes['panels'][9]['targets'][0]['expr'])
+        panels = {panel['id']: panel for panel in notes['panels']}
+        self.assertIn('owner_kind="Rollout"', panels[5]['targets'][0]['expr'])
+        self.assertIn('owner_name=~"notes-api"', panels[5]['targets'][0]['expr'])
+        self.assertIn('traffic="user"', panels[10]['targets'][0]['expr'])
         self.assertTrue(service_visibility_tests())
 
     def test_catalog_projection_includes_ready_without_ingress_and_rejects_ambiguous_or_injected_scope(self):
@@ -75,7 +116,7 @@ class DashboardTests(unittest.TestCase):
             with self.assertRaises(ValueError): build(invalid)
         with self.assertRaises(ValueError): generated([result[0], result[0]])
         with self.assertRaises(ValueError): substitute('metric{scope="$unsupported"}')
-        query = substitute(build(result[0])['panels'][4]['targets'][0]['expr'])
+        query = substitute(next(panel for panel in build(result[0])['panels'] if panel['id'] == 5)['targets'][0]['expr'])
         self.assertIn('namespace="shared"', query)
         self.assertIn('owner_name=~"first"', query)
 
@@ -138,7 +179,7 @@ class DashboardTests(unittest.TestCase):
     def test_shared_services_view_is_retired_while_per_service_boards_remain(self):
         self.assertFalse((ROOT / 'platform/observability/prometheus/dashboards/services.json').exists())
         files = inventory(service_bindings())
-        self.assertEqual(set(files), {'nodes.json', 'releases.json', 'svc-example-notes.json', 'svc-example-worker.json'})
+        self.assertEqual(set(files), {'nodes.json', 'releases.json', 'service-overview.json', 'svc-example-notes.json', 'svc-example-worker.json'})
         self.assertNotIn('cloudlab-services', {json.loads(raw)['uid'] for raw in files.values()})
 
     def test_release_dashboard_distinguishes_configured_measured_idle_and_missing_data(self):
