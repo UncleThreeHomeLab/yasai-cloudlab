@@ -2,6 +2,7 @@
   "type": "object",
   "required": ["arc"],
   "properties": {
+    "applicationCapacity": {"type": "integer", "minimum": 1, "maximum": 8},
     "network": {
       "type": "object",
       "additionalProperties": false,

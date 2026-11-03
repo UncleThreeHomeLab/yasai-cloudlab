@@ -36,6 +36,7 @@ admission:
 ci:
   enabled: true
   poolEnabled: false
+  applicationCapacity: 3
 rollouts:
   enabled: true
 previews:

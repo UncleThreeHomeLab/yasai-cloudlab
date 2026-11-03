@@ -6,6 +6,20 @@ from playbooks.ci.files.chart import check, render
 
 
 class ControllerChartTests(unittest.TestCase):
+    def test_application_capacity_keeps_runner_budget_and_controller_rollout_headroom(self):
+        values = {'applicationCapacity': 3, 'network': {'enforce': False}, 'arc': {'image': {
+            'repository': 'registry.example.invalid/cloudlab-public/ci-controller',
+            'tag': '0.15.0@sha256:' + 'a' * 64}}}
+        objects = render(values)
+        quotas = {row['metadata']['name']: row['spec']['hard'] for row in objects if row['kind'] == 'ResourceQuota'}
+        self.assertEqual(quotas['controller-budget']['count/autoscalinglisteners.actions.github.com'], '6')
+        self.assertEqual(quotas['controller-budget']['pods'], '11')
+        self.assertEqual(quotas['controller-budget']['limits.memory'], '2816Mi')
+        self.assertEqual(quotas['runner-budget']['pods'], '1')
+        for capacity in (0, 9):
+            with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                render(dict(values, applicationCapacity=capacity))
+
     def test_additional_repository_controller_preserves_shared_ownership_and_scoped_roles(self):
         namespace = 'cloudlab-ci-public-example'
         objects = render({'network': {'enforce': False}, 'manageSystemNamespace': False, 'arc': {

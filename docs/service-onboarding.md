@@ -125,6 +125,12 @@ It does not enable jobs yet.
 
 ### 4.1 Check the existing CI platform — Agent
 
+Check the shared controller quota before adding a service. Public root
+`ci.applicationCapacity` reserves one controller and two listeners per application,
+plus the shared controller and one rollout slot. Increase this reviewed GitOps
+setting when the approved application count grows; keep runner job budgets unchanged.
+Never patch the live quota to bypass its declarative owner.
+
 1. Use a clean checkout of a reviewed, published platform revision.
    The generator rejects a dirty checkout or unpublished history.
 2. Check `ci.enabled: true` in
