@@ -264,9 +264,9 @@ def performance(service, policy):
 
 def generated(services):
     validate(services)
-    result = {'svc-' + row['name'] + '.json': json.dumps(build(row), sort_keys=True, indent=2) + '\n'
+    result = {'svc-' + row['name'] + '.json': json.dumps(build(row), sort_keys=True, separators=(',', ':')) + '\n'
               for row in services}
-    result['service-overview.json'] = json.dumps(overview(services), sort_keys=True, indent=2) + '\n'
+    result['service-overview.json'] = json.dumps(overview(services), sort_keys=True, separators=(',', ':')) + '\n'
     if sum(len(raw.encode()) for raw in result.values()) > 768 * 1024:
         raise ValueError('Generated service dashboards exceed their ConfigMap budget')
     return result

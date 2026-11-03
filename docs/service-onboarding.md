@@ -2,6 +2,11 @@
 
 Follow these steps for an application built on lab runners.
 Use the [service contract](../charts/service/README.md) for deployment inputs.
+Complete the dashboard stage as well as CI and publication. Report unfinished
+requirements and explicit user waivers before declaring onboarding complete.
+Identify all runtime processes, including queue consumers and webhook dispatchers,
+and deploy their approved entry points. HTTP readiness does not prove background
+work is running; verify a requested job advances beyond the queue.
 
 **User:** make manual GitHub changes and review PRs.
 **Agent:** prepare configuration, open PRs and verify deployment.
@@ -1097,6 +1102,12 @@ all detail boards link back, and selectors exclude unrelated workloads.
    to `cloudlab-dashboards` beside static boards. A ConfigMap annotation retains catalog SHA.
    Onboarding changes require the explicit observability owner apply below; no automatic
    catalog watcher exists. Argo continuously repairs the compiled dashboard snapshot.
+   Dashboard JSON is compact and telemetry Applications retain one Argo history entry
+   to bound repeated inline source snapshots. Git retains configuration recovery.
+   The source owner rejects oversized payloads before applying them. For an existing
+   size-blocked Prometheus operation, its versioned `bootstrap.py --compact-history`
+   recovery retains the newest history entry with exact ownership and version guards;
+   it does not change sources, the pending operation, dashboards or telemetry data.
    Preserve flat panels, bounded legends, private scope and explicit missing/stale states.
    Service boards allow at most 12 panels; Nodes/Rollouts keep their eight-panel cap.
    Keep the overview table within four fields; detail boards have no fleet tables.
