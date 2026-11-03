@@ -7,6 +7,25 @@ from playbooks.services.tests.fixtures import definition, approval
 
 
 class ContractTests(unittest.TestCase):
+    def test_confidential_oidc_extracts_item_and_delivers_only_scoped_client_secret(self):
+        value = definition()
+        value['exposure'] = {'class': 'private', 'access': 'tailnet',
+                             'hostname': 'synthetic.internal.example.invalid', 'path': '/', 'port': 8080}
+        value['oidc'] = {'enabled': True, 'realm': 'applications', 'client': 'synthetic', 'public': False,
+                         'audience': 'synthetic', 'scopes': ['profile'], 'callbackPaths': ['/oauth/callback'],
+                         'roleMapping': {'viewer': ['viewer']}, 'secretReference': 'synthetic-oidc'}
+        value['secrets'] = [{'name': 'synthetic-oidc', 'mountPath': '/secrets/oidc'}]
+        approved = approval()
+        approved['secretReferences'] = ['synthetic-oidc']
+        objects = resources(value, approved, 'https://github.com/example/platform.git', 'b' * 40)
+        secret = next(row for row in objects if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'synthetic-oidc')
+        self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'keycloak-client-secrets'}}])
+        template = secret['spec']['target']['template']
+        self.assertEqual(template['mergePolicy'], 'Replace')
+        self.assertEqual(set(template['data']), {'client_secret'})
+        self.assertIn('"applications"', template['data']['client_secret'])
+        self.assertIn('"synthetic"', template['data']['client_secret'])
+
     def test_minimal_and_persistent_render_has_no_platform_or_secret_owner(self):
         value = definition()
         for persistent in (False, True):
