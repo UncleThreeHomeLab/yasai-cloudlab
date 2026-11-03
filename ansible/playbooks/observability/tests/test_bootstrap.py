@@ -11,7 +11,7 @@ from playbooks.observability.files.bootstrap import application, seed, run, COMP
 class BootstrapTests(unittest.TestCase):
     def test_history_recovery_retains_latest_and_refuses_foreign_sources(self):
         current = application(self.payload(), 'prometheus')
-        self.assertEqual(current['spec']['revisionHistoryLimit'], 1)
+        self.assertEqual(current['spec']['revisionHistoryLimit'], 0)
         current['metadata'].update(uid='owned', resourceVersion='7')
         source = current['spec']['source']
         current['status'] = {'history': [{'id': 1, 'source': copy.deepcopy(source)},
@@ -24,6 +24,9 @@ class BootstrapTests(unittest.TestCase):
         for row in large['status']['history']:
             row['source']['helm']['valuesObject'] = {'large': 'x' * 400000}
         self.assertLess(len(json.dumps(history_patches(large))), 1024)
+        previous = copy.deepcopy(current)
+        previous['spec'].pop('revisionHistoryLimit')
+        self.assertIn({'op': 'add', 'path': '/spec/revisionHistoryLimit', 'value': 0}, history_patches(previous))
         for change in ('owner', 'repository', 'path', 'application'):
             other = copy.deepcopy(current)
             if change == 'owner': other['metadata']['labels']['cloudlab.io/owner'] = 'foreign'

@@ -27,7 +27,7 @@ def application(payload, name):
             'targetRevision': payload['revision'], 'path': 'platform/observability' + ('' if configuration else '/' + name),
             'helm': helm},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE},
-            'revisionHistoryLimit': 1,
+            'revisionHistoryLimit': 0 if name == 'prometheus' else 10,
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
                 'syncOptions': ['FailOnSharedResource=true', 'ServerSideApply=true', 'DisableClientSideApplyMigration=true'],
                 'retry': {'limit': 5, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '1m'}}}}}
@@ -36,8 +36,6 @@ def application(payload, name):
 def history_patches(current):
     """Retain newest controller history; Git remains the recovery source."""
     history = current.get('status', {}).get('history', [])
-    if len(history) <= 1:
-        return []
     metadata, spec = current['metadata'], current['spec']
     source = spec['source']
     if (metadata.get('labels', {}).get('cloudlab.io/owner') != OWNER or
@@ -49,9 +47,13 @@ def history_patches(current):
             any(row.get('source', {}).get('repoURL') != source.get('repoURL') or
                 row.get('source', {}).get('path') != source['path'] for row in history)):
         raise RuntimeError('Telemetry history retention refuses foreign ownership or source')
+    changes = ([{'op': 'add', 'path': '/spec/revisionHistoryLimit', 'value': 0}]
+               if spec.get('revisionHistoryLimit') != 0 else [])
+    changes += [{'op': 'remove', 'path': '/status/history/0'} for _ in history[:-1]]
+    if not changes:
+        return []
     return [{'op': 'test', 'path': '/metadata/uid', 'value': metadata['uid']},
-            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']}] + [
-            {'op': 'remove', 'path': '/status/history/0'} for _ in history[:-1]]
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': metadata['resourceVersion']}] + changes
 
 
 def compact_history():
@@ -63,7 +65,7 @@ def compact_history():
         if patches:
             kube('patch', 'application.argoproj.io', 'cloudlab-prometheus', '-n', 'argocd',
                  '--type=json', '-p', json.dumps(patches))
-        return {'changed': bool(patches), 'history_entries_retained': 1}
+        return {'changed': bool(patches), 'controller_history_disabled': True}
 
 
 def seed(payload, name):
