@@ -625,6 +625,15 @@ Private paths are relative to the `PRIVATE_CONFIG_REPOSITORY` checkout
 
 ### 6.2 Declare dependencies — Agent, then User
 
+For application SQL schemas, export reviewed, repeatable SQL from the application
+source and record its SHA-256. After scoped database provisioning, run
+`docker compose run -T --rm --entrypoint python lab -m playbooks.data.files.schema --service example-app --sql-file /workspace/.infra-private/onboarding/schema.sql --sha256 REVIEWED_SQL_SHA256`.
+The data owner verifies the current service scope and ready migration credential,
+then executes one TLS-verified transaction as that migration role. No migration
+credential reaches application pods. Configure the application to check its schema
+version instead of changing schemas at runtime. Reapply only reviewed SQL;
+destructive migrations require a separate explicit data scope.
+
 1. **Agent:** update the same entry in private `services/catalog.json`.
    Declare required SQL/S3 resources in `definition.data`, storage in
    `definition.persistence`, secret mounts in `definition.secrets`, and login in
