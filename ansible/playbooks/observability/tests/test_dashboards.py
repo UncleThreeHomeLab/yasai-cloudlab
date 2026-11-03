@@ -46,8 +46,11 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(query_rules([board])['groups'][0]['rules'])
         worker = json.loads(dynamic['svc-example-worker.json'])
         self.assertEqual(len(worker['panels']), 9)
+        self.assertEqual(worker['panels'][0]['gridPos'], {'x': 0, 'y': 0, 'w': 24, 'h': 4})
+        self.assertEqual(worker['panels'][1]['gridPos'], {'x': 0, 'y': 4, 'w': 24, 'h': 8})
         self.assertNotIn('cloudlab_http_', json.dumps(worker))
         notes = json.loads(dynamic['svc-example-notes.json'])
+        self.assertEqual(notes['panels'][1]['gridPos'], {'x': 0, 'y': 16, 'w': 24, 'h': 8})
         self.assertIn('owner_kind="Rollout"', notes['panels'][4]['targets'][0]['expr'])
         self.assertIn('owner_name=~"notes-api"', notes['panels'][4]['targets'][0]['expr'])
         self.assertIn('traffic="user"', notes['panels'][9]['targets'][0]['expr'])
@@ -102,7 +105,7 @@ class DashboardTests(unittest.TestCase):
                  (ROOT / 'platform/observability/prometheus/dashboards').glob('*.json')}
         self.assertEqual(config['data'], files)
         dashboards = [json.loads(raw) for raw in files.values()]
-        self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes', 'cloudlab-rollouts', 'cloudlab-services'})
+        self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes', 'cloudlab-rollouts'})
         settings = values('prometheus')['grafana']
         sources = {d['uid'] for d in settings['datasources']['datasources.yaml']['datasources']}
         for dashboard in dashboards:
@@ -132,22 +135,11 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(any(p['type'] == 'table' for p in nodes['panels']))
         self.assertTrue(any(link.get('url') == '/d/cloudlab-rollouts' for link in nodes['links']))
 
-    def test_service_view_uses_collected_workload_metrics_without_masking_missing_data(self):
-        dashboard = json.loads((ROOT / 'platform/observability/prometheus/dashboards/services.json').read_text())
-        namespace, = dashboard['templating']['list']
-        self.assertEqual(namespace['name'], 'namespace')
-        self.assertEqual(namespace['query'], 'label_values(kube_deployment_spec_replicas, namespace)')
-        self.assertEqual(namespace['current'], {'text': 'All', 'value': '$__all'})
-        self.assertIn('without readiness probes', dashboard['description'])
-        expressions = [target['expr'] for panel in dashboard['panels'] for target in panel['targets']]
-        self.assertEqual(len(expressions), 6)
-        for expression in expressions:
-            self.assertIn('namespace=~"$namespace"', expression)
-            self.assertNotIn('or vector(0)', expression)
-        for metric in ('kube_deployment_spec_replicas', 'kube_deployment_status_replicas_available',
-                       'kube_pod_status_ready', 'kube_pod_container_status_restarts_total',
-                       'container_cpu_usage_seconds_total', 'container_memory_working_set_bytes'):
-            self.assertTrue(any(metric in expression for expression in expressions))
+    def test_shared_services_view_is_retired_while_per_service_boards_remain(self):
+        self.assertFalse((ROOT / 'platform/observability/prometheus/dashboards/services.json').exists())
+        files = inventory(service_bindings())
+        self.assertEqual(set(files), {'nodes.json', 'releases.json', 'svc-example-notes.json', 'svc-example-worker.json'})
+        self.assertNotIn('cloudlab-services', {json.loads(raw)['uid'] for raw in files.values()})
 
     def test_release_dashboard_distinguishes_configured_measured_idle_and_missing_data(self):
         dashboard = json.loads((ROOT / 'platform/observability/prometheus/dashboards/releases.json').read_text())
@@ -182,7 +174,7 @@ class DashboardTests(unittest.TestCase):
     def test_runtime_rejects_stale_unmanaged_or_retained_dashboards_and_query_failures(self):
         expected = json.loads((ROOT / 'platform/observability/prometheus/dashboards/nodes.json').read_text())
         actual = {'meta': {'provisioned': True}, 'dashboard': copy.deepcopy(expected)}
-        responses = [(200, json.dumps(actual).encode())] + [(404, b'{}')] * 4
+        responses = [(200, json.dumps(actual).encode())] + [(404, b'{}')] * 5
         with patch('playbooks.observability.files.verify.direct_https', side_effect=responses), \
                 patch('playbooks.observability.files.verify.proxy', return_value={'status': 'success'}) as query:
             self.assertTrue(dashboards_ready('https://grafana.example.invalid', 'fixture', {}, {'nodes': expected}))
@@ -196,8 +188,8 @@ class DashboardTests(unittest.TestCase):
                 patch('playbooks.observability.files.verify.proxy', return_value={'status': 'error'}):
             with self.assertRaises(RuntimeError):
                 dashboards_ready('https://grafana.example.invalid', 'fixture', {}, {'nodes': expected})
-        for index in range(4):
-            retained = [(404, b'{}')] * 4
+        for index in range(5):
+            retained = [(404, b'{}')] * 5
             retained[index] = (200, b'{}')
             with self.subTest(retained=index), \
                     patch('playbooks.observability.files.verify.direct_https', side_effect=retained):

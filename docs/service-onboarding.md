@@ -947,9 +947,8 @@ with the current data state.
 
 Each active service requires its own dashboard. The observability owner generates
 private runtime JSON from the reviewed service catalog. Source repository visibility
-does not change this path. Keep the legacy shared Services board during migration;
-remove it only after replacement boards pass live verification. Nodes and Rollouts
-remain separate platform views.
+does not change this path. Use each service's generated board; the shared Services
+board is retired. Nodes and Rollouts remain separate platform views.
 
 ### 8.1 Choose the service view — User, then Agent
 
