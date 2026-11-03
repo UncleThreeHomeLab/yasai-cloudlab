@@ -9,6 +9,25 @@ from playbooks.observability.files.bootstrap import application, seed, run, COMP
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_owned_source_update_guards_identity_and_preserves_unrelated_fields(self):
+        payload = self.payload()
+        current = application(payload, 'prometheus')
+        current['metadata'].update(uid='owned', resourceVersion='7')
+        current['spec']['unrelated'] = {'retain': True}
+        payload['revision'] = 'b' * 40
+        with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
+                patch('playbooks.observability.files.bootstrap.kube') as mutate, \
+                patch('playbooks.observability.files.bootstrap.wait'):
+            self.assertTrue(seed(payload, 'prometheus'))
+        args = mutate.call_args.args
+        self.assertEqual(args[0], 'patch')
+        patches = json.loads(args[-1])
+        self.assertEqual(patches[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'owned'},
+                                      {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '7'}])
+        self.assertEqual([p['path'] for p in patches[2:]], ['/spec/source'])
+        self.assertEqual(patches[2]['value']['targetRevision'], payload['revision'])
+        self.assertEqual(current['spec']['unrelated'], {'retain': True})
+
     def test_history_recovery_retains_latest_and_refuses_foreign_sources(self):
         current = application(self.payload(), 'prometheus')
         self.assertEqual(current['spec']['revisionHistoryLimit'], 0)
