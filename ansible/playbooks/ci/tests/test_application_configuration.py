@@ -27,6 +27,18 @@ class ApplicationConfigurationTests(unittest.TestCase):
         rendered = render(values, chart=POOL, namespace='cloudlab-ci-private-example')
         secret = next(row for row in rendered if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'harbor-test-pull')
         self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'harbor-cloudlab-private-pull'}}])
+        import yaml
+        with tempfile.TemporaryDirectory() as temporary:
+            chart = Path(temporary)
+            (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: synthetic\nversion: 1.0.0\n')
+            (chart / 'templates').mkdir()
+            (chart / 'templates/result.yaml').write_text('data:\n  rendered: {{ tpl .Values.expression .Values.credential | quote }}\n')
+            credential = {'username': 'synthetic"robot', 'password': 'synthetic\\password'}
+            result = subprocess.run(['helm', 'template', 'synthetic', str(chart), '-f', '-'],
+                input=json.dumps({'expression': secret['spec']['target']['template']['data']['.dockerconfigjson'],
+                                  'credential': credential}), capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(yaml.safe_load(result.stdout)['data']['rendered']),
+                             {'auths': {'harbor.internal.example.invalid': credential}})
         application['testing']['image'] = application['testing']['image'].replace('cloudlab-private', 'cloudlab-public')
         with self.assertRaises(ValueError):
             application_configuration(qualified_tools(direct=True), application, current, workflows)
