@@ -32,10 +32,11 @@ def authority(entry, get):
             'cloudlab.io/owner': 'service-platform', 'cloudlab.io/composition': 'approved',
             'pod-security.kubernetes.io/enforce': 'privileged', 'pod-security.kubernetes.io/enforce-version': 'v1.36',
             'pod-security.kubernetes.io/audit': 'restricted', 'pod-security.kubernetes.io/warn': 'restricted',
-            'istio.io/dataplane-mode': 'ambient'}.items()) or
+            'istio.io/dataplane-mode': 'ambient', 'cloudlab.io/service-secrets': 'approved'}.items()) or
             not actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:')):
         raise RuntimeError('Composition namespace lacks its reviewed security owner')
     for name, owner in (('cloudlab-composition-namespace', 'cloudlab-workload-policy:'),
+                        ('cloudlab-workload-namespace', 'cloudlab-workload-policy:'),
                         ('cloudlab-workload-contract', 'cloudlab-workload-policy:'),
                         ('cloudlab-composition-' + approval['name'], 'cloudlab-services:')):
         policy = get('validatingpolicy.policies.kyverno.io', name)
@@ -117,7 +118,11 @@ def admission(entry, get, condition, kube):
     namespace = copy.deepcopy(get('namespace', entry['approval']['namespace']))
     namespace['metadata']['labels']['pod-security.kubernetes.io/audit'] = 'privileged'
     guard = kube('replace', '--dry-run=server', '-f', '-', document=namespace, allow_failure=True)
-    if not guard.returncode or 'cloudlab-composition-namespace' not in guard.stderr:
+    namespace_denial = any(re.search(r'(?<![\w.-])' + re.escape(name) + r'(?![\w.-])', guard.stderr) and message in guard.stderr
+        for name, message in (
+            ('cloudlab-composition-namespace', 'Composition namespace privileges require their ready fail-closed workload policy first.'),
+            ('cloudlab-workload-namespace', 'Application namespaces require Restricted Pod Security or their explicitly approved composition profile.')))
+    if not guard.returncode or not namespace_denial:
         raise RuntimeError('Composition namespace guard did not deny unreviewed security settings')
     target = pods[0]
     unchanged = copy.deepcopy(target)

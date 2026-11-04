@@ -5,6 +5,16 @@ import json
 from playbooks.ci.files.chart import POOL, render
 
 
+def namespace(name='cloudlab-app-proof', *, composition=False):
+    labels = {'cloudlab.io/owner': 'service-platform', 'istio.io/dataplane-mode': 'ambient',
+              'cloudlab.io/service-secrets': 'approved', 'pod-security.kubernetes.io/enforce': 'restricted',
+              'pod-security.kubernetes.io/enforce-version': 'v1.36'}
+    if composition:
+        labels.update({'cloudlab.io/composition': 'approved', 'pod-security.kubernetes.io/enforce': 'privileged',
+                       'pod-security.kubernetes.io/audit': 'restricted', 'pod-security.kubernetes.io/warn': 'restricted'})
+    return {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': name, 'labels': labels}}
+
+
 def runner():
     values = json.loads((POOL / 'values.json').read_text())
     values['arc']['githubConfigUrl'] = 'https://github.com/example/fixture'

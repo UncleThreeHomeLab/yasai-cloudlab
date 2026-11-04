@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from playbooks.admission.files import verify
+from playbooks.admission.tests.fixtures import namespace as namespace_document
 
 
 class VerificationTests(unittest.TestCase):
@@ -28,25 +29,62 @@ class VerificationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): verify.composition_guard()
 
     def test_privileged_namespace_needs_catalog_and_real_composition_verification(self):
-        namespace = {'metadata': {'name': 'cloudlab-app-composition', 'labels': {
-            'cloudlab.io/composition': 'approved', 'pod-security.kubernetes.io/enforce': 'privileged'}}}
+        namespace = namespace_document('cloudlab-app-composition', composition=True)
         entry = {'publication': 'ready', 'approval': {'namespace': namespace['metadata']['name'], 'composition': {'approved': True}}}
         with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [])
-        with patch('playbooks.services.files.composition_verify.admission', return_value={'ephemeral_denied': True}) as proof:
+        with patch.object(verify, 'namespace_admission'), patch('playbooks.services.files.composition_verify.admission', return_value={'ephemeral_denied': True}) as proof:
             self.assertEqual(verify.namespaces([namespace], True, [entry]), (1, 1, 0))
             self.assertEqual(proof.call_args.args[0], entry)
-        with patch('playbooks.services.files.composition_verify.admission', side_effect=RuntimeError('missing guard')):
+        with patch.object(verify, 'namespace_admission'), patch('playbooks.services.files.composition_verify.admission', side_effect=RuntimeError('missing guard')):
             with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [entry])
         with self.assertRaises(RuntimeError): verify.namespaces([], True, [entry])
         with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [entry, entry])
+        with self.assertRaises(RuntimeError): verify.namespaces([namespace_document(namespace['metadata']['name'])], True, [entry])
 
     def test_ordinary_restricted_namespaces_keep_existing_admission_proof(self):
-        namespace = {'metadata': {'name': 'cloudlab-app-notes', 'labels': {'pod-security.kubernetes.io/enforce': 'restricted'}}}
-        with patch.object(verify, 'admission') as admit, patch.object(verify, 'ephemeral_admission', return_value=True):
+        namespace = namespace_document('cloudlab-app-notes')
+        with patch.object(verify, 'namespace_admission') as guard, patch.object(verify, 'admission') as admit, patch.object(verify, 'ephemeral_admission', return_value=True):
             self.assertEqual(verify.namespaces([namespace], True, []), (1, 0, 1))
             admit.assert_called_once_with('cloudlab-app-notes', True)
+            guard.assert_called_once_with(namespace)
         namespace['metadata']['labels']['pod-security.kubernetes.io/enforce'] = 'privileged'
         with self.assertRaises(RuntimeError): verify.namespaces([namespace], True, [])
+
+    def test_namespace_candidates_cannot_hide_by_removing_owner_labels(self):
+        resource = namespace_document()
+        for labels in ({}, {'cloudlab.io/owner': 'foreign'}):
+            changed = copy.deepcopy(resource)
+            changed['metadata']['labels'] = labels
+            self.assertTrue(verify.namespace_candidate(changed))
+            with self.assertRaises(RuntimeError): verify.namespace_profile(changed)
+        unrelated = namespace_document('external-secrets')
+        unrelated['metadata']['labels'] = {'cloudlab.io/service-secrets': 'approved'}
+        self.assertFalse(verify.namespace_candidate(unrelated))
+        for labels in ({'cloudlab.io/owner': 'service-platform'}, {'cloudlab.io/composition': 'approved'}):
+            unrelated['metadata']['labels'] = labels
+            self.assertTrue(verify.namespace_candidate(unrelated))
+            with self.assertRaises(RuntimeError): verify.namespace_profile(unrelated)
+
+    def test_namespace_dry_runs_require_real_native_denial_and_preserve_input(self):
+        resource = namespace_document()
+        original = copy.deepcopy(resource)
+        accepted = subprocess.CompletedProcess([], 0, '', '')
+        denial = ('cloudlab-workload-namespace: Application namespaces must retain their platform owner, '
+                  'ambient capture, secret eligibility and pinned Pod Security labels.')
+        denied = subprocess.CompletedProcess([], 1, '', denial)
+        with patch.object(verify, 'kube', side_effect=[accepted, denied, denied]) as kube:
+            verify.namespace_admission(resource)
+            self.assertEqual(resource, original)
+            self.assertEqual(len(kube.call_args_list), 3)
+            for call in kube.call_args_list:
+                self.assertEqual(call.args[:2], ('replace', '--dry-run=server'))
+            self.assertEqual(kube.call_args_list[1].kwargs['document']['metadata']['labels'], {})
+        for results in ([denied], [accepted, accepted],
+                        [accepted, subprocess.CompletedProcess([], 1, '', denial.replace('namespace:', 'namespace-forged:'))],
+                        [accepted, subprocess.CompletedProcess([], 1, '', 'cloudlab-workload-namespace')],
+                        [accepted, subprocess.CompletedProcess([], 1, '', 'unrelated rejection')]):
+            with self.subTest(results=results), patch.object(verify, 'kube', side_effect=results):
+                with self.assertRaises(RuntimeError): verify.namespace_admission(resource)
 
     def test_layered_repository_denial_requires_the_exact_policy_rule_and_message(self):
         parts = ('application-artifacts', 'approved-repositories',
