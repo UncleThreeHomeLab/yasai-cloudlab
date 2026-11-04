@@ -1,0 +1,57 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-workload-namespace
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+  variables:
+    - name: labels
+      expression: 'has(object.metadata.labels) ? object.metadata.labels : {}'
+    - name: previousLabels
+      expression: 'oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}'
+    - name: selected
+      expression: >-
+        object.metadata.name.startsWith('cloudlab-app-') ||
+        ('cloudlab.io/owner' in variables.labels && variables.labels['cloudlab.io/owner'] == 'service-platform') ||
+        ('cloudlab.io/owner' in variables.previousLabels && variables.previousLabels['cloudlab.io/owner'] == 'service-platform') ||
+        'cloudlab.io/composition' in variables.labels || 'cloudlab.io/composition' in variables.previousLabels
+  validations:
+    - expression: >-
+        !variables.selected ||
+        (object.metadata.name.startsWith('cloudlab-app-') &&
+         ['cloudlab.io/owner', 'istio.io/dataplane-mode', 'cloudlab.io/service-secrets',
+          'pod-security.kubernetes.io/enforce', 'pod-security.kubernetes.io/enforce-version'].all(k, k in variables.labels) &&
+         variables.labels['cloudlab.io/owner'] == 'service-platform' &&
+         variables.labels['istio.io/dataplane-mode'] == 'ambient' &&
+         variables.labels['cloudlab.io/service-secrets'] == 'approved' &&
+         variables.labels['pod-security.kubernetes.io/enforce-version'] == 'v1.36')
+      message: Application namespaces must retain their platform owner, ambient capture, secret eligibility and pinned Pod Security labels.
+    - expression: >-
+        !variables.selected ||
+        ('cloudlab.io/composition' in variables.labels ?
+          (variables.labels['cloudlab.io/composition'] == 'approved' &&
+           'pod-security.kubernetes.io/enforce' in variables.labels &&
+           variables.labels['pod-security.kubernetes.io/enforce'] == 'privileged' &&
+           ['pod-security.kubernetes.io/audit', 'pod-security.kubernetes.io/warn'].all(k,
+             k in variables.labels && variables.labels[k] == 'restricted')) :
+          ('pod-security.kubernetes.io/enforce' in variables.labels &&
+           variables.labels['pod-security.kubernetes.io/enforce'] == 'restricted'))
+      message: Application namespaces require Restricted Pod Security or their explicitly approved composition profile.
+    - expression: >-
+        !variables.selected || request.operation != 'UPDATE' ||
+        ('cloudlab.io/owner' in variables.previousLabels && variables.previousLabels['cloudlab.io/owner'] == 'service-platform')
+      message: Existing foreign or unowned namespaces cannot be adopted into the service platform.

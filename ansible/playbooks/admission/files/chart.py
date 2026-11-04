@@ -78,10 +78,10 @@ def check():
     runner_actions = yaml.safe_load((BASE / 'policies/values.yaml').read_text())['runnerValidationActions']
     if (actions not in (['Audit', 'Warn'], ['Deny']) or runner_actions not in (['Audit', 'Warn'], ['Deny']) or
             {p['metadata']['name'] for p in policies} != {
-                'cloudlab-workload-contract', 'cloudlab-workload-ephemeral',
+                'cloudlab-workload-contract', 'cloudlab-workload-ephemeral', 'cloudlab-workload-namespace',
                 'cloudlab-ci-boundary', 'cloudlab-ci-runner', 'cloudlab-ci-namespace', 'cloudlab-composition-namespace',
                 'cloudlab-private-source-ownership', 'cloudlab-private-source-credentials'} or any(
-            policy['spec']['validationActions'] != (['Deny'] if policy['metadata']['name'] == 'cloudlab-composition-namespace' or policy['metadata']['name'].startswith('cloudlab-private-source-') else runner_actions if policy['metadata']['name'].startswith('cloudlab-ci-') else actions)
+            policy['spec']['validationActions'] != (['Deny'] if policy['metadata']['name'] in ('cloudlab-composition-namespace', 'cloudlab-workload-namespace') or policy['metadata']['name'].startswith('cloudlab-private-source-') else runner_actions if policy['metadata']['name'].startswith('cloudlab-ci-') else actions)
             for policy in policies)):
         raise ValueError('Workload policies must use their declared audit or enforcement mode')
     return {'runtime_images': len(images), 'cpu_limit_millicores': cpu, 'memory_limit_mib': memory,

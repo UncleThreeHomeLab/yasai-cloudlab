@@ -9,6 +9,9 @@ from playbooks.istio.files.kube import condition
 from playbooks.services.files import composition_verify as verification, transport
 from playbooks.services.tests.fixtures import composition_runtime
 
+NAMESPACE_DENIAL = ('cloudlab-composition-namespace: '
+    'Composition namespace privileges require their ready fail-closed workload policy first.')
+
 
 class CompositionVerificationTests(unittest.TestCase):
     def test_graph_runtime_rejects_label_selector_and_policy_drift(self):
@@ -29,7 +32,7 @@ class CompositionVerificationTests(unittest.TestCase):
         def kube(*args, document, allow_failure):
             calls.append((args, copy.deepcopy(document)))
             if document.get('kind') == 'Namespace':
-                return subprocess.CompletedProcess(args, 1, '', 'cloudlab-composition-namespace')
+                return subprocess.CompletedProcess(args, 1, '', NAMESPACE_DENIAL)
             spec = document['spec']
             denied = ('ephemeralContainers' in spec or spec.get('hostPID') or spec.get('automountServiceAccountToken') or
                 spec['containers'][0]['securityContext'].get('privileged') or
@@ -89,6 +92,9 @@ class CompositionVerificationTests(unittest.TestCase):
     def test_missing_stale_or_differently_owned_security_authority_fails(self):
         for kind, name, change in (
                 ('ValidatingPolicy', 'cloudlab-composition-namespace', lambda obj: obj.clear()),
+                ('ValidatingPolicy', 'cloudlab-workload-namespace', lambda obj: obj.clear()),
+                ('ValidatingPolicy', 'cloudlab-workload-namespace', lambda obj: obj['metadata'].update(generation=2)),
+                ('ValidatingPolicy', 'cloudlab-workload-namespace', lambda obj: obj['metadata']['annotations'].clear()),
                 ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj.clear()),
                 ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['metadata'].update(generation=2)),
                 ('ValidatingPolicy', 'cloudlab-workload-contract', lambda obj: obj['status'].clear()),
@@ -138,11 +144,12 @@ class CompositionVerificationTests(unittest.TestCase):
 
     def test_admission_uses_only_server_dry_runs_with_exact_positive_profile(self):
         entry, _, get = composition_runtime()
+        namespace_denial, namespace_code = NAMESPACE_DENIAL, 1
         def kube(*args, document, allow_failure):
             self.assertTrue(allow_failure)
             self.assertTrue('--dry-run=server' in args or any('dryRun=All' in arg for arg in args))
             if document.get('kind') == 'Namespace':
-                return subprocess.CompletedProcess(args, 1, '', 'cloudlab-composition-namespace')
+                return subprocess.CompletedProcess(args, namespace_code, '', namespace_denial)
             spec = document['spec']
             security = spec['containers'][0]['securityContext']
             if security.get('privileged') and security.get('allowPrivilegeEscalation') is False:
@@ -152,9 +159,16 @@ class CompositionVerificationTests(unittest.TestCase):
                 spec['containers'][0]['securityContext'].get('privileged') or
                 spec['containers'][0].get('command') == ['unapproved-command'])
             return subprocess.CompletedProcess(args, int(bool(denied)), '', 'cloudlab-composition-synthetic' if denied else '')
-        result = verification.admission(entry, get, condition, kube)
-        self.assertEqual(result['workloads_created'], 0)
-        self.assertTrue(result['ephemeral_denied'])
+        alternate = ('cloudlab-workload-namespace: Application namespaces require Restricted Pod Security '
+                     'or their explicitly approved composition profile.')
+        for namespace_denial in (NAMESPACE_DENIAL, alternate):
+            result = verification.admission(entry, get, condition, kube)
+            self.assertEqual(result['workloads_created'], 0)
+            self.assertTrue(result['ephemeral_denied'])
+        for namespace_denial, namespace_code in ((alternate, 0), (alternate.replace('namespace:', 'namespace-forged:'), 1),
+                ('cloudlab-workload-namespace', 1), (alternate.replace('Application namespaces', 'Unrelated namespaces'), 1)):
+            with self.subTest(denial=namespace_denial, code=namespace_code), self.assertRaises(RuntimeError):
+                verification.admission(entry, get, condition, kube)
         with self.assertRaises(RuntimeError):
             verification.admission(entry, get, condition, lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, '', 'unrelated API failure'))
 
@@ -173,7 +187,7 @@ class CompositionVerificationTests(unittest.TestCase):
                 self.assertTrue(allow_failure)
                 self.assertTrue('--dry-run=server' in args or any('dryRun=All' in arg for arg in args))
                 if document.get('kind') == 'Namespace':
-                    return subprocess.CompletedProcess(args, 1, '', 'cloudlab-composition-namespace')
+                    return subprocess.CompletedProcess(args, 1, '', NAMESPACE_DENIAL)
                 spec = document['spec']
                 mutation = ('token' if spec.get('automountServiceAccountToken') else
                     'privileged' if spec['containers'][0]['securityContext'].get('privileged') else

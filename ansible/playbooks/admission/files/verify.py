@@ -108,28 +108,76 @@ def controllers():
                   for row in pods if condition(row, 'Ready'))
 
 
-def composition_guard():
-    name = 'cloudlab-composition-namespace'
+def namespace_policy(name):
     wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
-         'composition namespace guard readiness', timeout=180)
+         'namespace guard readiness', timeout=180)
     policy = get('validatingpolicy.policies.kyverno.io', name)
     if (not policy_ready(policy) or policy['spec'].get('validationActions') != ['Deny'] or
             policy['spec'].get('failurePolicy') != 'Fail' or
             policy['spec'].get('evaluation', {}).get('admission') != {'enabled': True} or
+            'namespaceSelector' in policy['spec'].get('matchConstraints', {}) or
             policy['spec'].get('matchConstraints', {}).get('resourceRules') != [{
                 'apiGroups': [''], 'apiVersions': ['v1'], 'operations': ['CREATE', 'UPDATE'], 'resources': ['namespaces']}] or
             not policy['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-workload-policy:')):
-        raise RuntimeError('Composition namespace guard is absent or differs from its fail-closed owner')
+        raise RuntimeError('Namespace guard is absent or differs from its fail-closed owner')
+
+
+def composition_guard():
+    name = 'cloudlab-composition-namespace'
+    namespace_policy(name)
     namespace = 'cloudlab-app-admission-proof'
     if get('namespace', namespace) or get('validatingpolicy.policies.kyverno.io', 'cloudlab-composition-admission-proof'):
         raise RuntimeError('Composition guard proof requires its unused synthetic name')
     result = kube('create', '--dry-run=server', '-f', '-', allow_failure=True, document={
         'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': namespace, 'labels': {
             'cloudlab.io/owner': 'service-platform', 'cloudlab.io/composition': 'approved',
+            'istio.io/dataplane-mode': 'ambient', 'cloudlab.io/service-secrets': 'approved',
             'pod-security.kubernetes.io/enforce': 'privileged', 'pod-security.kubernetes.io/enforce-version': 'v1.36',
             'pod-security.kubernetes.io/audit': 'restricted', 'pod-security.kubernetes.io/warn': 'restricted'}}})
     if not result.returncode or name not in result.stderr:
         raise RuntimeError('Composition namespace without a profile was not denied by its native guard')
+
+
+def namespace_candidate(row):
+    metadata = row['metadata']
+    labels = metadata.get('labels', {})
+    return (metadata['name'].startswith('cloudlab-app-') or
+            labels.get('cloudlab.io/owner') == 'service-platform' or 'cloudlab.io/composition' in labels)
+
+
+def namespace_profile(row):
+    metadata = row['metadata']
+    labels = metadata.get('labels', {})
+    required = {'cloudlab.io/owner': 'service-platform', 'istio.io/dataplane-mode': 'ambient',
+                'cloudlab.io/service-secrets': 'approved', 'pod-security.kubernetes.io/enforce-version': 'v1.36'}
+    if (not metadata['name'].startswith('cloudlab-app-') or
+            any(labels.get(key) != value for key, value in required.items())):
+        raise RuntimeError('Application namespace security labels differ; verify ownership before migration')
+    composition = 'cloudlab.io/composition' in labels
+    if composition:
+        required = {'cloudlab.io/composition': 'approved', 'pod-security.kubernetes.io/enforce': 'privileged',
+                    'pod-security.kubernetes.io/audit': 'restricted', 'pod-security.kubernetes.io/warn': 'restricted'}
+    else:
+        required = {'pod-security.kubernetes.io/enforce': 'restricted'}
+    if any(labels.get(key) != value for key, value in required.items()):
+        raise RuntimeError('Application namespace Pod Security profile differs from its approved owner')
+    return composition
+
+
+def namespace_admission(row):
+    name = 'cloudlab-workload-namespace'
+    good = copy.deepcopy(row)
+    good['metadata'].setdefault('annotations', {})['cloudlab.io/admission-proof'] = 'dry-run'
+    result = kube('replace', '--dry-run=server', '-f', '-', allow_failure=True, document=good)
+    if result.returncode:
+        raise RuntimeError('Existing application namespace metadata update was not admitted')
+    for labels in ({}, dict(row['metadata']['labels'], **{'istio.io/dataplane-mode': 'none'})):
+        changed = copy.deepcopy(row)
+        changed['metadata']['labels'] = labels
+        result = kube('replace', '--dry-run=server', '-f', '-', allow_failure=True, document=changed)
+        if (not result.returncode or not re.search(r'(?<![\w.-])' + name + r'(?![\w.-])', result.stderr) or
+                'Application namespaces must retain their platform owner, ambient capture, secret eligibility and pinned Pod Security labels.' not in result.stderr):
+            raise RuntimeError('Application namespace security-label change was not denied by its native guard')
 
 
 def namespaces(workloads, enforce, catalog):
@@ -146,16 +194,16 @@ def namespaces(workloads, enforce, catalog):
         raise RuntimeError('Approved composition namespace has not converged')
     for row in workloads:
         namespace = row['metadata']['name']
-        if namespace in approved or row['metadata']['labels'].get('cloudlab.io/composition'):
-            if namespace not in approved:
-                raise RuntimeError('Privileged composition namespace has no current catalog approval')
+        composition = namespace_profile(row)
+        if composition != (namespace in approved):
+            raise RuntimeError('Composition namespace differs from its current catalog approval')
+        namespace_admission(row)
+        if composition:
             from playbooks.services.files.composition_verify import admission as composition_admission
             evidence = composition_admission(approved[namespace], get, condition, kube)
             composition_checked += 1
             ephemeral_checked += bool(evidence['ephemeral_denied'])
         else:
-            if row['metadata']['labels'].get('pod-security.kubernetes.io/enforce') != 'restricted':
-                raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
             admission(namespace, enforce)
             ephemeral_checked += ephemeral_admission(namespace, enforce)
             restricted_checked += 1
@@ -189,9 +237,9 @@ def run(revision, actions, catalog=None):
     namespace = get('namespace', 'cloudlab-policy')
     if namespace['metadata'].get('labels', {}).get('pod-security.kubernetes.io/enforce') != 'restricted':
         raise RuntimeError('Admission controllers require restricted Pod Security')
+    namespace_policy('cloudlab-workload-namespace')
     composition_guard()
-    workloads = [row for row in get('namespace')['items'] if
-                 row['metadata'].get('labels', {}).get('cloudlab.io/owner') == 'service-platform']
+    workloads = [row for row in get('namespace')['items'] if namespace_candidate(row)]
     if not workloads:
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
     ephemeral_checked, composition_checked, restricted_checked = namespaces(workloads, enforce, catalog)
@@ -208,6 +256,7 @@ def run(revision, actions, catalog=None):
             'ephemeral_namespaces_checked': ephemeral_checked,
             'composition_namespaces_checked': composition_checked,
             'unapproved_composition_namespace_denied': True,
+            'namespace_security_labels_denied': True,
             'restricted_workload_admitted': restricted_checked > 0,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 
