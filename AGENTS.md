@@ -129,14 +129,25 @@ Configuration reproducibility does not replace backup and restore testing.
 
 ## Documentation
 
-Keep the root README lightweight: describe the repo and preserve its lab, stack,
-external service and automation tables. Keep component purposes concise; do not
-remove useful stack details just to meet a line count. Retain the host OS and
-update policy. Include a short, usable setup section: prerequisites, where to put
-inputs and secrets, and the main apply/verify command. Link to owning modules for
-credential fields and service-specific requirements. Keep detailed runbooks and
-command catalogs out unless explicitly requested. Do not remove essential setup
-instructions in the name of brevity. Link to `.env.example` for inputs.
+Treat the root README as a quick introduction for someone new to the repo.
+Keep its scope to a short overview, architecture diagram, lab resources, setup,
+stack tables and illustrated flows. Preserve the lab, stack, external service
+and automation tables, host OS and update policy. Keep component purposes concise.
+
+Write setup as a short numbered installation sequence: local prerequisites,
+VM preparation, copying `.env.example` to `.env`, preparing required credentials,
+and the main apply/verify command. Keep essential prerequisites visible; link to
+owning modules for credential fields and service-specific requirements.
+
+Let diagrams explain detailed flows. Use one short caption per flow; add only
+essential caveats that the diagram cannot show. Do not repeat diagram steps in prose.
+
+Do not append implementation details, recovery procedures, command catalogs,
+security internals, onboarding instructions or verification narratives to the
+root README when completing a task. Update the existing owning module or contract
+when lasting details are needed; add a short README link only when useful to new
+users. Expand README scope only when explicitly requested. Before finishing a
+README edit, remove repeated explanations and check that setup remains usable.
 
 Apply the same brevity to all tracked documentation and descriptive contract
 fields. Keep only current settings, required secret field names and concise
