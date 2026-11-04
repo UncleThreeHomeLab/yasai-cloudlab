@@ -62,9 +62,23 @@ def credential_owner(app, repository, secrets, externals):
         raise RuntimeError('Private repository credential is incomplete')
 
 
-def configuration_healthy(name, repository, revision):
+def configuration_healthy(name, repository, revision, symbolic_revisions=None):
     if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
         return False
+    symbolic_revisions = {} if symbolic_revisions is None else symbolic_revisions
+    if (not isinstance(symbolic_revisions, dict) or len(symbolic_revisions) > 20
+            or any(not isinstance(ref, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_.-]*', ref)
+                   or ref == 'main' or re.fullmatch('[a-f0-9]{40}', ref)
+                   or not isinstance(sha, str) or not re.fullmatch('[a-f0-9]{40}', sha)
+                   for ref, sha in symbolic_revisions.items())):
+        return False
+    def expected(source):
+        ref = source.get('targetRevision')
+        if ref == 'main':
+            return revision
+        if not isinstance(ref, str):
+            return None
+        return ref if re.fullmatch('[a-f0-9]{40}', ref) else symbolic_revisions.get(ref)
     app = get('application.argoproj.io', name) or {}
     if not app:
         return False
@@ -72,14 +86,14 @@ def configuration_healthy(name, repository, revision):
     sync = app.get('status', {}).get('sync', {})
     revisions = sync.get('revisions', [sync.get('revision')])
     if not (len(sources) == len(revisions) and any(source.get('repoURL') == repository for source in sources) and all(
-        resolved == (revision if source['targetRevision'] == 'main' else source['targetRevision'])
+        expected(source) is not None and resolved == expected(source)
         for source, resolved in zip(sources, revisions) if source.get('repoURL') == repository)):
         return False
-    # Compare mutable configuration references against the authenticated head, preserving other source pin checks.
+    # Compare mutable private refs against authenticated snapshots, preserving other source pin checks.
     compared = copy.deepcopy(app)
     for source in compared['spec'].get('sources', [compared['spec'].get('source', {})]):
-        if source.get('repoURL') == repository and source.get('targetRevision') == 'main':
-            source['targetRevision'] = revision
+        if source.get('repoURL') == repository:
+            source['targetRevision'] = expected(source)
     return application_healthy(compared)
 
 
@@ -119,12 +133,13 @@ def run(payload):
     if not consumers:
         raise RuntimeError('Actual private configuration source has no reconciled consumers')
     revision = payload.get('configuration_revision')
+    symbolic_revisions = payload.get('symbolic_revisions')
     if not revision:
         raise RuntimeError('Private verification requires an authenticated configuration revision')
     secrets = json.loads(kube('get', 'secrets', '-n', 'argocd', '-o', 'json'))['items']
     externals = json.loads(kube('get', 'externalsecrets.external-secrets.io', '-n', 'argocd', '-o', 'json'))['items']
     for app in consumers:
-        wait(lambda: configuration_healthy(app['metadata']['name'], repository, revision), 'configuration convergence')
+        wait(lambda: configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions), 'configuration convergence')
         credential_owner(app, repository, secrets, externals)
     if payload.get('catalog_enabled'):
         catalog = get('application.argoproj.io', APP) or {}
@@ -156,7 +171,7 @@ def run(payload):
                 raise RuntimeError('Private registration differs from its native declaration')
     def child_healthy(entry):
         name = 'cloudlab-private-' + entry['name']
-        return configuration_healthy(name, repository, revision) if entry['repository'] == repository else healthy(name)
+        return configuration_healthy(name, repository, revision, symbolic_revisions) if entry['repository'] == repository else healthy(name)
     for entry in payload['sources']:
         name = 'cloudlab-private-' + entry['name']
         wait(lambda: child_healthy(entry), 'convergence')
@@ -169,7 +184,7 @@ def run(payload):
     while time.monotonic() - started < 60:
         time.sleep(10)
         if (controllers() != baseline
-                or not all(configuration_healthy(app['metadata']['name'], repository, revision) for app in consumers)
+                or not all(configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions) for app in consumers)
                 or not all(child_healthy(entry) for entry in payload['sources'])):
             raise RuntimeError('Controllers or private convergence changed during stability observation')
     return {'private_roots_converged': len(payload['sources']), 'private_configuration_consumers': len(consumers),

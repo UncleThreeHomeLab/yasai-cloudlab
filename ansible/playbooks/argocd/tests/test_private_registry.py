@@ -15,6 +15,48 @@ ENTRY = {'name': 'fixture', 'repository': 'https://github.com/example/private.gi
 
 
 class PrivateRegistryTests(unittest.TestCase):
+    def symbolic_payload(self, rows, response):
+        from unittest.mock import Mock, patch
+        public = {'repository': 'https://github.com/example/platform.git',
+                  'privateSources': {'enabled': True, 'revision': 'b' * 40},
+                  'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        raw = json.dumps({'sources': rows}).encode()
+        contents = {'type': 'file', 'encoding': 'base64', 'size': len(raw), 'content': base64.b64encode(raw).decode()}
+        def request(method, path):
+            self.assertEqual(method, 'GET')
+            if '/contents/platform/sources.yaml?ref=' in path:
+                self.assertTrue(path.endswith('a' * 40))
+                return contents
+            if isinstance(response, Exception): raise response
+            return response(path) if callable(response) else response
+        client = Mock(request=Mock(side_effect=request))
+        def authenticated(values, *, read): return read(client, 'a' * 40)
+        with patch('playbooks.argocd.files.github_app.configuration_revision', side_effect=authenticated):
+            payload = verification_payload({'PRIVATE_CONFIG_REPOSITORY': ENTRY['repository']}, public)
+        return payload, client
+
+    def test_symbolic_refs_are_deduplicated_encoded_and_scoped_to_the_authenticated_repository(self):
+        rows = [ENTRY, ENTRY | {'name': 'branch', 'revision': 'feature/prices'},
+                ENTRY | {'name': 'branch-copy', 'revision': 'feature/prices'},
+                ENTRY | {'name': 'tag', 'revision': 'release/v2'},
+                ENTRY | {'name': 'pinned', 'revision': 'c' * 40},
+                ENTRY | {'name': 'external', 'repository': 'https://github.com/example/other.git', 'revision': 'external/ref'}]
+        commits = {'repos/example/private/commits/feature%2Fprices': {'sha': 'b' * 40},
+                   'repos/example/private/commits/release%2Fv2': {'sha': 'd' * 40}}
+        payload, client = self.symbolic_payload(rows, lambda path: commits[path])
+        self.assertEqual(payload['symbolic_revisions'], {'feature/prices': 'b' * 40, 'release/v2': 'd' * 40})
+        self.assertEqual(payload['configuration_revision'], 'a' * 40)
+        self.assertEqual([call.args[1] for call in client.request.call_args_list if '/commits/' in call.args[1]], list(commits))
+        branch = next(obj for obj in payload['objects'] if obj['kind'] == 'Application' and obj['metadata']['name'].endswith('-branch'))
+        self.assertEqual(branch['spec']['source']['targetRevision'], 'feature/prices')
+
+    def test_symbolic_ref_api_failure_and_malformed_sha_are_generic_failures(self):
+        for response in (RuntimeError('private diagnostic must not escape'), None, {}, {'sha': None},
+                         {'sha': 'main'}, {'sha': 'A' * 40}):
+            with self.subTest(response=response), self.assertRaisesRegex(ValueError, '^Private source symbolic revision') as failure:
+                self.symbolic_payload([ENTRY | {'revision': 'release/v2'}], response)
+            self.assertNotIn('private diagnostic', str(failure.exception))
+
     def test_verification_reads_and_renders_the_same_authenticated_complete_revision(self):
         from unittest.mock import Mock, patch
         public = {'repository': 'https://github.com/example/platform.git',

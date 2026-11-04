@@ -82,6 +82,64 @@ class PrivateControllerStabilityTests(unittest.TestCase):
 
 
 class PrivateConvergenceTests(unittest.TestCase):
+    def test_declared_symbolic_refs_require_the_authenticated_snapshot_and_preserve_input(self):
+        for ref in ('feature/prices', 'release/v2'):
+            app = {'spec': {'source': {'repoURL': 'private-source', 'targetRevision': ref}},
+                   'status': {'sync': {'revision': 'b' * 40, 'status': 'Synced'}, 'health': {'status': 'Healthy'}}}
+            original = copy.deepcopy(app)
+            with patch('private_verify.get', return_value=app):
+                self.assertTrue(configuration_healthy('consumer', 'private-source', 'a' * 40, {ref: 'b' * 40}))
+                for snapshot in (None, {}, {'undeclared': 'b' * 40}, {ref: 'c' * 40}, {ref: 'main'},
+                                 {ref: None}, [], {'-flag': 'b' * 40}):
+                    with self.subTest(ref=ref, snapshot=snapshot):
+                        self.assertFalse(configuration_healthy('consumer', 'private-source', 'a' * 40, snapshot))
+            self.assertEqual(app, original)
+
+    def test_symbolic_map_cannot_override_main_or_immutable_pins(self):
+        for ref, expected in (('main', 'a' * 40), ('b' * 40, 'b' * 40)):
+            app = {'spec': {'source': {'repoURL': 'private-source', 'targetRevision': ref}},
+                   'status': {'sync': {'revision': expected, 'status': 'Synced'}, 'health': {'status': 'Healthy'}}}
+            with patch('private_verify.get', return_value=app):
+                self.assertTrue(configuration_healthy('consumer', 'private-source', 'a' * 40))
+                self.assertFalse(configuration_healthy('consumer', 'private-source', 'a' * 40, {ref: expected}))
+                app['status']['sync']['revision'] = 'c' * 40
+                self.assertFalse(configuration_healthy('consumer', 'private-source', 'a' * 40, {ref: 'c' * 40}))
+
+    def test_mixed_sources_keep_main_and_every_pin_bound_while_comparing_symbolic_private_refs(self):
+        app = {'spec': {'sources': [
+            {'repoURL': 'public-source', 'targetRevision': 'main'},
+            {'repoURL': 'private-source', 'targetRevision': 'feature/prices'},
+            {'repoURL': 'private-source', 'targetRevision': 'c' * 40},
+            {'repoURL': 'private-source', 'targetRevision': 'main'},
+            {'repoURL': 'other-source', 'targetRevision': 'd' * 40}]},
+            'status': {'sync': {'status': 'Synced', 'revisions': ['e' * 40, 'b' * 40, 'c' * 40, 'a' * 40, 'd' * 40]},
+                       'health': {'status': 'Healthy'}}}
+        with patch('private_verify.get', return_value=app):
+            self.assertTrue(configuration_healthy('consumer', 'private-source', 'a' * 40, {'feature/prices': 'b' * 40}))
+            for index in range(1, 5):
+                original = app['status']['sync']['revisions'][index]
+                app['status']['sync']['revisions'][index] = 'f' * 40
+                self.assertFalse(configuration_healthy('consumer', 'private-source', 'a' * 40, {'feature/prices': 'b' * 40}))
+                app['status']['sync']['revisions'][index] = original
+
+    def test_symbolic_snapshot_reaches_initial_consumer_child_and_stability_checks(self):
+        snapshots = {'feature/prices': 'b' * 40}
+        payload = {'configuration_repository': 'private-source', 'configuration_revision': 'a' * 40,
+                   'symbolic_revisions': snapshots, 'sources': [{'name': 'example', 'repository': 'private-source'}]}
+        consumer = {'metadata': {'name': 'cloudlab-private-example'}, 'spec': {'source': {'repoURL': 'private-source'}}}
+        def request(*args): return json.dumps({'items': [consumer] if args[1] == 'applications.argoproj.io' else []})
+        def healthy(name, repository, revision, symbols):
+            self.assertIs(symbols, snapshots)
+            return True
+        with patch('private_verify.kube', side_effect=request), patch('private_verify.get', return_value=consumer), \
+                patch('private_verify.configuration_healthy', side_effect=healthy) as checks, \
+                patch('private_verify.credential_owner'), patch('private_verify.foundation_sample', return_value=()), \
+                patch('private_verify.fingerprint', return_value=()), \
+                patch('private_verify.wait', side_effect=lambda check, description: self.assertTrue(check())), \
+                patch('private_verify.time.sleep'), patch('private_verify.time.monotonic', side_effect=[0, 1, 61, 62]):
+            self.assertTrue(run(payload)['private_access_verified'])
+        self.assertEqual(checks.call_count, 4)
+
     def test_external_registered_child_degradation_fails_stability_observation(self):
         payload = {'configuration_repository': 'private-source', 'configuration_revision': 'b' * 40,
                    'sources': [{'name': 'example', 'repository': 'other-source'}]}
