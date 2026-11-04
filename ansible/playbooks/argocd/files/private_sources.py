@@ -78,13 +78,27 @@ def verification_payload(values, public):
     from playbooks.argocd.files.github_app import configuration_revision
     import subprocess
     import yaml
+    from urllib.parse import quote
+    from playbooks.argocd.files.github_setup import repository as repository_name
     repository = values.get('PRIVATE_CONFIG_REPOSITORY')
     if not repository:
         raise ValueError('Private verification requires its designated repository')
     def read(client, revision):
         value = registry(client, values, public, revision)
         objects = []
+        symbolic_revisions = {}
         if value is not None:
+            refs = {row['revision'] for row in value['sources'] if row['repository'] == repository
+                    and row['revision'] != 'main' and not re.fullmatch('[a-f0-9]{40}', row['revision'])}
+            for ref in sorted(refs):
+                try:
+                    document = client.request('GET', 'repos/' + repository_name(repository) + '/commits/' + quote(ref, safe=''))
+                except Exception:
+                    raise ValueError('Private source symbolic revision cannot be resolved') from None
+                if (not isinstance(document, dict) or not isinstance(document.get('sha'), str)
+                        or not re.fullmatch('[a-f0-9]{40}', document['sha'])):
+                    raise ValueError('Private source symbolic revision resolved to an invalid commit')
+                symbolic_revisions[ref] = document['sha']
             chart = Path(__file__).resolve().parents[4] / 'platform/delivery/private-sources'
             result = subprocess.run(['helm', 'template', 'private-sources', str(chart), '-n', 'argocd', '-f', '-'],
                 input=json.dumps(value), capture_output=True, text=True, timeout=60)
@@ -94,6 +108,7 @@ def verification_payload(values, public):
         return {'configuration_repository': repository, 'configuration_revision': revision,
                 'catalog_enabled': registry_enabled(public), 'sources': value['sources'] if value else [],
                 'objects': objects, 'public_repository': public['repository'],
+                'symbolic_revisions': symbolic_revisions,
                 'platform_revision': public.get('privateSources', {}).get('revision')}
     return configuration_revision(values, read=read)
 

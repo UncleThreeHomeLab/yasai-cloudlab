@@ -35,6 +35,8 @@ Merge the complete list through a reviewed private PR. Argo maintains its restri
 project, repository credential and isolated `cloudlab-private-example` namespace.
 No Ansible apply is needed for registration changes. Check the catalog and child
 Applications are Healthy/Synced and their repository ExternalSecrets are Ready.
+Private roots accept branches, tags and commit pins; verification snapshots declared
+symbolic refs in the designated repository through its authenticated reader.
 Invalid YAML or unavailable Git blocks reconciliation and preserves accepted resources.
 Removing a row removes its registration and delivered repository credential;
 the namespace and child workloads/data are retained. Retire workloads through
