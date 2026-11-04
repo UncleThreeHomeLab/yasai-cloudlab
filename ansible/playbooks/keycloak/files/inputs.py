@@ -1,6 +1,7 @@
 """Resolve required private source metadata without publishing it."""
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -17,12 +18,18 @@ from playbooks.argocd.files.github_setup import repository
 
 
 def native_argo(values):
+    recovery_revision = values.get('KEYCLOAK_ARGO_RECOVERY_REVISION') or None
+    if recovery_revision is not None and not re.fullmatch('[a-f0-9]{40}', recovery_revision):
+        raise ValueError('Native Argo recovery requires its exact recorded private revision')
     import urllib.request
     from playbooks.secrets.files.vault import fields
     from playbooks.access.files.cloudflare import API
     from playbooks.argocd.files.github_app import app_token, verify_installation
     from playbooks.argocd.files.github_setup import GitHub
     from playbooks.keycloak.files.private_source import argo_values
+    from playbooks.keycloak.files.private_source import decode_contents
+    from playbooks.argocd.files.service_activation import prepare
+    from playbooks.services.files.inputs import validate_catalog
     from playbooks.access.files.contract import host_rules
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     dns = fields('cloudlab-dns01', ('API_TOKEN', 'ZONE_ID'))
@@ -41,11 +48,28 @@ def native_argo(values):
         'repositories': [repo.split('/')[1]], 'permissions': {'contents': 'read'}})['token']
     client = GitHub(token)
     try:
-        revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+        current_revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+        current = None
+        if recovery_revision:
+            # Historical inputs hydrate a checkpoint; current Git still authorizes access.
+            current = argo_values(client, values, current_revision, 'https://login.' + zone + '/realms/platform',
+                                  origins[0], origins[1:])
+        revision = recovery_revision or current_revision
         contract = argo_values(client, values, revision, 'https://login.' + zone + '/realms/platform',
                                origins[0], origins[1:])
-        return {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
-                'configuration': contract['helm'], 'client': contract['client']}
+        public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+        catalog = None
+        if public.get('services', {}).get('enabled', False):
+            document = client.request('GET', 'repos/' + repo + '/contents/services/catalog.json?ref=' + revision)
+            catalog = validate_catalog(json.loads(decode_contents(document)))
+        result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
+                'configuration': contract['helm'], 'client': contract['client'],
+                'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),
+                'recovery': recovery_revision is not None}
+        if recovery_revision:
+            result['currentSecurityProjection'] = {'revision': current_revision,
+                'configuration': current['helm'], 'client': current['client']}
+        return result
     finally:
         request = urllib.request.Request('https://api.github.com/installation/token', method='DELETE',
             headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json'})

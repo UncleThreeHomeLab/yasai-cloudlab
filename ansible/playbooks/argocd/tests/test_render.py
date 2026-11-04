@@ -1,4 +1,8 @@
 import unittest
+import json
+import subprocess
+from pathlib import Path
+import yaml
 from render import payload, images
 
 
@@ -18,6 +22,54 @@ class RenderTests(unittest.TestCase):
         project = next(obj for obj in self.data['roots'] if obj['kind'] == 'AppProject' and obj['metadata']['name'] == 'cloudlab-previews')
         self.assertEqual(project['spec']['sourceRepos'], [self.data['repository']])
         self.assertFalse(any(obj['kind'] == 'ExternalSecret' and obj['metadata']['name'] == 'cloudlab-previews-source' for obj in self.data['roots']))
+        self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-services' for obj in self.data['roots']))
+
+    def root_with(self, values, *, success=True):
+        root = Path(__file__).resolve().parents[4]
+        result = subprocess.run(['helm', 'template', 'root', str(root / 'gitops/roots/public'), '-f', '-'],
+                                input=json.dumps(values), capture_output=True, text=True, timeout=60)
+        if not success:
+            self.assertNotEqual(result.returncode, 0)
+            return []
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+
+    def test_present_empty_private_binding_is_invalid_but_absent_binding_is_safe(self):
+        values = {'identity': {'enabled': True}, 'services': {'enabled': True, 'revision': 'a' * 40}}
+        self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-services'
+                             for obj in self.root_with(values)))
+        for binding in ({}, None, False):
+            with self.subTest(binding=binding):
+                values['identity']['argo'] = binding
+                self.root_with(values, success=False)
+
+    def test_services_application_uses_reviewed_pin_and_existing_private_binding(self):
+        values = {'repository': 'https://github.com/example/platform.git', 'revision': 'main',
+                  'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                       'valuesRevision': 'b' * 40}},
+                  'services': {'enabled': True, 'revision': 'a' * 40}}
+        for pin in ('a' * 40, 'c' * 40):
+            values['services']['revision'] = pin
+            app = next(obj for obj in self.root_with(values) if obj['kind'] == 'Application' and
+                       obj['metadata']['name'] == 'cloudlab-services')
+            self.assertEqual(app['spec']['sources'][0]['targetRevision'], pin)
+            self.assertEqual(app['spec']['sources'][0]['helm']['valuesObject']['revision'], pin)
+            self.assertEqual(app['spec']['sources'][0]['helm']['valueFiles'],
+                             ['$values/services/catalog.json', '$values/identity/argo-values.yaml'])
+            self.assertEqual(app['spec']['sources'][1],
+                             {'repoURL': values['identity']['argo']['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'})
+            self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
+            self.assertNotIn('finalizers', app['metadata'])
+        values['services']['revision'] = 'main'
+        self.root_with(values, success=False)
+        values['services']['revision'] = None
+        self.root_with(values, success=False)
+        values['services']['enabled'] = False
+        self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-services'
+                             for obj in self.root_with(values)))
+        values['services'] = {'enabled': True, 'revision': 'a' * 40}
+        values['identity']['argo']['valuesRevision'] = 'main'
+        self.root_with(values, success=False)
 
     def test_public_project_cannot_create_privileged_platform_objects(self):
         project = next(x['spec'] for x in self.data['roots'] if x['kind'] == 'AppProject' and x['metadata']['name'] == 'cloudlab-public')

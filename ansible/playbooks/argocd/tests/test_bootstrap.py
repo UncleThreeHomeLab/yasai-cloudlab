@@ -51,25 +51,22 @@ class BootstrapTests(unittest.TestCase):
 
     def test_pending_identity_source_grant_repairs_with_controller_stopped_and_source_unchanged(self):
         import source_transition
+        from fixtures import binding_fixture
         with tempfile.TemporaryDirectory() as folder:
-            target = {'valuesRepository': 'private', 'valuesRevision': 'a' * 40}
             base = Path(folder)
-            (base / 'identity-values-binding.json').write_text(json.dumps({
-                'phase': 'resumed', 'root_uid': 'root', 'controller_uid': 'controller',
-                'project_uid': 'project', 'target': target}))
-            objects = {'application.argoproj.io': {'metadata': {'uid': 'root'}, 'spec': {'source': {
-                'repoURL': 'public', 'helm': {'valuesObject': {'identity': {'argo': target}}}}}},
-                'statefulset': {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 1}},
-                'appproject.argoproj.io': self.identity_project()}
-            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda kind, name: objects[kind]), \
+            objects, _, _, state = binding_fixture()
+            state['phase'] = 'resumed'
+            objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'] = copy.deepcopy(state['patchedSource'])
+            (base / 'identity-values-binding.json').write_text(json.dumps(state))
+            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda *key: objects.get(key)), \
                     patch.object(source_transition, 'pause') as pause, patch.object(bootstrap, 'kube') as write:
                 self.assertTrue(bootstrap.resume_identity_binding())
                 pause.assert_called_once()
                 self.assertEqual(write.call_args_list[0].args[:2], ('patch', 'appproject.argoproj.io'))
                 self.assertEqual(write.call_args.args[-1], '--replicas=1')
                 write.reset_mock()
-                objects['application.argoproj.io']['spec']['source']['helm']['valuesObject']['identity']['argo'] = {}
-                with self.assertRaisesRegex(RuntimeError, 'source changed'):
+                objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source']['repoURL'] = 'foreign'
+                with self.assertRaisesRegex(RuntimeError, 'ambiguous'):
                     bootstrap.resume_identity_binding()
                 write.assert_not_called()
 
@@ -78,7 +75,7 @@ class BootstrapTests(unittest.TestCase):
             base = Path(folder)
             (base / 'identity-values-binding.json').write_text(json.dumps({
                 'phase': 'paused', 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project'}))
-            objects = {'application.argoproj.io': {'metadata': {'uid': 'root'}},
+            objects = {'application.argoproj.io': {'metadata': {'uid': 'root'}, 'spec': {'source': {'repoURL': 'public'}}},
                 'statefulset': {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 0}},
                 'appproject.argoproj.io': {'metadata': {'uid': 'project'}}}
             with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda kind, name: objects[kind]), \

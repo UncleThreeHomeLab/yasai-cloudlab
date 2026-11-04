@@ -31,7 +31,36 @@ spec:
     - {group: argoproj.io, kind: ApplicationSet}
 {{- end }}
 
-{{- if and .Values.services.enabled .Values.identity.argo }}
+{{- if and .Values.services.enabled (hasKey .Values.identity "argo") }}
+{{- if not (regexMatch "^[a-f0-9]{40}$" (.Values.services.revision | default "")) }}
+{{- fail "Service catalog requires its reviewed immutable platform revision" }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-services
+  namespace: argocd
+  labels: {cloudlab.io/owner: service-platform}
+spec:
+  project: cloudlab-services
+  sources:
+    - repoURL: {{ .Values.repository | quote }}
+      targetRevision: {{ .Values.services.revision | quote }}
+      path: platform/delivery/services
+      helm:
+        valueFiles: ['$values/services/catalog.json', '$values/identity/argo-values.yaml']
+        valuesObject:
+          repository: {{ .Values.repository | quote }}
+          revision: {{ .Values.services.revision | quote }}
+          telemetry: {{ .Values.observability.enabled }}
+    - repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+      targetRevision: main
+      ref: values
+  destination: {server: 'https://kubernetes.default.svc', namespace: argocd}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

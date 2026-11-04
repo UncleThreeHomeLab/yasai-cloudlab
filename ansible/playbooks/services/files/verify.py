@@ -40,7 +40,7 @@ def unauthorized_destination(entry, payload, *, unauthorized_source=False):
 
 
 def run(payload):
-    from playbooks.services.files.bootstrap import converged
+    from playbooks.services.files.catalog import converged
     if not converged(payload):
         raise RuntimeError('Direct Git catalog has not converged at both reviewed revisions')
     checked = 0

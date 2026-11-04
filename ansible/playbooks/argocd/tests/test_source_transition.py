@@ -81,7 +81,9 @@ class SourceTransitionTests(unittest.TestCase):
             (base / 'checkpoint.json').write_text(json.dumps({'phase': 'accepted'}))
             objects = self.fixtures()
             root = objects['application.argoproj.io', migration.ROOT_APP]
-            root['spec']['source'].update(targetRevision='main', helm={'releaseName': 'root'})
+            repository = 'https://github.com/example/platform.git'
+            root['spec']['source'].update(repoURL=repository, targetRevision='main', helm={'releaseName': 'root'})
+            objects['appproject.argoproj.io', 'cloudlab-root']['spec']['sourceRepos'] = [repository]
             root['metadata']['resourceVersion'] = '1'
             target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}
             writes = []
@@ -92,8 +94,12 @@ class SourceTransitionTests(unittest.TestCase):
                     patch.object(migration, 'resume_identity_binding', return_value=False), \
                     patch.object(migration, 'pause'), patch.object(migration, 'kube', side_effect=write):
                 with self.assertRaisesRegex(RuntimeError, 'synthetic patch failure'):
-                    migration.bind_identity({'private_repository': target['valuesRepository'], 'repository': 'old',
-                                             'branch': 'main', 'revision': 'public'}, target)
+                    from service_activation import prepare
+                    evidence = prepare({'repository': repository, 'services': {'enabled': False}},
+                                       target['valuesRepository'], target['valuesRevision'])
+                    migration.bind_identity({'private_repository': target['valuesRepository'], 'repository': repository,
+                                             'branch': 'main', 'revision': 'public',
+                                             'argo': {'serviceActivation': evidence}}, target)
             self.assertEqual(writes[-1], ('scale', 'statefulset/' + migration.CONTROLLER, '-n', 'argocd', '--replicas=1'))
             patch_body = json.loads(writes[0][-1])
             self.assertEqual(patch_body[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'root'})

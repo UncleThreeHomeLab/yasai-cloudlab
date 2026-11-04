@@ -1,6 +1,7 @@
 """Enable native Argo OIDC only from validated private and public interfaces."""
 import fcntl
 import json
+import re
 
 import yaml
 
@@ -10,7 +11,7 @@ from playbooks.keycloak.files.health import check, proxy_privacy
 from playbooks.access.files.dns_wire import public_address
 from playbooks.keycloak.files.integrations import argo
 from playbooks.keycloak.files.maintenance import APP, BASE, OWNER
-from playbooks.argocd.files.source_transition import bind_identity
+from playbooks.argocd.files.source_transition import bind_identity, pending_identity_target
 from playbooks.istio.files.kube import application_ready, get
 
 
@@ -33,6 +34,19 @@ def validate(payload, source, revoked, private_revision):
     return proposed['target']
 
 
+def recovery_revision(payload):
+    """Historical binding inputs never replace current Git authorization."""
+    proposed = payload['argo']
+    projection = proposed.get('currentSecurityProjection')
+    if (not isinstance(projection, dict) or set(projection) != {'revision', 'configuration', 'client'}
+            or not isinstance(projection['revision'], str)
+            or not re.fullmatch('[a-f0-9]{40}', projection['revision'])
+            or projection['configuration'] != proposed['configuration']
+            or projection['client'] != proposed['client']):
+        raise RuntimeError('Native Argo recovery requires validated current private Git authorization')
+    return pending_identity_target(proposed['target'])
+
+
 def run(payload):
     with (BASE / 'owner.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -43,7 +57,10 @@ def run(payload):
                 current.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 not application_ready(APP, payload['revision'])):
             raise RuntimeError('Native Argo requires converged scoped identity reconciliation')
-        target = validate(payload, *private_inputs(payload))
+        source, revoked, private_revision = private_inputs(payload)
+        if payload['argo'].get('recovery') is True:
+            private_revision = recovery_revision(payload)
+        target = validate(payload, source, revoked, private_revision)
         origin = 'https://' + payload['values']['loginHost']
         for realm in ('platform', 'applications'):
             check(origin + '/realms/' + realm)

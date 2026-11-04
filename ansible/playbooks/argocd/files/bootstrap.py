@@ -27,7 +27,7 @@ def kube(*args, document=None):
 
 
 def get(kind, name):
-    text = kube('get', kind, name, '-n', 'argocd', '--ignore-not-found', '-o', 'json')
+    text = kube('get', kind, name, '-n', 'argocd', '--ignore-not-found', '--show-managed-fields=true', '-o', 'json')
     return json.loads(text) if text.strip() else None
 
 
@@ -120,7 +120,7 @@ def grant_identity_source(project):
 
 
 def resume_identity_binding():
-    """Repair an interrupted bounded root handoff without contacting the IdP."""
+    """Resume only a known old root or a guarded pending private-source binding."""
     path = BASE / 'identity-values-binding.json'
     if not path.exists():
         return False
@@ -129,42 +129,49 @@ def resume_identity_binding():
         return False
     if state.get('phase') not in ('prepared', 'paused', 'source-updated', 'resumed'):
         raise RuntimeError('Unknown identity root handoff checkpoint')
+    try:
+        from .source_transition import pause, binding_source, check_activation, safe_identity_resume, record
+    except ImportError:
+        from source_transition import pause, binding_source, check_activation, safe_identity_resume, record
     objects = {key: get(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', 'cloudlab-public-root'),
         ('controller_uid', 'statefulset', 'argocd-application-controller'),
         ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
-    if any(not obj or obj['metadata']['uid'] != state[key] for key, obj in objects.items()):
+    if any(not obj or obj['metadata']['uid'] != state[key] or obj['metadata'].get('deletionTimestamp')
+           for key, obj in objects.items()):
         raise RuntimeError('Interrupted identity root handoff resource identity changed')
-    controller = objects['controller_uid']
+    root, project, controller = objects['root_uid'], objects['project_uid'], objects['controller_uid']
     if controller['spec']['replicas'] not in (0, 1):
         raise RuntimeError('Interrupted identity root handoff has an unexpected topology')
-    if state['phase'] in ('source-updated', 'resumed'):
-        root, project = objects['root_uid'], objects['project_uid']
-        source = root['spec']['source']
-        if (source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo') != state.get('target')
-                or not state.get('target') or project['spec'].get('sourceRepos') != [source['repoURL']]):
-            raise RuntimeError('Interrupted identity root handoff source changed')
-        if project['spec'].get('namespaceResourceWhitelist') != identity_project_rules(project):
-            try:
-                try:
-                    from .source_transition import pause
-                except ImportError:
-                    from source_transition import pause
-                pause()
-                latest = get('appproject.argoproj.io', 'cloudlab-root')
-                current = get('application.argoproj.io', 'cloudlab-public-root')
-                if (not latest or latest['metadata']['uid'] != state['project_uid'] or latest['spec'] != project['spec']
-                        or not current or current['metadata']['uid'] != state['root_uid']
-                        or current['spec']['source'] != source):
-                    raise RuntimeError('Identity source grant changed during controller handoff')
-                grant_identity_source(latest)
-            finally:
-                kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
+    try:
+        source_state = binding_source(state, root)
+    except RuntimeError:
+        if controller['spec']['replicas'] == 1:
+            pause()
+        raise
+    if source_state == 'original':
+        if controller['spec']['replicas'] == 0:
+            kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
             return True
-    if controller['spec']['replicas'] == 0:
-        kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
-        return True
-    return False
+        return False
+    if controller['spec']['replicas'] == 1:
+        pause()
+    try:
+        current = get('application.argoproj.io', 'cloudlab-public-root')
+        latest = get('appproject.argoproj.io', 'cloudlab-root')
+        if (not current or current['metadata']['uid'] != state['root_uid']
+                or current['spec']['source'] != root['spec']['source']
+                or not latest or latest['metadata']['uid'] != state['project_uid']
+                or latest['spec'] != project['spec']
+                or project['spec'].get('sourceRepos') != [current['spec']['source']['repoURL']]):
+            raise RuntimeError('Interrupted identity root handoff source changed')
+        check_activation(state, current, get)
+        record(path, state)
+        grant_identity_source(latest)
+    finally:
+        if safe_identity_resume(state, get):
+            kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
+    return True
 
 
 def run(payload):
