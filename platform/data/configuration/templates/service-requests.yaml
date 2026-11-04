@@ -1,4 +1,6 @@
-{{- range .Values.serviceRequests }}
+{{- include "cloudlab.data.normalize" . -}}
+{{- $settings := .dataSettings -}}
+{{- range $settings.serviceRequests }}
 {{- $service := .service }}
 {{- if .database }}
 ---

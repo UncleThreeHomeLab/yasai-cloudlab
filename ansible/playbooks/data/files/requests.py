@@ -11,9 +11,13 @@ def request(service, data, approved):
     for kind, value in data.items():
         scope = approved.get(value.get('credentialReference'), {}) if isinstance(value, dict) else {}
         required_fields = {'kind', 'service', 'name', 'item'} | ({'migrationItem'} if kind == 'database' else set())
+        role_fields = {'applicationRole', 'migrationRole'} if kind == 'database' else set()
+        supplied_roles = set(scope) & role_fields
+        if (supplied_roles and supplied_roles != role_fields):
+            raise ValueError('Database approval role metadata must be supplied together')
         if (not isinstance(value, dict) or set(value) != {'name', 'credentialReference', 'retention'} or
                 value['retention'] != 'retain' or value['credentialReference'] not in approved or
-                set(scope) != required_fields or
+                set(scope) != required_fields | supplied_roles or
                 approved[value['credentialReference']].get('kind') != kind or
                 approved[value['credentialReference']].get('service') != service or
                 approved[value['credentialReference']].get('name') != value['name']):
@@ -24,11 +28,16 @@ def request(service, data, approved):
                 raise ValueError('Service request cannot use privileged data credentials')
         if kind == 'database':
             identity(value['name'])
+            if supplied_roles:
+                for field in role_fields: identity(scope[field])
+                if scope['applicationRole'] == scope['migrationRole']:
+                    raise ValueError('Database approval roles must differ')
         elif not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', value['name']):
             raise ValueError('Invalid service bucket name')
         result[kind] = dict(value, item=approved[value['credentialReference']]['item'])
         if kind == 'database':
             result[kind]['migrationItem'] = approved[value['credentialReference']]['migrationItem']
+            result[kind].update({field: scope[field] for field in supplied_roles})
     return result
 
 
@@ -44,6 +53,9 @@ def resolve(requests, lookup):
             value = requested['database']
             app = lookup(value['item'], ('username', 'database'))
             migration = lookup(value['migrationItem'], ('username', 'database'))
+            if any(field in value and value[field] != actual for field, actual in
+                   (('applicationRole', app['username']), ('migrationRole', migration['username']))):
+                raise ValueError('Approved database role metadata differs from its scoped vault identity')
             if app['database'] != value['name'] or migration['database'] != value['name']:
                 raise ValueError('Service database differs from its scoped vault contract')
             for name in (app['username'], migration['username'], value['name']): identity(name)
@@ -79,13 +91,21 @@ def protect(rows, settings):
                         database['migrationRole'] == settings['migrationRole'] and
                         database['applicationItem'] == 'cnpg-notes-production' and
                         database['migrationItem'] == 'cnpg-notes-migration')
+            if ((row['service'] == 'notes' and not original) or
+                    (row['service'] == 'keycloak' and settings.get('identity', {}).get('enabled'))):
+                raise ValueError('Service database collides with a fixed platform resource')
             if not original and (database['name'] in databases or roles & {
                     database['applicationRole'], database['migrationRole']}):
                 raise ValueError('Service request collides with a platform database or role')
         bucket = row.get('bucket')
-        if bucket and bucket['name'] == settings['bucket'] and not (
-                row['service'] == 'notes' and bucket['item'] == 's3-notes-production'):
-            raise ValueError('Service request collides with the existing notes bucket owner')
+        if bucket:
+            original = (row['service'] == 'notes' and bucket['name'] == settings['bucket'] and
+                        bucket['item'] == 's3-notes-production')
+            if ((row['service'] == 'notes' and not original) or
+                    row['service'] in {'data-admin', 'admin', 'app'}):
+                raise ValueError('Service bucket collides with a fixed platform identity or credential prefix')
+            if bucket['name'] == settings['bucket'] and not original:
+                raise ValueError('Service request collides with the existing notes bucket owner')
 
 
 def additions(before, after):

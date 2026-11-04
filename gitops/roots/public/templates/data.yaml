@@ -1,3 +1,13 @@
+{{- $configuration := .Values.data.configuration }}
+{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) }}
+{{- fail "Data configuration requires a YAML boolean enabled setting" }}
+{{- end }}
+{{- $native := and .Values.data.enabled $configuration.enabled (hasKey .Values.identity "argo") }}
+{{- if $native }}
+{{- if or (not (regexMatch "^[a-f0-9]{40}$" ($configuration.revision | default ""))) (not (regexMatch "^[a-f0-9]{40}$" ($configuration.seaweedfsRevision | default ""))) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) }}
+{{- fail "Native data requires reviewed immutable pins and External Secrets" }}
+{{- end }}
+{{- end }}
 {{- if .Values.data.enabled }}
 {{- range $name := list "cnpg" "data-configuration" "seaweedfs" }}
 ---
@@ -7,7 +17,11 @@ metadata:
   name: cloudlab-{{ $name }}
   namespace: argocd
 spec:
-  sourceRepos: [{{ $.Values.repository | quote }}]
+  sourceRepos:
+    - {{ $.Values.repository | quote }}
+    {{- if and $native (eq $name "data-configuration") }}
+    - {{ $.Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: {{ if eq $name "cnpg" }}cnpg-system{{ else }}cloudlab-data{{ end }}}
   clusterResourceWhitelist:
@@ -31,6 +45,9 @@ spec:
     - {group: '', kind: ConfigMap}
     - {group: apps, kind: Deployment}
     {{- else if eq $name "data-configuration" }}
+    {{- if $native }}
+    - {group: '', kind: ConfigMap}
+    {{- end }}
     - {group: '', kind: ResourceQuota}
     - {group: postgresql.cnpg.io, kind: Cluster}
     - {group: postgresql.cnpg.io, kind: Database}
@@ -79,4 +96,90 @@ spec:
     retry:
       limit: 5
       backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- if $native }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudlab-data-configuration-source
+  namespace: {{ .Values.namespace }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-data-configuration-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository}
+      data:
+        type: git
+        url: {{ .Values.identity.argo.valuesRepository | quote }}
+        project: cloudlab-data-configuration
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-data-configuration
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: data-platform}
+  annotations: {argocd.argoproj.io/skip-reconcile: 'false'}
+spec:
+  project: cloudlab-data-configuration
+  source: null
+  sources:
+    - repoURL: {{ .Values.repository | quote }}
+      targetRevision: {{ $configuration.revision | quote }}
+      path: platform/data/configuration
+      helm:
+        releaseName: cloudlab-data-configuration
+        valueFiles: ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/services/catalog.json']
+        valuesObject: {sharedInputs: true, maintenance: false, hibernated: false}
+    - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: {{ .Values.identity.argo.valuesRevision | quote }}, ref: values}
+  destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-data}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-seaweedfs
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: data-platform}
+  annotations: {argocd.argoproj.io/skip-reconcile: 'false'}
+spec:
+  project: cloudlab-seaweedfs
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ $configuration.seaweedfsRevision | quote }}
+    path: platform/data/seaweedfs
+    helm:
+      releaseName: cloudlab-seaweedfs
+      valuesObject:
+        seaweedfs:
+          master: {replicas: 1}
+          volume: {replicas: 1}
+          filer: {replicas: 1}
+          s3: {replicas: 1}
+  destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-data}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- end }}
 {{- end }}

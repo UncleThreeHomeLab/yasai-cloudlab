@@ -2,7 +2,7 @@
 import unittest
 import copy
 
-from playbooks.data.files.requests import resolve, protect, additions
+from playbooks.data.files.requests import request, resolve, protect, additions
 
 
 class RequestResolutionTests(unittest.TestCase):
@@ -23,6 +23,23 @@ class RequestResolutionTests(unittest.TestCase):
         changed['bucket']['name'] = 'notes'
         with self.assertRaises(ValueError): protect([changed], settings)
 
+    def test_fixed_resource_and_credential_identity_collisions_are_rejected(self):
+        settings = {'database': 'notes', 'bucket': 'notes', 'applicationRole': 'notes_app',
+                    'migrationRole': 'notes_migration', 'backupRole': 'backup',
+                    'identity': {'enabled': True, 'database': 'identity', 'role': 'identity_app'}}
+        database = {'name': 'fixture', 'applicationRole': 'fixture_app', 'migrationRole': 'fixture_migration',
+                    'applicationItem': 'cnpg-fixture-production', 'migrationItem': 'cnpg-fixture-migration'}
+        for name, kind in (('notes', 'database'), ('notes', 'bucket'), ('keycloak', 'database'),
+                           ('data-admin', 'bucket'), ('admin', 'bucket'), ('app', 'bucket')):
+            value = database if kind == 'database' else {'name': 'fixture', 'item': 's3-fixture-production'}
+            with self.subTest(name=name, kind=kind), self.assertRaises(ValueError):
+                protect([{'service': name, kind: value}], settings)
+        original = {'service': 'notes', 'database': dict(database, name='notes', applicationRole='notes_app',
+                    migrationRole='notes_migration', applicationItem='cnpg-notes-production', migrationItem='cnpg-notes-migration'),
+                    'bucket': {'name': 'notes', 'item': 's3-notes-production'}}
+        protect([original], settings)
+        protect([{'service': 'keycloak', 'database': database}], settings | {'identity': {'enabled': False}})
+
     def test_existing_data_scope_cannot_move_or_disappear(self):
         row = {'service': 'fixture', 'namespace': 'cloudlab-app-fixture', 'bucket': {'name': 'fixture'}}
         self.assertEqual(additions([row], [row]), [])
@@ -36,3 +53,15 @@ class RequestResolutionTests(unittest.TestCase):
             resolve([request], lambda *args: {'database': 'different', 'username': 'fixture_app'})
         with self.assertRaises(ValueError):
             resolve([request], lambda *args: {'database': 'fixture', 'username': 'fixture_app'})
+
+    def test_optional_role_metadata_is_paired_scoped_and_matches_vault_usernames(self):
+        data = {'database': {'name': 'fixture', 'credentialReference': 'fixture-db', 'retention': 'retain'}}
+        scope = {'kind': 'database', 'service': 'fixture', 'name': 'fixture', 'item': 'cnpg-fixture-production', 'migrationItem': 'cnpg-fixture-migration'}
+        lookup = lambda item, fields: {'database': 'fixture', 'username': 'fixture_migration' if item.endswith('migration') else 'fixture_app'}
+        legacy = resolve([request('fixture', data, {'fixture-db': scope})], lookup)
+        enriched = scope | {'applicationRole': 'fixture_app', 'migrationRole': 'fixture_migration'}
+        self.assertEqual(resolve([request('fixture', data, {'fixture-db': enriched})], lookup), legacy)
+        for bad in (scope | {'applicationRole': 'fixture_app'}, enriched | {'applicationRole': 'other'},
+                    enriched | {'migrationRole': 'fixture_app'}, enriched | {'applicationRole': 'pg_reserved'},
+                    enriched | {'applicationRole': 'postgres'}, enriched | {'applicationRole': 'template1'}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError): resolve([request('fixture', data, {'fixture-db': bad})], lookup)

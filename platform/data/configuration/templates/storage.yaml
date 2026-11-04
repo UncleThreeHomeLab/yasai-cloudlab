@@ -1,3 +1,5 @@
+{{- include "cloudlab.data.normalize" . -}}
+{{- $settings := .dataSettings -}}
 apiVersion: v1
 kind: Namespace
 metadata:

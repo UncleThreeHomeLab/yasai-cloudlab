@@ -1,3 +1,4 @@
+{{- $dataNative := and $.Values.data.enabled $.Values.data.configuration.enabled (hasKey $.Values.identity "argo") }}
 {{- $oidc := .Values.identity.argo | default dict }}
 {{- if hasKey .Values.identity "argo" }}
 {{- if or (not (kindIs "map" .Values.identity.argo)) (not $oidc) (not .Values.identity.enabled) (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" $oidc.valuesRepository)) (eq $oidc.valuesRepository .Values.repository) (not (regexMatch "^[a-f0-9]{40}$" $oidc.valuesRevision)) }}
@@ -48,6 +49,19 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $.Values.namespace }}
+  {{- if and (eq $name "cloudlab-public-root") $dataNative }}
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Application
+      namespace: argocd
+      name: cloudlab-data-configuration
+      jsonPointers: [/spec/sources/0/helm/valuesObject/maintenance, /spec/sources/0/helm/valuesObject/hibernated]
+    - group: argoproj.io
+      kind: Application
+      namespace: argocd
+      name: cloudlab-seaweedfs
+      jsonPointers: [/spec/source/helm/valuesObject/seaweedfs/master/replicas, /spec/source/helm/valuesObject/seaweedfs/volume/replicas, /spec/source/helm/valuesObject/seaweedfs/filer/replicas, /spec/source/helm/valuesObject/seaweedfs/s3/replicas]
+  {{- end }}
   syncPolicy:
     automated:
       prune: false
@@ -56,6 +70,9 @@ spec:
     syncOptions:
       - FailOnSharedResource=true
       - DisableClientSideApplyMigration=true
+      {{- if and (eq $name "cloudlab-public-root") $dataNative }}
+      - RespectIgnoreDifferences=true
+      {{- end }}
     retry:
       limit: 5
       backoff: {duration: 5s, factor: 2, maxDuration: 1m}

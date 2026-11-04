@@ -151,6 +151,283 @@
         "type": "string",
         "pattern": "^cloudlab-app-[a-z][a-z0-9-]{0,30}$"
       }
+    },
+    "sharedInputs": {
+      "type": "boolean"
+    },
+    "zone": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
+    },
+    "production": {
+      "type": "boolean"
+    },
+    "dataApprovals": {
+      "type": "object",
+      "maxProperties": 40,
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "service",
+              "name",
+              "item",
+              "migrationItem"
+            ],
+            "properties": {
+              "kind": {
+                "const": "database"
+              },
+              "service": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "item": {
+                "type": "string",
+                "pattern": "^cnpg-[a-z0-9-]+-production$"
+              },
+              "migrationItem": {
+                "type": "string",
+                "pattern": "^cnpg-[a-z0-9-]+-migration$"
+              },
+              "applicationRole": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "migrationRole": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "dependencies": {
+              "applicationRole": [
+                "migrationRole"
+              ],
+              "migrationRole": [
+                "applicationRole"
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "service",
+              "name",
+              "item"
+            ],
+            "properties": {
+              "kind": {
+                "const": "bucket"
+              },
+              "service": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+              },
+              "item": {
+                "type": "string",
+                "pattern": "^s3-[a-z0-9-]+-production$"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "catalog": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definition",
+          "approval",
+          "publication"
+        ],
+        "properties": {
+          "definition": {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "database": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "credentialReference",
+                      "retention"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                        "allOf": [
+                          {
+                            "not": {
+                              "pattern": "^pg_"
+                            }
+                          },
+                          {
+                            "not": {
+                              "enum": [
+                                "postgres",
+                                "template0",
+                                "template1"
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "credentialReference": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "retention": {
+                        "const": "retain"
+                      }
+                    }
+                  },
+                  "bucket": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "credentialReference",
+                      "retention"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+                      },
+                      "credentialReference": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "retention": {
+                        "const": "retain"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "approval": {
+            "type": "object",
+            "required": [
+              "name",
+              "namespace"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "namespace": {
+                "type": "string",
+                "pattern": "^cloudlab-app-[a-z][a-z0-9-]{0,30}$"
+              }
+            }
+          },
+          "publication": {
+            "enum": [
+              "ready",
+              "published",
+              "retired"
+            ]
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "sharedInputs"
+        ],
+        "properties": {
+          "sharedInputs": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "zone",
+          "production",
+          "catalog",
+          "dataApprovals"
+        ]
+      }
+    }
+  ]
 }

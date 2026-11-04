@@ -32,6 +32,10 @@ access:
 data:
   # Enable only with reviewed credentials, artifacts and recovery automation.
   enabled: true
+  configuration:
+    enabled: false
+    revision: 34c28c7d8db2d757adde7f0e9f78f66679d3b123
+    seaweedfsRevision: 34c28c7d8db2d757adde7f0e9f78f66679d3b123
 identity:
   enabled: true
 services:

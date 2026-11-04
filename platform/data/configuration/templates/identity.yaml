@@ -1,5 +1,7 @@
-{{- if .Values.identity.enabled }}
-{{- if or (eq .Values.identity.database .Values.database) (has .Values.identity.role (list .Values.applicationRole .Values.migrationRole .Values.backupRole "postgres")) }}
+{{- include "cloudlab.data.normalize" . -}}
+{{- $settings := .dataSettings -}}
+{{- if $settings.identity.enabled }}
+{{- if or (eq $settings.identity.database $settings.database) (has $settings.identity.role (list $settings.applicationRole $settings.migrationRole $settings.backupRole "postgres")) }}
 {{- fail "Identity must use a dedicated database and role" }}
 {{- end }}
 apiVersion: external-secrets.io/v1
@@ -31,8 +33,8 @@ metadata:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   cluster: {name: cloudlab-postgres}
-  name: {{ .Values.identity.database | quote }}
-  owner: {{ .Values.identity.role | quote }}
+  name: {{ $settings.identity.database | quote }}
+  owner: {{ $settings.identity.role | quote }}
   ensure: present
   databaseReclaimPolicy: retain
 {{- end }}
