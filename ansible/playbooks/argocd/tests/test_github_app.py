@@ -45,6 +45,27 @@ class AppAccessTests(unittest.TestCase):
         self.assertEqual(api.request.call_args.args[2], {'repositories': ['config'], 'permissions': {'contents': 'read'}})
         client.request.assert_called_with('DELETE', 'installation/token')
 
+    def test_configuration_reader_uses_same_authenticated_revision_and_always_revokes(self):
+        credentials = {'APP_ID': '123', 'INSTALLATION_ID': '456', 'PRIVATE_KEY': 'synthetic'}
+        for failed in (False, True):
+            api, client = Mock(), Mock()
+            api.request.side_effect = [{'app_id': 123, 'repository_selection': 'selected',
+                'permissions': {'contents': 'read', 'metadata': 'read'}}, {'token': 'synthetic'}]
+            client.request.side_effect = [{'full_name': 'example/config', 'private': True,
+                'default_branch': 'main'}, {'object': {'sha': 'a' * 40}}, None]
+            reader = Mock(side_effect=RuntimeError('invalid registry') if failed else None, return_value={'sources': []})
+            with patch('playbooks.secrets.files.vault.fields', return_value=credentials), \
+                    patch.object(github_app, 'app_token', return_value='synthetic'), \
+                    patch.object(github_app, 'GitHub', side_effect=[api, client]):
+                if failed:
+                    with self.assertRaises(RuntimeError):
+                        github_app.configuration_revision({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'}, read=reader)
+                else:
+                    self.assertEqual(github_app.configuration_revision(
+                        {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/config.git'}, read=reader), {'sources': []})
+            reader.assert_called_once_with(client, 'a' * 40)
+            client.request.assert_called_with('DELETE', 'installation/token')
+
     def test_signed_jwt_has_bounded_lifetime(self):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,

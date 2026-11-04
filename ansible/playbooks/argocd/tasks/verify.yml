@@ -23,9 +23,9 @@
   ansible.builtin.debug:
     msg: '{{ gitops_verification.stdout | from_json }}'
 
-- name: Render optional private verification inputs
+- name: Read native private verification inputs
   ansible.builtin.command:
-    argv: [python, /workspace/ansible/playbooks/argocd/files/private_sources.py, verify]
+    argv: [python, /workspace/ansible/playbooks/argocd/files/private_sources.py]
   delegate_to: localhost
   become: false
   register: gitops_private_verification_payload
@@ -35,7 +35,7 @@
 - name: Verify actual private configuration convergence and credential ownership
   ansible.builtin.command:
     argv: [python3, /opt/cloudlab/gitops/private_verify.py]
-    stdin: '{{ (gitops_private_verification_payload.stdout | from_json) | combine({"store": external_secrets_store}) | to_json }}'
+    stdin: '{{ gitops_private_verification_payload.stdout }}'
   register: gitops_private_verification
   changed_when: false
   failed_when: false

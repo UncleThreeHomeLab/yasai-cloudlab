@@ -19,6 +19,27 @@ Ask again only for a requested change or conflicting observed state.
 Keep application inputs in private GitOps. Never put private repo details,
 credentials or diagnostic dumps in this public repo.
 
+Additional isolated private roots use `platform/sources.yaml` in the designated
+private configuration repository. Most applications use the existing service
+catalog and need no additional root. For an approved separate root:
+
+```yaml
+sources:
+  - name: example
+    repository: https://github.com/OWNER/PRIVATE-REPO.git
+    revision: main
+    path: gitops
+```
+
+Merge the complete list through a reviewed private PR. Argo maintains its restricted
+project, repository credential and isolated `cloudlab-private-example` namespace.
+No Ansible apply is needed for registration changes. Check the catalog and child
+Applications are Healthy/Synced and their repository ExternalSecrets are Ready.
+Invalid YAML or unavailable Git blocks reconciliation and preserves accepted resources.
+Removing a row removes its registration and delivered repository credential;
+the namespace and child workloads/data are retained. Retire workloads through
+their owning declarations before removing a root when cleanup is intended.
+
 ## 1. Create the application repo
 
 1. **User:** identify the intended new repo or an existing repo you administer.

@@ -1,74 +1,14 @@
-"""Render optional private roots from ignored inputs; never log their values."""
+"""Read and validate the private Git source registry; never log its values."""
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 
 
-OWNER = 'private-gitops'
-LABEL = 'cloudlab.io/owner'
 PEM_TEMPLATE = r'''{{- $key := .PRIVATE_KEY | trim -}}
 {{- $header := regexFind "^-----BEGIN (RSA )?PRIVATE KEY-----" $key -}}
 {{- $footer := replace "BEGIN" "END" $header -}}
 {{- $body := $key | trimPrefix $header | trimSuffix $footer -}}
 {{- printf "%s\n%s\n%s\n" $header (regexReplaceAll "[[:space:]]+" $body "") $footer -}}'''
-
-
-def sources(raw):
-    from github_setup import repository
-    entries = json.loads(raw or '[]')
-    if not isinstance(entries, list) or len(entries) > 20:
-        raise RuntimeError('Private sources must be a list of at most 20 entries')
-    result = []
-    for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != {'name', 'repository', 'revision', 'path'}:
-            raise RuntimeError('Private sources require name, repository, revision, and path')
-        if not all(isinstance(value, str) for value in entry.values()):
-            raise RuntimeError('Private source fields must be strings')
-        if not re.fullmatch(r'[a-z][a-z0-9-]{0,28}[a-z0-9]|[a-z]', entry['name']):
-            raise RuntimeError('Private source name must be a DNS label of at most 30 characters')
-        repository(entry['repository'])
-        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_.-]*', entry['revision']):
-            raise RuntimeError('Private source revision is invalid')
-        path = PurePosixPath(entry['path'])
-        if path.is_absolute() or '..' in path.parts or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_.-]*', entry['path']):
-            raise RuntimeError('Private source path must stay inside its repository')
-        result.append(dict(entry))
-    if len({entry['name'] for entry in result}) != len(result):
-        raise RuntimeError('Private source names must be unique')
-    return result
-
-
-def resources(entry, store_name):
-    name = 'cloudlab-private-' + entry['name']
-    def metadata(object_name, namespace='argocd'):
-        return dict(name=object_name, labels={LABEL: OWNER}, **({'namespace': namespace} if namespace else {}))
-    namespace = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': metadata(name, None)}
-    namespace['metadata']['labels'].update({'pod-security.kubernetes.io/enforce': 'restricted',
-                                          'pod-security.kubernetes.io/enforce-version': 'v1.36'})
-    project = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'AppProject', 'metadata': metadata(name),
-        'spec': {'sourceRepos': [entry['repository']],
-            'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': name}],
-            'clusterResourceWhitelist': [], 'namespaceResourceWhitelist': [
-                {'group': group, 'kind': kind} for group, kind in (
-                    ('', 'ConfigMap'), ('', 'Service'), ('', 'ServiceAccount'), ('', 'PersistentVolumeClaim'),
-                    ('apps', 'Deployment'), ('apps', 'StatefulSet'), ('batch', 'Job'), ('batch', 'CronJob'),
-                    ('networking.k8s.io', 'NetworkPolicy'), ('policy', 'PodDisruptionBudget'))]}}
-    credential = {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'metadata': metadata(name),
-        'spec': {'refreshInterval': '24h', 'secretStoreRef': {'name': store_name, 'kind': 'ClusterSecretStore'},
-            'target': {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain',
-                'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace', 'metadata': {
-                    'labels': {'argocd.argoproj.io/secret-type': 'repository', LABEL: OWNER}},
-                    'data': {'type': 'git', 'url': entry['repository'], 'project': name,
-                             'githubAppID': '{{ .APP_ID }}', 'githubAppInstallationID': '{{ .INSTALLATION_ID }}',
-                             'githubAppPrivateKey': PEM_TEMPLATE}}},
-            'dataFrom': [{'extract': {'key': 'github-argocd'}}]}}
-    app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': metadata(name),
-        'spec': {'project': name, 'source': {'repoURL': entry['repository'],
-            'targetRevision': entry['revision'], 'path': entry['path']},
-            'destination': {'server': 'https://kubernetes.default.svc', 'namespace': name},
-            'syncPolicy': {'automated': {'prune': False, 'selfHeal': True, 'allowEmpty': False},
-                           'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true']}}}
-    return [namespace, project, credential, app]
 
 
 def registry_enabled(public):
@@ -106,7 +46,7 @@ def registry(client, values, public, revision):
     if not registry_enabled(public):
         return None
     if json.loads(values.get('PRIVATE_GITOPS_SOURCES') or '[]') != [] or values.get('PRIVATE_GITOPS_REMOVE'):
-        raise ValueError('Populated legacy private source inputs require an explicitly scoped migration')
+        raise ValueError('Legacy private source inputs are retired; migrate their owned registrations explicitly')
     if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Private registry requires its immutable private source revision')
     import yaml
@@ -133,21 +73,40 @@ def policy_specs(names):
             if row and row['kind'] == 'ValidatingPolicy' and row['metadata']['name'] in names}
 
 
+def verification_payload(values, public):
+    """Resolve one authenticated Git revision and its complete native declarations."""
+    from playbooks.argocd.files.github_app import configuration_revision
+    import subprocess
+    import yaml
+    repository = values.get('PRIVATE_CONFIG_REPOSITORY')
+    if not repository:
+        raise ValueError('Private verification requires its designated repository')
+    def read(client, revision):
+        value = registry(client, values, public, revision)
+        objects = []
+        if value is not None:
+            chart = Path(__file__).resolve().parents[4] / 'platform/delivery/private-sources'
+            result = subprocess.run(['helm', 'template', 'private-sources', str(chart), '-n', 'argocd', '-f', '-'],
+                input=json.dumps(value), capture_output=True, text=True, timeout=60)
+            if result.returncode:
+                raise ValueError('Private verification declarations cannot be rendered')
+            objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+        return {'configuration_repository': repository, 'configuration_revision': revision,
+                'catalog_enabled': registry_enabled(public), 'sources': value['sources'] if value else [],
+                'objects': objects, 'public_repository': public['repository'],
+                'platform_revision': public.get('privateSources', {}).get('revision')}
+    return configuration_revision(values, read=read)
+
+
 if __name__ == '__main__':
     try:
         import os
-        import sys
         from dotenv import dotenv_values
-        values = dotenv_values(Path(__file__).resolve().parents[4] / '.env', interpolate=False)
-        removal = values.get('PRIVATE_GITOPS_REMOVE') or ''
-        if removal and not re.fullmatch(r'[a-z][a-z0-9-]{0,28}[a-z0-9]|[a-z]', removal):
-            raise RuntimeError('Invalid private source removal selector')
-        payload = {'sources': sources(values.get('PRIVATE_GITOPS_SOURCES')), 'remove': removal,
-                   'configuration_repository': values.get('PRIVATE_CONFIG_REPOSITORY') or ''}
-        if sys.argv[1:] == ['verify'] and payload['configuration_repository']:
-            from playbooks.argocd.files.github_app import configuration_revision
-            os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
-            payload['configuration_revision'] = configuration_revision(values)
-        print(json.dumps(payload))
+        import yaml
+        root = Path(__file__).resolve().parents[4]
+        values = dotenv_values(root / '.env', interpolate=False)
+        os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
+        print(json.dumps(verification_payload(values, yaml.safe_load(
+            (root / 'gitops/roots/public/values.yaml').read_text()))))
     except Exception:
-        raise SystemExit('Invalid private GitOps inputs; values withheld') from None
+        raise SystemExit('Private GitOps verification inputs unavailable; values withheld') from None

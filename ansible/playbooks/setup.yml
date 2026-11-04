@@ -26,8 +26,6 @@
   ansible.builtin.import_playbook: backup/010-bootstrap.yml
 - name: Run argocd/010-bootstrap.yml
   ansible.builtin.import_playbook: argocd/010-bootstrap.yml
-- name: Run argocd/020-private-sources.yml
-  ansible.builtin.import_playbook: argocd/020-private-sources.yml
 - name: Run longhorn/040-argo-handoff.yml
   ansible.builtin.import_playbook: longhorn/040-argo-handoff.yml
 - name: Run certificates/010-bootstrap.yml
@@ -72,3 +70,5 @@
   ansible.builtin.import_playbook: services/020-retire-runtime.yml
 - name: Retire recognized obsolete host tooling after all consumers converge
   ansible.builtin.import_playbook: host/020-retire-tooling.yml
+- name: Retire replaced private source executables
+  ansible.builtin.import_playbook: argocd/030-retire-runtime.yml

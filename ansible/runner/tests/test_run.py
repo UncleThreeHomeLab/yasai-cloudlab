@@ -18,6 +18,13 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_retired_private_remove_command_is_rejected_before_credentials_or_apply(self):
+        with patch.object(sys, 'argv', ['run.py', 'gitops-private-remove']), \
+                patch.object(runner, 'dotenv_values') as dotenv, patch.object(runner, 'playbook') as playbook:
+            with self.assertRaises(SystemExit): runner.main()
+        dotenv.assert_not_called()
+        playbook.assert_not_called()
+
     def test_preview_commands_dispatch_to_the_component_without_vm_inputs(self):
         with patch.object(sys, 'argv', ['run.py', 'preview', 'check']), \
                 patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
