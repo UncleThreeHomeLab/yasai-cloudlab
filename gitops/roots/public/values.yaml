@@ -23,7 +23,7 @@ mesh:
   enabled: true
   configuration:
     enabled: true
-    revision: 74a1f5a802a2a90c331f06b6d0c98fd2b5dc92c6
+    revision: 3db2ae79d59935c0d61d3d723f43722634b96448
 access:
   enabled: true
 data:
