@@ -12,9 +12,10 @@ from playbooks.keycloak.files.integrations import argo
 
 
 class ArgoInputTests(unittest.TestCase):
-    def run_inputs(self, recovery=None, security=None, private=False):
+    def run_inputs(self, recovery=None, security=None, private=False, access="absent"):
         public = {'repository': 'https://github.com/example/platform.git',
-                  'services': {'enabled': True, 'revision': 'c' * 40}}
+                  'services': {'enabled': True, 'revision': 'c' * 40},
+                  'access': {'enabled': True, 'configuration': {'enabled': False, 'revision': 'e' * 40}}}
         if private:
             public.update(privateSources={'enabled': True, 'revision': 'd' * 40},
                           admission={'enabled': True}, externalSecrets={'enabled': True, 'reconcile': True})
@@ -23,13 +24,19 @@ class ArgoInputTests(unittest.TestCase):
         contract = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
                         ['https://cd.internal.example.invalid'])
         api, client = Mock(), MagicMock()
+        self.last_client = client
         api.request.side_effect = [{}, {'token': 'synthetic-token'}]
         catalog = {'catalog': [], 'dataApprovals': {}}
-        def read(method, path):
+        def read(method, path, **kwargs):
             if '/git/ref/heads/main' in path:
                 if security == 'unavailable': raise RuntimeError('Current private Git unavailable')
                 return {'object': {'sha': 'a' * 40}}
-            if '/contents/services/catalog.json?ref=' in path:
+            if '/contents/platform/access.yaml?ref=' in path:
+                self.assertEqual(kwargs, {'missing': True})
+                if access == 'absent': return None
+                if access == 'error': raise RuntimeError('Synthetic transport failure')
+                document = {'administrator': 'admin@example.invalid'} if access == 'present' else {'administrator': False}
+            elif '/contents/services/catalog.json?ref=' in path:
                 document = catalog
             elif '/contents/platform/sources.yaml?ref=' in path:
                 document = {'sources': []}
@@ -116,3 +123,19 @@ class ArgoInputTests(unittest.TestCase):
                 paths = [call.args[1] for call in client.request.call_args_list]
                 self.assertEqual([path for path in paths if '/contents/platform/sources.yaml' in path],
                                  ['repos/example/private/contents/platform/sources.yaml?ref=' + revision])
+
+    def test_access_candidate_is_read_even_disabled_at_exact_proposed_sha(self):
+        for recovery in (None, 'b' * 40):
+            for access in ('absent', 'present'):
+                result, client = self.run_inputs(recovery, access=access)
+                expected = recovery or 'a' * 40
+                calls = [c for c in client.request.call_args_list if '/contents/platform/access.yaml?ref=' in c.args[1]]
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(calls[0].args[1].endswith(expected))
+                self.assertEqual(result['accessActivation']['private_revision'], expected)
+                self.assertEqual(result['accessActivation']['administratorHash'] is None, access == 'absent')
+
+    def test_invalid_or_unavailable_access_candidate_still_revokes_the_token(self):
+        for access in ('invalid', 'error'):
+            with self.subTest(access=access), self.assertRaises(RuntimeError): self.run_inputs(access=access)
+            self.last_client.opener.open.assert_called_once()

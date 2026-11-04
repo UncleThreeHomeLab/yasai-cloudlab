@@ -45,11 +45,38 @@ def binding_fixture(required=True):
                                                for kind in ('Application', 'AppProject')]}}}
     payload = {'repository': repository, 'branch': 'main', 'revision': 'a' * 40,
                'private_repository': target['valuesRepository'], 'argo': {'serviceActivation': evidence,
+                   'accessActivation': access_evidence(repository, target),
                    'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'])}}
     original = copy.deepcopy(objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'])
     patched = copy.deepcopy(original)
     patched['helm']['valuesObject']['identity'] = {'enabled': True, 'argo': target}
     checkpoint = {'phase': 'source-updated', 'target': target, 'root_uid': 'root', 'controller_uid': 'controller',
                   'project_uid': 'project', 'originalSource': original, 'patchedSource': patched,
-                  'serviceActivation': evidence, 'privateActivation': payload['argo']['privateActivation']}
+                  'serviceActivation': evidence, 'privateActivation': payload['argo']['privateActivation'],
+                  'accessActivation': payload['argo']['accessActivation']}
     return objects, payload, target, checkpoint
+
+
+def access_evidence(repository, target, administrator=None):
+    import hashlib
+    from access_activation import validate
+    return validate({'required': False, 'enabled': True, 'repository': repository, 'revision': 'e' * 40,
+        'private_repository': target['valuesRepository'], 'private_revision': target['valuesRevision'],
+        'administratorHash': hashlib.sha256(administrator.encode()).hexdigest() if administrator is not None else None}, target)
+
+
+def access_authority(repository):
+    import hashlib
+    import access_activation
+    administrator = 'admin@example.invalid'
+    receipt = {'phase': 'configured', 'application_uid': 'access-app',
+               'administrator': hashlib.sha256(administrator.encode()).hexdigest()}
+    objects = {('application.argoproj.io', access_activation.APP): {
+        'metadata': {'uid': 'access-app', 'labels': {'cloudlab.io/owner': 'cloudlab-access-bootstrap'}},
+        'spec': {'source': {'repoURL': repository, 'targetRevision': 'main', 'path': 'platform/connectivity/access'}}},
+        ('clusterrolebinding.rbac.authorization.k8s.io', access_activation.BINDING): {
+            'metadata': {'uid': 'access-binding', 'annotations': {'argocd.argoproj.io/tracking-id':
+                access_activation.APP + ':rbac.authorization.k8s.io/ClusterRoleBinding:tailscale/' + access_activation.BINDING}},
+            'roleRef': {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole', 'name': 'cluster-admin'},
+            'subjects': [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': administrator}]}}
+    return administrator, receipt, objects

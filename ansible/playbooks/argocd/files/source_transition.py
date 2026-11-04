@@ -10,11 +10,13 @@ try:
     from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
     from .source_revision import matches_revision
     from .service_activation import validate as validate_activation, guard as activation_guard
+    from .access_activation import validate as validate_access, guard as access_guard
     from .private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 except ImportError:
     from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
     from source_revision import matches_revision
     from service_activation import validate as validate_activation, guard as activation_guard
+    from access_activation import validate as validate_access, guard as access_guard
     from private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 
 ROOT_APP = 'cloudlab-public-root'
@@ -139,6 +141,7 @@ def check_activation(state, root, read):
     if evidence is None:
         raise RuntimeError('Pending private activation inputs unavailable; retry identity binding at its recorded private revision')
     state['privateActivation'] = private_guard(evidence, state['target'], read, root, probe=private_server_probe)
+    state['accessActivation'] = access_guard(state.get('accessActivation'), state['target'], read, root)
 
 
 def safe_identity_resume(state, read):
@@ -186,6 +189,12 @@ def hydrate_binding(path, checkpoint, payload, target):
         if key not in checkpoint:
             checkpoint[key] = validator(payload.get('argo', {}).get(key), target)
             changed = True
+    current_access = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
+    if 'accessActivation' not in checkpoint:
+        checkpoint['accessActivation'] = current_access
+        changed = True
+    elif validate_access(checkpoint['accessActivation'], target) != current_access:
+        raise RuntimeError('Access activation retry cannot replace its captured authority')
     current = validate_private(payload.get('argo', {}).get('privateActivation'), target)
     previous = checkpoint['privateActivation']
     if any(current[key] != previous[key] for key in
@@ -228,6 +237,7 @@ def bind_identity(payload, target):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         path = BASE / 'identity-values-binding.json'
         checkpoint = json.loads(path.read_text()) if path.exists() else None
+        access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
         if checkpoint and checkpoint.get('phase') != 'accepted':
             hydrate_binding(path, checkpoint, payload, target)
         resume_identity_binding()
@@ -247,6 +257,7 @@ def bind_identity(payload, target):
                       'project_uid': project['metadata']['uid']}
         if checkpoint and any(checkpoint[key] != value for key, value in identities.items()):
             raise RuntimeError('Native identity binding resource identity changed')
+        access_evidence = access_guard(access_evidence, target, get, root)
         if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] in ('source-updated', 'resumed', 'accepted'):
             wait_application(ROOT_APP, payload['revision'])
             wait_application('cloudlab-argocd', payload['revision'])
@@ -260,7 +271,7 @@ def bind_identity(payload, target):
         patched = copy.deepcopy(original)
         patched.setdefault('helm', {})['valuesObject'] = values
         checkpoint = dict(identities, target=target, phase='prepared', originalSource=original,
-                          patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence)
+                          patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence, accessActivation=access_evidence)
         record(path, checkpoint)
         try:
             pause()

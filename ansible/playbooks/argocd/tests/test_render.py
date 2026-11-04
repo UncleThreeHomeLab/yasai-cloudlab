@@ -56,6 +56,51 @@ class RenderTests(unittest.TestCase):
                     self.root_with(values | {'externalSecrets': {field: invalid}}, success=False)
         self.root_with({'certificates': {'configuration': {'enabled': 'false'}}}, success=False)
 
+    def test_native_access_disabled_and_initial_unbound_root_preserve_legacy_owner(self):
+        binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
+        for values in ({}, {'access': {'configuration': {'enabled': True}}}, {'identity': {'argo': binding}}):
+            objects = self.root_with(values)
+            self.assertFalse(any(o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-access' for o in objects))
+            self.assertFalse(any(o['metadata']['name'] == 'cloudlab-access-source' for o in objects))
+            project = next(o for o in objects if o['kind'] == 'AppProject' and o['metadata']['name'] == 'cloudlab-access')
+            self.assertEqual(project['spec']['sourceRepos'], ['https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'])
+
+    def test_native_access_uses_only_approved_private_revision_and_project_scoped_retained_reader(self):
+        binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
+        values = {'identity': {'argo': binding}, 'access': {'configuration': {'enabled': True, 'revision': 'a' * 40}}}
+        objects = self.root_with(values)
+        app = next(o for o in objects if o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-access')
+        self.assertIsNone(app['spec']['source'])
+        self.assertEqual(app['spec']['sources'], [
+            {'repoURL': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git', 'targetRevision': 'a' * 40,
+             'path': 'platform/connectivity/access', 'helm': {'releaseName': 'cloudlab-access', 'valueFiles': ['$values/platform/access.yaml']}},
+            {'repoURL': binding['valuesRepository'], 'targetRevision': 'b' * 40, 'ref': 'values'}])
+        self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
+        self.assertNotIn('finalizers', app['metadata'])
+        baseline = self.root_with({'identity': {'argo': binding}})
+        for name in ('cloudlab-tailscale-operator', 'cloudlab-access'):
+            project = next(o['spec'] for o in objects if o['kind'] == 'AppProject' and o['metadata']['name'] == name)
+            old = next(o['spec'] for o in baseline if o['kind'] == 'AppProject' and o['metadata']['name'] == name)
+            self.assertEqual(project | {'sourceRepos': old['sourceRepos']}, old)
+            self.assertEqual(project['sourceRepos'], old['sourceRepos'] + ([binding['valuesRepository']] if name == 'cloudlab-access' else []))
+        reader = next(o for o in objects if o['metadata']['name'] == 'cloudlab-access-source')
+        self.assertEqual(reader['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
+        target = reader['spec']['target']
+        self.assertEqual((target['creationPolicy'], target['deletionPolicy']), ('Owner', 'Retain'))
+        self.assertEqual(target['template']['data']['project'], 'cloudlab-access')
+        self.assertEqual(target['template']['data']['url'], binding['valuesRepository'])
+        self.assertEqual(reader['spec']['dataFrom'], [{'extract': {'key': 'github-argocd'}}])
+
+    def test_native_access_bad_present_binding_pin_and_prerequisites_fail_closed(self):
+        binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
+        values = {'identity': {'argo': binding}, 'access': {'configuration': {'enabled': True, 'revision': 'a' * 40}}}
+        for bad in ({}, None, False, binding | {'valuesRevision': 'main'}):
+            self.root_with(values | {'identity': {'argo': bad}}, success=False)
+        for pin in ('main', '', 'a' * 39):
+            self.root_with(values | {'access': {'configuration': {'enabled': True, 'revision': pin}}}, success=False)
+        for field in ('enabled', 'reconcile'):
+            self.root_with(values | {'externalSecrets': {field: False}}, success=False)
+
     @classmethod
     def setUpClass(cls):
         cls.data = payload()

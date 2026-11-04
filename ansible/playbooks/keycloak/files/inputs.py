@@ -30,6 +30,7 @@ def native_argo(values):
     from playbooks.keycloak.files.private_source import decode_contents
     from playbooks.argocd.files.service_activation import prepare
     from playbooks.argocd.files.private_activation import prepare as prepare_private
+    from playbooks.argocd.files.access_activation import prepare as prepare_access
     from playbooks.argocd.files.private_sources import registry
     from playbooks.services.files.inputs import validate_catalog
     from playbooks.access.files.contract import host_rules
@@ -69,6 +70,7 @@ def native_argo(values):
                 'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),
                 'privateActivation': prepare_private(public, values['PRIVATE_CONFIG_REPOSITORY'], revision,
                                                      registry(client, values, public, revision)),
+                'accessActivation': prepare_access(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, client),
                 'recovery': recovery_revision is not None}
         if recovery_revision:
             result['currentSecurityProjection'] = {'revision': current_revision,
