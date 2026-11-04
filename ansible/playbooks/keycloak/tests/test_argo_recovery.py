@@ -28,11 +28,12 @@ class ArgoRecoveryTests(unittest.TestCase):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
                 (base / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned'}))
-                current = {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': runtime.OWNER}}}
+                current = {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': runtime.OWNER}}, 'spec': {'source': {'repoURL': 'public'}}}
                 with patch.object(runtime, 'BASE', base), patch.object(runtime, 'prerequisites'), \
                         patch.object(runtime, 'get', return_value=current), patch.object(runtime, 'application_ready', return_value=True), \
                         patch.object(runtime, 'private_inputs', return_value=(source, {'realms': {}}, 'a' * 40)), \
                         patch.object(runtime, 'pending_identity_target', return_value='a' * 40) as pending, \
+                        patch.object(runtime, 'pending_identity_checkpoint', return_value={'root_uid': 'owned', 'patchedSource': {'repoURL': 'public'}}), \
                         patch.object(runtime, 'check'), patch.object(runtime, 'proxy_privacy'), \
                         patch.object(runtime, 'public_address'), \
                         patch.object(runtime, 'private_request', return_value={'error': 'invalid_grant'}), \

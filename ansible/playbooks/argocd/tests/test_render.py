@@ -58,7 +58,7 @@ class RenderTests(unittest.TestCase):
 
     def test_native_access_disabled_and_initial_unbound_root_preserve_legacy_owner(self):
         binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
-        for values in ({}, {'access': {'configuration': {'enabled': True}}}, {'identity': {'argo': binding}}):
+        for values in ({}, {'access': {'configuration': {'enabled': True}}}, {'identity': {'argo': binding}, 'access': {'configuration': {'enabled': False}}}):
             objects = self.root_with(values)
             self.assertFalse(any(o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-access' for o in objects))
             self.assertFalse(any(o['metadata']['name'] == 'cloudlab-access-source' for o in objects))
@@ -77,7 +77,7 @@ class RenderTests(unittest.TestCase):
             {'repoURL': binding['valuesRepository'], 'targetRevision': 'b' * 40, 'ref': 'values'}])
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertNotIn('finalizers', app['metadata'])
-        baseline = self.root_with({'identity': {'argo': binding}})
+        baseline = self.root_with({'identity': {'argo': binding}, 'access': {'configuration': {'enabled': False}}})
         for name in ('cloudlab-tailscale-operator', 'cloudlab-access'):
             project = next(o['spec'] for o in objects if o['kind'] == 'AppProject' and o['metadata']['name'] == name)
             old = next(o['spec'] for o in baseline if o['kind'] == 'AppProject' and o['metadata']['name'] == name)

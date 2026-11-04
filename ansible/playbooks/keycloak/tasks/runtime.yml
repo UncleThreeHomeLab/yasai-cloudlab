@@ -14,6 +14,7 @@
     - /opt/cloudlab/playbooks/keycloak/files
     - /opt/cloudlab/playbooks/argocd/files
     - /opt/cloudlab/playbooks/access/files
+    - /opt/cloudlab/playbooks/istio/files
     - /var/lib/cloudlab/identity
 - name: Install the independent public DNS probe from its connectivity owner
   ansible.builtin.copy:
@@ -49,3 +50,19 @@
     - emergency.py
     - session_fixture.py
     - owner_enrollment.py
+- name: Install the access prerequisite observer from its owner
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/access/files/native.py
+    dest: /opt/cloudlab/playbooks/access/files/native.py
+    mode: '0600'
+- name: Install the shared access authority and source convergence parsers
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/argocd/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/argocd/files/{{ item }}'
+    mode: '0600'
+  loop: [access_activation.py, source_revision.py]
+- name: Install the Kubernetes reader used by access prerequisites
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/istio/files/kube.py
+    dest: /opt/cloudlab/playbooks/istio/files/kube.py
+    mode: '0600'

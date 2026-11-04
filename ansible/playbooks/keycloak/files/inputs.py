@@ -98,6 +98,8 @@ def payload():
     result = {key: result[key] for key in ('repository', 'branch', 'revision')} | {
         'private_repository': private, 'private_branch': 'main',
         'telemetry_enabled': bool(public.get('observability', {}).get('enabled', False))}
+    from playbooks.access.files.inputs import observation
+    result['access_observation'] = observation(public, private)
     if os.environ.get('LAB_IDENTITY_PHASE') == 'argo':
         result['argo'] = native_argo(values)
     return result
