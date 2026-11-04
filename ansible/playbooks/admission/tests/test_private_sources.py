@@ -54,11 +54,11 @@ class PrivateSourcePolicyTests(unittest.TestCase):
 
     def registration(self, kind):
         group = '' if kind == 'Namespace' else 'external-secrets.io' if kind == 'ExternalSecret' else 'argoproj.io'
-        namespace = '' if kind == 'Namespace' else 'argocd'
+        namespace = 'argocd'
         metadata = {'name': 'cloudlab-private-fixture', 'labels': {'cloudlab.io/owner': 'private-gitops'},
                     'annotations': {'argocd.argoproj.io/tracking-id':
                         'cloudlab-private-sources:' + group + '/' + kind + ':' + namespace + '/cloudlab-private-fixture'}}
-        if namespace: metadata['namespace'] = namespace
+        if kind != 'Namespace': metadata['namespace'] = namespace
         return {'apiVersion': 'v1' if not group else group + ('/v1' if kind == 'ExternalSecret' else '/v1alpha1'),
                 'kind': kind, 'metadata': metadata}
 
@@ -86,6 +86,15 @@ class PrivateSourcePolicyTests(unittest.TestCase):
                 else: old['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
                 with self.subTest(kind=kind, change=change):
                     self.evaluate(OWNER_POLICY, resource, old=old, accepted=False)
+
+    def test_cluster_namespace_tracking_uses_only_catalog_destination_namespace(self):
+        good = self.registration('Namespace')
+        self.assertNotIn('namespace', good['metadata'])
+        for namespace in ('', 'cloudlab-policy'):
+            resource = copy.deepcopy(good)
+            resource['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = (
+                'cloudlab-private-sources:/Namespace:' + namespace + '/cloudlab-private-fixture')
+            with self.subTest(namespace=namespace): self.evaluate(OWNER_POLICY, resource, accepted=False)
 
     def test_tracking_or_owner_removal_and_cascading_application_are_denied(self):
         old = self.registration('Application')

@@ -36,7 +36,7 @@ spec:
           oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-private-sources:'))
     - name: tracking
       expression: >-
-        'cloudlab-private-sources:' + (object.kind == 'Namespace' ? '/Namespace:/' :
+        'cloudlab-private-sources:' + (object.kind == 'Namespace' ? '/Namespace:argocd/' :
           object.kind == 'ExternalSecret' ? 'external-secrets.io/ExternalSecret:argocd/' :
           'argoproj.io/' + object.kind + ':argocd/') + object.metadata.name
   validations:
