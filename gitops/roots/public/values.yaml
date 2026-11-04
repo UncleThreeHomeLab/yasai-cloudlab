@@ -28,7 +28,7 @@ access:
   enabled: true
   configuration:
     enabled: true
-    revision: 06b99c027bf403708dffd83d234d66e44d6ac430
+    revision: 6000ae0876664edce08b6553438327a68a417fa2
 data:
   # Enable only with reviewed credentials, artifacts and recovery automation.
   enabled: true
