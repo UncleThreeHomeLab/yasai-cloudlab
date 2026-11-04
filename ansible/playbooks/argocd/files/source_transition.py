@@ -10,10 +10,12 @@ try:
     from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
     from .source_revision import matches_revision
     from .service_activation import validate as validate_activation, guard as activation_guard
+    from .private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 except ImportError:
     from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
     from source_revision import matches_revision
     from service_activation import validate as validate_activation, guard as activation_guard
+    from private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 
 ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
@@ -133,6 +135,10 @@ def check_activation(state, root, read):
     if evidence is None:
         raise RuntimeError('Pending service activation inputs unavailable; retry identity binding at its recorded private revision')
     state['serviceActivation'] = activation_guard(evidence, state['target'], read, root)
+    evidence = state.get('privateActivation')
+    if evidence is None:
+        raise RuntimeError('Pending private activation inputs unavailable; retry identity binding at its recorded private revision')
+    state['privateActivation'] = private_guard(evidence, state['target'], read, root, probe=private_server_probe)
 
 
 def safe_identity_resume(state, read):
@@ -175,9 +181,20 @@ def hydrate_binding(path, checkpoint, payload, target):
         obj = get(kind, name)
         if not obj or obj['metadata'].get('uid') != checkpoint[key] or obj['metadata'].get('deletionTimestamp'):
             raise RuntimeError('Pending identity handoff resource identity changed')
-    if 'serviceActivation' not in checkpoint:
-        evidence = payload.get('argo', {}).get('serviceActivation')
-        checkpoint['serviceActivation'] = validate_activation(evidence, target)
+    changed = False
+    for key, validator in (('serviceActivation', validate_activation), ('privateActivation', validate_private)):
+        if key not in checkpoint:
+            checkpoint[key] = validator(payload.get('argo', {}).get(key), target)
+            changed = True
+    current = validate_private(payload.get('argo', {}).get('privateActivation'), target)
+    previous = checkpoint['privateActivation']
+    if any(current[key] != previous[key] for key in
+           ('required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry')):
+        raise RuntimeError('Private activation retry cannot change its recorded registry or sources')
+    if current['policies'] != previous['policies']:
+        previous['policies'] = current['policies']
+        changed = True
+    if changed:
         record(path, checkpoint)
 
 
@@ -237,12 +254,13 @@ def bind_identity(payload, target):
             accept_binding(path, checkpoint)
             return {'changed': changed, 'native_argo_values_bound': True}
         evidence = validate_activation(payload.get('argo', {}).get('serviceActivation'), target, root)
+        private_evidence = validate_private(payload.get('argo', {}).get('privateActivation'), target, root)
         original = copy.deepcopy(root['spec']['source'])
         values.setdefault('identity', {}).update(enabled=True, argo=target)
         patched = copy.deepcopy(original)
         patched.setdefault('helm', {})['valuesObject'] = values
         checkpoint = dict(identities, target=target, phase='prepared', originalSource=original,
-                          patchedSource=patched, serviceActivation=evidence)
+                          patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence)
         record(path, checkpoint)
         try:
             pause()

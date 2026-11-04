@@ -1,0 +1,5 @@
+apiVersion: v2
+name: private-sources
+description: Bounded private workload source registrations.
+type: application
+version: 0.1.0

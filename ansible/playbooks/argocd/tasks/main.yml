@@ -46,7 +46,10 @@
     owner: root
     group: root
     mode: '0600'
-  loop: [bootstrap.py, verify.py, source_transition.py, source_revision.py, service_activation.py, sync_recovery.py, controller_recovery.py]
+  loop: [bootstrap.py, verify.py, source_transition.py, source_revision.py, service_activation.py, private_activation.py, private_sources.py, sync_recovery.py, controller_recovery.py]
+
+- name: Install the packaged Argo input and recovery interfaces
+  ansible.builtin.import_tasks: runtime.yml
 
 - name: Install the shared controller stability check from its integration owner
   ansible.builtin.copy:

@@ -108,3 +108,4 @@ class ServiceActivationTests(unittest.TestCase):
             copies = [task for task in tasks if 'source_transition.py' in task.get('loop', [])]
             self.assertEqual(len(copies), 1)
             self.assertIn('service_activation.py', copies[0]['loop'])
+            self.assertIn('private_activation.py', copies[0]['loop'])
