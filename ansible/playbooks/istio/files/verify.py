@@ -7,7 +7,7 @@ import sys
 import time
 import uuid
 
-from configuration import BASE, component_identities, gateway_api, selected_zone
+from ownership import BASE, component_identities, gateway_api, selected_zone
 import fixtures
 from kube import application_ready, condition, get, kube, wait
 
@@ -132,7 +132,12 @@ def verify(payload):
             raise RuntimeError('Gateway API ownership receipt is not accepted or preserved')
         if component_identities(payload) != state['components']:
             raise RuntimeError('Istio object identities changed')
-        wait(lambda: application_ready('cloudlab-gateways', payload['revision']), 'gateway Application convergence')
+        from native import guard, gateway_ready
+        if payload.get('native') is not None:
+            guard(payload['native'], state, payload)
+        gateway_converged = lambda: (gateway_ready(payload['native']) if payload.get('native') is not None
+                                    else application_ready('cloudlab-gateways', payload['revision']))
+        wait(gateway_converged, 'gateway Application convergence')
         zone = selected_zone()
         check_gateways(zone)
         ns = 'cloudlab-gateway-public'
@@ -142,7 +147,7 @@ def verify(payload):
             'cloudlab.io/ownership-proof') == 'argocd', 'gateway declaration drift repair', timeout=600)
         # One drift fixture proves this Application's writer. Wait for its full
         # operation to finish before traffic checks or another verification run.
-        wait(lambda: application_ready('cloudlab-gateways', payload['revision']), 'post-drift gateway convergence')
+        wait(gateway_converged, 'post-drift gateway convergence')
         suffix = uuid.uuid4().hex[:10]
         public, private, plain = ['cloudlab-mesh-' + role + '-' + suffix for role in ('public', 'private', 'plain')]
         created = {}
@@ -243,11 +248,13 @@ def verify(payload):
             if controller_snapshot() != baseline:
                 raise RuntimeError('Mesh controllers changed during stability observation')
             for app in ['cloudlab-gateways'] + ['cloudlab-istio-' + c for c in payload['mesh_objects']]:
-                if not application_ready(app, payload['revision']):
+                if not (gateway_converged() if app == 'cloudlab-gateways' else application_ready(app, payload['revision'])):
                     raise RuntimeError('Mesh GitOps convergence changed during stability observation')
         if gateway_api(payload['gateway_api']) != state['gateway_api']:
             raise RuntimeError('Gateway API identity changed during verification')
         check_gateways(zone)
+        if payload.get('native') is not None:
+            guard(payload['native'], state, payload)
         return {'ambient_without_sidecars': True, 'cross_node_mutual_tls_traffic_observed': True,
                 'authorized_identity_allowed': True, 'plaintext_and_unauthorized_identity_denied': True,
                 'network_policy_separately_proven': True, 'trusted_gateway_tls': True,

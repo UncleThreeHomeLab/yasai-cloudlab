@@ -1,0 +1,93 @@
+---
+- name: Attest accepted native mesh ownership before retiring the old writer
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Refresh authenticated native mesh observation inputs
+      ansible.builtin.import_tasks: tasks/source.yml
+      vars:
+        mesh_public_payload: '{{ gitops_payload.stdout | from_json }}'
+    - name: Verify the handoff without replaying mesh configuration
+      ansible.builtin.command:
+        argv: [python3, /var/lib/cloudlab/mesh/native.py]
+        stdin: '{{ {"native": (mesh_native_payload.stdout | from_json).native, "public": mesh_runtime_payload} | to_json }}'
+      register: mesh_native_handoff
+      changed_when: false
+      no_log: true
+    - name: Keep the native handoff result for scoped runtime retirement
+      ansible.builtin.set_fact:
+        mesh_native_handoff_verified: '{{ mesh_native_handoff.rc == 0 and (mesh_native_payload.stdout | from_json).native is not none }}'
+        mesh_runtime_retirement_deferred: '{{ (mesh_native_payload.stdout | from_json).native is none }}'
+
+- name: Remove only obsolete mesh writer files on all managed nodes
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    mesh_runtime_directories: [/var/lib/cloudlab/mesh, /opt/cloudlab/playbooks/istio/files]
+    mesh_retired_writer_sha256: 72b4c087c50ac7bca584173725afe6777ea6ed40acff42f073ffa5b247e16590
+  tasks:
+    - name: Inspect exact runtime ancestors and cache directories without redirects
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+      loop: >-
+        {{ ['/var', '/var/lib', '/var/lib/cloudlab', '/opt', '/opt/cloudlab',
+             '/opt/cloudlab/playbooks', '/opt/cloudlab/playbooks/istio']
+           + mesh_runtime_directories
+           + (mesh_runtime_directories | map('regex_replace', '$', '/__pycache__') | list) }}
+      register: mesh_runtime_ancestors
+    - name: Reject redirected or foreign runtime directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+        quiet: true
+      loop: '{{ mesh_runtime_ancestors.results }}'
+      when: item.stat.exists
+    - name: Find only the obsolete module cache under its exact owners
+      ansible.builtin.find:
+        paths: '{{ mesh_runtime_directories | map("regex_replace", "$", "/__pycache__") | list }}'
+        patterns: [configuration.cpython-*.pyc]
+        recurse: false
+        file_type: any
+      register: mesh_obsolete_caches
+    - name: Inspect exact obsolete writer files
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+        checksum_algorithm: sha256
+      loop: >-
+        {{ (mesh_runtime_directories | map('regex_replace', '$', '/configuration.py') | list)
+           + (mesh_obsolete_caches.files | map(attribute='path') | list) }}
+      register: mesh_obsolete_files
+    - name: Require native handoff before removing any existing writer or cache
+      ansible.builtin.assert:
+        that:
+          - hostvars[groups['k3s_servers'][0]].mesh_native_handoff_verified | default(false) | bool
+          - item.stat.isreg | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+          - not item.item.endswith('/configuration.py') or item.stat.checksum == mesh_retired_writer_sha256
+        fail_msg: Mesh writer retirement requires an attested native handoff and unchanged owned files.
+        quiet: true
+      loop: '{{ mesh_obsolete_files.results }}'
+      when:
+        - item.stat.exists
+        - not (hostvars[groups['k3s_servers'][0]].mesh_runtime_retirement_deferred | default(false) | bool)
+    - name: Retire the replaced executable and its bytecode while retaining all ownership and data
+      ansible.builtin.file:
+        path: '{{ item.item }}'
+        state: absent
+      loop: '{{ mesh_obsolete_files.results }}'
+      when:
+        - item.stat.exists
+        - hostvars[groups['k3s_servers'][0]].mesh_native_handoff_verified | default(false) | bool
+    - name: Report deferred retirement until the initial private binding exists
+      ansible.builtin.debug:
+        msg: Mesh runtime retirement deferred; initial mesh seed is retained until private source binding.
+      when: hostvars[groups['k3s_servers'][0]].mesh_runtime_retirement_deferred | default(false) | bool

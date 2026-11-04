@@ -1,20 +1,13 @@
 ---
-- name: Render pinned mesh verification inputs
-  ansible.builtin.command:
-    argv: [python, /workspace/ansible/playbooks/istio/files/chart.py, payload]
-  delegate_to: localhost
-  become: false
-  register: mesh_verification_payload
-  changed_when: false
-  no_log: true
+- name: Refresh authenticated gateway observation inputs
+  ansible.builtin.import_tasks: source.yml
+  vars:
+    mesh_public_payload: '{{ gitops_verification_payload.stdout | from_json }}'
 
 - name: Prove ambient identity policy and internal gateway isolation
   ansible.builtin.command:
     argv: [python3, /var/lib/cloudlab/mesh/verify.py]
-    stdin: >-
-      {{ (gitops_verification_payload.stdout | from_json)
-         | combine(mesh_verification_payload.stdout | from_json)
-         | combine({'smoke_image': smoke_image}) | to_json }}
+    stdin: '{{ mesh_runtime_payload | combine({"smoke_image": smoke_image}) | to_json }}'
   register: mesh_verified
   changed_when: false
   failed_when: false

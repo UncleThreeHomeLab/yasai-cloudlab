@@ -19,6 +19,12 @@ Ask again only for a requested change or conflicting observed state.
 Keep application inputs in private GitOps. Never put private repo details,
 credentials or diagnostic dumps in this public repo.
 
+Shared gateways read `platform/certificates.yaml` from private Git main and
+`identity/argo-values.yaml` at the existing approved identity binding revision.
+Argo origins advance only after that identity revision is approved; changing main
+alone does not authorize new administrative origins. Controllers reconcile these
+shared inputs; service onboarding does not apply a gateway playbook.
+
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
 catalog and need no additional root. For an approved separate root:

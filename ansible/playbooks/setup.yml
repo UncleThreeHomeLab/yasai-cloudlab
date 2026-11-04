@@ -74,3 +74,5 @@
   ansible.builtin.import_playbook: argocd/030-retire-runtime.yml
 - name: Retire replaced certificate writer after accepted native handoff
   ansible.builtin.import_playbook: certificates/020-retire-runtime.yml
+- name: Retire replaced gateway writer after accepted native handoff
+  ansible.builtin.import_playbook: istio/020-retire-runtime.yml
