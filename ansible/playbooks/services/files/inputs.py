@@ -1,5 +1,4 @@
 """Load the complete private catalog before mutation; public base remains optional."""
-import json
 from pathlib import Path
 import yaml
 
@@ -18,7 +17,8 @@ def catalog(required=False, *, coordinates=False):
         os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = environment.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
         from playbooks.services.files.source import read
         value = read(environment, include_revision=coordinates)
-        return (validate_catalog(value[0]), value[1]) if coordinates else validate_catalog(value)
+        public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+        return (validate_catalog(value[0], public=public), value[1]) if coordinates else validate_catalog(value, public=public)
     filename = environment.get('SERVICE_CATALOG_FILE')
     if not filename:
         if required: raise ValueError('Missing .env input: SERVICE_CATALOG_FILE')
@@ -29,17 +29,25 @@ def catalog(required=False, *, coordinates=False):
     target = (ROOT / path).resolve()
     if ROOT / 'docs/local' not in target.parents or not target.is_file() or target.stat().st_size > 1024 * 1024:
         raise ValueError('Private service catalog unavailable; refused before planning or mutation')
-    value = json.loads(target.read_text())
-    return validate_catalog(value)
+    value = yaml.safe_load(target.read_text())
+    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    return validate_catalog(value, public=public)
 
 
-def validate_catalog(value):
+def validate_catalog(value, *, public=None, chart_root=None):
+    """Production readers supply public owner coordinates; no source fallback."""
     if (not isinstance(value, dict) or set(value) != {'catalog', 'dataApprovals'} or
             not isinstance(value['catalog'], list) or len(value['catalog']) > 20 or
             not isinstance(value['dataApprovals'], dict) or len(value['dataApprovals']) > 40):
         raise ValueError('Private service catalog requires complete catalog and data approvals')
+    if public is not None and chart_root is None:
+        from playbooks.services.files.owner import chart
+        with chart(public) as selected:
+            return validate_catalog(value, public=public, chart_root=selected)
     names = set()
-    platform_repository = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
+    platform = public if public is not None else yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    platform_repository = platform['repository']
+    revision = platform.get('services', {}).get('revision') if public is not None else 'a' * 40
     from playbooks.data.files.requests import request
     for entry in value['catalog']:
         if set(entry) != {'definition', 'approval', 'publication'} or entry['publication'] not in ('ready', 'published', 'retired'):
@@ -49,7 +57,7 @@ def validate_catalog(value):
         if name in names: raise ValueError('Duplicate service catalog namespace')
         names.add(name)
         request(name, definition['data'], value['dataApprovals'])
-        resources(definition, entry['approval'], platform_repository, 'a' * 40)
+        resources(definition, entry['approval'], platform_repository, revision, chart_root=chart_root)
     return value
 
 

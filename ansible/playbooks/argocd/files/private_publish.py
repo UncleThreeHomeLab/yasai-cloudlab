@@ -12,9 +12,13 @@ def publish(api, values, files, *, scope="identity", expected_base=None):
     target = inspect(api, 'private-config', repo, True)
     if target is None:
         raise RuntimeError('Designated private identity repository is missing')
+    service_path = None
+    if scope == 'services':
+        from playbooks.services.files.owner import configuration
+        service_path = configuration()['catalogPath']
     allowed, required = {
         'identity': ({'identity/configmap.yaml', 'identity/argo-values.yaml'}, 'identity/configmap.yaml'),
-        'services': ({'services/catalog.json'}, 'services/catalog.json'),
+        'services': ({service_path}, service_path),
         'previews': ({'previews/catalog.json'}, 'previews/catalog.json'),
     }.get(scope, (set(), None))
     if not files or set(files) - allowed or required not in files:
@@ -79,7 +83,7 @@ def publish(api, values, files, *, scope="identity", expected_base=None):
         'body': ('Apply the complete private identity inventory and persistent revocations. '
                 'Only identity inputs change; omitted overlays and unrelated files are retained. '
                 'Realm changes remain owned by serialized keycloak-config-cli reconciliation.' if scope == 'identity' else
-                'Apply the complete reviewed service catalog. Only services/catalog.json changes. '
+                'Apply the complete reviewed service catalog. Only ' + str(service_path) + ' changes. '
                 'Namespaces, quotas, sources and scoped requests remain controlled by platform owners.' if scope == 'services' else
                 'Review the complete private preview approvals and retained namespace authorizations. '
                 'No automatic merge or production credential change is authorized.')})

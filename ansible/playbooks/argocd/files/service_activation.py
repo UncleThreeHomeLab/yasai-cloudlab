@@ -7,26 +7,36 @@ OWNER = 'service-platform'
 TRACKING = 'cloudlab-public-root:argoproj.io/Application:argocd/' + APP
 
 
+def catalog_path(value='services/catalog.json'):
+    if not isinstance(value, str) or not re.fullmatch(r'services/catalog(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?[.](?:json|yaml)', value) or len(value) > 128:
+        raise ValueError('Service catalog path must be a bounded catalog JSON or YAML file directly under services')
+    return value
+
+
 def prepare(public, private_repository, private_revision, catalog=None):
     """Capture already validated non-secret inputs at the identity source revision."""
-    return validate({'required': public.get('services', {}).get('enabled', False),
+    evidence = {'required': public.get('services', {}).get('enabled', False),
                      'repository': public['repository'],
                      'revision': public.get('services', {}).get('revision'),
                      'private_repository': private_repository, 'private_revision': private_revision,
                      'telemetry': public.get('observability', {}).get('enabled', False),
-                     'catalog': catalog},
+                     'catalog': catalog}
+    if 'catalogPath' in public.get('services', {}):
+        evidence['catalogPath'] = catalog_path(public['services']['catalogPath'])
+    return validate(evidence,
                     {'valuesRepository': private_repository, 'valuesRevision': private_revision})
 
 
 def validate(evidence, target, root=None):
     required = {'required', 'repository', 'revision', 'private_repository', 'private_revision', 'telemetry', 'catalog'}
-    if (not isinstance(evidence, dict) or not required <= set(evidence) <= required | {'existing'}
+    if (not isinstance(evidence, dict) or not required <= set(evidence) <= required | {'existing', 'catalogPath'}
             or type(evidence['required']) is not bool or type(evidence['telemetry']) is not bool
             or set(target) != {'valuesRepository', 'valuesRevision'}
             or evidence['private_repository'] != target['valuesRepository']
             or evidence['private_revision'] != target['valuesRevision']
             or not re.fullmatch('[a-f0-9]{40}', evidence['private_revision'] or '')):
         raise RuntimeError('Service activation inputs do not match the recorded private source')
+    path = catalog_path(evidence.get('catalogPath', catalog_path()))
     pattern = r'https://github[.]com/([A-Za-z0-9-]+)/[A-Za-z0-9_.-]+[.]git'
     public = re.fullmatch(pattern, evidence['repository'] or '')
     private = re.fullmatch(pattern, evidence['private_repository'] or '')
@@ -42,7 +52,7 @@ def validate(evidence, target, root=None):
                 or root.get('metadata', {}).get('finalizers')
                 or source.get('repoURL') != evidence['repository']
                 or any(key in overrides and overrides[key] != value for key, value in
-                       (('enabled', evidence['required']), ('revision', evidence['revision'])))):
+                       (('enabled', evidence['required']), ('revision', evidence['revision']), ('catalogPath', path)))):
             raise RuntimeError('Service activation differs from the current public root')
     if evidence['required']:
         catalog = evidence['catalog']
@@ -69,7 +79,7 @@ def sources_match(app, evidence):
             and sources[0].get('targetRevision') == evidence['revision']
             and sources[0].get('path') == 'platform/delivery/services'
             and sources[0].get('helm', {}).get('valueFiles') ==
-                ['$values/services/catalog.json', '$values/identity/argo-values.yaml']
+                ['$values/' + catalog_path(evidence.get('catalogPath', catalog_path())), '$values/identity/argo-values.yaml']
             and sources[0].get('helm', {}).get('valuesObject') ==
                 {'repository': evidence['repository'], 'revision': evidence['revision'], 'telemetry': evidence['telemetry']}
             and sources[1] == {'repoURL': evidence['private_repository'], 'targetRevision': 'main', 'ref': 'values'})

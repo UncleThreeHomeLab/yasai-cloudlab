@@ -29,6 +29,8 @@ def catalog_application(payload):
               'observability': {'enabled': payload['telemetry']},
               'identity': {'enabled': True, 'argo': {'valuesRepository': payload['private_repository'],
                                                    'valuesRevision': payload['private_revision']}}}
+    if 'catalogPath' in payload:
+        values['services']['catalogPath'] = payload['catalogPath']
     result = subprocess.run(['helm', 'template', 'root', str(root / 'gitops/roots/public'), '-n', 'argocd', '-f', '-'],
                             input=json.dumps(values), capture_output=True, text=True, check=True, timeout=60)
     app = next(obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'Application'
@@ -37,6 +39,35 @@ def catalog_application(payload):
     app['status'] = {'sync': {'status': 'Synced', 'revisions': [payload['revision'], payload['private_revision']]},
                      'health': {'status': 'Healthy'}}
     return copy.deepcopy(app)
+
+
+def owner_files(*, future=False):
+    """Native chart versions for offline source-contract transition checks."""
+    import json
+    root = Path(__file__).resolve().parents[4] / 'platform/delivery/services'
+    files = {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob('*') if path.is_file()}
+    if future:
+        schema = json.loads(files['values.schema.json'])
+        approved = schema['properties']['catalog']['items']['properties']['approval']
+        approved['properties']['egress'] = {'type': 'array'}
+        approved['required'].append('egress')
+        files['values.schema.json'] = json.dumps(schema).encode()
+    return files
+
+
+def owner_api(files, revision='a' * 40):
+    """Exact Git metadata and immutable bytes; no network or credentials."""
+    import copy
+    import hashlib
+    from unittest.mock import Mock
+    from playbooks.services.files.owner import CHART
+    entries = [{'path': CHART + name, 'type': 'blob', 'mode': '100644', 'size': len(raw),
+                'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()}
+               for name, raw in files.items()]
+    documents = {'repos/example/platform/git/commits/' + revision: {'sha': revision, 'tree': {'sha': 'b' * 40}},
+                 'repos/example/platform/git/trees/' + 'b' * 40 + '?recursive=1': {'sha': 'b' * 40, 'tree': entries}}
+    return (Mock(side_effect=lambda path, deadline: copy.deepcopy(documents[path])),
+            Mock(side_effect=lambda source, name, size, deadline: files[name]), documents)
 
 
 def composition_approval(graph=False):

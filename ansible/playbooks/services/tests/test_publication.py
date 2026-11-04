@@ -2,6 +2,7 @@ import base64
 import copy
 import json
 import unittest
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 from playbooks.services.files import source
 from playbooks.services.tests.fixtures import definition, approval
@@ -15,6 +16,7 @@ class PublicationTests(unittest.TestCase):
                                    {'content': base64.b64encode(json.dumps(value).encode()).decode()}]
         environment = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
         with patch.object(source, 'WRITER', (environment, api)), \
+                patch('playbooks.services.files.owner.chart', return_value=nullcontext(source.__file__)), \
                 patch('playbooks.argocd.files.private_publish.publish', return_value={'private_source_changed': False}) as publish:
             source.publish(value, expected=value)
         self.assertEqual(api.request.call_args_list[1].args[1].split('?ref=')[1], 'a' * 40)

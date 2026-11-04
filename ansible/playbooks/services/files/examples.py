@@ -62,9 +62,11 @@ def prepare():
 
 def bundles(value):
     from playbooks.services.files.inputs import validate_catalog
-    value = validate_catalog(copy.deepcopy(value))
-    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())['repository']
-    revision = subprocess.check_output(['git','-c','safe.directory=/workspace','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+    from playbooks.services.files.owner import configuration
+    declared = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    value = validate_catalog(copy.deepcopy(value), public=declared)
+    selected = configuration(declared)
+    public, revision = selected['repository'], selected['revision']
     origin = json.loads((ROOT / 'platform/connectivity/access/contract.json').read_text())['cloudflareOrigin']
     target = Path('/recovery/services')
     target.mkdir(mode=0o700,parents=True,exist_ok=True)
