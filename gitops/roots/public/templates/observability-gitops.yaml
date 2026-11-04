@@ -1,0 +1,78 @@
+{{- if .Values.observability.configuration.enabled }}
+{{- $configuration := .Values.observability.configuration }}
+{{- $catalogPath := .Values.services.catalogPath | default "services/catalog.json" }}
+{{- if or (not (kindIs "string" $catalogPath)) (gt (len $catalogPath) 128) (not (regexMatch "^services/catalog(-[a-z0-9]+(-[a-z0-9]+)*)?[.](json|yaml)$" $catalogPath)) }}
+{{- fail "Observability catalog must use the approved bounded service catalog path" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudlab-observability-gitops
+  namespace: argocd
+spec:
+  sourceRepos: [{{ .Values.repository | quote }}, {{ .Values.identity.argo.valuesRepository | quote }}]
+  destinations: [{server: 'https://kubernetes.default.svc', namespace: argocd}]
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: [{group: argoproj.io, kind: Application}]
+{{- range $project := list "cloudlab-observability-gitops" "cloudlab-observability" }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $project }}-source
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ $project }}-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository}
+      data:
+        type: git
+        url: {{ $.Values.identity.argo.valuesRepository | quote }}
+        project: {{ $project }}
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-observability-gitops
+  namespace: argocd
+  labels: {cloudlab.io/owner: observability-platform}
+  # Preparation cannot compete with the retained writer. Handoff requires code review.
+  annotations: {argocd.argoproj.io/skip-reconcile: 'true'}
+spec:
+  project: cloudlab-observability-gitops
+  sources:
+    - repoURL: {{ .Values.repository | quote }}
+      targetRevision: {{ $configuration.revision | quote }}
+      path: platform/observability/gitops
+      helm:
+        releaseName: cloudlab-observability-gitops
+        valueFiles: [{{ printf "$values/%s" $catalogPath | quote }}, '$values/platform/observability.yaml']
+        valuesObject:
+          nativeSource:
+            repository: {{ .Values.repository | quote }}
+            revision: {{ $configuration.revision | quote }}
+            valuesRepository: {{ .Values.identity.argo.valuesRepository | quote }}
+            valuesRevision: {{ $configuration.valuesRevision | quote }}
+    - repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+      targetRevision: {{ $configuration.valuesRevision | quote }}
+      ref: values
+  destination: {server: 'https://kubernetes.default.svc', namespace: argocd}
+  syncPolicy:
+    automated: {enabled: false, prune: false, selfHeal: false, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+{{- end }}

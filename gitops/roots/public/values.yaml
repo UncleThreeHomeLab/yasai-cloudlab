@@ -46,6 +46,10 @@ privateSources:
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
 observability:
   enabled: true
+  configuration:
+    enabled: false
+    revision: ''
+    valuesRevision: ''
 harbor:
   enabled: true
 admission:
