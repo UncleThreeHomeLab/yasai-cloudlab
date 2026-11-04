@@ -10,8 +10,7 @@ import sys
 import tempfile
 import uuid
 
-from configuration import BASE, certificate
-from kube import application_ready, get, kube, ready, wait
+from kube import BASE, application_ready, certificate, get, kube, ready, wait
 
 
 def fingerprint(name, namespace, trusted=False):
@@ -80,8 +79,13 @@ def verify(payload):
         state = json.loads((BASE / 'ownership.json').read_text())
         if state['phase'] != 'accepted':
             raise RuntimeError('Accept staging and production issuance before certificate verification')
-        for app in ('cloudlab-cert-manager', 'cloudlab-certificates'):
-            wait(lambda: application_ready(app, payload['revision']), 'certificate GitOps convergence')
+        wait(lambda: application_ready('cloudlab-cert-manager', payload['revision']), 'certificate operator convergence')
+        def configuration_ready():
+            native = payload.get('native')
+            if native is not None:
+                return application_ready('cloudlab-certificates', native['configuration_revision'], native['private_revision'])
+            return application_ready('cloudlab-certificates', payload['revision'])
+        wait(configuration_ready, 'certificate GitOps convergence')
         for kind in ('public', 'private'):
             namespace = 'cloudlab-gateway-' + kind
             if certificate('cloudlab-gateway', namespace) != state['identities'][kind]:
@@ -113,7 +117,7 @@ def verify(payload):
             if not ready(issuer) or any('dns01' not in solver or 'http01' in solver
                                        for solver in issuer['spec']['acme']['solvers']):
                 raise RuntimeError('Certificate issuer readiness or DNS-only policy changed')
-        wait(lambda: application_ready('cloudlab-certificates', payload['revision']), 'post-renewal convergence')
+        wait(configuration_ready, 'post-renewal convergence')
         return {'staging_issuance_and_renewal': True, 'private_key_rotated': True,
                 'certificate_and_secret_uids_preserved': True, 'production_certificates': 2,
                 'production_renewal_schedules_present': True, 'production_chains_trusted': True,

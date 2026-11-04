@@ -42,6 +42,13 @@ Removing a row removes its registration and delivered repository credential;
 the namespace and child workloads/data are retained. Retire workloads through
 their owning declarations before removing a root when cleanup is intended.
 
+Shared DNS-01 issuer and gateway TLS settings live in private
+`platform/certificates.yaml` (`zone` and `production: true`). Merge approved
+changes through its private PR; Argo reads this file directly, gates production
+behind current staging readiness and retains issued credentials. Routine service
+onboarding reuses this shared TLS owner and does not run certificate Ansible.
+Changing the accepted DNS zone requires a separately scoped migration.
+
 ## 1. Create the application repo
 
 1. **User:** identify the intended new repo or an existing repo you administer.

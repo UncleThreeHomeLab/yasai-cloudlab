@@ -28,6 +28,7 @@ class RenderTests(unittest.TestCase):
             {'repoURL': values['identity']['argo']['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'}])
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertNotIn('finalizers', app['metadata'])
+        self.assertEqual(app['metadata']['annotations']['argocd.argoproj.io/skip-reconcile'], 'false')
         projects = {obj['metadata']['name']: obj['spec'] for obj in objects if obj['kind'] == 'AppProject'}
         self.assertEqual(projects['cloudlab-certificates']['sourceRepos'], [values['repository'], values['identity']['argo']['valuesRepository']])
         self.assertEqual(projects['cloudlab-cert-manager']['sourceRepos'], [values['repository']])

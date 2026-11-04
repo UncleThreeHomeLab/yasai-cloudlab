@@ -117,8 +117,10 @@ metadata:
   name: cloudlab-certificates
   namespace: {{ .Values.namespace }}
   labels: {cloudlab.io/owner: certificate-platform}
+  annotations: {argocd.argoproj.io/skip-reconcile: 'false'}
 spec:
   project: cloudlab-certificates
+  source: null
   sources:
     - repoURL: {{ .Values.repository | quote }}
       targetRevision: {{ $configuration.revision | quote }}

@@ -1,8 +1,13 @@
 ---
+- name: Resolve current authenticated certificate verification inputs
+  ansible.builtin.import_tasks: source.yml
+  vars:
+    certificates_public_payload: '{{ gitops_verification_payload.stdout | from_json }}'
+
 - name: Verify DNS-01 reissuance and certificate Secret delivery
   ansible.builtin.command:
     argv: [python3, /var/lib/cloudlab/certificates/verify.py]
-    stdin: '{{ gitops_verification_payload.stdout }}'
+    stdin: '{{ certificates_runtime_payload | to_json }}'
   register: certificates_verified
   changed_when: false
   failed_when: false

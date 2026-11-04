@@ -1,15 +1,13 @@
-"""Serialize staging-before-production issuance through one runtime Application."""
+"""Bounded initial TLS seed; accepted ownership is observed without replaying inputs."""
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import sys
 
 from inputs import zone
-from kube import application_ready, contains, get, kube, ready, wait
+from kube import BASE, application_ready, certificate, contains, get, kube, wait
 
-BASE = Path('/var/lib/cloudlab/certificates')
 OWNER = 'cloudlab-certificates-bootstrap'
 APP = 'cloudlab-certificates'
 
@@ -64,23 +62,21 @@ def configure(payload, name, production, state):
     return changed
 
 
-def certificate(name, namespace):
-    obj = wait(lambda: (current if ready(current := get('certificate.cert-manager.io', name, namespace)) else None),
-               'certificate issuance')
-    secret = get('secret', obj['spec']['secretName'], namespace)
-    if not secret or secret.get('type') != 'kubernetes.io/tls' or not {'tls.crt', 'tls.key'} <= secret.get('data', {}).keys():
-        raise RuntimeError('Issued certificate Secret is incomplete')
-    if secret['metadata'].get('annotations', {}).get('cert-manager.io/certificate-name') != name:
-        raise RuntimeError('Certificate Secret lacks its controller association')
-    return {'certificate_uid': obj['metadata']['uid'], 'secret_uid': secret['metadata']['uid']}
-
-
 def run(payload):
     os.umask(0o077)
     if BASE.resolve() != BASE.absolute():
         raise RuntimeError('Certificate state directory must not be a symlink')
     with (BASE / 'ownership.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        path = BASE / 'ownership.json'
+        state = json.loads(path.read_text()) if path.exists() else None
+        if state and state.get('phase') == 'accepted':
+            from native import observe_legacy, guard
+            if payload.get('native') is not None:
+                guard(payload['native'], state, stage='native')
+            else:
+                observe_legacy(payload, state)
+            return {'changed': False, 'phase': 'accepted', 'native_owner_verified': bool(payload.get('native'))}
         wait(lambda: application_ready('cloudlab-cert-manager', payload['revision']), 'operator convergence')
         selected_zone = zone()
         zone_hash = hashlib.sha256(selected_zone.encode()).hexdigest()
