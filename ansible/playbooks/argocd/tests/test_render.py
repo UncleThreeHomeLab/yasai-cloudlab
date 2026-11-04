@@ -7,6 +7,54 @@ from render import payload, images
 
 
 class RenderTests(unittest.TestCase):
+    def test_native_certificate_preparation_is_disabled_and_absent_binding_is_safe(self):
+        for configuration, identity in (({'enabled': False}, {}), ({'enabled': True}, {}),
+                ({'enabled': False}, {'argo': {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}})):
+            objects = self.root_with({'certificates': {'configuration': configuration}, 'identity': identity})
+            self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-certificates' for obj in objects))
+            self.assertFalse(any(obj['metadata']['name'] == 'cloudlab-certificates-source' for obj in objects))
+            project = next(obj for obj in objects if obj['kind'] == 'AppProject' and obj['metadata']['name'] == 'cloudlab-certificates')
+            self.assertEqual(project['spec']['sourceRepos'], ['https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'])
+
+    def test_native_certificate_sources_credentials_and_projects_remain_restricted(self):
+        values = {'repository': 'https://github.com/example/platform.git', 'identity': {'argo': {
+            'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}},
+            'certificates': {'configuration': {'enabled': True, 'revision': 'a' * 40}}}
+        objects = self.root_with(values)
+        app = next(obj for obj in objects if obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-certificates')
+        self.assertEqual(app['spec']['sources'], [
+            {'repoURL': values['repository'], 'targetRevision': 'a' * 40, 'path': 'platform/certificates/configuration',
+             'helm': {'releaseName': 'cloudlab-certificates', 'valueFiles': ['$values/platform/certificates.yaml']}},
+            {'repoURL': values['identity']['argo']['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'}])
+        self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
+        self.assertNotIn('finalizers', app['metadata'])
+        projects = {obj['metadata']['name']: obj['spec'] for obj in objects if obj['kind'] == 'AppProject'}
+        self.assertEqual(projects['cloudlab-certificates']['sourceRepos'], [values['repository'], values['identity']['argo']['valuesRepository']])
+        self.assertEqual(projects['cloudlab-cert-manager']['sourceRepos'], [values['repository']])
+        self.assertEqual(projects['cloudlab-certificates']['namespaceResourceWhitelist'], [{'group': 'cert-manager.io', 'kind': 'Certificate'}])
+        credential = next(obj for obj in objects if obj['kind'] == 'ExternalSecret' and obj['metadata']['name'] == 'cloudlab-certificates-source')
+        self.assertEqual(credential['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
+        target = credential['spec']['target']
+        self.assertEqual((target['creationPolicy'], target['deletionPolicy']), ('Owner', 'Retain'))
+        self.assertEqual(target['template']['data']['project'], 'cloudlab-certificates')
+        self.assertEqual(target['template']['data']['url'], values['identity']['argo']['valuesRepository'])
+        self.assertEqual(credential['spec']['dataFrom'], [{'extract': {'key': 'github-argocd'}}])
+        self.assertFalse(any(obj['kind'] == 'Secret' for obj in objects))
+
+    def test_native_certificate_configuration_rejects_bad_present_binding_pin_and_prerequisites(self):
+        values = {'identity': {'argo': {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}},
+                  'certificates': {'configuration': {'enabled': True, 'revision': 'a' * 40}}}
+        for revision in ('main', None, 'short'):
+            with self.subTest(revision=revision):
+                self.root_with(values | {'certificates': {'configuration': {'enabled': True, 'revision': revision}}}, success=False)
+        for binding in ({}, None, False, {'valuesRepository': values['identity']['argo']['valuesRepository'], 'valuesRevision': 'main'}):
+            with self.subTest(binding=binding): self.root_with(values | {'identity': {'argo': binding}}, success=False)
+        for field in ('enabled', 'reconcile'):
+            for invalid in (False, 'false'):
+                with self.subTest(field=field, invalid=invalid):
+                    self.root_with(values | {'externalSecrets': {field: invalid}}, success=False)
+        self.root_with({'certificates': {'configuration': {'enabled': 'false'}}}, success=False)
+
     @classmethod
     def setUpClass(cls):
         cls.data = payload()

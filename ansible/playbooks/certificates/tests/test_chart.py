@@ -13,6 +13,17 @@ import vendor_chart
 
 
 class CertificateChartTests(unittest.TestCase):
+    def test_configuration_waves_gate_staging_before_production_without_changing_inventory(self):
+        for production in (False, True):
+            resources = chart.configuration_render(production=production)
+            for resource in resources:
+                name = resource['metadata']['name']
+                expected = (-30 if resource['kind'] == 'Namespace' else
+                            -20 if name == 'cloudlab-acme-staging' else
+                            -10 if name == 'cloudlab-staging' else
+                            0 if name == 'cloudlab-acme-production' else 10)
+                self.assertEqual(resource['metadata']['annotations'], {'argocd.argoproj.io/sync-wave': str(expected)})
+
     def test_native_argo_routes_attach_only_to_the_matching_gateway_exposure(self):
         namespaces = {o['metadata']['name']: o['metadata']['labels']
                       for o in chart.configuration_render() if o['kind'] == 'Namespace'}
