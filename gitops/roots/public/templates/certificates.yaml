@@ -1,3 +1,13 @@
+{{- $configuration := .Values.certificates.configuration }}
+{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) }}
+{{- fail "Certificate configuration requires a YAML boolean enabled setting" }}
+{{- end }}
+{{- $native := and .Values.certificates.enabled $configuration.enabled (hasKey .Values.identity "argo") }}
+{{- if $native }}
+{{- if or (not (regexMatch "^[a-f0-9]{40}$" ($configuration.revision | default ""))) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) }}
+{{- fail "Native certificate configuration requires its reviewed immutable revision and External Secrets" }}
+{{- end }}
+{{- end }}
 {{- if .Values.certificates.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -56,8 +66,12 @@ metadata:
   name: cloudlab-certificates
   namespace: {{ .Values.namespace }}
 spec:
-  description: DNS-01 issuers and gateway certificates; the selected zone stays in the runtime Application.
-  sourceRepos: [{{ .Values.repository | quote }}]
+  description: DNS-01 issuers and gateway certificates; the selected zone stays in {{ if $native }}private Git{{ else }}the runtime Application{{ end }}.
+  sourceRepos:
+    - {{ .Values.repository | quote }}
+    {{- if $native }}
+    - {{ .Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: cert-manager}
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-gateway-public}
@@ -67,4 +81,58 @@ spec:
     - {group: cert-manager.io, kind: ClusterIssuer}
   namespaceResourceWhitelist:
     - {group: cert-manager.io, kind: Certificate}
+{{- if $native }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudlab-certificates-source
+  namespace: {{ .Values.namespace }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-certificates-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository}
+      data:
+        type: git
+        url: {{ .Values.identity.argo.valuesRepository | quote }}
+        project: cloudlab-certificates
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-certificates
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: certificate-platform}
+spec:
+  project: cloudlab-certificates
+  sources:
+    - repoURL: {{ .Values.repository | quote }}
+      targetRevision: {{ $configuration.revision | quote }}
+      path: platform/certificates/configuration
+      helm:
+        releaseName: cloudlab-certificates
+        valueFiles: ['$values/platform/certificates.yaml']
+    - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: main, ref: values}
+  destination: {server: 'https://kubernetes.default.svc', namespace: cert-manager}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- end }}
 {{- end }}

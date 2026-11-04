@@ -22,6 +22,33 @@ argo-cd:
       application.resourceTrackingMethod: annotation
       timeout.reconciliation: 60s
       timeout.reconciliation.jitter: 10s
+      resource.customizations.health.cert-manager.io_Certificate: &certificateHealth |
+        local health = {status = "Progressing", message = "Waiting for current generation readiness"}
+        if obj.metadata == nil or obj.metadata.generation == nil then
+          return health
+        end
+        local generation = obj.metadata.generation
+        local conditions = (obj.status or {}).conditions or {}
+        for _, condition in ipairs(conditions) do
+          if condition.observedGeneration == generation and condition.type == "Issuing" and condition.status == "True" then
+            health.message = condition.message or "Current generation issuance is in progress"
+            return health
+          end
+        end
+        for _, condition in ipairs(conditions) do
+          if condition.observedGeneration == generation and condition.type == "Ready" then
+            if condition.status == "True" then
+              health.status = "Healthy"
+              health.message = condition.message or "Current generation is ready"
+            elseif condition.status == "False" then
+              health.status = "Degraded"
+              health.message = condition.message or "Current generation is not ready"
+            end
+            return health
+          end
+        end
+        return health
+      resource.customizations.health.cert-manager.io_ClusterIssuer: *certificateHealth
     rbac:
       policy.default: role:no-access
       policy.csv: ''
