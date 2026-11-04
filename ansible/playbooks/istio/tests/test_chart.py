@@ -150,7 +150,7 @@ class SharedGatewayTests(unittest.TestCase):
         base = self.render(path, {})
         self.assertEqual(base, self.render(path, {'mesh': {'configuration': {'enabled': False}}}))
         self.assertEqual(base, self.render(path, {'mesh': {'configuration': {'enabled': True}}}))
-        with_binding = self.render(path, {'identity': {'argo': self.binding()}})
+        with_binding = self.render(path, {'identity': {'argo': self.binding()}, 'mesh': {'configuration': {'enabled': False}}})
         self.assertFalse(any(o['metadata']['name'] == 'cloudlab-gateways-source' for o in with_binding))
         self.assertFalse(any(o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-gateways' for o in base))
 
@@ -162,11 +162,12 @@ class SharedGatewayTests(unittest.TestCase):
         self.assertEqual(source['targetRevision'], 'a' * 40)
         self.assertEqual(source['path'], 'platform/connectivity/gateways')
         self.assertEqual(source['helm'], {'releaseName': 'cloudlab-gateways', 'valuesObject': {'sharedInputs': True},
-            'valueFiles': ['values.json', '$values/platform/certificates.yaml', '$values/identity/argo-values.yaml']})
+            'valueFiles': ['values.json', '$values/platform/certificates.yaml', '$identity/identity/argo-values.yaml']})
         self.assertEqual(app['spec']['sources'][1], {'repoURL': self.binding()['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'})
+        self.assertEqual(app['spec']['sources'][2], {'repoURL': self.binding()['valuesRepository'], 'targetRevision': 'b' * 40, 'ref': 'identity'})
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertNotIn('finalizers', app['metadata'])
-        baseline = self.render(path, {'identity': {'argo': self.binding()}})
+        baseline = self.render(path, {'identity': {'argo': self.binding()}, 'mesh': {'configuration': {'enabled': False}}})
         for name in ('cloudlab-istio-base', 'cloudlab-istio-istiod', 'cloudlab-istio-cni', 'cloudlab-istio-ztunnel'):
             self.assertEqual([o for o in native if o['metadata']['name'] == name], [o for o in baseline if o['metadata']['name'] == name])
         project = next(o['spec'] for o in native if o['kind'] == 'AppProject' and o['metadata']['name'] == 'cloudlab-gateways')

@@ -1,13 +1,4 @@
 ---
-- name: Render and validate the locked mesh ownership inputs
-  ansible.builtin.command:
-    argv: [python, /workspace/ansible/playbooks/istio/files/chart.py, payload]
-  delegate_to: localhost
-  become: false
-  register: mesh_payload
-  changed_when: false
-  no_log: true
-
 - name: Create the private mesh ownership directory
   ansible.builtin.file:
     path: /var/lib/cloudlab/mesh
@@ -19,7 +10,7 @@
     src: '/workspace/ansible/playbooks/istio/files/{{ item }}'
     dest: '/var/lib/cloudlab/mesh/{{ item }}'
     mode: '0600'
-  loop: [configuration.py, kube.py, verify.py, fixtures.py]
+  loop: [initial_bootstrap.py, ownership.py, native.py, kube.py, verify.py, fixtures.py]
 
 - name: Install the public source convergence helper from its GitOps owner
   ansible.builtin.copy:
@@ -38,10 +29,15 @@
   changed_when: false
   no_log: true
 
+- name: Prepare read-only native mesh inputs when identity is bound
+  ansible.builtin.import_tasks: source.yml
+  vars:
+    mesh_public_payload: '{{ gitops_payload.stdout | from_json }}'
+
 - name: Configure internal gateways after certificate and mesh convergence
   ansible.builtin.command:
-    argv: [python3, /var/lib/cloudlab/mesh/configuration.py]
-    stdin: '{{ (gitops_payload.stdout | from_json) | combine(mesh_payload.stdout | from_json) | to_json }}'
+    argv: [python3, /var/lib/cloudlab/mesh/initial_bootstrap.py]
+    stdin: '{{ mesh_runtime_payload | to_json }}'
   register: mesh_configured
   changed_when: mesh_configured.rc == 0 and (mesh_configured.stdout | from_json).changed
   failed_when: false

@@ -6,7 +6,8 @@ from pathlib import Path
 import tempfile
 import copy
 
-import configuration
+import initial_bootstrap as configuration
+import ownership
 from kube import contains
 import verify
 
@@ -78,24 +79,24 @@ class ConfigurationTests(unittest.TestCase):
     def test_crd_ownership_requires_argo_ssa_not_a_copied_tracking_annotation(self):
         obj = {'kind': 'CustomResourceDefinition'}
         actual = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-istio-base:copied'}}}
-        self.assertFalse(configuration.argo_owned(obj, actual, 'cloudlab-istio-base'))
+        self.assertFalse(ownership.argo_owned(obj, actual, 'cloudlab-istio-base'))
         actual['metadata']['managedFields'] = [{'manager': 'argocd-controller', 'operation': 'Apply', 'fieldsV1': {'f:spec': {}}}]
-        self.assertTrue(configuration.argo_owned(obj, actual, 'cloudlab-istio-base'))
+        self.assertTrue(ownership.argo_owned(obj, actual, 'cloudlab-istio-base'))
         actual['metadata']['managedFields'][0]['manager'] = 'foreign'
-        self.assertFalse(configuration.argo_owned(obj, actual, 'cloudlab-istio-base'))
+        self.assertFalse(ownership.argo_owned(obj, actual, 'cloudlab-istio-base'))
 
     def test_api_spec_and_owner_changes_fail_before_writes(self):
         desired = {'metadata': {'name': 'gateways.gateway.networking.k8s.io'}, 'spec': {'group': 'gateway.networking.k8s.io'}}
         actual = {'metadata': {'uid': 'retained', 'annotations': {
             'meta.helm.sh/release-name': 'traefik-crd', 'gateway.networking.k8s.io/bundle-version': 'v1.6.1'}}, 'spec': desired['spec']}
-        with patch.object(configuration, 'get', return_value=actual):
-            self.assertEqual(list(configuration.gateway_api([desired]).values()), ['retained'])
+        with patch.object(ownership, 'get', return_value=actual):
+            self.assertEqual(list(ownership.gateway_api([desired]).values()), ['retained'])
             actual['metadata']['annotations']['meta.helm.sh/release-name'] = 'competing'
             with self.assertRaisesRegex(RuntimeError, 'owner changed'):
-                configuration.gateway_api([desired])
+                ownership.gateway_api([desired])
             actual['metadata']['annotations'].pop('meta.helm.sh/release-name')
             actual['metadata']['annotations']['cloudlab.io/owner'] = 'cloudlab-gateway-api'
-            self.assertEqual(list(configuration.gateway_api([desired]).values()), ['retained'])
+            self.assertEqual(list(ownership.gateway_api([desired]).values()), ['retained'])
 
     def test_recursive_contract_allows_defaults_but_not_missing_versions(self):
         self.assertTrue(contains({'versions': [{'name': 'v1', 'served': True}]}, {'versions': [{'name': 'v1'}]}))
@@ -120,7 +121,7 @@ class ConfigurationTests(unittest.TestCase):
                 verify.http('fixture', 'client', 'backend')
             execute.assert_not_called()
 
-    def test_checkpoint_repeat_preserves_app_and_ca_without_writes(self):
+    def test_interrupted_initial_seed_resumes_without_replaying_unchanged_app(self):
         with tempfile.TemporaryDirectory() as directory:
             live = {}
             writes = []
@@ -134,7 +135,7 @@ class ConfigurationTests(unittest.TestCase):
                         return None
                     return {'metadata': {'uid': namespace, 'generation': 1},
                             'status': {'conditions': [{'type': 'Programmed', 'status': 'True', 'observedGeneration': 1}]}}
-                return {'metadata': {'uid': kind + namespace}, 'spec': {'type': 'ClusterIP'}}
+                return {'metadata': {'uid': kind + namespace}, 'spec': {'type': 'ClusterIP'}} if 'app' in live else None
             def kube(*args, **kwargs):
                 if args[0] == 'apply':
                     writes.append(args)
@@ -152,9 +153,14 @@ class ConfigurationTests(unittest.TestCase):
                     patch.object(configuration, 'gateway_api', return_value={'crd': 'retained'}), \
                     patch.object(configuration, 'component_identities', return_value={'component': 'retained'}):
                 self.assertTrue(configuration.run(payload)['changed'])
-                self.assertFalse(configuration.run(payload)['changed'])
+                receipt = Path(directory) / 'ownership.json'
+                state = json.loads(receipt.read_text()); state['phase'] = 'preparing'
+                receipt.write_text(json.dumps(state))
+                self.assertTrue(configuration.run(payload)['changed'])
                 self.assertEqual(len(writes), 1)
                 self.assertEqual(json.loads((Path(directory) / 'ownership.json').read_text())['workload_ca']['uid'], 'ca')
+                state = json.loads(receipt.read_text()); state['phase'] = 'preparing'
+                receipt.write_text(json.dumps(state))
                 live['app']['metadata']['uid'] = 'replaced'
                 with self.assertRaisesRegex(RuntimeError, 'conflicting owner'):
                     configuration.run(payload)

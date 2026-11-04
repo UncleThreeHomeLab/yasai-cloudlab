@@ -351,9 +351,10 @@ spec:
       path: platform/connectivity/gateways
       helm:
         releaseName: cloudlab-gateways
-        valueFiles: [values.json, '$values/platform/certificates.yaml', '$values/identity/argo-values.yaml']
+        valueFiles: [values.json, '$values/platform/certificates.yaml', '$identity/identity/argo-values.yaml']
         valuesObject: {sharedInputs: true}
     - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: main, ref: values}
+    - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: {{ .Values.identity.argo.valuesRevision | quote }}, ref: identity}
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-gateway-public}
   syncPolicy:
     automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
