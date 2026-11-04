@@ -1,5 +1,6 @@
 """Continuous scoped SQL/S3 repair and shared capture/restore exclusion."""
 import base64
+import copy
 import fcntl
 import hashlib
 import json
@@ -90,7 +91,15 @@ def sql(statement, database='postgres'):
                     input=statement.encode()).decode().strip()
 
 
-def settings():
+def operation(*, recovery=False):
+    from playbooks.data.files.native import operation as observe
+    return observe(recovery=recovery, read=get)
+
+
+def settings(source=None):
+    source = operation() if source is None else source
+    if source:
+        return source.settings()
     values = get('application.argoproj.io', APP, 'argocd')['spec']['source']['helm']['valuesObject']
     for key in ('database', 'applicationRole', 'migrationRole', 'backupRole'):
         identity(values[key])
@@ -99,8 +108,8 @@ def settings():
     return values
 
 
-def s3(admin=True):
-    values = settings()
+def s3(admin=True, source=None):
+    values = settings(source)
     config = json.loads(secret('cloudlab-s3-config')['seaweedfs_s3_config'])
     selected = next((row for row in config['identities'] if row['name'] == ('data-admin' if admin else 'notes')), None)
     if not selected:
@@ -135,7 +144,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE {migration} IN SCHEMA public GRANT SELECT ON S
     return before != sql(query, values['database'])
 
 
-def reload_s3():
+def reload_s3(source=None):
+    source = operation() if source is None else source
     raw = secret('cloudlab-s3-config')['seaweedfs_s3_config']
     digest = hashlib.sha256(raw.encode()).hexdigest()
     receipt = BASE / 's3-loaded.json'
@@ -149,27 +159,54 @@ def reload_s3():
         kube('delete', 'pod', pod['metadata']['name'], '-n', NAMESPACE, '--wait=true', '--timeout=120s')
     kube('rollout', 'status', 'deployment/cloudlab-seaweedfs-s3', '-n', NAMESPACE, '--timeout=300s', timeout=330)
     # A successful request with the current admin key confirms the mounted config.
-    s3().ensure_bucket(settings()['bucket'])
+    s3(source=source).ensure_bucket(settings(source)['bucket'])
     atomic(receipt, {'sha256': digest, 'loaded_at': time.time()})
     return True
 
 
-def maintenance(enabled):
-    previous_client = s3(False) if enabled else None
-    obj = get('application.argoproj.io', APP, 'argocd')
-    if obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
-        raise RuntimeError('Data Application has a conflicting runtime owner')
-    if obj['spec']['source']['helm']['valuesObject']['maintenance'] != enabled:
-        kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=merge',
-             '--field-manager=' + OWNER, '-p', json.dumps({'spec': {'source': {'helm': {'valuesObject': {'maintenance': enabled}}}}}))
-    values = settings()
-    revision = json.loads((BASE / 'ownership.json').read_text())['revision']
-    wait(lambda: application_ready(APP, revision), 'data maintenance convergence')
+def legacy_ready(expected):
+    obj = get('application.argoproj.io', APP, 'argocd') or {}
+    if (obj.get('metadata', {}).get('uid') != expected['metadata']['uid'] or obj.get('spec') != expected['spec']
+            or obj.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
+            or obj.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id')):
+        raise RuntimeError('Legacy data intent changed while waiting for its requested operation')
+    from playbooks.data.files.native import quiet
+    status = obj.get('status', {})
+    revision = status.get('sync', {}).get('revision')
+    return (quiet(obj) and isinstance(revision, str) and re.fullmatch('[a-f0-9]{40}', revision)
+        and status.get('sync', {}).get('status') == 'Synced' and status.get('health', {}).get('status') == 'Healthy'
+        and status.get('sync', {}).get('comparedTo', {}).get('source') == expected['spec']['source']
+        and not any(c.get('type', '').endswith('Error') for c in status.get('conditions', [])))
+
+
+def maintenance(enabled, source=None):
+    source = operation(recovery=not enabled) if source is None else source
+    previous_client = s3(False, source) if enabled else None
+    if source:
+        source.patch(APP, {'maintenance': enabled})
+        values = source.settings()
+        revision = source.public['data']['configuration']['revision']
+    else:
+        obj = get('application.argoproj.io', APP, 'argocd')
+        if obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
+            raise RuntimeError('Data Application has a conflicting runtime owner')
+        if obj['spec']['source']['helm']['valuesObject']['maintenance'] != enabled:
+            from playbooks.data.files.native import record_operation
+            record_operation({APP: obj, 'cloudlab-seaweedfs': get('application.argoproj.io', 'cloudlab-seaweedfs', 'argocd')},
+                             APP, {'maintenance': enabled})
+            kube('patch', 'application.argoproj.io', APP, '-n', 'argocd', '--type=merge',
+                 '--field-manager=' + OWNER, '-p', json.dumps({'spec': {'source': {'helm': {'valuesObject': {'maintenance': enabled}}}}}))
+        expected = copy.deepcopy(obj)
+        expected['spec']['source']['helm']['valuesObject']['maintenance'] = enabled
+        wait(lambda: legacy_ready(expected), 'data maintenance convergence')
+        values = settings(False)
+    if source:
+        wait(lambda: application_ready(APP, revision), 'data maintenance convergence')
     requested_buckets = {row['service'] for row in values.get('serviceRequests', []) if 'bucket' in row}
     expected_names = {'data-admin'} if enabled else {'data-admin', 'notes'} | requested_buckets
     wait(lambda: {row['name'] for row in json.loads(secret('cloudlab-s3-config')['seaweedfs_s3_config'])['identities']} == expected_names,
          'maintenance credential synchronization', timeout=420)
-    reload_s3()
+    reload_s3(source)
     if previous_client:
         try:
             previous_client.request('HEAD', values['bucket'])
@@ -191,15 +228,16 @@ def maintenance(enabled):
     return values
 
 
-def reconcile():
-    values = settings()
+def reconcile(source=None):
+    source = operation() if source is None else source
+    values = settings(source)
     if values['maintenance']:
         raise RuntimeError('Interrupted data maintenance requires recovery before ordinary reconciliation')
     changed = grants(values)
-    changed = reload_s3() or changed
-    changed = s3().ensure_bucket(values['bucket']) or changed
+    changed = reload_s3(source) or changed
+    changed = s3(source=source).ensure_bucket(values['bucket']) or changed
     from playbooks.data.files.requests import reconcile as service_requests
-    changed = service_requests(values, sql, grants, s3()) or changed
+    changed = service_requests(values, sql, grants, s3(source=source)) or changed
     from playbooks.data.files.public_ca import reconcile as public_ca
     changed = public_ca(values) or changed
     return changed

@@ -118,15 +118,24 @@ def schedules_and_limits():
 
 
 def run():
-    values = control.settings()
-    revision = json.loads((control.BASE / 'ownership.json').read_text())['revision']
+    source = control.operation()
+    values = control.settings(source)
     for name in ('cloudlab-cnpg', 'cloudlab-data-configuration', 'cloudlab-seaweedfs'):
-        if not application_ready(name, revision):
+        if source:
+            config = source.public['data']['configuration']
+            expected = (config['seaweedfsRevision' if name == 'cloudlab-seaweedfs' else 'revision']
+                        if name != 'cloudlab-cnpg' else source.revision)
+        else:
+            app = get('application.argoproj.io', name, 'argocd') or {}
+            expected = app.get('status', {}).get('sync', {}).get('revision')
+        if not isinstance(expected, str) or not re.fullmatch('[a-f0-9]{40}', expected):
+            raise RuntimeError('Data GitOps application has no observed immutable source revision')
+        if not application_ready(name, expected):
             raise RuntimeError('Data GitOps application is not converged at the tested revision')
     result = {'storage': storage(), 'jobs_and_limits': schedules_and_limits(), 'b2_reads': 0}
     with control.locked():
-        control.reconcile()
-        admin, client = control.s3(), control.s3(False)
+        control.reconcile(source)
+        admin, client = control.s3(source=source), control.s3(False, source)
         data = b'cloudlab committed attachment\n'
         digest = hashlib.sha256(data).hexdigest()
         key = 'cloudlab-proof/committed'

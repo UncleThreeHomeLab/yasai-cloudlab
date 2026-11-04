@@ -31,6 +31,7 @@ def native_argo(values):
     from playbooks.argocd.files.service_activation import prepare
     from playbooks.argocd.files.private_activation import prepare as prepare_private
     from playbooks.argocd.files.access_activation import prepare as prepare_access
+    from playbooks.argocd.files.data_activation import prepare as prepare_data
     from playbooks.argocd.files.private_sources import registry
     from playbooks.services.files.inputs import validate_catalog
     from playbooks.access.files.contract import host_rules
@@ -65,14 +66,15 @@ def native_argo(values):
         if public.get('services', {}).get('enabled', False):
             from playbooks.argocd.files.service_activation import catalog_path
             selected_path = catalog_path(public['services'].get('catalogPath', catalog_path()))
-            document = client.request('GET', 'repos/' + repo + '/contents/' + selected_path + '?ref=' + revision)
-            catalog = validate_catalog(yaml.safe_load(decode_contents(document)), public=public)
+            from playbooks.data.files.native import private_file
+            catalog = validate_catalog(private_file(client, values['PRIVATE_CONFIG_REPOSITORY'], revision, selected_path), public=public)
         result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
                 'configuration': contract['helm'], 'client': contract['client'],
                 'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),
                 'privateActivation': prepare_private(public, values['PRIVATE_CONFIG_REPOSITORY'], revision,
                                                      registry(client, values, public, revision)),
                 'accessActivation': prepare_access(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, client),
+                'dataActivation': prepare_data(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, client, catalog),
                 'recovery': recovery_revision is not None}
         if recovery_revision:
             result['currentSecurityProjection'] = {'revision': current_revision,

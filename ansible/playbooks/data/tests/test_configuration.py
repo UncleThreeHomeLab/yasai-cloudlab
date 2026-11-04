@@ -98,3 +98,40 @@ class ConfigurationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'interrupted'):
                 configuration.configure({})
         self.assertEqual(events, ['locked', 'released'])
+
+    def test_registered_native_receipt_cannot_reenter_legacy_writer(self):
+        payload = {'revision': 'a' * 40, 'values': {'s3Host': 's3.internal.example.test'}}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); accepted = base / 'accepted.json'
+            accepted.write_text('{"phase":"accepted"}')
+            (base / 'ownership.json').write_text('{"settings_uid":"native-settings", "applications":{}}')
+            def read(kind, *args):
+                if kind == 'certificate.cert-manager.io':
+                    return {'spec': {'dnsNames': ['*.internal.example.test', 'login.example.test']}}
+                return {'metadata': {'labels': {'cloudlab.io/owner': control.OWNER}}, 'spec': {'source': {'helm': {'valuesObject': {}}}}}
+            with patch.object(control, 'BASE', base), patch.object(configuration, 'BASE', base), \
+                    patch.object(configuration, 'Path', return_value=accepted), patch.object(configuration, 'get', side_effect=read), \
+                    patch.object(configuration, 'condition', return_value=True), patch.object(configuration, 'wait'), \
+                    patch.object(configuration, 'kube') as write:
+                with self.assertRaisesRegex(RuntimeError, 'cannot downgrade'): configuration.configure(payload)
+                write.assert_not_called()
+
+    def test_recognized_native_configuration_is_read_only(self):
+        payload = {'revision': 'a' * 40, 'values': {'s3Host': 's3.internal.example.test'}}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); accepted = base / 'accepted.json'
+            accepted.write_text('{"phase":"accepted"}')
+            (base / 'ownership.json').write_text('{"settings_uid":"native-settings", "applications":{}}')
+            def read(kind, *args):
+                if kind == 'certificate.cert-manager.io':
+                    return {'spec': {'dnsNames': ['*.internal.example.test', 'login.example.test']}}
+                return {'metadata': {'labels': {'cloudlab.io/owner': 'data-platform'}}, 'spec': {'sources': [{}]}}
+            with patch.object(control, 'BASE', base), patch.object(configuration, 'BASE', base), \
+                    patch.object(configuration, 'Path', return_value=accepted), patch.object(configuration, 'get', side_effect=read), \
+                    patch.object(configuration, 'condition', return_value=True), patch.object(configuration, 'wait'), \
+                    patch('playbooks.data.files.native.operation') as observe, \
+                    patch.object(configuration, 'atomic') as receipt, patch.object(configuration, 'kube') as write:
+                self.assertFalse(configuration.configure(payload))
+                observe.assert_called_once_with(read=configuration.get)
+                write.assert_not_called(); receipt.assert_not_called()
+                self.assertFalse((base / 'desired.json').exists())

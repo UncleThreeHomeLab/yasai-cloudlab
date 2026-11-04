@@ -38,6 +38,16 @@ def configure(payload):
         receipt = BASE / 'ownership.json'
         state = json.loads(receipt.read_text()) if receipt.exists() else {'applications': {}}
         existing = get('application.argoproj.io', APP, 'argocd')
+        from playbooks.data.files.native import native_application, operation
+        if state.get('settings_uid') and not native_application(existing):
+            raise RuntimeError('Registered native data ownership cannot downgrade to its obsolete writer')
+        if native_application(existing):
+            operation(read=get)
+            return False
+        coordinates = {'repository': payload['repository'], 'branch': payload['branch']}
+        if state.get('publicSource', coordinates) != coordinates:
+            raise RuntimeError('Data public owner attestation changed; explicit recovery required')
+        state['publicSource'] = coordinates
         from playbooks.data.files.requests import additions, protect
         supplied = payload['values'].get('serviceRequests', [])
         protect(supplied, payload['values'])

@@ -46,6 +46,7 @@ def binding_fixture(required=True):
     payload = {'repository': repository, 'branch': 'main', 'revision': 'a' * 40,
                'private_repository': target['valuesRepository'], 'argo': {'serviceActivation': evidence,
                    'accessActivation': access_evidence(repository, target),
+                   'dataActivation': data_evidence(repository, target),
                    'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'])}}
     original = copy.deepcopy(objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'])
     patched = copy.deepcopy(original)
@@ -53,7 +54,8 @@ def binding_fixture(required=True):
     checkpoint = {'phase': 'source-updated', 'target': target, 'root_uid': 'root', 'controller_uid': 'controller',
                   'project_uid': 'project', 'originalSource': original, 'patchedSource': patched,
                   'serviceActivation': evidence, 'privateActivation': payload['argo']['privateActivation'],
-                  'accessActivation': payload['argo']['accessActivation']}
+                  'accessActivation': payload['argo']['accessActivation'],
+                  'dataActivation': payload['argo']['dataActivation']}
     return objects, payload, target, checkpoint
 
 
@@ -80,3 +82,11 @@ def access_authority(repository):
             'roleRef': {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole', 'name': 'cluster-admin'},
             'subjects': [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': administrator}]}}
     return administrator, receipt, objects
+
+
+def data_evidence(repository, target):
+    from data_activation import validate
+    return validate({'required': False, 'enabled': False, 'repository': repository,
+        'revision': None, 'seaweedfsRevision': None, 'private_repository': target['valuesRepository'],
+        'private_revision': target['valuesRevision'], 'settings': None,
+        'absence': {'path': 'platform/data.yaml', 'revision': target['valuesRevision'], 'authenticated404': True}}, target)

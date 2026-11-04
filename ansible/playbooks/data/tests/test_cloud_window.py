@@ -10,6 +10,11 @@ from playbooks.data.files import backup, control, independent, remote, restore
 
 
 class CloudWindowTests(unittest.TestCase):
+    def setUp(self):
+        operation = patch.object(control, "operation", return_value=False)
+        operation.start()
+        self.addCleanup(operation.stop)
+
     def test_acceptance_alias_preserves_current_verified_generation(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(control, 'BASE', Path(directory)), \
                 patch.object(remote, 'seconds_remaining', return_value=86400), \

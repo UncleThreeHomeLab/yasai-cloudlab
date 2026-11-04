@@ -8,12 +8,14 @@ import time
 
 try:
     from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
+    from .data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion
     from .source_revision import matches_revision
     from .service_activation import validate as validate_activation, guard as activation_guard
     from .access_activation import validate as validate_access, guard as access_guard
     from .private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 except ImportError:
     from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
+    from data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion
     from source_revision import matches_revision
     from service_activation import validate as validate_activation, guard as activation_guard
     from access_activation import validate as validate_access, guard as access_guard
@@ -132,7 +134,7 @@ def binding_source(state, root):
     raise RuntimeError('Identity handoff source is ambiguous; controller remains paused')
 
 
-def check_activation(state, root, read):
+def check_activation(state, root, read, *, data_held=False):
     evidence = state.get('serviceActivation')
     if evidence is None:
         raise RuntimeError('Pending service activation inputs unavailable; retry identity binding at its recorded private revision')
@@ -142,9 +144,11 @@ def check_activation(state, root, read):
         raise RuntimeError('Pending private activation inputs unavailable; retry identity binding at its recorded private revision')
     state['privateActivation'] = private_guard(evidence, state['target'], read, root, probe=private_server_probe)
     state['accessActivation'] = access_guard(state.get('accessActivation'), state['target'], read, root)
+    state['dataActivation'] = data_guard(state.get('dataActivation'), state['target'], read, root,
+        patched=binding_source(state, root) == 'patched', held=data_held)
 
 
-def safe_identity_resume(state, read):
+def safe_identity_resume(state, read, *, data_held=False):
     objects = {key: read(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', ROOT_APP), ('controller_uid', 'statefulset', CONTROLLER),
         ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
@@ -164,7 +168,7 @@ def safe_identity_resume(state, read):
     if project['spec'].get('sourceRepos') != [root.get('spec', {}).get('source', {}).get('repoURL')]:
         raise RuntimeError('Identity handoff project source changed; controller remains paused')
     if binding_source(state, root) == 'patched':
-        check_activation(state, root, read)
+        check_activation(state, root, read, data_held=data_held)
     return True
 
 
@@ -174,7 +178,7 @@ def accept_binding(path, checkpoint):
     record(path, accepted)
 
 
-def hydrate_binding(path, checkpoint, payload, target):
+def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     """An explicit retry may supply missing legacy evidence, never retarget it."""
     if checkpoint['target'] != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
@@ -184,7 +188,26 @@ def hydrate_binding(path, checkpoint, payload, target):
         obj = get(kind, name)
         if not obj or obj['metadata'].get('uid') != checkpoint[key] or obj['metadata'].get('deletionTimestamp'):
             raise RuntimeError('Pending identity handoff resource identity changed')
+    current_root = get('application.argoproj.io', ROOT_APP)
+    if 'dataActivation' not in checkpoint and binding_source(checkpoint, current_root) == 'patched':
+        raise RuntimeError('Patched data binding lost its durable pre-effect evidence')
+    supplied_data = validate_data(payload.get('argo', {}).get('dataActivation'), target)
+    supplied_data.pop('authority', None)
+    if 'dataActivation' in checkpoint:
+        recorded_data = validate_data(checkpoint['dataActivation'], target)
+        recorded_authority = recorded_data.pop('authority', None)
+        if supplied_data != recorded_data:
+            raise RuntimeError('Data activation retry cannot change its immutable projection')
+        if recorded_authority is not None:
+            supplied_data['authority'] = recorded_authority
+    current_data = data_guard(supplied_data, target, get, current_root,
+        patched=binding_source(checkpoint, current_root) == 'patched', held=data_held)
     changed = False
+    if 'dataActivation' not in checkpoint:
+        checkpoint['dataActivation'] = current_data
+        changed = True
+    elif validate_data(checkpoint['dataActivation'], target) != current_data:
+        raise RuntimeError('Data activation retry cannot replace its captured authority')
     for key, validator in (('serviceActivation', validate_activation), ('privateActivation', validate_private)):
         if key not in checkpoint:
             checkpoint[key] = validator(payload.get('argo', {}).get(key), target)
@@ -239,77 +262,84 @@ def bind_identity(payload, target):
         raise RuntimeError('Native identity binding requires accepted independent GitOps ownership')
     with (BASE / 'lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        path = BASE / 'identity-values-binding.json'
-        checkpoint = json.loads(path.read_text()) if path.exists() else None
-        access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
-        if checkpoint and checkpoint.get('phase') != 'accepted':
-            hydrate_binding(path, checkpoint, payload, target)
-        resume_identity_binding()
-        root = get('application.argoproj.io', ROOT_APP)
-        controller = get('statefulset', CONTROLLER)
-        project = get('appproject.argoproj.io', 'cloudlab-root')
-        if not all((root, controller, project)):
-            raise RuntimeError('Native identity binding requires existing GitOps resources')
-        if validate(root, project, controller, payload['repository']):
-            raise RuntimeError('Native identity binding cannot migrate the public source')
-        identity_project_rules(project)
-        if root['spec']['source']['targetRevision'] != payload['branch']:
-            raise RuntimeError('Native identity binding cannot change the public revision contract')
-        values = copy.deepcopy(root['spec']['source'].get('helm', {}).get('valuesObject', {}))
-        checkpoint = json.loads(path.read_text()) if path.exists() else None
-        identities = {'root_uid': root['metadata']['uid'], 'controller_uid': controller['metadata']['uid'],
-                      'project_uid': project['metadata']['uid']}
-        if checkpoint and any(checkpoint[key] != value for key, value in identities.items()):
-            raise RuntimeError('Native identity binding resource identity changed')
-        access_evidence = access_guard(access_evidence, target, get, root)
-        if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] in ('source-updated', 'resumed', 'accepted'):
-            wait_application(ROOT_APP, payload['revision'])
-            wait_application('cloudlab-argocd', payload['revision'])
-            changed = checkpoint['phase'] != 'accepted'
-            accept_binding(path, checkpoint)
-            return {'changed': changed, 'native_argo_values_bound': True}
-        evidence = validate_activation(payload.get('argo', {}).get('serviceActivation'), target, root)
-        private_evidence = validate_private(payload.get('argo', {}).get('privateActivation'), target, root)
-        original = copy.deepcopy(root['spec']['source'])
-        values.setdefault('identity', {}).update(enabled=True, argo=target)
-        patched = copy.deepcopy(original)
-        patched.setdefault('helm', {})['valuesObject'] = values
-        checkpoint = dict(identities, target=target, phase='prepared', originalSource=original,
-                          patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence, accessActivation=access_evidence)
-        record(path, checkpoint)
-        try:
-            pause()
-            checkpoint['phase'] = 'paused'
-            record(path, checkpoint)
-            latest = get('application.argoproj.io', ROOT_APP)
-            if (not latest or latest['metadata']['uid'] != root['metadata']['uid'] or
-                    latest['spec']['source'] != original):
-                raise RuntimeError('Public root source changed during native identity handoff')
-            check_activation(checkpoint, latest, get)
-            record(path, checkpoint)
-            annotations = dict(latest['metadata'].get('annotations', {}), **{'argocd.argoproj.io/refresh': 'hard'})
-            kube('patch', 'application.argoproj.io', ROOT_APP, '-n', 'argocd', '--type=json', '-p', json.dumps([
-                {'op': 'test', 'path': '/metadata/uid', 'value': root['metadata']['uid']},
-                {'op': 'test', 'path': '/metadata/resourceVersion', 'value': latest['metadata']['resourceVersion']},
-                {'op': 'add', 'path': '/spec/source/helm/valuesObject', 'value': values},
-                {'op': 'add', 'path': '/metadata/annotations', 'value': annotations}]))
-            checkpoint['phase'] = 'source-updated'
-            record(path, checkpoint)
-            latest_project = get('appproject.argoproj.io', 'cloudlab-root')
-            if (not latest_project or latest_project['metadata']['uid'] != project['metadata']['uid']
-                    or latest_project['spec'] != project['spec']):
-                raise RuntimeError('Root project changed during identity source handoff')
-            grant_identity_source(latest_project)
-        finally:
-            if safe_identity_resume(checkpoint, get):
-                kube('scale', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--replicas=1')
-        checkpoint['phase'] = 'resumed'
-        record(path, checkpoint)
-        kube('rollout', 'status', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--timeout=300s')
+        with data_exclusion():
+            return bind_identity_locked(payload, target)
+
+
+def bind_identity_locked(payload, target):
+    import copy
+    path = BASE / 'identity-values-binding.json'
+    checkpoint = json.loads(path.read_text()) if path.exists() else None
+    access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
+    if checkpoint and checkpoint.get('phase') != 'accepted':
+        hydrate_binding(path, checkpoint, payload, target, data_held=True)
+    resume_identity_binding(data_held=True)
+    root = get('application.argoproj.io', ROOT_APP)
+    controller = get('statefulset', CONTROLLER)
+    project = get('appproject.argoproj.io', 'cloudlab-root')
+    if not all((root, controller, project)):
+        raise RuntimeError('Native identity binding requires existing GitOps resources')
+    if validate(root, project, controller, payload['repository']):
+        raise RuntimeError('Native identity binding cannot migrate the public source')
+    identity_project_rules(project)
+    if root['spec']['source']['targetRevision'] != payload['branch']:
+        raise RuntimeError('Native identity binding cannot change the public revision contract')
+    values = copy.deepcopy(root['spec']['source'].get('helm', {}).get('valuesObject', {}))
+    checkpoint = json.loads(path.read_text()) if path.exists() else None
+    identities = {'root_uid': root['metadata']['uid'], 'controller_uid': controller['metadata']['uid'],
+                  'project_uid': project['metadata']['uid']}
+    if checkpoint and any(checkpoint[key] != value for key, value in identities.items()):
+        raise RuntimeError('Native identity binding resource identity changed')
+    access_evidence = access_guard(access_evidence, target, get, root)
+    data_evidence = data_guard(payload.get('argo', {}).get('dataActivation'), target, get, root, held=True)
+    if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] in ('source-updated', 'resumed', 'accepted'):
         wait_application(ROOT_APP, payload['revision'])
         wait_application('cloudlab-argocd', payload['revision'])
+        changed = checkpoint['phase'] != 'accepted'
         accept_binding(path, checkpoint)
-        return {'changed': True, 'native_argo_values_bound': True}
+        return {'changed': changed, 'native_argo_values_bound': True}
+    evidence = validate_activation(payload.get('argo', {}).get('serviceActivation'), target, root)
+    private_evidence = validate_private(payload.get('argo', {}).get('privateActivation'), target, root)
+    original = copy.deepcopy(root['spec']['source'])
+    values.setdefault('identity', {}).update(enabled=True, argo=target)
+    patched = copy.deepcopy(original)
+    patched.setdefault('helm', {})['valuesObject'] = values
+    checkpoint = dict(identities, target=target, phase='prepared', originalSource=original,
+                      patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence, accessActivation=access_evidence, dataActivation=data_evidence)
+    record(path, checkpoint)
+    try:
+        pause()
+        checkpoint['phase'] = 'paused'
+        record(path, checkpoint)
+        latest = get('application.argoproj.io', ROOT_APP)
+        if (not latest or latest['metadata']['uid'] != root['metadata']['uid'] or
+                latest['spec']['source'] != original):
+            raise RuntimeError('Public root source changed during native identity handoff')
+        check_activation(checkpoint, latest, get, data_held=True)
+        record(path, checkpoint)
+        annotations = dict(latest['metadata'].get('annotations', {}), **{'argocd.argoproj.io/refresh': 'hard'})
+        kube('patch', 'application.argoproj.io', ROOT_APP, '-n', 'argocd', '--type=json', '-p', json.dumps([
+            {'op': 'test', 'path': '/metadata/uid', 'value': root['metadata']['uid']},
+            {'op': 'test', 'path': '/metadata/resourceVersion', 'value': latest['metadata']['resourceVersion']},
+            {'op': 'add', 'path': '/spec/source/helm/valuesObject', 'value': values},
+            {'op': 'add', 'path': '/metadata/annotations', 'value': annotations}]))
+        checkpoint['phase'] = 'source-updated'
+        record(path, checkpoint)
+        latest_project = get('appproject.argoproj.io', 'cloudlab-root')
+        if (not latest_project or latest_project['metadata']['uid'] != project['metadata']['uid']
+                or latest_project['spec'] != project['spec']):
+            raise RuntimeError('Root project changed during identity source handoff')
+        grant_identity_source(latest_project)
+    finally:
+        if safe_identity_resume(checkpoint, get, data_held=True):
+            kube('scale', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--replicas=1')
+    checkpoint['phase'] = 'resumed'
+    record(path, checkpoint)
+    kube('rollout', 'status', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--timeout=300s')
+    wait_application(ROOT_APP, payload['revision'])
+    wait_application('cloudlab-argocd', payload['revision'])
+    accept_binding(path, checkpoint)
+    return {'changed': True, 'native_argo_values_bound': True}
 
 
 def run(payload):

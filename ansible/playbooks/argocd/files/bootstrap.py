@@ -7,10 +7,10 @@ import subprocess
 import sys
 import time
 try:
-    from playbooks.argocd.files.source_revision import matches_revision
+    from playbooks.argocd.files.source_revision import matches_revision, identity_project_rules
     from playbooks.argocd.files.sync_recovery import recovered_secret_sync
 except ModuleNotFoundError:
-    from source_revision import matches_revision
+    from source_revision import matches_revision, identity_project_rules
     from sync_recovery import recovered_secret_sync
 
 BASE = Path('/var/lib/cloudlab/gitops')
@@ -91,21 +91,6 @@ def wait_application(name, revision, timeout=600):
     raise RuntimeError('Public GitOps convergence timed out; retained checkpoint and resources')
 
 
-def identity_project_rules(project):
-    spec = project.get('spec', {})
-    baseline = [{'group': 'argoproj.io', 'kind': kind} for kind in ('Application', 'AppProject')]
-    application_sets = {'group': 'argoproj.io', 'kind': 'ApplicationSet'}
-    if application_sets in spec.get('namespaceResourceWhitelist', []):
-        baseline.append(application_sets)
-    desired = baseline + [{'group': 'external-secrets.io', 'kind': 'ExternalSecret'}]
-    if (spec.get('destinations') != [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}]
-            or spec.get('clusterResourceWhitelist') != [{'group': '', 'kind': 'Namespace'}]
-            or spec.get('namespaceResourceWhitelist') not in (baseline, desired)
-            or spec.get('namespaceResourceBlacklist')):
-        raise RuntimeError('Identity source grant requires the exact bounded root project')
-    return desired
-
-
 def grant_identity_source(project):
     desired = identity_project_rules(project)
     if project['spec']['namespaceResourceWhitelist'] == desired:
@@ -119,7 +104,19 @@ def grant_identity_source(project):
     return True
 
 
-def resume_identity_binding():
+def resume_identity_binding(*, data_held=False):
+    path = BASE / 'identity-values-binding.json'
+    if not path.exists() or json.loads(path.read_text()).get('phase') == 'accepted':
+        return False
+    try:
+        from .data_activation import exclusion
+    except ImportError:
+        from data_activation import exclusion
+    with exclusion(held=data_held):
+        return _resume_identity_binding()
+
+
+def _resume_identity_binding():
     """Resume only a known old root or a guarded pending private-source binding."""
     path = BASE / 'identity-values-binding.json'
     if not path.exists():
@@ -165,11 +162,11 @@ def resume_identity_binding():
                 or latest['spec'] != project['spec']
                 or project['spec'].get('sourceRepos') != [current['spec']['source']['repoURL']]):
             raise RuntimeError('Interrupted identity root handoff source changed')
-        check_activation(state, current, get)
+        check_activation(state, current, get, data_held=True)
         record(path, state)
         grant_identity_source(latest)
     finally:
-        if safe_identity_resume(state, get):
+        if safe_identity_resume(state, get, data_held=True):
             kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
     return True
 

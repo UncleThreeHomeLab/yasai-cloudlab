@@ -12,6 +12,11 @@ from playbooks.data.files import backup, capture, chart, control, credentials, r
 
 
 class DataTests(unittest.TestCase):
+    def setUp(self):
+        operation = patch.object(control, "operation", return_value=False)
+        operation.start()
+        self.addCleanup(operation.stop)
+
     def test_physical_restore_repairs_permissions_only_on_fixture_claim(self):
         from playbooks.data.files import physical
         with patch.object(physical, 'get', side_effect=[
@@ -228,7 +233,7 @@ class DataTests(unittest.TestCase):
         manifest = self.generation()
         with tempfile.TemporaryDirectory() as temporary, patch.object(control, 'BASE', Path(temporary)), \
                 patch.object(control, 'settings', return_value={'maintenance': False}), \
-                patch.object(backup, 'capture', side_effect=lambda: ((Path(temporary) / 'pending-volume.json').write_text(json.dumps(manifest)), manifest)[1]), \
+                patch.object(backup, 'capture', side_effect=lambda source: ((Path(temporary) / 'pending-volume.json').write_text(json.dumps(manifest)), manifest)[1]), \
                 patch.object(restore, 'run', side_effect=RuntimeError('fixture failed')), \
                 patch.object(backup.volumes, 'cleanup_snapshots') as cleanup, \
                 patch.object(backup, 'Repository') as repository:

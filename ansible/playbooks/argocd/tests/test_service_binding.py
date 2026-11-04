@@ -9,6 +9,8 @@ import bootstrap
 import source_transition as migration
 from fixtures import binding_fixture, private_policies, private_probe, access_evidence, access_authority
 import access_activation
+import data_activation
+from playbooks.data.files import control as data_control
 
 
 class ServiceBindingTests(unittest.TestCase):
@@ -55,6 +57,7 @@ class ServiceBindingTests(unittest.TestCase):
     def contexts(self, base):
         import contextlib
         stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(data_control, 'BASE', base))
         for module in (migration, bootstrap):
             stack.enter_context(patch.object(module, 'BASE', base))
             stack.enter_context(patch.object(module, 'get', side_effect=self.read))
@@ -294,3 +297,139 @@ class ServiceBindingTests(unittest.TestCase):
             (base / 'identity-values-binding.json').write_text(json.dumps(state))
             with self.contexts(base): self.assertTrue(bootstrap.resume_identity_binding())
             self.assertEqual(self.calls, [('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')])
+
+    def data_owner(self, base, *, native=False):
+        import yaml
+        from playbooks.data.files.configuration import application
+        root = Path(__file__).resolve().parents[4]
+        current = yaml.safe_load((root / 'platform/data/configuration/values.yaml').read_text())
+        current['identity'] = {'enabled': True, 'database': 'keycloak', 'role': 'keycloak'}
+        proposed = copy.deepcopy(current)
+        proposed['serviceRequests'] = [{'service': 'synthetic', 'namespace': 'cloudlab-app-synthetic',
+            'database': {'name': 'synthetic', 'applicationRole': 'synthetic_app', 'migrationRole': 'synthetic_migration',
+                         'applicationItem': 'cnpg-synthetic-production', 'migrationItem': 'cnpg-synthetic-migration'}}]
+        evidence = {'required': native, 'enabled': True, 'repository': self.payload['repository'],
+            'revision': 'c' * 40, 'seaweedfsRevision': 'd' * 40, 'private_repository': self.target['valuesRepository'],
+            'private_revision': self.target['valuesRevision'], 'settings': proposed}
+        self.payload['argo']['dataActivation'] = evidence
+        applications = {}
+        for component in ('data-configuration', 'seaweedfs'):
+            obj = application(self.payload, component, current if component == 'data-configuration' else None)
+            name = obj['metadata']['name']; obj['metadata']['uid'] = name + '-uid'
+            if native:
+                obj['metadata']['labels']['cloudlab.io/owner'] = 'data-platform'
+                obj['metadata']['annotations'] = {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/Application:argocd/' + name}
+                if component == 'data-configuration':
+                    obj['spec']['source'] = None
+                    obj['spec']['sources'] = [{'repoURL': self.payload['repository'], 'targetRevision': 'c' * 40,
+                        'path': 'platform/data/configuration', 'helm': {'releaseName': name,
+                        'valueFiles': ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/services/catalog.json'],
+                        'valuesObject': {'sharedInputs': True, 'maintenance': False, 'hibernated': False}}},
+                        {'repoURL': self.target['valuesRepository'], 'targetRevision': 'e' * 40, 'ref': 'values'}]
+                else:
+                    obj['spec']['source']['targetRevision'] = 'd' * 40
+                    obj['spec']['source']['helm']['valuesObject'] = {'seaweedfs': {c: {'replicas': 1} for c in ('master', 'volume', 'filer', 's3')}}
+            self.objects['application.argoproj.io', name] = obj
+            applications[name] = obj['metadata']['uid']
+        state = {'applications': applications}
+        if native:
+            state['settings_uid'] = 'settings-uid'
+        (base / 'ownership.json').write_text(json.dumps(state))
+        return current
+
+    def test_data_no_adoption_fails_before_source_or_sql_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); self.data_owner(base)
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            with self.contexts(base), patch.object(data_control, 'get', side_effect=lambda k, n, ns=None: self.read(k, n)), \
+                    patch.object(data_control, 'sql', return_value='1') as sql, patch.object(data_control, 'grants') as grant:
+                with self.assertRaisesRegex(RuntimeError, 'cannot adopt'): migration.bind_identity(self.payload, self.target)
+                self.assertEqual(len(self.calls), 0)
+                self.assertTrue(all(call.args[0].startswith('SELECT ') for call in sql.call_args_list))
+                grant.assert_not_called()
+
+    def test_data_guard_captures_before_patch_and_takes_exclusion_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); self.data_owner(base)
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            def write(*args, **kwargs):
+                if args[:2] == ('patch', 'application.argoproj.io'):
+                    saved = json.loads((base / 'identity-values-binding.json').read_text())['dataActivation']['authority']
+                    self.assertEqual(saved['absent'], ['database/synthetic'])
+                return self.write(*args, **kwargs)
+            with self.contexts(base), patch.object(data_control, 'get', side_effect=lambda k, n, ns=None: self.read(k, n)), \
+                    patch.object(data_control, 'sql', return_value='0'), \
+                    patch.object(data_control, 'locked', wraps=data_control.locked) as locked, \
+                    patch.object(migration, 'kube', side_effect=write):
+                self.assertTrue(migration.bind_identity(self.payload, self.target)['changed'])
+                self.assertEqual(locked.call_count, 1)
+                self.assertFalse(migration.bind_identity(self.payload, self.target)['changed'])
+                self.assertEqual(locked.call_count, 2)
+
+    def test_hydration_and_bootstrap_resume_reuse_durable_native_creation_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); current = self.data_owner(base, native=True)
+            snapshot = unittest.mock.Mock(); snapshot.settings.return_value = current
+            with self.contexts(base), patch.object(data_control, 'operation', return_value=snapshot), \
+                    patch.object(data_control, 'sql', return_value='0'):
+                captured = data_activation.guard(self.payload['argo']['dataActivation'], self.target, self.read)
+            self.checkpoint['dataActivation'] = captured
+            state = self.pending(base)
+            self.objects['application.argoproj.io', data_activation.APP]['spec']['sources'][1]['targetRevision'] = self.target['valuesRevision']
+            cm = {'metadata': {'uid': 'settings-uid', 'annotations': {'argocd.argoproj.io/tracking-id':
+                data_activation.APP + ':/ConfigMap:cloudlab-data/cloudlab-data-settings'}},
+                'data': {'settings': json.dumps(self.payload['argo']['dataActivation']['settings'])}}
+            import subprocess
+            import yaml
+            rendered = subprocess.run(['helm', 'template', 'data', str(Path(__file__).resolve().parents[4] / 'platform/data/configuration'),
+                '-n', 'cloudlab-data', '-f', '-'], input=json.dumps(self.payload['argo']['dataActivation']['settings']),
+                text=True, capture_output=True, check=True, timeout=30)
+            database = next(obj for obj in yaml.safe_load_all(rendered.stdout) if obj and obj['kind'] == 'Database' and obj['metadata']['name'] == 'synthetic')
+            database['metadata'].update(uid='database-uid', namespace='cloudlab-data', generation=1)
+            database['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = data_activation.APP + ':postgresql.cnpg.io/Database:cloudlab-data/synthetic'
+            database['status'] = {'applied': True, 'observedGeneration': 1}
+            namespaces = []
+            def get(kind, name, namespace=None):
+                namespaces.append((kind, name, namespace))
+                if kind == 'configmap': return cm
+                if kind == 'database.postgresql.cnpg.io': return database
+                return self.read(kind, name)
+            with self.contexts(base), patch.object(data_control, 'get', side_effect=get), \
+                    patch.object(data_control, 'sql', return_value='1'), \
+                    patch.object(data_control, 'operation', side_effect=AssertionError('Must reuse durable authority')):
+                migration.hydrate_binding(base / 'identity-values-binding.json', state, self.payload, self.target)
+                self.assertTrue(bootstrap.resume_identity_binding())
+                self.assertIn(('database.postgresql.cnpg.io', 'synthetic', 'cloudlab-data'), namespaces)
+                self.assertEqual(state['dataActivation']['authority'], captured['authority'])
+                for change in ('foreign-cluster', 'unapplied', 'deleting'):
+                    invalid = copy.deepcopy(database)
+                    if change == 'foreign-cluster': database['spec']['cluster']['name'] = 'foreign'
+                    if change == 'unapplied': database['status']['applied'] = False
+                    if change == 'deleting': database['metadata']['deletionTimestamp'] = 'synthetic'
+                    with self.subTest(change=change), self.assertRaisesRegex(RuntimeError, 'cannot adopt'):
+                        migration.hydrate_binding(base / 'identity-values-binding.json', state, self.payload, self.target)
+                    database.clear(); database.update(invalid)
+
+
+    def test_hydration_cannot_reconstruct_lost_data_evidence_after_patch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); self.data_owner(base)
+            state = self.pending(base); state.pop('dataActivation')
+            with self.contexts(base), patch.object(data_control, 'sql') as sql:
+                with self.assertRaisesRegex(RuntimeError, 'lost its durable'): migration.hydrate_binding(
+                    base / 'identity-values-binding.json', state, self.payload, self.target)
+                sql.assert_not_called()
+
+    def test_binding_cannot_downgrade_registered_native_data_before_any_effect(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); self.data_owner(base)
+            state = json.loads((base / 'ownership.json').read_text())
+            state['settings_uid'] = 'registered-native-settings'
+            (base / 'ownership.json').write_text(json.dumps(state))
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            with self.contexts(base), patch.object(data_control, 'get', side_effect=lambda k, n, ns=None: self.read(k, n)), \
+                    patch.object(data_control, 'sql') as sql:
+                with self.assertRaisesRegex(RuntimeError, 'cannot downgrade'):
+                    migration.bind_identity(self.payload, self.target)
+                self.assertEqual(self.calls, [])
+                sql.assert_not_called()
