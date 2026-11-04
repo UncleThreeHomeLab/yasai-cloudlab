@@ -76,3 +76,5 @@
   ansible.builtin.import_playbook: certificates/020-retire-runtime.yml
 - name: Retire replaced gateway writer after accepted native handoff
   ansible.builtin.import_playbook: istio/020-retire-runtime.yml
+- name: Retire replaced access writer after authenticated native handoff
+  ansible.builtin.import_playbook: access/020-retire-runtime.yml

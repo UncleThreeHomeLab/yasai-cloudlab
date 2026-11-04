@@ -207,7 +207,7 @@ def hydrate_binding(path, checkpoint, payload, target):
         record(path, checkpoint)
 
 
-def pending_identity_target(target):
+def pending_identity_checkpoint(target):
     """Authorize an exact recovery target from the durable pending handoff only."""
     path = BASE / 'identity-values-binding.json'
     state = json.loads(path.read_text()) if path.exists() else {}
@@ -220,7 +220,11 @@ def pending_identity_target(target):
         obj = get(kind, name)
         if not obj or obj.get('metadata', {}).get('uid') != state.get(key) or obj['metadata'].get('deletionTimestamp'):
             raise RuntimeError('Pending identity recovery resource identity changed')
-    return target['valuesRevision']
+    return state
+
+
+def pending_identity_target(target):
+    return pending_identity_checkpoint(target)['target']['valuesRevision']
 
 
 def bind_identity(payload, target):

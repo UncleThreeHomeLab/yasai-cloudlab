@@ -128,6 +128,15 @@ def guard(evidence, target, read, root=None):
                 or app.get('spec', {}).get('source', {}).get('path') != 'platform/connectivity/access'))
             or state['administrator'] != evidence['administratorHash']):
         raise RuntimeError('Access declaration cannot change the configured administrator or owner')
+    metadata = administrator_binding(state, read)
+    authority = {'application_uid': meta['uid'], 'binding_uid': metadata['uid']}
+    if evidence.get('authority', authority) != authority:
+        raise RuntimeError('Captured access authority identity changed')
+    evidence['authority'] = authority
+    return evidence
+
+
+def administrator_binding(state, read):
     binding = read('clusterrolebinding.rbac.authorization.k8s.io', BINDING) or {}
     metadata = binding.get('metadata', {})
     subjects = binding.get('subjects', [])
@@ -138,10 +147,6 @@ def guard(evidence, target, read, root=None):
             or set(subjects[0]) != {'kind', 'apiGroup', 'name'}
             or subjects[0]['kind'] != 'User' or subjects[0]['apiGroup'] != 'rbac.authorization.k8s.io'
             or not isinstance(subjects[0]['name'], str)
-            or hashlib.sha256(subjects[0]['name'].encode()).hexdigest() != evidence['administratorHash']):
+            or hashlib.sha256(subjects[0]['name'].encode()).hexdigest() != state['administrator']):
         raise RuntimeError('Live administrator binding differs from its configured authority')
-    authority = {'application_uid': meta['uid'], 'binding_uid': metadata['uid']}
-    if evidence.get('authority', authority) != authority:
-        raise RuntimeError('Captured access authority identity changed')
-    evidence['authority'] = authority
-    return evidence
+    return metadata

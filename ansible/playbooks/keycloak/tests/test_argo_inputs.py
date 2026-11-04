@@ -139,3 +139,14 @@ class ArgoInputTests(unittest.TestCase):
         for access in ('invalid', 'error'):
             with self.subTest(access=access), self.assertRaises(RuntimeError): self.run_inputs(access=access)
             self.last_client.opener.open.assert_called_once()
+
+    def test_payload_retains_trusted_published_access_observation_pin(self):
+        import os
+        with patch.object(inputs, 'committed_payload', return_value={'repository': 'https://github.com/example/platform.git', 'branch': 'main', 'revision': 'd' * 40}), \
+                patch.object(inputs, 'dotenv_values', return_value={'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}), \
+                patch.dict(os.environ, {'LAB_IDENTITY_PHASE': 'server'}):
+            payload = inputs.payload()
+        template = payload['access_observation']
+        self.assertNotEqual(template['revision'], payload['revision'])
+        self.assertEqual(template['application']['spec']['sources'][0]['targetRevision'], template['revision'])
+        self.assertEqual(template['application']['spec']['sources'][1], {'repoURL': payload['private_repository'], 'targetRevision': '0' * 40, 'ref': 'values'})

@@ -48,3 +48,8 @@
   when:
     - lookup('env', 'LAB_GITOPS_ACTION') != 'verify'
     - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'
+- name: Retire replaced access writer after authenticated native handoff
+  ansible.builtin.import_playbook: access/020-retire-runtime.yml
+  when:
+    - lookup('env', 'LAB_GITOPS_ACTION') != 'verify'
+    - lookup('env', 'LAB_GITOPS_STOP_AFTER_SEED') != '1'

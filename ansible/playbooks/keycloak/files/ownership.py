@@ -185,7 +185,7 @@ def application(payload, phase, retired=False, retired_item=''):
                 'retry': {'limit': 5, 'backoff': {'duration': '30s', 'factor': 2, 'maxDuration': '2m'}}}}}
 
 
-def prerequisites(payload):
+def prerequisites(payload, *, access_recovery=None):
     # Require recovery evidence on disk; controller health alone is insufficient.
     backup = json.loads(Path('/var/lib/cloudlab/application-data/longhorn-monthly-receipt.json').read_text())
     if not backup.get('retention_complete') or not backup.get('restore', {}).get('physical_restore'):
@@ -193,9 +193,11 @@ def prerequisites(payload):
     access = json.loads(Path('/var/lib/cloudlab/connectivity/receipts/acceptance.json').read_text())
     if not access.get('verified_at') or not access.get('external_binding'):
         raise RuntimeError('Independent public/private access proof must precede identity')
-    for name in ('cloudlab-keycloak-operator', 'cloudlab-data-configuration', 'cloudlab-access', 'cloudlab-argocd'):
+    for name in ('cloudlab-keycloak-operator', 'cloudlab-data-configuration', 'cloudlab-argocd'):
         if not application_ready(name, payload['revision']):
             raise RuntimeError('Identity prerequisite Application is not converged')
+    from playbooks.access.files.native import prerequisite as access_prerequisite
+    access_prerequisite(payload, recovery=access_recovery)
     data = get('application.argoproj.io', 'cloudlab-data-configuration', 'argocd')['spec']['source']['helm']['valuesObject']
     if data.get('identity') != {'enabled': True, 'database': payload['values']['database'], 'role': payload['values']['databaseRole']}:
         raise RuntimeError('Identity dedicated CNPG contract is not enabled by its data owner')

@@ -19,6 +19,11 @@ Ask again only for a requested change or conflicting observed state.
 Keep application inputs in private GitOps. Never put private repo details,
 credentials or diagnostic dumps in this public repo.
 
+Shared access reads private `platform/access.yaml` at the approved identity binding,
+with the existing `administrator` field. Private main cannot advance this value;
+changing the configured administrator requires an explicitly scoped RBAC migration.
+The access chart uses its reviewed public pin independently of public main.
+
 Shared gateways read `platform/certificates.yaml` from private Git main and
 `identity/argo-values.yaml` at the existing approved identity binding revision.
 Argo origins advance only after that identity revision is approved; changing main
