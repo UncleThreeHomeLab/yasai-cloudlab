@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import source_transition as migration
+from fixtures import access_evidence
 
 
 class SourceTransitionTests(unittest.TestCase):
@@ -90,7 +91,7 @@ class SourceTransitionTests(unittest.TestCase):
             def write(*args, **kwargs):
                 writes.append(args)
                 if args[0] == 'patch': raise RuntimeError('synthetic patch failure')
-            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda kind, name: objects[kind, name]), \
+            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda kind, name: objects.get((kind, name))), \
                     patch.object(migration, 'resume_identity_binding', return_value=False), \
                     patch.object(migration, 'pause'), patch.object(migration, 'kube', side_effect=write):
                 with self.assertRaisesRegex(RuntimeError, 'synthetic patch failure'):
@@ -100,7 +101,7 @@ class SourceTransitionTests(unittest.TestCase):
                                        target['valuesRepository'], target['valuesRevision'])
                     migration.bind_identity({'private_repository': target['valuesRepository'], 'repository': repository,
                                              'branch': 'main', 'revision': 'public',
-                                             'argo': {'serviceActivation': evidence, 'privateActivation': prepare_private(
+                                             'argo': {'serviceActivation': evidence, 'accessActivation': access_evidence(repository, target), 'privateActivation': prepare_private(
                                                  {'repository': repository}, target['valuesRepository'], target['valuesRevision'])}}, target)
             self.assertEqual(writes[-1], ('scale', 'statefulset/' + migration.CONTROLLER, '-n', 'argocd', '--replicas=1'))
             patch_body = json.loads(writes[0][-1])

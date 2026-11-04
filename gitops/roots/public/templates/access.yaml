@@ -1,3 +1,13 @@
+{{- $configuration := .Values.access.configuration }}
+{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) }}
+{{- fail "Access configuration requires a YAML boolean enabled setting" }}
+{{- end }}
+{{- $native := and .Values.access.enabled $configuration.enabled (hasKey .Values.identity "argo") }}
+{{- if $native }}
+{{- if or (not (regexMatch "^[a-f0-9]{40}$" ($configuration.revision | default ""))) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) }}
+{{- fail "Native access configuration requires its reviewed immutable revision and External Secrets" }}
+{{- end }}
+{{- end }}
 {{- if .Values.access.enabled }}
 {{- range $component := list "tailscale-operator" "access" }}
 ---
@@ -7,7 +17,11 @@ metadata:
   name: cloudlab-{{ $component }}
   namespace: argocd
 spec:
-  sourceRepos: [{{ $.Values.repository | quote }}]
+  sourceRepos:
+    - {{ $.Values.repository | quote }}
+    {{- if and $native (eq $component "access") }}
+    - {{ $.Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: tailscale}
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-connectors}
@@ -58,4 +72,60 @@ spec:
     retry:
       limit: 5
       backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- if $native }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudlab-access-source
+  namespace: {{ .Values.namespace }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: cloudlab-access-source
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository}
+      data:
+        type: git
+        url: {{ .Values.identity.argo.valuesRepository | quote }}
+        project: cloudlab-access
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ .Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-access
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: access-platform}
+  annotations: {argocd.argoproj.io/skip-reconcile: 'false'}
+spec:
+  project: cloudlab-access
+  source: null
+  sources:
+    - repoURL: {{ .Values.repository | quote }}
+      targetRevision: {{ $configuration.revision | quote }}
+      path: platform/connectivity/access
+      helm:
+        releaseName: cloudlab-access
+        valueFiles: ['$values/platform/access.yaml']
+    - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: {{ .Values.identity.argo.valuesRevision | quote }}, ref: values}
+  destination: {server: 'https://kubernetes.default.svc', namespace: tailscale}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- end }}
 {{- end }}

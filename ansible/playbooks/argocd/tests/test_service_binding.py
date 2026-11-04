@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import bootstrap
 import source_transition as migration
-from fixtures import binding_fixture, private_policies, private_probe
+from fixtures import binding_fixture, private_policies, private_probe, access_evidence, access_authority
+import access_activation
 
 
 class ServiceBindingTests(unittest.TestCase):
@@ -247,3 +248,49 @@ class ServiceBindingTests(unittest.TestCase):
                     else: invalid['argo']['privateActivation']['revision'] = 'd' * 40
                     with self.subTest(change=change), self.assertRaisesRegex(RuntimeError, 'recorded registry or sources'):
                         migration.hydrate_binding(path, state, invalid, self.target)
+
+    def test_access_candidate_denial_precedes_new_and_already_accepted_binding_writes(self):
+        administrator, receipt, objects = access_authority(self.payload['repository'])
+        self.objects.update(objects)
+        self.payload['argo']['accessActivation'] = access_evidence(self.payload['repository'], self.target, administrator)
+        self.payload['argo']['accessActivation']['administratorHash'] = '0' * 64
+        for accepted in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                if accepted:
+                    state = {k: self.checkpoint[k] for k in ('target', 'root_uid', 'controller_uid', 'project_uid')}
+                    state['phase'] = 'accepted'
+                    (base / 'identity-values-binding.json').write_text(json.dumps(state))
+                    self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(self.checkpoint['patchedSource'])
+                with self.contexts(base), patch.object(access_activation, 'receipt', return_value=receipt), self.assertRaises(RuntimeError):
+                    migration.bind_identity(self.payload, self.target)
+                self.assertEqual(self.calls, [])
+
+    def test_patched_legacy_access_evidence_requires_exact_authenticated_rehydration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); state = self.pending(base); state.pop('accessActivation')
+            path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state))
+            with self.contexts(base):
+                with self.assertRaises(RuntimeError): bootstrap.resume_identity_binding()
+                self.assertFalse(any(call[0] in ('patch', 'scale') for call in self.calls))
+                migration.hydrate_binding(path, state, self.payload, self.target)
+                self.assertIn('accessActivation', json.loads(path.read_text()))
+                self.assertTrue(bootstrap.resume_identity_binding())
+
+    def test_rehydration_cannot_replace_a_captured_administrator(self):
+        administrator, receipt, objects = access_authority(self.payload['repository']); self.objects.update(objects)
+        captured = access_evidence(self.payload['repository'], self.target, administrator)
+        with patch.object(access_activation, 'receipt', return_value=receipt):
+            self.checkpoint['accessActivation'] = access_activation.guard(captured, self.target, self.read)
+        proposed = copy.deepcopy(self.payload)
+        proposed['argo']['accessActivation'] = access_evidence(self.payload['repository'], self.target)
+        with tempfile.TemporaryDirectory() as directory, self.contexts(Path(directory)), self.assertRaisesRegex(RuntimeError, 'captured authority'):
+            migration.hydrate_binding(Path(directory) / 'identity-values-binding.json', self.checkpoint, proposed, self.target)
+
+    def test_original_source_legacy_access_checkpoint_can_resume_unchanged_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); state = self.pending(base); state.pop('accessActivation')
+            self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+            (base / 'identity-values-binding.json').write_text(json.dumps(state))
+            with self.contexts(base): self.assertTrue(bootstrap.resume_identity_binding())
+            self.assertEqual(self.calls, [('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')])

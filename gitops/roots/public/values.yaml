@@ -26,6 +26,9 @@ mesh:
     revision: 3db2ae79d59935c0d61d3d723f43722634b96448
 access:
   enabled: true
+  configuration:
+    enabled: false
+    revision: 06b99c027bf403708dffd83d234d66e44d6ac430
 data:
   # Enable only with reviewed credentials, artifacts and recovery automation.
   enabled: true

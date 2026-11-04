@@ -143,6 +143,7 @@ class PrivateActivationTests(unittest.TestCase):
             tasks = yaml.safe_load((root / 'ansible/playbooks/argocd' / relative).read_text())
             files = next(task['loop'] for task in tasks if 'source_transition.py' in task.get('loop', []))
             self.assertIn('private_activation.py', files)
+            self.assertIn('access_activation.py', files)
             self.assertIn('private_sources.py', files)
             with self.subTest(packaged=packaged), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory) / 'playbooks/argocd/files' if packaged else Path(directory)
