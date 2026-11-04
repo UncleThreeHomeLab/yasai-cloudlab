@@ -1,6 +1,6 @@
 {{- $oidc := .Values.identity.argo | default dict }}
-{{- if $oidc }}
-{{- if or (not .Values.identity.enabled) (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" $oidc.valuesRepository)) (eq $oidc.valuesRepository .Values.repository) (not (regexMatch "^[a-f0-9]{40}$" $oidc.valuesRevision)) }}
+{{- if hasKey .Values.identity "argo" }}
+{{- if or (not (kindIs "map" .Values.identity.argo)) (not $oidc) (not .Values.identity.enabled) (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" $oidc.valuesRepository)) (eq $oidc.valuesRepository .Values.repository) (not (regexMatch "^[a-f0-9]{40}$" $oidc.valuesRevision)) }}
 {{- fail "Argo OIDC requires enabled identity and its distinct designated private values source" }}
 {{- end }}
 {{- end }}

@@ -55,12 +55,17 @@ Capture and restore retain prior verified generations until replacement succeeds
 repair and private retirement tombstones. Setup reconciles only accepted identity;
 enrollment, client changes, offboarding and emergency repair remain named operations.
 Data capture and isolated restore retain physical signing state and current input checks.
+For an interrupted native Argo binding, set `KEYCLOAK_ARGO_RECOVERY_REVISION` to
+the pending checkpoint's exact private SHA and rerun `lab identity-argo`; clear it
+after acceptance. Recovery validates current private Git authorization before
+reading historical inputs and refuses changed resource identities.
+A paused catalog with a pending sync operation stays blocked for inspection or
+scoped recovery; binding recovery never cancels or clears operations.
 
 [Services](playbooks/services/) binds the approved private catalog directly to Argo.
 Application charts consume Git definitions; the data owner repairs scoped public CA
 configuration. External publication, identity and retirement remain explicit.
-`playbooks/services/repair-source-owner.yml` requires `services_source_recovery_file` in
-`/recovery/`; it restores only the recorded fixture-created sources field conflict.
+The public root owns the catalog Application and its reviewed `services.revision` pin.
 
 [Previews](playbooks/previews/) owns exact-revision approval, private namespace
 budgets, lifecycle cleanup and bounded transient identity intent.

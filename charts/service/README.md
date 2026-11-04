@@ -119,8 +119,12 @@ Privileged data credentials and migration credentials never reach application po
    with the existing GitHub writer supplied through standard input if needed.
 3. For OIDC, run `service identity-provision <bundle>` through the same Compose
    entry point. Merge its scoped identity PR, then run `lab identity-scoped`.
-4. Enable `services.enabled` in the public root. Provision missing data items with
-   `lab data-credentials`; existing values persist. Then run `lab setup` for prerequisites. Argo reads
+4. Enable `services.enabled` in the public root; `services.revision` is the exact
+   platform commit for its root-owned catalog Application. Initial identity binding
+   checks catalog ownership collisions and composition admission before activation.
+   Existing catalog adoption requires the same read-only guard before handoff.
+   Provision missing data items with `lab data-credentials`; existing values persist.
+   Run `lab setup` when prerequisites need convergence. Argo reads
    `services/catalog.json` directly from the protected private branch and deploys
    supported definition changes without a local catalog apply or VM lookup.
    Data owners reconcile approved requests and grants.

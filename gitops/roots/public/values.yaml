@@ -27,6 +27,7 @@ identity:
   enabled: true
 services:
   enabled: true
+  revision: 3d56093f79be1ba0990ff7203f9066bbb7843e2d
 observability:
   enabled: true
 harbor:

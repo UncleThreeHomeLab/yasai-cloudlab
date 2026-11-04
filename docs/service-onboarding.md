@@ -705,11 +705,20 @@ explicit service-access choice.
 4. **Agent:** check platform `gitops/roots/public/values.yaml`.
    If `services.enabled` is false, propose enabling it through a separate platform PR.
    **User:** review and merge that PR through branch protection.
-   If already true, leave it unchanged. Routine onboarding needs no changes to
-   shared `charts/service/` code.
-5. **Agent:** use `lab data-credentials` and `lab setup` through Compose when
-   prerequisites need provisioning or convergence. Wait for Argo to read private
-   `services/catalog.json` from protected `main` and deploy the service.
+   The public root owns `cloudlab-services`; `services.revision` pins its catalog
+   chart to an exact platform commit. Change that pin through a reviewed platform
+   PR when upgrading the catalog chart. Routine onboarding needs no changes to
+   shared `charts/service/` code or the catalog Application.
+5. **Agent:** use `lab data-credentials` and `lab setup` through Compose only when
+   prerequisites need provisioning or convergence. Initial native identity binding
+   validates the complete catalog at the same immutable private revision before
+   activating its source. Foreign namespaces, projects or ApplicationSets block
+   activation; composition admission must already be ready. Existing installations
+   require the read-only adoption guard before accepting the root-owned catalog.
+   After acceptance, Argo reads private `services/catalog.json` from protected
+   `main`, deploys supported changes and repairs drift without a service apply.
+   Identity provisioning, data preparation and access publication still use their
+   owning procedures below.
 
 **Done when:** the approved workload has converged. Access publication still
 requires the checks below.

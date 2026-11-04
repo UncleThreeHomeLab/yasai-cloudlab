@@ -16,7 +16,27 @@ def approval():
 def catalog_payload():
     return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
             'private_repository': 'https://github.com/example/private.git', 'private_revision': 'b' * 40,
-            'telemetry': False, 'values': {'catalog': [], 'dataApprovals': []}}
+            'telemetry': False, 'values': {'catalog': [], 'dataApprovals': {}}}
+
+
+def catalog_application(payload):
+    import copy
+    import json
+    import subprocess
+    from playbooks.argocd.files.service_activation import TRACKING
+    root = Path(__file__).resolve().parents[4]
+    values = {'repository': payload['repository'], 'services': {'enabled': True, 'revision': payload['revision']},
+              'observability': {'enabled': payload['telemetry']},
+              'identity': {'enabled': True, 'argo': {'valuesRepository': payload['private_repository'],
+                                                   'valuesRevision': payload['private_revision']}}}
+    result = subprocess.run(['helm', 'template', 'root', str(root / 'gitops/roots/public'), '-n', 'argocd', '-f', '-'],
+                            input=json.dumps(values), capture_output=True, text=True, check=True, timeout=60)
+    app = next(obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'Application'
+               and obj['metadata']['name'] == 'cloudlab-services')
+    app['metadata'].update(uid='catalog', annotations={'argocd.argoproj.io/tracking-id': TRACKING})
+    app['status'] = {'sync': {'status': 'Synced', 'revisions': [payload['revision'], payload['private_revision']]},
+                     'health': {'status': 'Healthy'}}
+    return copy.deepcopy(app)
 
 
 def composition_approval(graph=False):
