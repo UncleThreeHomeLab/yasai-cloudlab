@@ -7,8 +7,78 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'verification/integration'))
-from private_verify import healthy, configuration_healthy, credential_owner, run
+from private_verify import healthy, configuration_healthy, credential_owner, controller_items, run
 from private_activation import APP, OWNER, TRACKING
+from controller_stability import fingerprint
+
+
+class PrivateControllerStabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.controller = {'apiVersion': 'apps/v1', 'kind': 'Deployment',
+            'metadata': {'name': 'controller', 'namespace': 'argocd', 'uid': 'controller-uid', 'generation': 1},
+            'spec': {'replicas': 1},
+            'status': {'observedGeneration': 1, 'readyReplicas': 1, 'updatedReplicas': 1}}
+        self.pod = {'apiVersion': 'v1', 'kind': 'Pod',
+            'metadata': {'name': 'controller-pod', 'namespace': 'argocd', 'uid': 'pod-uid'},
+            'status': {'phase': 'Running', 'conditions': [{'type': 'Ready', 'status': 'True'}],
+                       'containerStatuses': [{'name': 'controller', 'restartCount': 0, 'containerID': 'container-1'}]}}
+        self.job = {'apiVersion': 'batch/v1', 'kind': 'Job',
+                    'metadata': {'name': 'scheduled', 'namespace': 'argocd', 'uid': 'job-uid'}}
+        self.job_pod = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {
+            'name': 'scheduled-pod', 'namespace': 'argocd', 'uid': 'job-pod-uid', 'ownerReferences': [
+                {'apiVersion': 'batch/v1', 'kind': 'Job', 'controller': True, 'name': 'scheduled', 'uid': 'job-uid'}]},
+            'status': {'phase': 'Pending'}}
+
+    def test_proven_job_pod_start_completion_and_disappearance_preserve_controller_fingerprint(self):
+        baseline = fingerprint([self.controller, self.pod])
+        completed = copy.deepcopy(self.job_pod)
+        completed['status']['phase'] = 'Succeeded'
+        for transient in ([], [self.job], [self.job, self.job_pod], [self.job, completed], []):
+            with self.subTest(transient=transient):
+                self.assertEqual(fingerprint(controller_items([self.controller, self.pod] + transient)), baseline)
+
+    def test_missing_or_mismatched_job_ownership_cannot_hide_an_unready_pod(self):
+        changes = [{}, {'ownerReferences': []}, {'ownerReferences': ['malformed']},
+                   {'ownerReferences': {'kind': 'Job'}}]
+        owner = self.job_pod['metadata']['ownerReferences'][0]
+        for field, value in (('kind', 'ReplicaSet'), ('apiVersion', 'apps/v1'), ('controller', False),
+                             ('controller', 1), ('uid', 'foreign'), ('uid', None), ('name', 'other')):
+            changes.append({'ownerReferences': [owner | {field: value}]})
+        changes.append({'namespace': 'other'})
+        for change in changes:
+            pod = copy.deepcopy(self.job_pod)
+            pod['metadata'].pop('ownerReferences')
+            pod['metadata'].update(change)
+            pod['metadata']['name'] = 'cloudlab-previews-scheduled-looking-pod'
+            with self.subTest(change=change):
+                filtered = controller_items([self.controller, self.pod, self.job, pod])
+                self.assertIn(pod, filtered)
+                with self.assertRaisesRegex(RuntimeError, 'not ready'): fingerprint(filtered)
+
+    def test_missing_or_malformed_listed_job_does_not_prove_pod_ownership(self):
+        jobs = [None, self.job | {'apiVersion': 'batch/v1beta1'}]
+        for field, value in (('uid', ''), ('uid', None), ('name', ''), ('namespace', 'other')):
+            jobs.append(self.job | {'metadata': self.job['metadata'] | {field: value}})
+        for job in jobs:
+            with self.subTest(job=job):
+                filtered = controller_items([self.controller, self.pod, self.job_pod] + ([job] if job else []))
+                self.assertIn(self.job_pod, filtered)
+                with self.assertRaisesRegex(RuntimeError, 'not ready'): fingerprint(filtered)
+
+    def test_persistent_pod_restart_replacement_and_unreadiness_remain_visible(self):
+        baseline = fingerprint(controller_items([self.controller, self.pod, self.job, self.job_pod]))
+        restarted = copy.deepcopy(self.pod)
+        restarted['status']['containerStatuses'][0]['restartCount'] = 1
+        replaced = self.pod | {'metadata': self.pod['metadata'] | {'uid': 'replacement'}}
+        for pod in (restarted, replaced):
+            self.assertNotEqual(fingerprint(controller_items([self.controller, pod, self.job, self.job_pod])), baseline)
+        unready = copy.deepcopy(self.pod)
+        unready['status']['conditions'][0]['status'] = 'False'
+        with self.assertRaisesRegex(RuntimeError, 'not ready'):
+            fingerprint(controller_items([self.controller, unready, self.job, self.job_pod]))
+        controller = self.controller | {'status': self.controller['status'] | {'readyReplicas': 0}}
+        with self.assertRaisesRegex(RuntimeError, 'rollout is not complete'):
+            fingerprint(controller_items([controller, self.pod, self.job, self.job_pod]))
 
 
 class PrivateConvergenceTests(unittest.TestCase):
