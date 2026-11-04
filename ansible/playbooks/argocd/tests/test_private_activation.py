@@ -63,11 +63,26 @@ class PrivateActivationTests(unittest.TestCase):
 
     def test_existing_registered_namespace_uid_is_preserved_across_retry(self):
         metadata = {'uid': 'namespace', 'labels': {'cloudlab.io/owner': 'private-gitops'}, 'annotations': {
-            'argocd.argoproj.io/tracking-id': APP + ':/Namespace:/cloudlab-private-fixture'}}
+            'argocd.argoproj.io/tracking-id': APP + ':/Namespace:argocd/cloudlab-private-fixture'}}
         self.objects['namespace', 'cloudlab-private-fixture'] = {'metadata': metadata}
         captured = self.check()
         metadata['uid'] = 'changed'
         with self.assertRaisesRegex(RuntimeError, 'identity changed'): self.check(captured)
+
+    def test_cluster_namespace_tracking_requires_catalog_destination_namespace(self):
+        for namespace in ('', 'cloudlab-policy'):
+            metadata = {'uid': 'namespace', 'labels': {'cloudlab.io/owner': 'private-gitops'}, 'annotations': {
+                'argocd.argoproj.io/tracking-id': APP + ':/Namespace:' + namespace + '/cloudlab-private-fixture'}}
+            self.objects['namespace', 'cloudlab-private-fixture'] = {'metadata': metadata}
+            self.assertNotIn('namespace', metadata)
+            with self.subTest(namespace=namespace), self.assertRaisesRegex(RuntimeError, 'another owner'): self.check()
+
+    def test_cluster_policy_tracking_requires_admission_destination_namespace(self):
+        policy = self.objects['validatingpolicy.policies.kyverno.io', POLICIES[0]]
+        for namespace in ('', 'argocd'):
+            policy['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = (
+                'cloudlab-workload-policy:policies.kyverno.io/ValidatingPolicy:' + namespace + '/' + POLICIES[0])
+            with self.subTest(namespace=namespace), self.assertRaisesRegex(RuntimeError, 'ready webhook contract'): self.check()
 
     def test_disabled_or_mismatched_inputs_do_not_read_or_retarget(self):
         disabled = prepare({'repository': self.public['repository']}, self.target['valuesRepository'], self.target['valuesRevision'])
@@ -96,6 +111,9 @@ class PrivateActivationTests(unittest.TestCase):
         self.check(probe=positive)
         self.assertEqual(len(calls), 6)
         self.assertEqual([row['kind'] for row in calls], ['Namespace', 'Namespace', 'AppProject', 'AppProject', 'Secret', 'Secret'])
+        self.assertNotIn('namespace', calls[0]['metadata'])
+        self.assertEqual(calls[0]['metadata']['annotations']['argocd.argoproj.io/tracking-id'],
+                         APP + ':/Namespace:argocd/' + calls[0]['metadata']['name'])
         self.assertEqual(calls[-1]['data'], {})
         for error in ('connection refused', 'RBAC denied', 'no such key: labels'):
             def negative(document):

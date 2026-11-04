@@ -8,7 +8,7 @@ from private_activation import prepare as prepare_private
 def private_policies(evidence):
     return {('validatingpolicy.policies.kyverno.io', name): {
         'metadata': {'uid': name + '-uid', 'generation': 2, 'annotations': {
-            'argocd.argoproj.io/tracking-id': 'cloudlab-workload-policy:policies.kyverno.io/ValidatingPolicy:/' + name}},
+            'argocd.argoproj.io/tracking-id': 'cloudlab-workload-policy:policies.kyverno.io/ValidatingPolicy:cloudlab-policy/' + name}},
         'spec': copy.deepcopy(spec), 'status': {'conditionStatus': {'ready': True, 'conditions': [
             {'type': 'WebhookConfigured', 'status': 'True'}, {'type': 'RBACPermissionsGranted', 'status': 'True'}]}}}
         for name, spec in evidence['policies'].items()}

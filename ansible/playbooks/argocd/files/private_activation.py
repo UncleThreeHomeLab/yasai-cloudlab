@@ -121,7 +121,7 @@ def _policies(evidence, read):
         conditions = status.get('conditions', [])
         if (not meta.get('uid') or type(generation) is not int or meta.get('deletionTimestamp')
                 or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
-                    'cloudlab-workload-policy:policies.kyverno.io/ValidatingPolicy:/' + name
+                    'cloudlab-workload-policy:policies.kyverno.io/ValidatingPolicy:cloudlab-policy/' + name
                 or meta.get('ownerReferences') or policy.get('spec') != evidence['policies'][name]
                 or status.get('ready') is not True or not conditions
                 or not {'WebhookConfigured', 'RBACPermissionsGranted'} <= {row.get('type') for row in conditions}
@@ -155,7 +155,7 @@ def _probe_controls(evidence, probe):
         else:
             policy = POLICIES[0]
             metadata['annotations'] = {'argocd.argoproj.io/tracking-id': APP + ':' + group + '/' + kind + ':' +
-                                       ('' if kind == 'Namespace' else 'argocd') + '/' + name}
+                                       'argocd/' + name}
             if kind == 'Namespace':
                 metadata['labels'].update({'pod-security.kubernetes.io/enforce': 'restricted',
                                            'pod-security.kubernetes.io/enforce-version': 'v1.36'})
@@ -212,13 +212,14 @@ def guard(evidence, target, read, root=None, probe=None):
         identities['secret'] = meta['uid']
     for row in evidence['registry']['sources']:
         name = 'cloudlab-private-' + row['name']
-        for kind, group, namespace in (('namespace', '', ''), ('appproject.argoproj.io', 'argoproj.io', 'argocd'),
+        # Argo tracking IDs use destination namespaces even for cluster-scoped objects.
+        for kind, group, tracking_namespace in (('namespace', '', 'argocd'), ('appproject.argoproj.io', 'argoproj.io', 'argocd'),
                                        ('application.argoproj.io', 'argoproj.io', 'argocd'),
                                        ('externalsecret.external-secrets.io', 'external-secrets.io', 'argocd')):
             obj = read(kind, name)
             title = {'namespace': 'Namespace', 'appproject.argoproj.io': 'AppProject',
                      'application.argoproj.io': 'Application', 'externalsecret.external-secrets.io': 'ExternalSecret'}[kind]
-            expected = APP + ':' + group + '/' + title + ':' + namespace + '/' + name
+            expected = APP + ':' + group + '/' + title + ':' + tracking_namespace + '/' + name
             if obj and (obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != CHILD_OWNER
                         or obj['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') != expected
                         or obj['metadata'].get('deletionTimestamp')
