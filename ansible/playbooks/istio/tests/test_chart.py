@@ -5,6 +5,7 @@ import json
 import subprocess
 import tarfile
 import unittest
+from pathlib import Path
 
 import yaml
 
@@ -87,6 +88,111 @@ class MeshChartTests(unittest.TestCase):
         self.assertEqual(backend['securityContext']['fsGroup'], backend['securityContext']['runAsGroup'])
         self.assertTrue(backend['containers'][0]['securityContext']['readOnlyRootFilesystem'])
         self.assertEqual(backend['volumes'], [{'name': 'www', 'emptyDir': {'sizeLimit': '1Mi'}}])
+
+
+class SharedGatewayTests(unittest.TestCase):
+    root = Path(__file__).resolve().parents[4]
+
+    def render(self, path, values, success=True):
+        files = ['-f', str(self.root / path / 'values.json')] if path == 'platform/connectivity/gateways' else []
+        result = subprocess.run(['helm', 'template', 'cloudlab-gateways', str(self.root / path), *files, '-f', '-'],
+                                input=json.dumps(values), capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode == 0, success, result.stderr if success else 'invalid input accepted')
+        return [o for o in yaml.safe_load_all(result.stdout) if o] if success else []
+
+    def shared(self):
+        from playbooks.keycloak.files.integrations import argo
+        return {'zone': 'example.invalid', 'production': True, 'sharedInputs': True,
+                **argo('https://login.example.invalid/realms/platform', 'https://cd.example.invalid',
+                       ['https://cd.internal.example.invalid'])['helm']}
+
+    def test_shared_documents_preserve_exact_legacy_resources(self):
+        native = self.render('platform/connectivity/gateways', self.shared())
+        legacy = self.render('platform/connectivity/gateways', {'zone': 'example.invalid',
+            'argo': {'public': 'cd.example.invalid', 'private': 'cd.internal.example.invalid'}})
+        self.assertEqual(native, legacy)
+        self.assertEqual(len(native), 6)
+        # Shared identity values cannot implicitly select native mode.
+        values = self.shared(); values.pop('sharedInputs')
+        self.assertEqual(len(self.render('platform/connectivity/gateways', values)), 4)
+
+    def test_shared_input_failures_are_not_empty_route_intent(self):
+        for missing in ('argo-cd', 'production'):
+            values = self.shared(); values.pop(missing)
+            self.render('platform/connectivity/gateways', values, False)
+        for malformed in ({}, {'configs': {}}, {'configs': {'cm': {}, 'rbac': {}}}):
+            values = self.shared(); values['argo-cd'] = malformed
+            self.render('platform/connectivity/gateways', values, False)
+        for oidc in ('', '[]', 'issuer: https://foreign.invalid/realms/platform\nclientID: argocd',
+                     'issuer: https://login.example.invalid/realms/platform\nclientID: foreign'):
+            values = self.shared(); values['argo-cd']['configs']['cm']['oidc.config'] = oidc
+            self.render('platform/connectivity/gateways', values, False)
+        for origin in ('https://cd.example.invalid:443', 'https://u@cd.example.invalid', 'https://cd.example.invalid/',
+                       'https://cd.example.invalid?q=1', 'https://cd.example.invalid#f', 'https://cd.example.invalid ',
+                       'https://deep.cd.example.invalid', 'https://internal.example.invalid',
+                       'https://cd.internal.example.invalid', 'http://cd.example.invalid'):
+            values = self.shared(); values['argo-cd']['configs']['cm']['url'] = origin
+            self.render('platform/connectivity/gateways', values, False)
+        for additional in ('', '[]', '- https://cd.internal.example.invalid\n- https://other.example.invalid', '{}'):
+            values = self.shared(); values['argo-cd']['configs']['cm']['additionalUrls'] = additional
+            self.render('platform/connectivity/gateways', values, False)
+        values = self.shared(); values['argo'] = {'public': 'other.example.invalid', 'private': 'cd.internal.example.invalid'}
+        self.render('platform/connectivity/gateways', values, False)
+
+    def binding(self):
+        return {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
+
+    def native_root(self):
+        return {'identity': {'argo': self.binding()}, 'mesh': {'configuration': {'enabled': True, 'revision': 'a' * 40}}}
+
+    def test_root_disabled_and_absent_binding_preserve_existing_graph(self):
+        path = 'gitops/roots/public'
+        base = self.render(path, {})
+        self.assertEqual(base, self.render(path, {'mesh': {'configuration': {'enabled': False}}}))
+        self.assertEqual(base, self.render(path, {'mesh': {'configuration': {'enabled': True}}}))
+        with_binding = self.render(path, {'identity': {'argo': self.binding()}})
+        self.assertFalse(any(o['metadata']['name'] == 'cloudlab-gateways-source' for o in with_binding))
+        self.assertFalse(any(o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-gateways' for o in base))
+
+    def test_native_root_is_scoped_and_retains_credentials(self):
+        path = 'gitops/roots/public'; values = self.native_root(); native = self.render(path, values)
+        app = next(o for o in native if o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-gateways')
+        self.assertIsNone(app['spec']['source'])
+        source = app['spec']['sources'][0]
+        self.assertEqual(source['targetRevision'], 'a' * 40)
+        self.assertEqual(source['path'], 'platform/connectivity/gateways')
+        self.assertEqual(source['helm'], {'releaseName': 'cloudlab-gateways', 'valuesObject': {'sharedInputs': True},
+            'valueFiles': ['values.json', '$values/platform/certificates.yaml', '$values/identity/argo-values.yaml']})
+        self.assertEqual(app['spec']['sources'][1], {'repoURL': self.binding()['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'})
+        self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
+        self.assertNotIn('finalizers', app['metadata'])
+        baseline = self.render(path, {'identity': {'argo': self.binding()}})
+        for name in ('cloudlab-istio-base', 'cloudlab-istio-istiod', 'cloudlab-istio-cni', 'cloudlab-istio-ztunnel'):
+            self.assertEqual([o for o in native if o['metadata']['name'] == name], [o for o in baseline if o['metadata']['name'] == name])
+        project = next(o['spec'] for o in native if o['kind'] == 'AppProject' and o['metadata']['name'] == 'cloudlab-gateways')
+        old = next(o['spec'] for o in baseline if o['kind'] == 'AppProject' and o['metadata']['name'] == 'cloudlab-gateways')
+        self.assertEqual(project | {'sourceRepos': old['sourceRepos']}, old)
+        self.assertEqual(project['sourceRepos'][1:], [self.binding()['valuesRepository']])
+        eso = next(o for o in native if o['metadata']['name'] == 'cloudlab-gateways-source')
+        target = eso['spec']['target']
+        self.assertEqual((target['creationPolicy'], target['deletionPolicy']), ('Owner', 'Retain'))
+        self.assertEqual(target['template']['data']['project'], 'cloudlab-gateways')
+        self.assertEqual(target['template']['data']['url'], self.binding()['valuesRepository'])
+        self.assertEqual(eso['spec']['dataFrom'], [{'extract': {'key': 'github-argocd'}}])
+        self.assertEqual(eso['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
+
+    def test_native_root_rejects_bad_binding_pin_and_prerequisites(self):
+        path = 'gitops/roots/public'
+        for binding in ({}, None, False, self.binding() | {'valuesRevision': 'main'}):
+            values = self.native_root(); values['identity']['argo'] = binding
+            self.render(path, values, False)
+        for pin in ('main', '', 'a' * 39):
+            values = self.native_root(); values['mesh']['configuration']['revision'] = pin
+            self.render(path, values, False)
+        for field in ('enabled', 'reconcile'):
+            for invalid in (False, 'true'):
+                values = self.native_root(); values['externalSecrets'] = {field: invalid}
+                self.render(path, values, False)
 
 
 if __name__ == '__main__':

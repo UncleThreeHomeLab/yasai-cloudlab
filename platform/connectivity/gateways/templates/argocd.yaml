@@ -1,8 +1,33 @@
-{{- if .Values.argo }}
-{{- if or (not .Values.argo.public) (ne .Values.argo.private (printf "cd.internal.%s" .Values.zone)) (not (hasSuffix (printf ".%s" .Values.zone) .Values.argo.public)) }}
+{{- $argo := .Values.argo }}
+{{- if .Values.sharedInputs }}
+{{- $cm := index .Values "argo-cd" "configs" "cm" }}
+{{- $oidc := index $cm "oidc.config" | fromYaml }}
+{{- if or (ne $oidc.issuer (printf "https://login.%s/realms/platform" .Values.zone)) (ne $oidc.clientID "argocd") }}
+{{- fail "Gateway shared inputs require the scoped platform identity client" }}
+{{- end }}
+{{- $additional := $cm.additionalUrls | fromYamlArray }}
+{{- if ne (len $additional) 1 }}{{ fail "Gateway shared inputs require two exact origins" }}{{- end }}
+{{- $hosts := dict }}
+{{- range $origin := list $cm.url (first $additional) }}
+{{- if not (kindIs "string" $origin) }}{{ fail "Gateway origin must be an exact HTTPS authority" }}{{- end }}
+{{- $host := trimPrefix "https://" $origin }}
+{{- $exposure := "public" }}
+{{- if eq $origin (printf "https://cd.internal.%s" $.Values.zone) }}
+{{- $exposure = "private" }}
+{{- else if or (not (regexMatch (printf "^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.%s$" (regexQuoteMeta $.Values.zone)) $origin)) (eq $host (printf "internal.%s" $.Values.zone)) }}
+{{- fail "Gateway origin must stay within its exact approved HTTPS authority" }}
+{{- end }}
+{{- if hasKey $hosts $exposure }}{{ fail "Gateway origins require distinct exposures" }}{{- end }}
+{{- $_ := set $hosts $exposure $host }}
+{{- end }}
+{{- if and $argo (ne (toJson $argo) (toJson $hosts)) }}{{ fail "Gateway legacy and shared origins conflict" }}{{- end }}
+{{- $argo = $hosts }}
+{{- end }}
+{{- if $argo }}
+{{- if or (not $argo.public) (ne $argo.private (printf "cd.internal.%s" .Values.zone)) (not (hasSuffix (printf ".%s" .Values.zone) $argo.public)) }}
 {{- fail "Argo routes require complete scoped public/private origins" }}
 {{- end }}
-{{- range $exposure, $host := .Values.argo }}
+{{- range $exposure, $host := $argo }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
