@@ -21,6 +21,9 @@ certificates:
     revision: f8d89a02a56b063b1e38c4540ddbc7dcaa425cc1
 mesh:
   enabled: true
+  configuration:
+    enabled: false
+    revision: a865f0bc9ee34152d524651414101f5f8d87ccc4
 access:
   enabled: true
 data:

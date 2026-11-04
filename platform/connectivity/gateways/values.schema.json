@@ -28,6 +28,102 @@
           "pattern": "^cd[.]internal[.][a-z0-9][a-z0-9.-]+$"
         }
       }
+    },
+    "sharedInputs": {
+      "type": "boolean"
+    },
+    "production": {
+      "type": "boolean"
+    },
+    "argo-cd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configs"
+      ],
+      "properties": {
+        "configs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cm",
+            "rbac"
+          ],
+          "properties": {
+            "cm": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "additionalUrls",
+                "users.session.duration",
+                "oidc.config"
+              ],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "additionalUrls": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "users.session.duration": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "oidc.config": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "rbac": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "policy.default",
+                "scopes",
+                "policy.csv"
+              ],
+              "properties": {
+                "policy.default": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "scopes": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "policy.csv": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "sharedInputs"
+        ],
+        "properties": {
+          "sharedInputs": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "production",
+          "argo-cd"
+        ]
+      }
+    }
+  ]
 }
