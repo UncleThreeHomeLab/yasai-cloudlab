@@ -4,6 +4,17 @@ import copy
 from playbooks.observability.files.uptimerobot import desired
 
 
+def native_source_inputs():
+    return {'nativeSource': {
+        'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+        'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40},
+        'catalog': [{'approval': {'name': 'prices', 'namespace': 'cloudlab-app-prices'},
+                     'definition': {'name': 'prices'}, 'publication': 'published'}],
+        'observabilityInputs': {'loginHost': 'login.example.invalid',
+            'grafanaHost': 'grafana.internal.example.invalid', 'kialiHost': 'kiali.internal.example.invalid',
+            'apiPeers': ['192.0.2.10/32', '192.0.2.11/32'], 'monitoringEnabled': True}}
+
+
 def service_bindings():
     return [{'name': 'example-notes', 'namespace': 'fixture', 'workloads': [
         {'name': 'notes-api', 'kind': 'Deployment'}, {'name': 'notes-web', 'kind': 'Rollout'}]},

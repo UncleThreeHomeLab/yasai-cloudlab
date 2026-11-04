@@ -1,0 +1,5 @@
+apiVersion: v2
+name: observability-gitops
+version: 0.1.0
+type: application
+description: Native telemetry Application sources under guarded ownership.

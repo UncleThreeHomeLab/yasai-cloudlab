@@ -55,5 +55,17 @@
     "fixture": "Only /monitoring-proof/ready and /monitoring-proof/failed; never stop production to demonstrate an outage",
     "notification_delivery": "Provider status alone is insufficient; confirm failure and recovery emails before acceptance",
     "tailnet": "Hosted public monitoring has no private identity; private probes require separately authorized independent execution"
+  },
+  "native_gitops": {
+    "gate": "observability.configuration",
+    "parent": "cloudlab-observability-gitops",
+    "private_inputs": [
+      "platform/observability.yaml",
+      "approved service catalog"
+    ],
+    "input_key": "observabilityInputs",
+    "trust": "Platform-reviewed values; merged Helm schema does not establish per-file tenant isolation",
+    "activation": "Parent remains skip-reconcile with automatic sync disabled until guarded writer handoff and identity DNS qualification",
+    "notifications": "Unconfigured; isolated fixture delivery only; no vault-item provisioning"
   }
 }
