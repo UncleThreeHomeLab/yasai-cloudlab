@@ -141,6 +141,38 @@ class GitHubAdoptionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'identities'):
                 adoption.observe(desired, adoption.inventory(imports), 'synthetic-token')
 
+    def test_observer_leaves_independently_owned_branch_and_tag_rulesets_external(self):
+        snapshot = github_owner()
+        desired, imports = adoption.declarations(snapshot)
+        for target in ('branch', 'tag'):
+            with self.subTest(target=target):
+                current = copy.deepcopy(snapshot)
+                external = copy.deepcopy(current['fixture']['rulesets'][0])
+                external.update(id=123, name='separate-native-owner', target=target,
+                                rules=[{'type': 'update'}])
+                current['fixture']['rulesets'].insert(0, external)
+                with patch.object(adoption, 'GitHub', return_value=Mock()), \
+                        patch.object(adoption, 'capture', return_value=current):
+                    adoption.observe(desired, adoption.inventory(imports), 'synthetic-token')
+                with self.assertRaises(ValueError):
+                    adoption.declarations({'fixture': dict(snapshot['fixture'], rulesets=[external])})
+
+    def test_observer_rejects_missing_replaced_and_unsupported_owned_rulesets(self):
+        for change in ('missing', 'replaced', 'unsupported'):
+            with self.subTest(change=change):
+                snapshot = github_owner()
+                desired, imports = adoption.declarations(snapshot)
+                if change == 'missing':
+                    snapshot['fixture']['rulesets'].clear()
+                elif change == 'replaced':
+                    snapshot['fixture']['rulesets'][0]['id'] = 999
+                else:
+                    snapshot['fixture']['rulesets'][0]['rules'].append({'type': 'update'})
+                with patch.object(adoption, 'GitHub', return_value=Mock()), \
+                        patch.object(adoption, 'capture', return_value=snapshot):
+                    with self.assertRaises(ValueError):
+                        adoption.observe(desired, adoption.inventory(imports), 'synthetic-token')
+
 
 if __name__ == '__main__':
     unittest.main()
