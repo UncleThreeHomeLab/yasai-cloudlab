@@ -17,7 +17,7 @@ def run():
     synthetic = validate(yaml.safe_load((ROOT / 'apps/synthetic.yaml').read_text()))
     resources(synthetic, {'name': 'synthetic', 'namespace': 'cloudlab-app-synthetic',
                          'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
-                         'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': []},
+                         'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [], 'egress': []},
               'https://github.com/example/platform.git', 'a' * 40)
     notes = yaml.safe_load((ROOT / 'apps/notes/values.yaml').read_text())
     for definition in notes.values():

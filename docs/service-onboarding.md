@@ -35,6 +35,28 @@ failure blocks validation without falling back to the checkout. Publishers updat
 only the selected catalog. Initial identity activation still requires an exact
 matching source; existing checkpoints without a path refer only to the default.
 
+Ordinary `charts/service` approvals require `egress`; `[]` renders namespace-wide
+egress isolation with no allow rules. Declare each required destination and port:
+
+```yaml
+egress:
+  - namespace: kube-system
+    podSelector:
+      matchLabels: {k8s-app: kube-dns}
+    ports: [{port: 53, protocol: TCP}, {port: 53, protocol: UDP}]
+```
+
+Use the actual resolver labels; DNS has no implicit allowance. Each peer requires
+both the exact namespace and pod labels. External destinations, broad selectors
+and named ports need a separately supported platform capability. Notes and
+compositions retain their own controls and reject this field. Removing a rule
+withdraws that allowance. Retiring a retained entry clears all allows while keeping
+the deny policy. Keep an egress-capable owner during rollback; whole-entry removal cannot
+withdraw policies automatically while catalog pruning is disabled. Before changing
+the active owner/path, verify dependencies and actual CNI, mesh and dual-stack
+enforcement, including other policies that may add allows. Rendered policies alone
+do not establish isolation.
+
 Shared gateways read `platform/certificates.yaml` from private Git main and
 `identity/argo-values.yaml` at the existing approved identity binding revision.
 Argo origins advance only after that identity revision is approved; changing main

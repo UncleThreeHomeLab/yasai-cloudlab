@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 from playbooks.services.files import gitops, inputs, owner
-from playbooks.services.tests.fixtures import approval, definition, owner_api, owner_files
+from playbooks.services.tests.fixtures import approval, definition, owner_api, owner_files, owner_contract
 
 
 class OwnerSourceTests(unittest.TestCase):
@@ -74,10 +74,11 @@ class OwnerSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'deadline'):
             owner.read_url('https://api.github.com/synthetic', time.monotonic() - 1, 2)
 
-    def test_old_and_future_inputs_use_selected_native_schema_once_per_catalog(self):
-        old, future = owner_files(), owner_files(future=True)
+    def test_legacy_and_current_inputs_use_selected_native_schema_once_per_catalog(self):
+        old, current = owner_contract(current=False), owner_contract(current=True)
         catalog = {'catalog': [{'definition': definition(), 'approval': approval(), 'publication': 'ready'}],
                    'dataApprovals': {}}
+        catalog['catalog'][0]['approval'].pop('egress')
         second = copy.deepcopy(catalog['catalog'][0])
         second['definition']['name'] = second['approval']['name'] = 'second'
         second['approval'].update(namespace='cloudlab-app-second', valuesPath='apps/second.yaml')
@@ -89,7 +90,7 @@ class OwnerSourceTests(unittest.TestCase):
         @contextmanager
         def selected(public):
             acquisitions.append(public['services']['revision'])
-            files = old if public['services']['revision'] == 'a' * 40 else future
+            files = old if public['services']['revision'] == 'a' * 40 else current
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 for name, contents in files.items():

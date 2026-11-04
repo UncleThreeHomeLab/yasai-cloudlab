@@ -10,7 +10,7 @@ def definition():
 def approval():
     return {'name': 'synthetic', 'namespace': 'cloudlab-app-synthetic',
             'repository': 'https://github.com/example/fixture.git', 'revision': 'a' * 40,
-            'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': []}
+            'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [], 'egress': []}
 
 
 def catalog_payload():
@@ -41,18 +41,27 @@ def catalog_application(payload):
     return copy.deepcopy(app)
 
 
-def owner_files(*, future=False):
-    """Native chart versions for offline source-contract transition checks."""
-    import json
+def owner_files():
+    """Actual current native chart for acquisition and integrity checks."""
     root = Path(__file__).resolve().parents[4] / 'platform/delivery/services'
     files = {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob('*') if path.is_file()}
-    if future:
-        schema = json.loads(files['values.schema.json'])
-        approved = schema['properties']['catalog']['items']['properties']['approval']
-        approved['properties']['egress'] = {'type': 'array'}
-        approved['required'].append('egress')
-        files['values.schema.json'] = json.dumps(schema).encode()
     return files
+
+
+def owner_contract(*, current):
+    """Controlled native owner versions independent of the checkout schema."""
+    import json
+    fields = ('name', 'repository', 'revision', 'valuesPath', 'namespace', 'secretReferences', 'configMaps')
+    approved = {'type': 'object', 'additionalProperties': False,
+                'required': list(fields), 'properties': {name: {} for name in fields}}
+    if current:
+        approved['required'].append('egress')
+        approved['properties']['egress'] = {'type': 'array'}
+    schema = {'type': 'object', 'properties': {'catalog': {'type': 'array', 'items': {
+        'type': 'object', 'properties': {'approval': approved}}}}}
+    return {'Chart.yaml': b'apiVersion: v2\nname: controlled-owner\nversion: 0.1.0\n',
+            'values.schema.json': json.dumps(schema).encode(),
+            'templates/owner.yaml': b'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: controlled-owner}\n'}
 
 
 def owner_api(files, revision='a' * 40):
@@ -72,6 +81,7 @@ def owner_api(files, revision='a' * 40):
 
 def composition_approval(graph=False):
     value = approval()
+    value.pop('egress')
     images = {'web': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'a' * 64,
               'worker': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'b' * 64}
     workloads = []
