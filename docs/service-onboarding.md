@@ -707,7 +707,8 @@ explicit service-access choice.
    **User:** review and merge that PR through branch protection.
    The public root owns `cloudlab-services`; `services.revision` pins its catalog
    chart to an exact platform commit. Change that pin through a reviewed platform
-   PR when upgrading the catalog chart. Routine onboarding needs no changes to
+   PR when upgrading the catalog chart. After merge, Argo advances catalog-owned
+   platform sources without a service apply. Routine onboarding needs no changes to
    shared `charts/service/` code or the catalog Application.
 5. **Agent:** use `lab data-credentials` and `lab setup` through Compose only when
    prerequisites need provisioning or convergence. Initial native identity binding
