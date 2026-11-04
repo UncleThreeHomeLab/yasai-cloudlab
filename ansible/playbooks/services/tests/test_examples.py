@@ -1,4 +1,5 @@
 import unittest
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 import base64
 import copy
@@ -36,8 +37,12 @@ class ExampleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             with patch.object(examples.subprocess, 'check_output', return_value='c'*40), \
+                    patch('playbooks.services.files.owner.chart', return_value=nullcontext(examples.ROOT / 'platform/delivery/services')), \
                     patch.object(examples, 'Path', side_effect=lambda value: target if value == '/recovery/services' else Path(value)):
                 examples.bundles(value)
                 for entry in value['catalog']:
                     bundle = json.loads((target / (entry['definition']['name'] + '-bundle.json')).read_text())
                     self.assertEqual(bundle['approval'], entry['approval'])
+                    public = yaml.safe_load((examples.ROOT / 'gitops/roots/public/values.yaml').read_text())
+                    self.assertEqual(bundle['platformRevision'], public['services']['revision'])
+                    self.assertNotEqual(bundle['platformRevision'], 'c' * 40)

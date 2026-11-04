@@ -1,4 +1,5 @@
 import base64
+from contextlib import nullcontext
 import copy
 import json
 from pathlib import Path
@@ -12,13 +13,15 @@ from playbooks.keycloak.files.integrations import argo
 
 
 class ArgoInputTests(unittest.TestCase):
-    def run_inputs(self, recovery=None, security=None, private=False, access="absent"):
+    def run_inputs(self, recovery=None, security=None, private=False, access="absent", catalog_path=None):
         public = {'repository': 'https://github.com/example/platform.git',
                   'services': {'enabled': True, 'revision': 'c' * 40},
                   'access': {'enabled': True, 'configuration': {'enabled': False, 'revision': 'e' * 40}}}
         if private:
             public.update(privateSources={'enabled': True, 'revision': 'd' * 40},
                           admission={'enabled': True}, externalSecrets={'enabled': True, 'reconcile': True})
+        if catalog_path:
+            public['services']['catalogPath'] = catalog_path
         values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
         if recovery is not None: values['KEYCLOAK_ARGO_RECOVERY_REVISION'] = recovery
         contract = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
@@ -36,7 +39,7 @@ class ArgoInputTests(unittest.TestCase):
                 if access == 'absent': return None
                 if access == 'error': raise RuntimeError('Synthetic transport failure')
                 document = {'administrator': 'admin@example.invalid'} if access == 'present' else {'administrator': False}
-            elif '/contents/services/catalog.json?ref=' in path:
+            elif '/contents/' + (catalog_path or 'services/catalog.json') + '?ref=' in path:
                 document = catalog
             elif '/contents/platform/sources.yaml?ref=' in path:
                 document = {'sources': []}
@@ -73,6 +76,7 @@ class ArgoInputTests(unittest.TestCase):
                     patch('playbooks.argocd.files.github_app.verify_installation'), \
                     patch('playbooks.argocd.files.github_setup.GitHub', side_effect=[api, client]), \
                     patch('playbooks.keycloak.files.private_source.inspect', return_value={}), \
+                    patch('playbooks.services.files.owner.chart', return_value=nullcontext(inputs.ROOT / 'platform/delivery/services')), \
                     patch.object(inputs, 'ROOT', root):
                 cloudflare.return_value.request.return_value = {'name': 'example.invalid'}
                 result = inputs.native_argo(values)
@@ -87,6 +91,12 @@ class ArgoInputTests(unittest.TestCase):
         self.assertNotIn('currentSecurityProjection', result)
         self.assertFalse(result['privateActivation']['required'])
         self.assertFalse(any('/contents/platform/sources.yaml' in call.args[1] for call in client.request.call_args_list))
+
+    def test_versioned_yaml_catalog_uses_captured_private_revision(self):
+        result, client = self.run_inputs('b' * 40, catalog_path='services/catalog-v2.yaml')
+        self.assertEqual(result['serviceActivation']['catalogPath'], 'services/catalog-v2.yaml')
+        paths = [call.args[1] for call in client.request.call_args_list if '/contents/services/' in call.args[1]]
+        self.assertEqual(paths, ['repos/example/private/contents/services/catalog-v2.yaml?ref=' + 'b' * 40])
 
     def test_recovery_validates_current_main_before_reading_recorded_revision(self):
         result, client = self.run_inputs('b' * 40)

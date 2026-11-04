@@ -32,6 +32,11 @@ spec:
 {{- end }}
 
 {{- if and .Values.services.enabled (hasKey .Values.identity "argo") }}
+{{- $catalogPath := "services/catalog.json" }}
+{{- if hasKey .Values.services "catalogPath" }}{{ $catalogPath = .Values.services.catalogPath }}{{ end }}
+{{- if or (not (kindIs "string" $catalogPath)) (gt (len $catalogPath) 128) (not (regexMatch "^services/catalog(-[a-z0-9]+(-[a-z0-9]+)*)?[.](json|yaml)$" $catalogPath)) }}
+{{- fail "Service catalog path must be a bounded catalog JSON or YAML file directly under services" }}
+{{- end }}
 {{- if not (regexMatch "^[a-f0-9]{40}$" (.Values.services.revision | default "")) }}
 {{- fail "Service catalog requires its reviewed immutable platform revision" }}
 {{- end }}
@@ -49,7 +54,7 @@ spec:
       targetRevision: {{ .Values.services.revision | quote }}
       path: platform/delivery/services
       helm:
-        valueFiles: ['$values/services/catalog.json', '$values/identity/argo-values.yaml']
+        valueFiles: [{{ printf "$values/%s" $catalogPath | quote }}, '$values/identity/argo-values.yaml']
         valuesObject:
           repository: {{ .Values.repository | quote }}
           revision: {{ .Values.services.revision | quote }}

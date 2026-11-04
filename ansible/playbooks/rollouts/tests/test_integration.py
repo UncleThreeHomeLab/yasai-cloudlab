@@ -67,7 +67,7 @@ class RolloutsTests(TestCase):
         value = definition()
         approval = {'name': 'release-proof', 'namespace': 'cloudlab-app-release-proof',
                     'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
-                    'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': []}
+                    'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [], 'egress': []}
         rendered = resources(value, approval, approval['repository'], 'a' * 40)
         project = next(o for o in rendered if o['kind'] == 'AppProject')
         kinds = {r['kind'] for r in project['spec']['namespaceResourceWhitelist']}
@@ -104,7 +104,7 @@ class RolloutsTests(TestCase):
         value = definition()
         approval = {'name': 'release-proof', 'namespace': 'cloudlab-app-release-proof',
                     'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
-                    'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [],
+                    'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [], 'egress': [],
                     'artifact': {'repository': 'registry.example.invalid/cloudlab-public/release-proof',
                                  'project': 'cloudlab-public', 'releasePath': 'apps/releases/release-proof.json',
                                  'sourceRepository': 'example/producer', 'action': 'Enforce',

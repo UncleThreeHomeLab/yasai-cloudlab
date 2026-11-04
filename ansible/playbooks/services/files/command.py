@@ -43,9 +43,8 @@ def main(arguments=None):
         print(json.dumps(bundles(value),sort_keys=True))
         return
     if args.action == 'catalog-propose':
-        from playbooks.services.files.inputs import validate_catalog
         from playbooks.services.files.source import publish as publish_catalog
-        print(json.dumps(publish_catalog(validate_catalog(value)), sort_keys=True))
+        print(json.dumps(publish_catalog(value), sort_keys=True))
         return
     if args.action.startswith('identity-'):
         from playbooks.keycloak.files.service_client import prepare
@@ -68,7 +67,8 @@ def main(arguments=None):
     if args.action == 'render':
         objects = render(validate(value))
     elif args.action == 'catalog':
-        objects = resources(value['definition'], value['approval'], value['platformRepository'], value['platformRevision'])
+        public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+        objects = resources(value['definition'], value['approval'], value['platformRepository'], value['platformRevision'], public=public)
     else:
         from playbooks.services.files.owners import Owners
         owners = Owners(value)

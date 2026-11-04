@@ -24,6 +24,39 @@ with the existing `administrator` field. Private main cannot advance this value;
 changing the configured administrator requires an explicitly scoped RBAC migration.
 The access chart uses its reviewed public pin independently of public main.
 
+Service catalogs default to private `services/catalog.json`. Administrators may
+select `services/catalog-v2.yaml` through public `services.catalogPath`; supported
+paths are `services/catalog[-lowercase-name].json` or `.yaml`, directly under
+`services/`. Prepare a new catalog without changing the active file, then review
+its path and immutable `services.revision` together in one public change. The
+existing Application switches owner and catalog together and continues tracking private
+main. Preflight validates against that exact public owner's native chart; source
+failure blocks validation without falling back to the checkout. Publishers update
+only the selected catalog. Initial identity activation still requires an exact
+matching source; existing checkpoints without a path refer only to the default.
+
+Ordinary `charts/service` approvals require `egress`; `[]` renders namespace-wide
+egress isolation with no allow rules. Declare each required destination and port:
+
+```yaml
+egress:
+  - namespace: kube-system
+    podSelector:
+      matchLabels: {k8s-app: kube-dns}
+    ports: [{port: 53, protocol: TCP}, {port: 53, protocol: UDP}]
+```
+
+Use the actual resolver labels; DNS has no implicit allowance. Each peer requires
+both the exact namespace and pod labels. External destinations, broad selectors
+and named ports need a separately supported platform capability. Notes and
+compositions retain their own controls and reject this field. Removing a rule
+withdraws that allowance. Retiring a retained entry clears all allows while keeping
+the deny policy. Keep an egress-capable owner during rollback; whole-entry removal cannot
+withdraw policies automatically while catalog pruning is disabled. Before changing
+the active owner/path, verify dependencies and actual CNI, mesh and dual-stack
+enforcement, including other policies that may add allows. Rendered policies alone
+do not establish isolation.
+
 Shared gateways read `platform/certificates.yaml` from private Git main and
 `identity/argo-values.yaml` at the existing approved identity binding revision.
 Argo origins advance only after that identity revision is approved; changing main

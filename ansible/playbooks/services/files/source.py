@@ -1,5 +1,6 @@
 """Read versioned private intent with the existing scoped GitHub App."""
 import json
+import yaml
 
 from playbooks.secrets.files.vault import fields
 from playbooks.argocd.files.github_app import app_token, verify_installation
@@ -10,6 +11,8 @@ WRITER = None
 
 
 def read(values, *, include_revision=False):
+    from playbooks.services.files.owner import configuration
+    selected_path = configuration()['catalogPath']
     credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
     api = GitHub(app_token(credentials))
     path = 'app/installations/' + credentials['INSTALLATION_ID']
@@ -20,22 +23,29 @@ def read(values, *, include_revision=False):
     client = GitHub(token)
     try:
         revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
-        value = client.request('GET', 'repos/' + repo + '/contents/services/catalog.json?ref=' + revision)
-        return (json.loads(decode_contents(value)), revision) if include_revision else json.loads(decode_contents(value))
+        value = client.request('GET', 'repos/' + repo + '/contents/' + selected_path + '?ref=' + revision)
+        catalog = yaml.safe_load(decode_contents(value))
+        return (catalog, revision) if include_revision else catalog
     finally:
         client.request('DELETE', 'installation/token')
 
 
 def publish(value, *, expected=None):
     global WRITER
+    from playbooks.services.files.contract import ROOT
+    from playbooks.services.files.inputs import validate_catalog
+    from playbooks.services.files.owner import configuration
+    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    selected_path = configuration(public)['catalogPath']
+    value = validate_catalog(value, public=public)
     from playbooks.argocd.files.github_setup import inputs
     from playbooks.argocd.files.private_publish import publish as publish_owned
     if WRITER is None: WRITER = inputs()
     values, api = WRITER
     repo = repository(values['PRIVATE_CONFIG_REPOSITORY'])
     base = api.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
-    current = api.request('GET', 'repos/' + repo + '/contents/services/catalog.json?ref=' + base, missing=True)
-    before = json.loads(decode_contents(current)) if current else None
+    current = api.request('GET', 'repos/' + repo + '/contents/' + selected_path + '?ref=' + base, missing=True)
+    before = yaml.safe_load(decode_contents(current)) if current else None
     if expected is not None and before != expected:
         raise RuntimeError('Private catalog advanced; reread its complete input before changing publication intent')
     if before:
@@ -50,7 +60,9 @@ def publish(value, *, expected=None):
             for kind, request in row['definition']['data'].items():
                 if new[name]['definition']['data'].get(kind) != request:
                     raise ValueError('Existing service data requests must be retained')
-    result = publish_owned(api, values, {'services/catalog.json': json.dumps(value, sort_keys=True, indent=2) + '\n'}, scope='services', expected_base=base)
+    content = (yaml.safe_dump(value, sort_keys=False) if selected_path.endswith('.yaml') else
+               json.dumps(value, sort_keys=True, indent=2) + '\n')
+    result = publish_owned(api, values, {selected_path: content}, scope='services', expected_base=base)
     if result['private_source_changed']:
         pull = api.request('GET', 'repos/' + repo + '/pulls/' + str(result['private_pull_request']))
         merged = api.request('PUT', 'repos/' + repo + '/pulls/' + str(pull['number']) + '/merge',

@@ -10,7 +10,7 @@ def definition():
 def approval():
     return {'name': 'synthetic', 'namespace': 'cloudlab-app-synthetic',
             'repository': 'https://github.com/example/fixture.git', 'revision': 'a' * 40,
-            'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': []}
+            'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [], 'egress': []}
 
 
 def catalog_payload():
@@ -29,6 +29,8 @@ def catalog_application(payload):
               'observability': {'enabled': payload['telemetry']},
               'identity': {'enabled': True, 'argo': {'valuesRepository': payload['private_repository'],
                                                    'valuesRevision': payload['private_revision']}}}
+    if 'catalogPath' in payload:
+        values['services']['catalogPath'] = payload['catalogPath']
     result = subprocess.run(['helm', 'template', 'root', str(root / 'gitops/roots/public'), '-n', 'argocd', '-f', '-'],
                             input=json.dumps(values), capture_output=True, text=True, check=True, timeout=60)
     app = next(obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'Application'
@@ -39,8 +41,47 @@ def catalog_application(payload):
     return copy.deepcopy(app)
 
 
+def owner_files():
+    """Actual current native chart for acquisition and integrity checks."""
+    root = Path(__file__).resolve().parents[4] / 'platform/delivery/services'
+    files = {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob('*') if path.is_file()}
+    return files
+
+
+def owner_contract(*, current):
+    """Controlled native owner versions independent of the checkout schema."""
+    import json
+    fields = ('name', 'repository', 'revision', 'valuesPath', 'namespace', 'secretReferences', 'configMaps')
+    approved = {'type': 'object', 'additionalProperties': False,
+                'required': list(fields), 'properties': {name: {} for name in fields}}
+    if current:
+        approved['required'].append('egress')
+        approved['properties']['egress'] = {'type': 'array'}
+    schema = {'type': 'object', 'properties': {'catalog': {'type': 'array', 'items': {
+        'type': 'object', 'properties': {'approval': approved}}}}}
+    return {'Chart.yaml': b'apiVersion: v2\nname: controlled-owner\nversion: 0.1.0\n',
+            'values.schema.json': json.dumps(schema).encode(),
+            'templates/owner.yaml': b'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: controlled-owner}\n'}
+
+
+def owner_api(files, revision='a' * 40):
+    """Exact Git metadata and immutable bytes; no network or credentials."""
+    import copy
+    import hashlib
+    from unittest.mock import Mock
+    from playbooks.services.files.owner import CHART
+    entries = [{'path': CHART + name, 'type': 'blob', 'mode': '100644', 'size': len(raw),
+                'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()}
+               for name, raw in files.items()]
+    documents = {'repos/example/platform/git/commits/' + revision: {'sha': revision, 'tree': {'sha': 'b' * 40}},
+                 'repos/example/platform/git/trees/' + 'b' * 40 + '?recursive=1': {'sha': 'b' * 40, 'tree': entries}}
+    return (Mock(side_effect=lambda path, deadline: copy.deepcopy(documents[path])),
+            Mock(side_effect=lambda source, name, size, deadline: files[name]), documents)
+
+
 def composition_approval(graph=False):
     value = approval()
+    value.pop('egress')
     images = {'web': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'a' * 64,
               'worker': 'registry.example.invalid/cloudlab-public/synthetic@sha256:' + 'b' * 64}
     workloads = []
