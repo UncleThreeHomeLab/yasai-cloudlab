@@ -63,8 +63,10 @@ def native_argo(values):
         public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
         catalog = None
         if public.get('services', {}).get('enabled', False):
-            document = client.request('GET', 'repos/' + repo + '/contents/services/catalog.json?ref=' + revision)
-            catalog = validate_catalog(json.loads(decode_contents(document)))
+            from playbooks.argocd.files.service_activation import catalog_path
+            selected_path = catalog_path(public['services'].get('catalogPath', catalog_path()))
+            document = client.request('GET', 'repos/' + repo + '/contents/' + selected_path + '?ref=' + revision)
+            catalog = validate_catalog(yaml.safe_load(decode_contents(document)), public=public)
         result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
                 'configuration': contract['helm'], 'client': contract['client'],
                 'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),

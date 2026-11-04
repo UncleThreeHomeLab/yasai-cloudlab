@@ -31,6 +31,8 @@ class OwnerInputTests(unittest.TestCase):
         with patch('playbooks.services.files.owners.resources') as resources:
             Owners(bundle)
             resources.assert_called_once()
+            selected = resources.call_args.kwargs['public']['services']['revision']
+            self.assertNotEqual(selected, bundle['platformRevision'])
             for field, wrong in (('platformRepository', 'https://github.com/example/unapproved.git'),
                                  ('origin', 'https://unapproved.example.invalid')):
                 with self.assertRaises(ValueError): Owners(dict(bundle, **{field: wrong}))

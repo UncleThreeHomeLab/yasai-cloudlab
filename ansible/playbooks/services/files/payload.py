@@ -17,10 +17,14 @@ def payload():
     revision = public.get('services', {}).get('revision', '')
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Service catalog requires its declared immutable platform revision')
-    return {'repository': source['repository'], 'revision': revision,
+    result = {'repository': source['repository'], 'revision': revision,
             'private_repository': environment['PRIVATE_CONFIG_REPOSITORY'], 'private_revision': private_revision,
             'telemetry': public['observability']['enabled'],
             'values': value}
+    if 'catalogPath' in public.get('services', {}):
+        from playbooks.argocd.files.service_activation import catalog_path
+        result['catalogPath'] = catalog_path(public['services']['catalogPath'])
+    return result
 
 
 if __name__ == '__main__':
