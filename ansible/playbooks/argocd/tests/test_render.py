@@ -79,6 +79,26 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(denied & {x['kind'] for x in project['namespaceResourceWhitelist']})
         self.assertFalse(any('*' in x for x in project['sourceRepos']))
 
+    def test_private_catalog_requires_boolean_enablement_binding_pin_and_prerequisites(self):
+        values = {'privateSources': {'enabled': True}}
+        self.assertFalse(any(obj['metadata']['name'] == 'cloudlab-private-sources' for obj in self.root_with(values)))
+        for enabled in ('false', 'true', 0, None):
+            with self.subTest(enabled=enabled): self.root_with({'privateSources': {'enabled': enabled}}, success=False)
+        values['identity'] = {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                      'valuesRevision': 'b' * 40}}
+        values['privateSources']['revision'] = 'c' * 40
+        app = next(obj for obj in self.root_with(values) if obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-private-sources')
+        self.assertEqual(app['spec']['sources'][0]['targetRevision'], 'c' * 40)
+        self.assertEqual(app['spec']['sources'][0]['helm']['valueFiles'], ['$values/platform/sources.yaml'])
+        self.assertNotIn('ignoreMissingValueFiles', app['spec']['sources'][0]['helm'])
+        self.assertEqual(app['spec']['syncPolicy']['automated'], {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': True})
+        self.assertIn('PruneLast=true', app['spec']['syncPolicy']['syncOptions'])
+        self.assertNotIn('finalizers', app['metadata'])
+        for field in ('admission', 'externalSecrets'):
+            with self.subTest(field=field): self.root_with(values | {field: {'enabled': False}}, success=False)
+        values['privateSources']['revision'] = 'main'
+        self.root_with(values, success=False)
+
     def test_source_failure_or_application_removal_cannot_prune(self):
         controller = next(x for x in self.data['operator'] if x['kind'] == 'Deployment' and x['metadata']['name'] == 'argocd-applicationset-controller')
         self.assertIn('--policy=create-update', controller['spec']['template']['spec']['containers'][0]['args'])

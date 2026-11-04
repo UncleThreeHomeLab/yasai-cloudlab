@@ -1,0 +1,109 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-private-source-ownership
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+      - apiGroups: [argoproj.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [applications, appprojects]
+      - apiGroups: [external-secrets.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [externalsecrets]
+  variables:
+    - name: selected
+      expression: >-
+        (has(object.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in object.metadata.annotations &&
+          object.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-private-sources:')) ||
+        (oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.annotations) &&
+          'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations &&
+          oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-private-sources:'))
+    - name: tracking
+      expression: >-
+        'cloudlab-private-sources:' + (object.kind == 'Namespace' ? '/Namespace:/' :
+          object.kind == 'ExternalSecret' ? 'external-secrets.io/ExternalSecret:argocd/' :
+          'argoproj.io/' + object.kind + ':argocd/') + object.metadata.name
+  validations:
+    - expression: >-
+        !variables.selected ||
+        (object.metadata.name.startsWith('cloudlab-private-') &&
+          object.metadata.name != 'cloudlab-private-sources' &&
+          object.metadata.name != 'cloudlab-private-sources-source' &&
+          (object.kind == 'Namespace' || (has(object.metadata.namespace) && object.metadata.namespace == 'argocd')) &&
+          has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels &&
+          object.metadata.labels['cloudlab.io/owner'] == 'private-gitops' &&
+          has(object.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in object.metadata.annotations &&
+          object.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking &&
+          (object.kind != 'Application' || !has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) &&
+          (request.operation == 'CREATE' ||
+            (oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.labels) &&
+              'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'private-gitops' &&
+              has(oldObject.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations &&
+              oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking)))
+      message: Private source declarations cannot adopt foreign resources or discard their existing owner and retention boundary.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-private-source-credentials
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [secrets]
+  variables:
+    - name: owners
+      expression: "['private-gitops', 'private-source-platform']"
+    - name: selected
+      expression: >-
+        has(object.metadata.namespace) && object.metadata.namespace == 'argocd' &&
+        object.metadata.name.startsWith('cloudlab-private-') &&
+        ((has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels &&
+            object.metadata.labels['cloudlab.io/owner'] in variables.owners) ||
+          (oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.labels) &&
+            'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] in variables.owners))
+  validations:
+    # ESO Owner otherwise adopts unowned Secrets and ignores an existing owner's UID.
+    - expression: >-
+        !variables.selected ||
+        (has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels &&
+          object.metadata.labels['cloudlab.io/owner'] in variables.owners &&
+          'argocd.argoproj.io/secret-type' in object.metadata.labels &&
+          object.metadata.labels['argocd.argoproj.io/secret-type'] == 'repository' &&
+          has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(n,
+            n.kind == 'ExternalSecret' && n.name == object.metadata.name && has(n.uid) && n.uid != '' &&
+            has(n.controller) && n.controller &&
+            (request.operation == 'CREATE' ||
+              (oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.labels) &&
+                'cloudlab.io/owner' in oldObject.metadata.labels &&
+                oldObject.metadata.labels['cloudlab.io/owner'] == object.metadata.labels['cloudlab.io/owner'] &&
+                has(oldObject.metadata.ownerReferences) && oldObject.metadata.ownerReferences.exists(o,
+                  o.kind == n.kind && o.name == n.name && o.uid == n.uid && has(o.controller) && o.controller)))))
+      message: Private repository credentials require their existing ExternalSecret owner identity; implicit Secret adoption is refused.

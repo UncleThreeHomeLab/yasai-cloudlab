@@ -710,6 +710,8 @@ explicit service-access choice.
    PR when upgrading the catalog chart. After merge, Argo advances catalog-owned
    platform sources without a service apply. Routine onboarding needs no changes to
    shared `charts/service/` code or the catalog Application.
+   Routine application onboarding uses the designated private service catalog;
+   it does not require an optional private GitOps root installer.
 5. **Agent:** use `lab data-credentials` and `lab setup` through Compose only when
    prerequisites need provisioning or convergence. Initial native identity binding
    validates the complete catalog at the same immutable private revision before

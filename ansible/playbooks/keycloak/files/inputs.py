@@ -29,6 +29,8 @@ def native_argo(values):
     from playbooks.keycloak.files.private_source import argo_values
     from playbooks.keycloak.files.private_source import decode_contents
     from playbooks.argocd.files.service_activation import prepare
+    from playbooks.argocd.files.private_activation import prepare as prepare_private
+    from playbooks.argocd.files.private_sources import registry
     from playbooks.services.files.inputs import validate_catalog
     from playbooks.access.files.contract import host_rules
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
@@ -65,6 +67,8 @@ def native_argo(values):
         result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
                 'configuration': contract['helm'], 'client': contract['client'],
                 'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),
+                'privateActivation': prepare_private(public, values['PRIVATE_CONFIG_REPOSITORY'], revision,
+                                                     registry(client, values, public, revision)),
                 'recovery': recovery_revision is not None}
         if recovery_revision:
             result['currentSecurityProjection'] = {'revision': current_revision,

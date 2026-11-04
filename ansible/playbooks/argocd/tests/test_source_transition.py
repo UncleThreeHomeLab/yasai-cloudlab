@@ -95,11 +95,13 @@ class SourceTransitionTests(unittest.TestCase):
                     patch.object(migration, 'pause'), patch.object(migration, 'kube', side_effect=write):
                 with self.assertRaisesRegex(RuntimeError, 'synthetic patch failure'):
                     from service_activation import prepare
+                    from private_activation import prepare as prepare_private
                     evidence = prepare({'repository': repository, 'services': {'enabled': False}},
                                        target['valuesRepository'], target['valuesRevision'])
                     migration.bind_identity({'private_repository': target['valuesRepository'], 'repository': repository,
                                              'branch': 'main', 'revision': 'public',
-                                             'argo': {'serviceActivation': evidence}}, target)
+                                             'argo': {'serviceActivation': evidence, 'privateActivation': prepare_private(
+                                                 {'repository': repository}, target['valuesRepository'], target['valuesRevision'])}}, target)
             self.assertEqual(writes[-1], ('scale', 'statefulset/' + migration.CONTROLLER, '-n', 'argocd', '--replicas=1'))
             patch_body = json.loads(writes[0][-1])
             self.assertEqual(patch_body[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'root'})

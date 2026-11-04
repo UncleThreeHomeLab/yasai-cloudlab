@@ -71,6 +71,68 @@ def resources(entry, store_name):
     return [namespace, project, credential, app]
 
 
+def registry_enabled(public):
+    settings = public.get('privateSources', {})
+    if not isinstance(settings, dict):
+        raise ValueError('Private source settings must be a mapping')
+    enabled = settings.get('enabled', False)
+    if type(enabled) is not bool:
+        raise ValueError('privateSources.enabled must be a YAML boolean')
+    if enabled and (public.get('admission', {}).get('enabled') is not True or
+                    public.get('externalSecrets', {}).get('enabled') is not True or
+                    public.get('externalSecrets', {}).get('reconcile') is not True):
+        raise ValueError('Private source catalog requires admission and External Secrets')
+    return enabled
+
+
+def validate_registry(value):
+    """Validate the complete private input with the same native chart Argo consumes."""
+    import subprocess
+    if (not isinstance(value, dict) or set(value) != {'sources'} or not isinstance(value['sources'], list)
+            or len(value['sources']) > 20 or any(not isinstance(row, dict) or
+                set(row) != {'name', 'repository', 'revision', 'path'} or
+                any(not isinstance(item, str) for item in row.values()) for row in value['sources'])):
+        raise ValueError('Private registry requires its explicit complete sources list')
+    chart = Path(__file__).resolve().parents[4] / 'platform/delivery/private-sources'
+    result = subprocess.run(['helm', 'template', 'private-sources', str(chart), '-n', 'argocd', '-f', '-'],
+                            input=json.dumps(value), capture_output=True, text=True, timeout=60)
+    if result.returncode:
+        raise ValueError('Private registry violates its bounded native chart contract')
+    return value
+
+
+def registry(client, values, public, revision):
+    """Read the required registry at the exact identity revision, never mutable main."""
+    if not registry_enabled(public):
+        return None
+    if json.loads(values.get('PRIVATE_GITOPS_SOURCES') or '[]') != [] or values.get('PRIVATE_GITOPS_REMOVE'):
+        raise ValueError('Populated legacy private source inputs require an explicitly scoped migration')
+    if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
+        raise ValueError('Private registry requires its immutable private source revision')
+    import yaml
+    from playbooks.argocd.files.github_setup import repository
+    from playbooks.keycloak.files.private_source import decode_contents
+    document = client.request('GET', 'repos/' + repository(values['PRIVATE_CONFIG_REPOSITORY']) +
+                              '/contents/platform/sources.yaml?ref=' + revision)
+    if (not isinstance(document, dict) or document.get('type') != 'file' or document.get('encoding') != 'base64'
+            or type(document.get('size')) is not int or not 0 <= document['size'] <= 1048576):
+        raise ValueError('Private registry must be a bounded regular file')
+    return validate_registry(yaml.safe_load(decode_contents(document)))
+
+
+def policy_specs(names):
+    """Capture trusted public definitions; live policy objects are never expectations."""
+    import subprocess
+    import yaml
+    chart = Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies'
+    result = subprocess.run(['helm', 'template', 'cloudlab-workload-policy', str(chart)],
+                            capture_output=True, text=True, timeout=60)
+    if result.returncode:
+        raise ValueError('Private source ownership policy definitions cannot be rendered')
+    return {row['metadata']['name']: row['spec'] for row in yaml.safe_load_all(result.stdout)
+            if row and row['kind'] == 'ValidatingPolicy' and row['metadata']['name'] in names}
+
+
 if __name__ == '__main__':
     try:
         import os

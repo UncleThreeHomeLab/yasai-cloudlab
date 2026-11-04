@@ -12,9 +12,12 @@ from playbooks.keycloak.files.integrations import argo
 
 
 class ArgoInputTests(unittest.TestCase):
-    def run_inputs(self, recovery=None, security=None):
+    def run_inputs(self, recovery=None, security=None, private=False):
         public = {'repository': 'https://github.com/example/platform.git',
                   'services': {'enabled': True, 'revision': 'c' * 40}}
+        if private:
+            public.update(privateSources={'enabled': True, 'revision': 'd' * 40},
+                          admission={'enabled': True}, externalSecrets={'enabled': True, 'reconcile': True})
         values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
         if recovery is not None: values['KEYCLOAK_ARGO_RECOVERY_REVISION'] = recovery
         contract = argo('https://login.example.invalid/realms/platform', 'https://console.example.invalid',
@@ -28,6 +31,8 @@ class ArgoInputTests(unittest.TestCase):
                 return {'object': {'sha': 'a' * 40}}
             if '/contents/services/catalog.json?ref=' in path:
                 document = catalog
+            elif '/contents/platform/sources.yaml?ref=' in path:
+                document = {'sources': []}
             elif '/contents/identity/argo-values.yaml?ref=' in path:
                 document = contract['helm']
             elif '/contents/identity/configmap.yaml?ref=' in path:
@@ -73,6 +78,8 @@ class ArgoInputTests(unittest.TestCase):
         self.assertTrue(any('/contents/services/catalog.json?ref=' + 'a' * 40 in call.args[1]
                             for call in client.request.call_args_list))
         self.assertNotIn('currentSecurityProjection', result)
+        self.assertFalse(result['privateActivation']['required'])
+        self.assertFalse(any('/contents/platform/sources.yaml' in call.args[1] for call in client.request.call_args_list))
 
     def test_recovery_validates_current_main_before_reading_recorded_revision(self):
         result, client = self.run_inputs('b' * 40)
@@ -98,3 +105,14 @@ class ArgoInputTests(unittest.TestCase):
             with self.subTest(revision=revision), patch('playbooks.secrets.files.vault.fields') as read:
                 with self.assertRaises(ValueError): inputs.native_argo({'KEYCLOAK_ARGO_RECOVERY_REVISION': revision})
                 read.assert_not_called()
+
+    def test_private_registry_uses_same_immutable_revision_in_normal_and_recovery_inputs(self):
+        for recovery in (None, 'b' * 40):
+            with self.subTest(recovery=recovery):
+                result, client = self.run_inputs(recovery, private=True)
+                revision = recovery or 'a' * 40
+                self.assertEqual(result['privateActivation']['private_revision'], revision)
+                self.assertEqual(result['privateActivation']['registry'], {'sources': []})
+                paths = [call.args[1] for call in client.request.call_args_list]
+                self.assertEqual([path for path in paths if '/contents/platform/sources.yaml' in path],
+                                 ['repos/example/private/contents/platform/sources.yaml?ref=' + revision])

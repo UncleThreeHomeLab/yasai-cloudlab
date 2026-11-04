@@ -28,6 +28,8 @@ identity:
 services:
   enabled: true
   revision: 1d46b7c645c1fe8048d1710b3070ba1fdf2b59c2
+privateSources:
+  enabled: false
 observability:
   enabled: true
 harbor:

@@ -2,6 +2,25 @@
 import copy
 
 from service_activation import prepare
+from private_activation import prepare as prepare_private
+
+
+def private_policies(evidence):
+    return {('validatingpolicy.policies.kyverno.io', name): {
+        'metadata': {'uid': name + '-uid', 'generation': 2, 'annotations': {
+            'argocd.argoproj.io/tracking-id': 'cloudlab-workload-policy:policies.kyverno.io/ValidatingPolicy:/' + name}},
+        'spec': copy.deepcopy(spec), 'status': {'conditionStatus': {'ready': True, 'conditions': [
+            {'type': 'WebhookConfigured', 'status': 'True'}, {'type': 'RBACPermissionsGranted', 'status': 'True'}]}}}
+        for name, spec in evidence['policies'].items()}
+
+
+def private_probe(evidence, document):
+    rejected = (document['metadata']['labels']['cloudlab.io/owner'] == 'foreign' or
+                (document['kind'] == 'Secret' and 'ownerReferences' not in document['metadata']))
+    if not rejected: return 0, ''
+    name = 'cloudlab-private-source-credentials' if document['kind'] == 'Secret' else 'cloudlab-private-source-ownership'
+    message = evidence['policies'][name]['validations'][0]['message']
+    return 1, 'admission webhook denied the request: ' + name + ': ' + message
 
 
 def binding_fixture(required=True):
@@ -25,11 +44,12 @@ def binding_fixture(required=True):
                 'namespaceResourceWhitelist': [{'group': 'argoproj.io', 'kind': kind}
                                                for kind in ('Application', 'AppProject')]}}}
     payload = {'repository': repository, 'branch': 'main', 'revision': 'a' * 40,
-               'private_repository': target['valuesRepository'], 'argo': {'serviceActivation': evidence}}
+               'private_repository': target['valuesRepository'], 'argo': {'serviceActivation': evidence,
+                   'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'])}}
     original = copy.deepcopy(objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'])
     patched = copy.deepcopy(original)
     patched['helm']['valuesObject']['identity'] = {'enabled': True, 'argo': target}
     checkpoint = {'phase': 'source-updated', 'target': target, 'root_uid': 'root', 'controller_uid': 'controller',
                   'project_uid': 'project', 'originalSource': original, 'patchedSource': patched,
-                  'serviceActivation': evidence}
+                  'serviceActivation': evidence, 'privateActivation': payload['argo']['privateActivation']}
     return objects, payload, target, checkpoint

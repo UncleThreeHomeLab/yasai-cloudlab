@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import bootstrap
 import source_transition as migration
-from fixtures import binding_fixture
+from fixtures import binding_fixture, private_policies, private_probe
 
 
 class ServiceBindingTests(unittest.TestCase):
@@ -16,6 +16,7 @@ class ServiceBindingTests(unittest.TestCase):
         self.calls = []
         self.patch_failure = None
         self.fail_guard_after_patch = False
+        self.fail_private_after_patch = False
         self.payload['argo']['serviceActivation']['catalog']['catalog'] = [
             {'definition': {}, 'publication': 'ready',
              'approval': {'name': 'synthetic', 'namespace': 'cloudlab-app-synthetic'}}]
@@ -45,6 +46,8 @@ class ServiceBindingTests(unittest.TestCase):
             if args[1] == 'application.argoproj.io':
                 if self.fail_guard_after_patch:
                     self.objects['namespace', 'cloudlab-app-synthetic'] = {'metadata': {'uid': 'foreign'}}
+                if self.fail_private_after_patch:
+                    self.objects['namespace', 'cloudlab-private-synthetic'] = {'metadata': {'uid': 'foreign'}}
                 if self.patch_failure == 'after': raise RuntimeError('synthetic patch failure')
         return ''
 
@@ -57,6 +60,8 @@ class ServiceBindingTests(unittest.TestCase):
             stack.enter_context(patch.object(module, 'kube', side_effect=self.write))
         stack.enter_context(patch.object(migration, 'pause', side_effect=self.pause))
         stack.enter_context(patch.object(migration, 'wait_application'))
+        stack.enter_context(patch.object(migration, 'private_server_probe', side_effect=lambda document:
+            private_probe(self.payload['argo']['privateActivation'], document)))
         return stack
 
     def test_guard_precedes_root_patch_and_acceptance_drops_temporary_evidence(self):
@@ -108,6 +113,7 @@ class ServiceBindingTests(unittest.TestCase):
     def pending(self, base, *, legacy=False):
         state = copy.deepcopy(self.checkpoint)
         state['serviceActivation'] = copy.deepcopy(self.payload['argo']['serviceActivation'])
+        state['privateActivation'] = copy.deepcopy(self.payload['argo']['privateActivation'])
         self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['patchedSource'])
         self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
         if legacy:
@@ -182,3 +188,62 @@ class ServiceBindingTests(unittest.TestCase):
                     else:
                         with self.assertRaises(RuntimeError): migration.pending_identity_target(self.target)
                 self.assertEqual(self.calls, [])
+
+    def enable_private(self):
+        from private_activation import prepare
+        public = {'repository': self.payload['repository'], 'privateSources': {'enabled': True, 'revision': 'c' * 40},
+                  'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        self.payload['argo']['privateActivation'] = prepare(public, self.target['valuesRepository'], self.target['valuesRevision'],
+            {'sources': [{'name': 'synthetic', 'repository': self.target['valuesRepository'], 'revision': 'main', 'path': 'gitops'}]})
+        self.objects.update(private_policies(self.payload['argo']['privateActivation']))
+
+    def test_private_collision_after_committed_patch_keeps_controller_paused(self):
+        self.enable_private()
+        self.patch_failure = 'after'
+        self.fail_private_after_patch = True
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            with self.contexts(base), self.assertRaisesRegex(RuntimeError, 'another owner'):
+                migration.bind_identity(self.payload, self.target)
+            self.assertFalse(any(call[0] == 'scale' for call in self.calls))
+
+    def test_legacy_missing_private_evidence_requires_exact_target_hydration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            state = self.pending(base)
+            state.pop('privateActivation')
+            path = base / 'identity-values-binding.json'
+            path.write_text(json.dumps(state))
+            with self.contexts(base):
+                with self.assertRaisesRegex(RuntimeError, 'private activation inputs'): bootstrap.resume_identity_binding()
+                self.assertFalse(any(call[0] == 'scale' for call in self.calls))
+                migration.hydrate_binding(path, state, self.payload, self.target)
+                self.assertIn('privateActivation', json.loads(path.read_text()))
+                self.assertTrue(bootstrap.resume_identity_binding())
+
+    def test_explicit_retry_refreshes_only_trusted_policy_specs(self):
+        self.enable_private()
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            state = self.pending(base)
+            state['privateActivation']['identities'] = {'secret': 'retained-secret'}
+            state['privateActivation']['policyIdentities'] = {'cloudlab-private-source-ownership': 'retained-policy'}
+            state['privateActivation']['existing'] = {'uid': 'retained-catalog', 'sources': ['recorded-sources']}
+            state['serviceActivation']['existing'] = {'uid': 'retained-service-catalog', 'sources': [], 'adoption': True}
+            before = copy.deepcopy(state)
+            proposed = copy.deepcopy(self.payload)
+            proposed['argo']['privateActivation']['policies']['cloudlab-private-source-ownership']['validations'][0]['message'] += ' Updated.'
+            path = base / 'identity-values-binding.json'
+            with self.contexts(base):
+                migration.hydrate_binding(path, state, proposed, self.target)
+                after = json.loads(path.read_text())
+                expected = copy.deepcopy(before)
+                expected['privateActivation']['policies'] = proposed['argo']['privateActivation']['policies']
+                self.assertEqual(after, expected)
+                for change in ('registry', 'revision'):
+                    invalid = copy.deepcopy(proposed)
+                    if change == 'registry': invalid['argo']['privateActivation']['registry'] = {'sources': []}
+                    else: invalid['argo']['privateActivation']['revision'] = 'd' * 40
+                    with self.subTest(change=change), self.assertRaisesRegex(RuntimeError, 'recorded registry or sources'):
+                        migration.hydrate_binding(path, state, invalid, self.target)

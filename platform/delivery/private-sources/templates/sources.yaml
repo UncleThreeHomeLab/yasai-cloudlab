@@ -1,0 +1,90 @@
+{{- $names := list }}
+{{- range .Values.sources }}
+{{- if or (has .name $names) (has ".." (splitList "/" .path)) }}
+{{- fail "Private source names must be unique and paths must remain inside the repository" }}
+{{- end }}
+{{- $names = append $names .name }}
+{{- end }}
+{{- range .Values.sources }}
+{{- $name := printf "cloudlab-private-%s" .name }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    cloudlab.io/owner: private-gitops
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+  annotations:
+    argocd.argoproj.io/sync-wave: '-3'
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  labels: {cloudlab.io/owner: private-gitops}
+  annotations: {argocd.argoproj.io/sync-wave: '-2'}
+spec:
+  sourceRepos: [{{ .repository | quote }}]
+  destinations: [{server: 'https://kubernetes.default.svc', namespace: {{ $name }}}]
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    {{- range $kind := list "ConfigMap" "Service" "ServiceAccount" "PersistentVolumeClaim" }}
+    - {group: '', kind: {{ $kind }}}
+    {{- end }}
+    {{- range $kind := list "Deployment" "StatefulSet" }}
+    - {group: apps, kind: {{ $kind }}}
+    {{- end }}
+    {{- range $kind := list "Job" "CronJob" }}
+    - {group: batch, kind: {{ $kind }}}
+    {{- end }}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: policy, kind: PodDisruptionBudget}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  labels: {cloudlab.io/owner: private-gitops}
+  annotations: {argocd.argoproj.io/sync-wave: '-1'}
+spec:
+  refreshInterval: 24h
+  secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
+  target:
+    name: {{ $name }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        labels: {argocd.argoproj.io/secret-type: repository, cloudlab.io/owner: private-gitops}
+      data:
+        type: git
+        url: {{ .repository | quote }}
+        project: {{ $name }}
+        githubAppID: '{{ "{{ .APP_ID }}" }}'
+        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppPrivateKey: |-
+{{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
+  dataFrom: [{extract: {key: github-argocd}}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  labels: {cloudlab.io/owner: private-gitops}
+spec:
+  project: {{ $name }}
+  source: {repoURL: {{ .repository | quote }}, targetRevision: {{ .revision | quote }}, path: {{ .path | quote }}}
+  destination: {server: 'https://kubernetes.default.svc', namespace: {{ $name }}}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+{{- end }}
