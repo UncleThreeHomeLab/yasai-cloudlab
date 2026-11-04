@@ -109,7 +109,9 @@ Keep the complete administrator catalog in `services/catalog.json` in the design
 private configuration repository. Each entry contains `definition`, `approval` and
 `publication` (`ready`, `published` or `retired`). `dataApprovals` binds each request
 to its service, name and scoped 1Password item; database bindings also name the
-migration item. Required database fields are `username`, `password`, `database`;
+migration item. Optional `applicationRole` and `migrationRole` must appear together,
+use distinct non-reserved SQL identifiers, and match the corresponding vault
+usernames. Required database fields are `username`, `password`, `database`;
 bucket fields are `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `ENDPOINT`, `REGION`.
 Privileged data credentials and migration credentials never reach application pods.
 

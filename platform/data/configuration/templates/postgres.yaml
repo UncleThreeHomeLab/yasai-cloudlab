@@ -1,4 +1,6 @@
-{{- if or (eq .Values.applicationRole .Values.migrationRole) (eq .Values.applicationRole .Values.backupRole) (eq .Values.migrationRole .Values.backupRole) }}
+{{- include "cloudlab.data.normalize" . -}}
+{{- $settings := .dataSettings -}}
+{{- if or (eq $settings.applicationRole $settings.migrationRole) (eq $settings.applicationRole $settings.backupRole) (eq $settings.migrationRole $settings.backupRole) }}
 {{- fail "Application, migration and backup roles must differ" }}
 {{- end }}
 apiVersion: postgresql.cnpg.io/v1
@@ -7,12 +9,12 @@ metadata:
   name: cloudlab-postgres
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
-    cnpg.io/hibernation: {{ ternary "on" "off" .Values.hibernated | quote }}
+    cnpg.io/hibernation: {{ ternary "on" "off" $settings.hibernated | quote }}
   labels:
     cloudlab.io/backup-path: coordinated-longhorn
 spec:
   instances: 1
-  imageName: {{ .Values.postgresImage | quote }}
+  imageName: {{ $settings.postgresImage | quote }}
   enableSuperuserAccess: false
   storage: {size: 16Gi, storageClass: cloudlab-data}
   resources:
@@ -20,24 +22,24 @@ spec:
     limits: {cpu: '2', memory: 4Gi}
   bootstrap:
     initdb:
-      database: {{ .Values.database | quote }}
-      owner: {{ .Values.migrationRole | quote }}
+      database: {{ $settings.database | quote }}
+      owner: {{ $settings.migrationRole | quote }}
       secret: {name: notes-migration}
       dataChecksums: true
       postInitSQL:
         - REVOKE CONNECT ON DATABASE postgres FROM PUBLIC
         - REVOKE CONNECT ON DATABASE template1 FROM PUBLIC
       postInitApplicationSQL:
-        - {{ printf "REVOKE ALL ON DATABASE %s FROM PUBLIC" .Values.database | quote }}
+        - {{ printf "REVOKE ALL ON DATABASE %s FROM PUBLIC" $settings.database | quote }}
         - REVOKE CREATE ON SCHEMA public FROM PUBLIC
   managed:
     roles:
-      {{- range .Values.serviceRequests }}
+      {{- range $settings.serviceRequests }}
       {{- if .database }}
       {{- range $role := list (dict "name" .database.applicationRole "secret" (printf "%s-application" .service)) (dict "name" .database.migrationRole "secret" (printf "%s-migration" .service)) }}
       - name: {{ $role.name | quote }}
         ensure: present
-        login: {{ not $.Values.maintenance }}
+        login: {{ not $settings.maintenance }}
         superuser: false
         createdb: false
         createrole: false
@@ -50,10 +52,10 @@ spec:
       {{- end }}
       {{- end }}
       {{- end }}
-      {{- range $role := list (dict "name" .Values.applicationRole "secret" "notes-application") (dict "name" .Values.migrationRole "secret" "notes-migration") (dict "name" .Values.backupRole "secret" "database-backup") }}
+      {{- range $role := list (dict "name" $settings.applicationRole "secret" "notes-application") (dict "name" $settings.migrationRole "secret" "notes-migration") (dict "name" $settings.backupRole "secret" "database-backup") }}
       - name: {{ $role.name | quote }}
         ensure: present
-        login: {{ if and $.Values.maintenance (ne $role.secret "database-backup") }}false{{ else }}true{{ end }}
+        login: {{ if and $settings.maintenance (ne $role.secret "database-backup") }}false{{ else }}true{{ end }}
         superuser: false
         createdb: false
         createrole: false
@@ -64,10 +66,10 @@ spec:
         inRoles: []
         passwordSecret: {name: {{ $role.secret }}}
       {{- end }}
-      {{- if .Values.identity.enabled }}
-      - name: {{ .Values.identity.role | quote }}
+      {{- if $settings.identity.enabled }}
+      - name: {{ $settings.identity.role | quote }}
         ensure: present
-        login: {{ not .Values.maintenance }}
+        login: {{ not $settings.maintenance }}
         superuser: false
         createdb: false
         createrole: false
@@ -86,7 +88,7 @@ spec:
       shared_buffers: 256MB
     pg_hba:
       - hostnossl all all all reject
-      {{- range .Values.serviceRequests }}
+      {{- range $settings.serviceRequests }}
       {{- if .database }}
       {{- $database := .database.name }}
       {{- range $role := list .database.applicationRole .database.migrationRole }}
@@ -94,11 +96,11 @@ spec:
       {{- end }}
       {{- end }}
       {{- end }}
-      {{- range $name := list .Values.applicationRole .Values.migrationRole .Values.backupRole }}
-      - {{ printf "hostssl %s %s all scram-sha-256" $.Values.database $name | quote }}
+      {{- range $name := list $settings.applicationRole $settings.migrationRole $settings.backupRole }}
+      - {{ printf "hostssl %s %s all scram-sha-256" $settings.database $name | quote }}
       {{- end }}
-      {{- if .Values.identity.enabled }}
-      - {{ printf "hostssl %s %s all scram-sha-256" .Values.identity.database .Values.identity.role | quote }}
+      {{- if $settings.identity.enabled }}
+      - {{ printf "hostssl %s %s all scram-sha-256" $settings.identity.database $settings.identity.role | quote }}
       {{- end }}
       - host all all all reject
 ---
@@ -121,13 +123,13 @@ spec:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: cloudlab-data-proof}
         - podSelector: {}
-        {{- if .Values.identity.enabled }}
+        {{- if $settings.identity.enabled }}
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: cloudlab-identity}
         {{- end }}
       ports: [{protocol: TCP, port: 5432}]
-    {{- $consumers := .Values.serviceConsumers | default list }}
-    {{- range .Values.serviceRequests }}
+    {{- $consumers := $settings.serviceConsumers | default list }}
+    {{- range $settings.serviceRequests }}
     {{- if .database }}{{ $consumers = append $consumers .namespace }}{{- end }}
     {{- end }}
     {{- range $consumers | uniq }}

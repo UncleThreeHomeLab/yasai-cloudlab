@@ -1,0 +1,11 @@
+{{- include "cloudlab.data.normalize" . -}}
+{{- if .Values.sharedInputs }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-data-settings
+  namespace: cloudlab-data
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+data:
+  settings: {{ omit .dataSettings "sharedInputs" "zone" "production" "catalog" "dataApprovals" | toJson | quote }}
+{{- end }}
