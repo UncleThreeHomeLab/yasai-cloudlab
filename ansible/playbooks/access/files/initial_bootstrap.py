@@ -5,10 +5,14 @@ import json
 import os
 from pathlib import Path
 import sys
+import stat
 
 # Public Kubernetes I/O interface, installed by the prerequisite mesh module.
-sys.path.insert(0, '/var/lib/cloudlab/mesh')
-from kube import application_ready, condition, contains, get, kube, wait
+try:
+    from playbooks.istio.files.kube import application_ready, condition, contains, get, kube, wait
+except ModuleNotFoundError:
+    sys.path.append('/var/lib/cloudlab/mesh')
+    from kube import application_ready, condition, contains, get, kube, wait
 
 BASE = Path('/var/lib/cloudlab/connectivity')
 OWNER = 'cloudlab-access-bootstrap'
@@ -43,8 +47,25 @@ def record(state):
 
 def run(payload):
     os.umask(0o077)
+    directory = BASE.lstat()
+    if (BASE.resolve() != BASE.absolute() or not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != 0 or directory.st_mode & 0o022):
+        raise RuntimeError('Initial access state directory ownership is unsafe')
+    path = BASE / 'ownership.json'
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600:
+            raise RuntimeError('Initial access receipt ownership is unsafe')
     with (BASE / 'ownership.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        path = BASE / 'ownership.json'
+        if path.exists() and json.loads(path.read_text()).get('phase') == 'configured':
+            try:
+                from .native import observe
+            except ImportError:
+                from native import observe
+            observe(payload)
+            return {'changed': False, 'phase': 'configured', 'acceptance_passed': False}
         wait(lambda: application_ready('cloudlab-tailscale-operator', payload['revision']), 'operator GitOps convergence')
         for name in ('proxyclasses', 'proxygroups'):
             wait(lambda: condition(get('customresourcedefinition', name + '.tailscale.com'), 'Established'), 'operator CRDs')
@@ -60,6 +81,8 @@ def run(payload):
             record(state)
         else:
             state = json.loads(path.read_text())
+        if state.get('phase') != 'preparing':
+            raise RuntimeError('Unknown initial access ownership phase')
         if state['administrator'] != binding:
             raise RuntimeError('Administrator changed; explicit RBAC migration required')
         if state.get('application_uid') and not before:

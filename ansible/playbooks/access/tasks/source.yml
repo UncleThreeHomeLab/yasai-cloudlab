@@ -1,0 +1,20 @@
+---
+- name: Inspect the accepted private binding without creating an initial dependency
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, get, application.argoproj.io, cloudlab-public-root, -n, argocd, -o, json]
+  register: access_root_source
+  changed_when: false
+  no_log: true
+- name: Read access values only at the approved private binding
+  ansible.builtin.command:
+    argv: [python, /workspace/ansible/playbooks/access/files/inputs.py]
+    stdin: '{{ {"root": access_root_source.stdout | from_json, "public": access_public_payload} | to_json }}'
+  delegate_to: localhost
+  become: false
+  register: access_native_payload
+  changed_when: false
+  no_log: true
+- name: Keep access observation inputs transient
+  ansible.builtin.set_fact:
+    access_runtime_payload: '{{ access_public_payload | combine(access_native_payload.stdout | from_json) }}'
+  no_log: true

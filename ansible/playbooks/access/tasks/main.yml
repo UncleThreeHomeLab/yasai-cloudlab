@@ -13,12 +13,21 @@
     state: directory
     mode: '0700'
 
-- name: Install the bounded access Application owner
+- name: Install the bounded initial seed and read-only access observer
   ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/access/files/configuration.py'
-    dest: /var/lib/cloudlab/connectivity/configuration.py
+    src: '/workspace/ansible/playbooks/access/files/{{ item }}'
+    dest: '/var/lib/cloudlab/connectivity/{{ item }}'
     mode: '0600'
-
+  loop: [initial_bootstrap.py, native.py]
+- name: Install the shared administrator guard from its owner
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/argocd/files/access_activation.py
+    dest: /var/lib/cloudlab/connectivity/access_activation.py
+    mode: '0600'
+- name: Prepare authenticated native access observation inputs
+  ansible.builtin.import_tasks: source.yml
+  vars:
+    access_public_payload: '{{ gitops_payload.stdout | from_json }}'
 
 - name: Require native controller readiness
   ansible.builtin.command:
@@ -30,10 +39,9 @@
 
 - name: Reconcile access after operator and credential readiness
   ansible.builtin.command:
-    argv: [python3, /var/lib/cloudlab/connectivity/configuration.py]
+    argv: [python3, /var/lib/cloudlab/connectivity/initial_bootstrap.py]
     stdin: >-
-      {{ (gitops_payload.stdout | from_json)
-         | combine({'administrator': lookup('ansible.builtin.env', 'TAILSCALE_ADMIN_LOGIN')}) | to_json }}
+      {{ access_runtime_payload | combine({'administrator': lookup('ansible.builtin.env', 'TAILSCALE_ADMIN_LOGIN')}) | to_json }}
   register: access_configured
   changed_when: access_configured.rc == 0 and (access_configured.stdout | from_json).changed
   failed_when: false
