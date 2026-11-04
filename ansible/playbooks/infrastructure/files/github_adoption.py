@@ -119,7 +119,13 @@ def capture(api, targets):
 def observe(desired, expected, token):
     targets = [(key, desired['owner'] + '/' + value['name'], value['visibility'])
                for key, value in desired['repositories'].items()]
-    _, imports = declarations(capture(GitHub(token), targets))
+    snapshot = capture(GitHub(token), targets)
+    for key, value in snapshot.items():
+        owned = {expected['github_repository_ruleset.ruleset[' + json.dumps(rule_key) + ']']['id']
+                 for rule_key, rule in desired['rulesets'].items() if rule['repository'] == key}
+        # Other native roots own independent rulesets; observe only accepted identities.
+        value['rulesets'] = [rule for rule in value['rulesets'] if str(rule['id']) in owned]
+    _, imports = declarations(snapshot)
     if inventory(imports) != expected:
         raise ValueError('Current repository scope or identities differ from private inventory; review maintenance')
 
