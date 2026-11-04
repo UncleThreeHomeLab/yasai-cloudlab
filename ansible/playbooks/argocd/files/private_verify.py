@@ -83,6 +83,32 @@ def configuration_healthy(name, repository, revision):
     return application_healthy(compared)
 
 
+def controller_items(items):
+    """Exclude scheduled Jobs and only Pods proven to belong to a listed Job."""
+    jobs = set()
+    for obj in items:
+        if obj.get('kind') == 'Job' and obj.get('apiVersion') == 'batch/v1':
+            metadata = obj.get('metadata', {})
+            identity = tuple(metadata.get(key) for key in ('namespace', 'name', 'uid'))
+            if all(isinstance(value, str) and value for value in identity):
+                jobs.add(identity)
+    result = []
+    for obj in items:
+        if obj.get('kind') == 'Job':
+            continue
+        metadata = obj.get('metadata', {})
+        owners = metadata.get('ownerReferences') or []
+        if obj.get('kind') == 'Pod' and isinstance(owners, list) and any(
+                isinstance(owner, dict) and owner.get('apiVersion') == 'batch/v1'
+                and owner.get('kind') == 'Job' and owner.get('controller') is True
+                and all(isinstance(value, str) and value for value in
+                        (metadata.get('namespace'), owner.get('name'), owner.get('uid')))
+                and (metadata['namespace'], owner['name'], owner['uid']) in jobs for owner in owners):
+            continue
+        result.append(obj)
+    return result
+
+
 def run(payload):
     repository = payload.get('configuration_repository')
     if not repository:
@@ -136,8 +162,8 @@ def run(payload):
         wait(lambda: child_healthy(entry), 'convergence')
         credential_owner(get('application.argoproj.io', name), entry['repository'], secrets, externals)
     def controllers():
-        argo = json.loads(kube('get', 'deployments,daemonsets,statefulsets,pods', '-n', 'argocd', '-o', 'json'))
-        return foundation_sample(), fingerprint(argo['items'])
+        argo = json.loads(kube('get', 'deployments,daemonsets,statefulsets,jobs,pods', '-n', 'argocd', '-o', 'json'))
+        return foundation_sample(), fingerprint(controller_items(argo['items']))
     baseline = controllers()
     started = time.monotonic()
     while time.monotonic() - started < 60:
