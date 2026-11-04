@@ -17,7 +17,7 @@
     src: '/workspace/ansible/playbooks/certificates/files/{{ item }}'
     dest: '/var/lib/cloudlab/certificates/{{ item }}'
     mode: '0600'
-  loop: [configuration.py, inputs.py, kube.py, verify.py]
+  loop: [initial_bootstrap.py, native.py, inputs.py, kube.py, verify.py]
 
 - name: Install the pinned certificate renewal tool
   ansible.builtin.get_url:
@@ -42,10 +42,15 @@
   changed_when: false
   no_log: true
 
-- name: Configure staging before production through the private runtime Application
+- name: Resolve certificate ownership inputs after independent bootstrap
+  ansible.builtin.import_tasks: source.yml
+  vars:
+    certificates_public_payload: '{{ gitops_payload.stdout | from_json }}'
+
+- name: Seed initial TLS or observe accepted Git ownership without replaying configuration
   ansible.builtin.command:
-    argv: [python3, /var/lib/cloudlab/certificates/configuration.py]
-    stdin: '{{ gitops_payload.stdout }}'
+    argv: [python3, /var/lib/cloudlab/certificates/initial_bootstrap.py]
+    stdin: '{{ certificates_runtime_payload | to_json }}'
   register: certificates_configured
   changed_when: certificates_configured.rc == 0 and (certificates_configured.stdout | from_json).changed
   failed_when: false

@@ -1,0 +1,94 @@
+---
+- name: Attest accepted native certificate ownership before retiring the old writer
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Refresh authenticated native certificate observation inputs
+      ansible.builtin.import_tasks: tasks/source.yml
+      vars:
+        certificates_public_payload: '{{ gitops_payload.stdout | from_json }}'
+    - name: Verify the handoff without replaying certificate configuration
+      ansible.builtin.command:
+        argv: [python3, /var/lib/cloudlab/certificates/native.py]
+        stdin: '{{ certificates_native_payload.stdout }}'
+      register: certificates_native_handoff
+      changed_when: false
+      no_log: true
+      when: (certificates_native_payload.stdout | from_json).native is not none
+    - name: Keep the native handoff result for scoped runtime retirement
+      ansible.builtin.set_fact:
+        certificates_native_handoff_verified: '{{ certificates_native_handoff.rc | default(1) == 0 }}'
+        certificates_runtime_retirement_deferred: '{{ (certificates_native_payload.stdout | from_json).native is none }}'
+
+- name: Remove only obsolete certificate writer files on all managed nodes
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    certificate_runtime_directories: [/var/lib/cloudlab/certificates, /opt/cloudlab/playbooks/certificates/files]
+    certificate_retired_writer_sha256: a1c8072fea9cb092020e008ecf2760c1797fc2f427ff2e9998932ed9f36258be
+  tasks:
+    - name: Inspect exact runtime ancestors and cache directories without redirects
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+      loop: >-
+        {{ ['/var', '/var/lib', '/var/lib/cloudlab', '/opt', '/opt/cloudlab',
+             '/opt/cloudlab/playbooks', '/opt/cloudlab/playbooks/certificates']
+           + certificate_runtime_directories
+           + (certificate_runtime_directories | map('regex_replace', '$', '/__pycache__') | list) }}
+      register: certificate_runtime_ancestors
+    - name: Reject redirected or foreign runtime directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+        quiet: true
+      loop: '{{ certificate_runtime_ancestors.results }}'
+      when: item.stat.exists
+    - name: Find only the obsolete module cache under its exact owners
+      ansible.builtin.find:
+        paths: '{{ certificate_runtime_directories | map("regex_replace", "$", "/__pycache__") | list }}'
+        patterns: [configuration.cpython-*.pyc]
+        recurse: false
+        file_type: file
+      register: certificate_obsolete_caches
+    - name: Inspect exact obsolete writer files
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+        checksum_algorithm: sha256
+      loop: >-
+        {{ (certificate_runtime_directories | map('regex_replace', '$', '/configuration.py') | list)
+           + (certificate_obsolete_caches.files | map(attribute='path') | list) }}
+      register: certificate_obsolete_files
+    - name: Require native handoff before removing any existing writer or cache
+      ansible.builtin.assert:
+        that:
+          - hostvars[groups['k3s_servers'][0]].certificates_native_handoff_verified | default(false) | bool
+          - item.stat.isreg | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.uid == 0
+          - not item.item.endswith('/configuration.py') or item.stat.checksum == certificate_retired_writer_sha256
+        fail_msg: Certificate writer retirement requires an attested native handoff and unchanged owned files.
+        quiet: true
+      loop: '{{ certificate_obsolete_files.results }}'
+      when:
+        - item.stat.exists
+        - not (hostvars[groups['k3s_servers'][0]].certificates_runtime_retirement_deferred | default(false) | bool)
+    - name: Retire the replaced executable and its bytecode while retaining all ownership and data
+      ansible.builtin.file:
+        path: '{{ item.item }}'
+        state: absent
+      loop: '{{ certificate_obsolete_files.results }}'
+      when:
+        - item.stat.exists
+        - hostvars[groups['k3s_servers'][0]].certificates_native_handoff_verified | default(false) | bool
+    - name: Report deferred retirement until the initial private binding exists
+      ansible.builtin.debug:
+        msg: Certificate runtime retirement deferred; initial TLS seed is retained until private source binding.
+      when: hostvars[groups['k3s_servers'][0]].certificates_runtime_retirement_deferred | default(false) | bool

@@ -17,7 +17,8 @@ longhornBackup:
 certificates:
   enabled: true
   configuration:
-    enabled: false
+    enabled: true
+    revision: f7308da5c8c5241aac5d78841aa6a637b5af60cc
 mesh:
   enabled: true
 access:

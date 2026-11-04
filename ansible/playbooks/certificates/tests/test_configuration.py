@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import configuration as config
+import initial_bootstrap as config
 from kube import ready
 
 
@@ -33,13 +33,14 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(json.loads((self.base / 'ownership.json').read_text())['phase'], 'staging')
         with patch.object(config, 'configure', side_effect=lambda p, z, prod, s: stages.append(prod) or False), \
                 patch.object(config, 'certificate', return_value=self.identity), \
+                patch('native.observe_legacy'), \
                 patch.object(config, 'get', return_value={'metadata': {'uid': 'account'}, 'data': {'tls.key': 'fixture'}}):
             self.assertTrue(config.run(self.payload)['changed'])
             self.assertFalse(config.run(self.payload)['changed'])
-        self.assertEqual(stages, [False, False, True, True])
+        self.assertEqual(stages, [False, False, True])
 
     def test_selected_zone_change_is_rejected_before_writes(self):
-        config.record({'phase': 'accepted', 'zone_hash': 'different'})
+        config.record({'phase': 'production', 'zone_hash': 'different'})
         with patch.object(config, 'configure') as writer:
             with self.assertRaisesRegex(RuntimeError, 'DNS zone'):
                 config.run(self.payload)
