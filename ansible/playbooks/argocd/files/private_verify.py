@@ -9,7 +9,7 @@ import sys
 import time
 
 from bootstrap import BASE, get, kube, matches_revision
-from source_transition import record
+from private_activation import APP, OWNER, TRACKING, sources_match
 from controller_stability import fingerprint, sample as foundation_sample
 
 
@@ -51,7 +51,8 @@ def credential_owner(app, repository, secrets, externals):
         raise RuntimeError('Private configuration requires one project-scoped repository credential')
     secret = credentials[0]
     owners = secret['metadata'].get('ownerReferences', [])
-    if not any(owner.get('kind') == 'ExternalSecret' and owner.get('uid') == external['metadata']['uid'] and
+    if not any(owner.get('kind') == 'ExternalSecret' and owner.get('name') == external['metadata']['name'] and
+               owner.get('controller') is True and owner.get('uid') == external['metadata']['uid'] and
                external['metadata']['name'] == secret['metadata']['name'] and
                any(condition.get('type') == 'Ready' and condition.get('status') == 'True'
                    for condition in external.get('status', {}).get('conditions', []))
@@ -85,9 +86,7 @@ def configuration_healthy(name, repository, revision):
 def run(payload):
     repository = payload.get('configuration_repository')
     if not repository:
-        if payload['sources']:
-            raise RuntimeError('Private verification requires the actual configuration repository')
-        return {'private_sources_configured': 0, 'private_access_verified': False}
+        raise RuntimeError('Private verification requires the actual configuration repository')
     applications = json.loads(kube('get', 'applications.argoproj.io', '-n', 'argocd', '-o', 'json'))['items']
     consumers = [app for app in applications if any(source.get('repoURL') == repository for source in
                  app['spec'].get('sources', [app['spec'].get('source', {})]))]
@@ -101,10 +100,41 @@ def run(payload):
     for app in consumers:
         wait(lambda: configuration_healthy(app['metadata']['name'], repository, revision), 'configuration convergence')
         credential_owner(app, repository, secrets, externals)
+    if payload.get('catalog_enabled'):
+        catalog = get('application.argoproj.io', APP) or {}
+        evidence = {'repository': payload['public_repository'], 'revision': payload['platform_revision'],
+                    'private_repository': repository}
+        if (catalog.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
+                or catalog.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != TRACKING
+                or catalog.get('metadata', {}).get('finalizers') or not sources_match(catalog, evidence)
+                or catalog.get('metadata', {}).get('ownerReferences') or catalog.get('metadata', {}).get('deletionTimestamp')
+                or catalog.get('spec', {}).get('project') != APP
+                or catalog.get('spec', {}).get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
+                or catalog.get('spec', {}).get('syncPolicy', {}).get('automated') !=
+                    {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': True}
+                or catalog.get('spec', {}).get('syncPolicy', {}).get('syncOptions') !=
+                    ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PruneLast=true']):
+            raise RuntimeError('Private catalog ownership or source differs from reviewed declarations')
+        for desired in payload['objects']:
+            kind = desired['kind']
+            name = desired['metadata']['name']
+            group = desired['apiVersion'].split('/')[0] if '/' in desired['apiVersion'] else ''
+            resource = kind.lower() + ('.' + group if group else '')
+            raw = kube('get', resource, name, *(['-n', 'argocd'] if kind != 'Namespace' else []), '-o', 'json')
+            actual = json.loads(raw)
+            expected_tracking = APP + ':' + group + '/' + kind + ':argocd/' + name
+            if (actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') != expected_tracking
+                    or actual['metadata'].get('deletionTimestamp') or actual['metadata'].get('ownerReferences')
+                    or (kind == 'Application' and actual['metadata'].get('finalizers'))
+                    or not contains(actual, desired)):
+                raise RuntimeError('Private registration differs from its native declaration')
+    def child_healthy(entry):
+        name = 'cloudlab-private-' + entry['name']
+        return configuration_healthy(name, repository, revision) if entry['repository'] == repository else healthy(name)
     for entry in payload['sources']:
-        if entry['repository'] != repository:
-            raise RuntimeError('Private verification accepts only the actual configuration source')
-        wait(lambda: healthy('cloudlab-private-' + entry['name']), 'convergence')
+        name = 'cloudlab-private-' + entry['name']
+        wait(lambda: child_healthy(entry), 'convergence')
+        credential_owner(get('application.argoproj.io', name), entry['repository'], secrets, externals)
     def controllers():
         argo = json.loads(kube('get', 'deployments,daemonsets,statefulsets,pods', '-n', 'argocd', '-o', 'json'))
         return foundation_sample(), fingerprint(argo['items'])
@@ -112,17 +142,21 @@ def run(payload):
     started = time.monotonic()
     while time.monotonic() - started < 60:
         time.sleep(10)
-        if controllers() != baseline or not all(configuration_healthy(app['metadata']['name'], repository, revision) for app in consumers):
+        if (controllers() != baseline
+                or not all(configuration_healthy(app['metadata']['name'], repository, revision) for app in consumers)
+                or not all(child_healthy(entry) for entry in payload['sources'])):
             raise RuntimeError('Controllers or private convergence changed during stability observation')
-    for entry in payload['sources']:
-        checkpoint = BASE / ('private-' + entry['name'] + '.json')
-        state = json.loads(checkpoint.read_text())
-        state['phase'] = 'accepted'
-        record(checkpoint, state)
     return {'private_roots_converged': len(payload['sources']), 'private_configuration_consumers': len(consumers),
             'private_access_verified': True, 'eso_credentials_verified': True,
             'controllers_stable': True, 'stability_seconds': round(time.monotonic() - started, 1),
             'failure_injection': False}
+
+
+def contains(actual, desired):
+    if isinstance(desired, dict):
+        return isinstance(actual, dict) and all(key in actual and contains(actual[key], value)
+                                               for key, value in desired.items())
+    return actual == desired
 
 
 

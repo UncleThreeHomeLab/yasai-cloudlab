@@ -7,7 +7,7 @@ import unittest
 
 import yaml
 
-from private_sources import PEM_TEMPLATE, registry, validate_registry
+from private_sources import PEM_TEMPLATE, registry, validate_registry, verification_payload
 
 ROOT = Path(__file__).resolve().parents[4]
 ENTRY = {'name': 'fixture', 'repository': 'https://github.com/example/private.git',
@@ -15,6 +15,24 @@ ENTRY = {'name': 'fixture', 'repository': 'https://github.com/example/private.gi
 
 
 class PrivateRegistryTests(unittest.TestCase):
+    def test_verification_reads_and_renders_the_same_authenticated_complete_revision(self):
+        from unittest.mock import Mock, patch
+        public = {'repository': 'https://github.com/example/platform.git',
+                  'privateSources': {'enabled': True, 'revision': 'b' * 40},
+                  'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        client = Mock()
+        client.request.return_value = {'type': 'file', 'encoding': 'base64', 'size': 12,
+                                      'content': base64.b64encode(b'sources: []\n').decode()}
+        def authenticated(values, *, read): return read(client, 'a' * 40)
+        with patch('playbooks.argocd.files.github_app.configuration_revision', side_effect=authenticated):
+            payload = verification_payload({'PRIVATE_CONFIG_REPOSITORY': ENTRY['repository']}, public)
+        self.assertEqual(payload['sources'], [])
+        self.assertEqual(payload['objects'], [])
+        self.assertEqual(payload['configuration_revision'], 'a' * 40)
+        self.assertTrue(client.request.call_args.args[1].endswith('?ref=' + 'a' * 40))
+        for stale in ({'PRIVATE_GITOPS_SOURCES': '[{}]'}, {'PRIVATE_GITOPS_REMOVE': 'example'}):
+            with self.assertRaisesRegex(ValueError, 'Legacy private source inputs'):
+                registry(client, stale, public, 'a' * 40)
     def render(self, value, success=True):
         result = subprocess.run(['helm', 'template', 'private-sources',
             str(ROOT / 'platform/delivery/private-sources'), '-n', 'argocd', '-f', '-'],

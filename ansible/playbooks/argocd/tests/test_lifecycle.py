@@ -23,8 +23,8 @@ class LifecycleTests(unittest.TestCase):
                     'tasks': [{'name': 'Record execution', 'ansible.builtin.debug': {
                         'msg': 'executed-stage-' + str(index)}}]}]))
             (root / 'lifecycle.yml').write_text(yaml.safe_dump(stages))
-            cases = [('bootstrap', '1', {0}), ('bootstrap', '0', set(range(7))),
-                     ('private-remove', '0', {1}), ('verify', '0', {7, 8})]
+            cases = [('bootstrap', '1', {0}), ('bootstrap', '0', set(range(6)) | {8}),
+                     ('verify', '0', {6, 7})]
             for action, stop, expected in cases:
                 with self.subTest(action=action, stop=stop):
                     result = subprocess.run(

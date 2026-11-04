@@ -29,7 +29,8 @@ services:
   enabled: true
   revision: 1d46b7c645c1fe8048d1710b3070ba1fdf2b59c2
 privateSources:
-  enabled: false
+  enabled: true
+  revision: 34466afba36854d1d6cec36c314f61ed7e447de7
 observability:
   enabled: true
 harbor:

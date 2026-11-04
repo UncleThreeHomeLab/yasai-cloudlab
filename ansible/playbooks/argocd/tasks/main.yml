@@ -46,7 +46,7 @@
     owner: root
     group: root
     mode: '0600'
-  loop: [bootstrap.py, verify.py, source_transition.py, source_revision.py, service_activation.py, private_activation.py, private_sources.py, sync_recovery.py, controller_recovery.py]
+  loop: [bootstrap.py, verify.py, private_verify.py, private_retire.py, source_transition.py, source_revision.py, service_activation.py, private_activation.py, private_sources.py, sync_recovery.py, controller_recovery.py]
 
 - name: Install the packaged Argo input and recovery interfaces
   ansible.builtin.import_tasks: runtime.yml

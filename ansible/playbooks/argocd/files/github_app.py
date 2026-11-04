@@ -92,7 +92,7 @@ def main():
     return verify(fields(ITEM, FIELDS), values)
 
 
-def configuration_revision(values):
+def configuration_revision(values, *, read=None):
     """Read the actual configuration head with a disposable repository-scoped token."""
     from playbooks.secrets.files.vault import fields
     credentials = fields(ITEM, FIELDS)
@@ -112,7 +112,7 @@ def configuration_revision(values):
         revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
         if not re.fullmatch('[a-f0-9]{40}', revision):
             raise RuntimeError('Private configuration head is invalid')
-        return revision
+        return read(client, revision) if read else revision
     finally:
         client.request('DELETE', 'installation/token')
 
