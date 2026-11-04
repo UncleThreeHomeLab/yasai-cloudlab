@@ -34,8 +34,8 @@ data:
   enabled: true
   configuration:
     enabled: false
-    revision: 34c28c7d8db2d757adde7f0e9f78f66679d3b123
-    seaweedfsRevision: 34c28c7d8db2d757adde7f0e9f78f66679d3b123
+    revision: 854be1ad6f1ad821297db21a660b8d07560c9b38
+    seaweedfsRevision: 854be1ad6f1ad821297db21a660b8d07560c9b38
 identity:
   enabled: true
 services:

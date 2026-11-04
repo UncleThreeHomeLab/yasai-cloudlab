@@ -38,19 +38,25 @@ def inventory():
     return result
 
 
-def patch_values(app, values):
+def patch_values(app, values, source=None):
+    if source:
+        return source.patch(app, values)
     obj = get('application.argoproj.io', app, 'argocd')
     if obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != control.OWNER:
         raise RuntimeError('Cannot suspend a foreign application owner')
+    from playbooks.data.files.native import record_operation
+    record_operation({control.APP: obj if app == control.APP else get('application.argoproj.io', control.APP, 'argocd'),
+                      'cloudlab-seaweedfs': obj if app == 'cloudlab-seaweedfs' else get('application.argoproj.io', 'cloudlab-seaweedfs', 'argocd')}, app, values)
     kube('patch', 'application.argoproj.io', app, '-n', 'argocd', '--type=merge',
          '--field-manager=' + control.OWNER,
          '-p', json.dumps({'spec': {'source': {'helm': {'valuesObject': values}}}}))
 
 
-def resume():
+def resume(source=None):
+    source = control.operation(recovery=True) if source is None else source
     # The runtime Applications retain sole ownership of desired workload state.
-    patch_values('cloudlab-seaweedfs', {'seaweedfs': {c: {'replicas': 1} for c in ('master', 'volume', 'filer', 's3')}})
-    patch_values(control.APP, {'hibernated': False})
+    patch_values('cloudlab-seaweedfs', {'seaweedfs': {c: {'replicas': 1} for c in ('master', 'volume', 'filer', 's3')}}, source)
+    patch_values(control.APP, {'hibernated': False}, source)
     wait(lambda: condition(get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE), 'Ready'),
          'resume PostgreSQL after cold snapshot', timeout=900)
     for component in ('master', 'volume', 'filer', 's3'):
@@ -59,23 +65,24 @@ def resume():
              'Argo resume ' + component, timeout=600)
         kube('rollout', 'status', kind + '/cloudlab-seaweedfs-' + component, '-n', control.NAMESPACE,
              '--timeout=600s', timeout=630)
-    control.maintenance(False)
+    control.maintenance(False, source)
     from playbooks.keycloak.files.maintenance import set_maintenance
     set_maintenance(False)
     (control.BASE / 'cold-maintenance.json').unlink(missing_ok=True)
 
 
-def stop():
+def stop(source=None):
+    source = control.operation() if source is None else source
     control.atomic(control.BASE / 'cold-maintenance.json', {'started_at': time.time()})
     from playbooks.keycloak.files.maintenance import set_maintenance
     set_maintenance(True)
     # Stop S3 first, then filer, volume and master, allowing each to flush cleanly.
     for component in ('s3', 'filer', 'volume', 'master'):
-        patch_values('cloudlab-seaweedfs', {'seaweedfs': {component: {'replicas': 0}}})
+        patch_values('cloudlab-seaweedfs', {'seaweedfs': {component: {'replicas': 0}}}, source)
         wait(lambda: not [p for p in (get('pods', namespace=control.NAMESPACE) or {}).get('items', [])
                           if p['metadata'].get('labels', {}).get('app.kubernetes.io/component') == component],
              'stop ' + component + ' writers', timeout=600)
-    patch_values(control.APP, {'hibernated': True})
+    patch_values(control.APP, {'hibernated': True}, source)
     wait(lambda: condition(get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE), 'cnpg.io/hibernation'),
          'clean PostgreSQL shutdown', timeout=600)
     if (get('pods', namespace=control.NAMESPACE) or {}).get('items', []):

@@ -144,6 +144,7 @@ class PrivateActivationTests(unittest.TestCase):
             files = next(task['loop'] for task in tasks if 'source_transition.py' in task.get('loop', []))
             self.assertIn('private_activation.py', files)
             self.assertIn('access_activation.py', files)
+            self.assertIn('data_activation.py', files)
             self.assertIn('private_sources.py', files)
             with self.subTest(packaged=packaged), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory) / 'playbooks/argocd/files' if packaged else Path(directory)
@@ -155,6 +156,8 @@ class PrivateActivationTests(unittest.TestCase):
                     f'm=importlib.import_module({module + "source_transition"!r}); '
                     f'a=importlib.import_module({module + "private_activation"!r}); '
                     f'p=importlib.import_module({module + "private_sources"!r}); '
+                    f'd=importlib.import_module({module + "data_activation"!r}); '
+                    'assert m.data_guard is d.guard; '
                     'assert m.private_server_probe is a.server_probe; '
                     'e=a.prepare({"repository":"https://github.com/example/platform.git"},'
                     '"https://github.com/example/private.git","b"*40); '

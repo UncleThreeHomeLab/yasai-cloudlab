@@ -44,7 +44,8 @@ def verify(manifest):
     return manifest
 
 
-def capture():
+def capture(source=None):
+    source = control.operation() if source is None else source
     started = time.time()
     checkpoint = control.BASE / 'pending-volume.json'
     if checkpoint.exists():
@@ -59,7 +60,7 @@ def capture():
         row['snapshot'] = generation + '-' + component
     control.atomic(checkpoint, manifest)
     try:
-        values = control.maintenance(True)
+        values = control.maintenance(True, source)
         manifest.update(database=values['database'], bucket=values['bucket'],
                         roles=[values[k] for k in ('applicationRole', 'migrationRole', 'backupRole')])
         if int(control.sql('SELECT pg_database_size(current_database())', values['database'])) > POLICY['max_database_bytes']:
@@ -74,7 +75,7 @@ def capture():
             manifest['identity'] = identity_state
         if control.sql("SELECT to_regclass('public.cloudlab_recovery_probe') IS NOT NULL", values['database']) == 't':
             manifest['notes_probe'] = json.loads(control.sql("SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t", values['database']))
-        client = control.s3()
+        client = control.s3(source=source)
         total = 0
         for row in client.objects(values['bucket']):
             total += row['size']
@@ -93,7 +94,7 @@ def capture():
         checksums = {r['key']: r['sha256'] for r in manifest['objects']}
         if any(checksums.get(r['object_key']) != r['sha256'] for r in manifest.get('notes_probe', [])):
             raise RuntimeError('Notes references do not match the object generation')
-        volumes.stop()
+        volumes.stop(source)
         control.atomic(checkpoint, manifest)
         volumes.snapshots(manifest)
         manifest['captured'] = True
@@ -103,4 +104,4 @@ def capture():
         control.atomic(checkpoint, manifest)
         return manifest
     finally:
-        volumes.resume()
+        volumes.resume(source)

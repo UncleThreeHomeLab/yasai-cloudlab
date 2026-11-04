@@ -67,10 +67,10 @@ def sql(statement, database='postgres'):
     return postgres(['psql', '-X', '-At', '-v', 'ON_ERROR_STOP=1', '-d', database], data=statement.encode()).decode().strip()
 
 
-def authenticated_sql(manifest):
+def authenticated_sql(manifest, observation=None):
     from playbooks.data.files import verify as checks
     from playbooks.data.files.rotation import cleanup_sql
-    values = control.settings()
+    values = control.settings(observation)
     if manifest['database'] != values['database'] or manifest['roles'] != [values[key] for key in ('applicationRole', 'migrationRole', 'backupRole')]:
         raise RuntimeError('Restored identities require a reviewed credential mapping')
     if get('namespace', checks.NAMESPACE):
@@ -153,10 +153,11 @@ def cleanup():
     physical.cleanup_classes()
 
 
-def run(manifest, offsite=False):
+def run(manifest, offsite=False, source=None):
     if offsite:
         from playbooks.data.files.remote import require_window
         require_window(reserve=3600)
+    observation = control.operation() if source is None else source
     verify(manifest)
     if get('namespace', NAMESPACE):
         raise RuntimeError('Previous isolated restore remains; inspect and run fixture cleanup before retrying')
@@ -216,8 +217,8 @@ def run(manifest, offsite=False):
             kube('rollout', 'status', 'statefulset/data-restore-seaweedfs-' + name, '-n', NAMESPACE, '--timeout=600s', timeout=630)
         kube('rollout', 'status', 'deployment/data-restore-seaweedfs-s3', '-n', NAMESPACE, '--timeout=600s', timeout=630)
         service = get('service', 'data-restore-seaweedfs-s3', NAMESPACE)
-        values = control.settings()
-        source = control.s3()
+        values = control.settings(observation)
+        source = control.s3(source=observation)
         endpoint = 'https://' + values['s3Host'] + ':8334'
         source_address = next(row['address'] for row in node['status']['addresses'] if row['type'] == 'InternalIP')
         # Bind to WireGuard: host access must also work when the S3 pod is remote.
@@ -243,7 +244,7 @@ def run(manifest, offsite=False):
             actual_tags = object_tags(client.request('GET', manifest['bucket'], row['key'], query={'tagging': ''})['data'])
             if actual_tags != expected_tags:
                 raise RuntimeError('Restored object tags differ')
-        app_source = control.s3(False)
+        app_source = control.s3(False, observation)
         app = S3(endpoint, app_source.access, app_source.secret, address=service['spec']['clusterIP'], source_address=source_address)
         if {r['key'] for r in app.objects(manifest['bucket'])} != {r['key'] for r in manifest['objects']}:
             raise RuntimeError('Restored application cannot list its complete bucket')
@@ -279,7 +280,7 @@ def run(manifest, offsite=False):
             recovered = json.loads(sql('SET ROLE ' + role + "; SELECT coalesce(json_agg(t ORDER BY id),'[]'::json) FROM public.cloudlab_recovery_probe t", manifest['database']).splitlines()[-1])
             if recovered != manifest['notes_probe']:
                 raise RuntimeError('Restart lost restored notes or attachment references')
-        authenticated_sql(manifest)
+        authenticated_sql(manifest, observation)
         from playbooks.keycloak.files.recovery import verify_restored
         identity_evidence = verify_restored(manifest, sql)
         if 'identity' in manifest:

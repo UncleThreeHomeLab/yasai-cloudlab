@@ -10,14 +10,13 @@ import urllib.request
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from dotenv import dotenv_values
 
 try:
     from .github_setup import GitHub, repository
 except ImportError:
     from github_setup import GitHub, repository
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = next((parent for parent in Path(__file__).resolve().parents if (parent / 'platform').is_dir()), Path('/opt/cloudlab'))
 ITEM = 'github-argocd'
 FIELDS = ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')
 REPOSITORIES = ('PRIVATE_CONFIG_REPOSITORY',)
@@ -86,6 +85,7 @@ def verify(credentials, values):
 
 
 def main():
+    from dotenv import dotenv_values
     values = dotenv_values(ROOT / '.env', interpolate=False)
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
     from playbooks.secrets.files.vault import fields

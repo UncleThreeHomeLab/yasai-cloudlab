@@ -3,13 +3,13 @@ import json
 from pathlib import Path
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
-from dotenv import dotenv_values
 import yaml
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = next((parent for parent in Path(__file__).resolve().parents if (parent / 'platform').is_dir()), Path('/opt/cloudlab'))
 MARKER = 'Managed by CloudLab repository setup: '
 
 
@@ -25,11 +25,13 @@ class GitHubHTTPError(RuntimeError):
 
 
 class GitHub:
-    def __init__(self, token):
+    def __init__(self, token, *, deadline=None, max_response=None):
         if not token or '\n' in token or '\r' in token:
             raise RuntimeError('Repository setup requires a GitHub provisioning credential')
         self.token = token
-        self.opener = urllib.request.build_opener(NoRedirect())
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        self.deadline = deadline
+        self.max_response = max_response
 
     def request(self, method, path, body=None, missing=False):
         request = urllib.request.Request('https://api.github.com/' + path,
@@ -37,8 +39,28 @@ class GitHub:
             headers={'Authorization': 'Bearer ' + self.token, 'Accept': 'application/vnd.github+json',
                      'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json'}, method=method)
         try:
-            with self.opener.open(request, timeout=60) as response:
-                return None if response.status == 204 else json.load(response)
+            remaining = 60 if self.deadline is None else min(15, self.deadline - time.monotonic())
+            if remaining <= 0:
+                raise RuntimeError('GitHub source exceeded its deadline')
+            with self.opener.open(request, timeout=remaining) as response:
+                if response.status == 204:
+                    return None
+                if self.max_response is None:
+                    return json.load(response)
+                raw = bytearray()
+                while True:
+                    if self.deadline is not None and time.monotonic() >= self.deadline:
+                        raise RuntimeError('GitHub source exceeded its deadline')
+                    chunk = response.read1(min(65536, self.max_response + 1 - len(raw)))
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                    if len(raw) > self.max_response:
+                        raise RuntimeError('GitHub source response exceeds its bound')
+                result = json.loads(raw)
+                if not isinstance(result, dict):
+                    raise RuntimeError('GitHub source response must be an object')
+                return result
         except urllib.error.HTTPError as error:
             if missing and error.code == 404:
                 return None
@@ -81,6 +103,7 @@ def inspect(api, role, repo, private):
 
 
 def inputs():
+    from dotenv import dotenv_values
     values = dotenv_values(ROOT / '.env', interpolate=False)
     # Optional stdin injection lets an existing local gh login avoid storing a
     # second token. Neither token form is required by normal cluster bootstrap.

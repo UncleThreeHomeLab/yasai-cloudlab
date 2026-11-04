@@ -69,14 +69,15 @@ def run(action):
             restore.cleanup()
             cleanup_sql()
             return {'disposable_fixtures_removed': True, 'production_data_removed': False, 'b2_reads': 0}
-        if control.settings()['maintenance'] or (control.BASE / 'cold-maintenance.json').exists():
+        source = control.operation()
+        if control.settings(source)['maintenance'] or (control.BASE / 'cold-maintenance.json').exists():
             raise RuntimeError('Interrupted maintenance must be resumed before another backup')
         if action == 'restore-offsite':
             repository = Repository(control.secret('data-offsite'))
             manifest = repository.latest()
             for row in manifest['volumes'].values():
                 repository.validate_url(row)
-            proof = restore.run(manifest, offsite=True)
+            proof = restore.run(manifest, offsite=True, source=source)
             return {**proof, 'explicit_restore_exception': False,
                     'network': repository.client.counters()}
         pending = control.BASE / 'pending-volume.json'
@@ -96,10 +97,10 @@ def run(action):
             if not manifest.get('captured'):
                 volumes.cleanup_snapshots(manifest)
                 pending.unlink()
-        manifest = verify(json.loads(pending.read_text())) if pending.exists() else capture()
+        manifest = verify(json.loads(pending.read_text())) if pending.exists() else capture(source)
         if not monthly:
             try:
-                proof = restore.run(manifest)
+                proof = restore.run(manifest, source=source)
                 return {'capture_seconds': manifest['capture_seconds'], 'restore': proof,
                         'retained_local_generations': 0, 'b2_reads': 0}
             finally:
@@ -109,7 +110,7 @@ def run(action):
         repository.upload(manifest)
         # Longhorn verifies block checksums during the complete physical restore.
         # The cluster-free reader is a separate deliberate acceptance command.
-        proof = restore.run(manifest, offsite=True)
+        proof = restore.run(manifest, offsite=True, source=source)
         result = repository.accept(manifest, proof)
         result['local_backup_files'] = 0
         volumes.cleanup_snapshots(manifest)

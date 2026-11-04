@@ -109,3 +109,4 @@ class ServiceActivationTests(unittest.TestCase):
             self.assertEqual(len(copies), 1)
             self.assertIn('service_activation.py', copies[0]['loop'])
             self.assertIn('private_activation.py', copies[0]['loop'])
+            self.assertIn('data_activation.py', copies[0]['loop'])

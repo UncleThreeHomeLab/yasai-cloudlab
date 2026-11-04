@@ -193,12 +193,13 @@ def prerequisites(payload, *, access_recovery=None):
     access = json.loads(Path('/var/lib/cloudlab/connectivity/receipts/acceptance.json').read_text())
     if not access.get('verified_at') or not access.get('external_binding'):
         raise RuntimeError('Independent public/private access proof must precede identity')
-    for name in ('cloudlab-keycloak-operator', 'cloudlab-data-configuration', 'cloudlab-argocd'):
+    for name in ('cloudlab-keycloak-operator', 'cloudlab-argocd'):
         if not application_ready(name, payload['revision']):
             raise RuntimeError('Identity prerequisite Application is not converged')
     from playbooks.access.files.native import prerequisite as access_prerequisite
     access_prerequisite(payload, recovery=access_recovery)
-    data = get('application.argoproj.io', 'cloudlab-data-configuration', 'argocd')['spec']['source']['helm']['valuesObject']
+    from playbooks.data.files.native import prerequisite as data_prerequisite
+    data = data_prerequisite(payload, recovery=access_recovery)
     if data.get('identity') != {'enabled': True, 'database': payload['values']['database'], 'role': payload['values']['databaseRole']}:
         raise RuntimeError('Identity dedicated CNPG contract is not enabled by its data owner')
     database = get('database.postgresql.cnpg.io', 'keycloak', 'cloudlab-data') or {}

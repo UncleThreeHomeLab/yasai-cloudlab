@@ -1,6 +1,7 @@
 import base64
 from contextlib import nullcontext
 import copy
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -13,7 +14,7 @@ from playbooks.keycloak.files.integrations import argo
 
 
 class ArgoInputTests(unittest.TestCase):
-    def run_inputs(self, recovery=None, security=None, private=False, access="absent", catalog_path=None):
+    def run_inputs(self, recovery=None, security=None, private=False, access="absent", catalog_path=None, raw_catalog=None):
         public = {'repository': 'https://github.com/example/platform.git',
                   'services': {'enabled': True, 'revision': 'c' * 40},
                   'access': {'enabled': True, 'configuration': {'enabled': False, 'revision': 'e' * 40}}}
@@ -34,13 +35,16 @@ class ArgoInputTests(unittest.TestCase):
             if '/git/ref/heads/main' in path:
                 if security == 'unavailable': raise RuntimeError('Current private Git unavailable')
                 return {'object': {'sha': 'a' * 40}}
+            if '/contents/platform/data.yaml?ref=' in path:
+                self.assertEqual(kwargs, {'missing': True})
+                return None
             if '/contents/platform/access.yaml?ref=' in path:
                 self.assertEqual(kwargs, {'missing': True})
                 if access == 'absent': return None
                 if access == 'error': raise RuntimeError('Synthetic transport failure')
                 document = {'administrator': 'admin@example.invalid'} if access == 'present' else {'administrator': False}
             elif '/contents/' + (catalog_path or 'services/catalog.json') + '?ref=' in path:
-                document = catalog
+                document = catalog if raw_catalog is None else raw_catalog
             elif '/contents/platform/sources.yaml?ref=' in path:
                 document = {'sources': []}
             elif '/contents/identity/argo-values.yaml?ref=' in path:
@@ -58,8 +62,10 @@ class ArgoInputTests(unittest.TestCase):
                     'data': {'desired_state': json.dumps({'realms': {'platform': {'clients': clients}}}),
                              'revocations': json.dumps({'realms': {'platform': denied}})}}
             else: raise AssertionError('Unexpected private read: ' + path)
-            encoded = yaml.safe_dump(document).encode() if '/identity/' in path else json.dumps(document).encode()
-            return {'type': 'file', 'encoding': 'base64', 'size': len(encoded),
+            encoded = document if isinstance(document, bytes) else yaml.safe_dump(document).encode() if '/identity/' in path else json.dumps(document).encode()
+            filename = path.split('/contents/', 1)[1].split('?ref=', 1)[0]
+            return {'type': 'file', 'path': filename, 'encoding': 'base64', 'size': len(encoded),
+                    'sha': hashlib.sha1(b'blob ' + str(len(encoded)).encode() + b'\0' + encoded).hexdigest(),
                     'content': base64.b64encode(encoded).decode()}
         client.request.side_effect = read
         client.opener.open.return_value.__enter__.return_value.status = 204
@@ -160,3 +166,13 @@ class ArgoInputTests(unittest.TestCase):
         self.assertNotEqual(template['revision'], payload['revision'])
         self.assertEqual(template['application']['spec']['sources'][0]['targetRevision'], template['revision'])
         self.assertEqual(template['application']['spec']['sources'][1], {'repoURL': payload['private_repository'], 'targetRevision': '0' * 40, 'ref': 'values'})
+
+    def test_selected_catalog_duplicate_keys_fail_before_preparation_and_revoke(self):
+        for selected in (None, 'services/catalog-v2.yaml'):
+            with self.subTest(path=selected), patch('playbooks.argocd.files.data_activation.prepare') as prepare:
+                with self.assertRaisesRegex(RuntimeError, 'raw schema'):
+                    self.run_inputs(catalog_path=selected,
+                        raw_catalog=b'{"catalog": [], "dataApprovals": {}, "catalog": []}')
+                prepare.assert_not_called()
+                self.last_client.opener.open.assert_called_once()
+                self.assertEqual(self.last_client.opener.open.call_args.args[0].method, 'DELETE')

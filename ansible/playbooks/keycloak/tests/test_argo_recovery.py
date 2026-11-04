@@ -46,3 +46,22 @@ class ArgoRecoveryTests(unittest.TestCase):
                         with self.assertRaises(RuntimeError): runtime.run(payload)
                         bind.assert_not_called()
                         if change != 'pending': pending.assert_not_called()
+
+    def test_identity_prerequisite_uses_data_observer_and_propagates_pending_recovery(self):
+        from playbooks.keycloak.files import ownership
+        from playbooks.data.files import native as data_native
+        payload = {'revision': 'a' * 40, 'values': {'database': 'keycloak', 'databaseRole': 'keycloak'}}
+        record = unittest.mock.Mock()
+        record.read_text.side_effect = [json.dumps({'retention_complete': True, 'restore': {'physical_restore': True}}),
+                                       json.dumps({'verified_at': 1, 'external_binding': True})] * 2
+        for recovery in (None, {'checkpoint': {'dataActivation': {'immutable': 'synthetic'}}, 'sourceState': 'patched'}):
+            with self.subTest(recovery=recovery is not None), patch.object(ownership, 'Path', return_value=record), \
+                    patch.object(ownership, 'application_ready', return_value=True) as ready, \
+                    patch('playbooks.access.files.native.prerequisite'), \
+                    patch.object(data_native, 'prerequisite', return_value={'identity': {'enabled': True, 'database': 'keycloak', 'role': 'keycloak'}}) as data, \
+                    patch.object(ownership, 'get', return_value={'metadata': {'generation': 1},
+                        'status': {'applied': True, 'observedGeneration': 1}}) as read:
+                ownership.prerequisites(payload, access_recovery=recovery)
+                data.assert_called_once_with(payload, recovery=recovery)
+                self.assertEqual([call.args[0] for call in ready.call_args_list], ['cloudlab-keycloak-operator', 'cloudlab-argocd'])
+                read.assert_called_once_with('database.postgresql.cnpg.io', 'keycloak', 'cloudlab-data')

@@ -15,6 +15,7 @@
     - /opt/cloudlab/playbooks/argocd/files
     - /opt/cloudlab/playbooks/access/files
     - /opt/cloudlab/playbooks/istio/files
+    - /opt/cloudlab/playbooks/data/files
     - /var/lib/cloudlab/identity
 - name: Install the independent public DNS probe from its connectivity owner
   ansible.builtin.copy:
@@ -26,6 +27,12 @@
     src: /workspace/ansible/playbooks/argocd/files/private_sources.py
     dest: /opt/cloudlab/playbooks/argocd/files/private_sources.py
     mode: '0600'
+- name: Install the data prerequisite observer and its local runtime closure
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/data/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
+    mode: '0600'
+  loop: [native.py, control.py, s3.py, requests.py]
 - name: Install identity runtime from its owning module
   ansible.builtin.copy:
     src: /workspace/ansible/playbooks/keycloak/files/{{ item }}
@@ -60,7 +67,7 @@
     src: '/workspace/ansible/playbooks/argocd/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/argocd/files/{{ item }}'
     mode: '0600'
-  loop: [access_activation.py, source_revision.py]
+  loop: [access_activation.py, source_revision.py, data_activation.py, source_snapshot.py, github_setup.py, github_app.py]
 - name: Install the Kubernetes reader used by access prerequisites
   ansible.builtin.copy:
     src: /workspace/ansible/playbooks/istio/files/kube.py
