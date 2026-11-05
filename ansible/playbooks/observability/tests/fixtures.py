@@ -61,8 +61,8 @@ def monitored_service_inputs():
     value = native_source_inputs()
     service = definition()
     service['ports'].append({'name': 'http-metrics', 'port': 9191})
-    service['monitoring'] = {'enabled': True, 'metrics': {'profile': 'cloudlab-http',
-        'endpoints': [{'port': 'http-metrics', 'path': '/metrics'}], 'routes': ['/api/items', '/api/items/:id']}}
+    service['monitoring'] = {'enabled': True, 'routes': ['/api/items', '/api/items/:id'], 'metrics': {'enabled': True, 'profile': 'cloudlab-http',
+        'endpoints': [{'port': 'http-metrics', 'path': '/metrics'}]}}
     allowed = approval()
     allowed['chartPath'] = 'charts/service'
     value['catalog'] = [{'approval': allowed, 'definition': service, 'publication': 'published'}]
@@ -78,6 +78,16 @@ def monitored_service_inputs():
                 'datasource': {'type': 'prometheus', 'uid': 'metrics'},
                 'targets': [{'expr': 'cloudlab_http_requests_total{service="synthetic"}', 'refId': 'A'}],
                 'gridPos': {'x': 0, 'y': 0, 'w': 24, 'h': 8}}]}}}
+    return value
+
+
+def logged_service_inputs(metrics=False):
+    value = monitored_service_inputs()
+    definition = value['catalog'][0]['definition']
+    definition['monitoring']['logs'] = {'enabled': True, 'profile': 'cloudlab-http-json-v1'}
+    if not metrics:
+        definition['monitoring']['metrics'] = {'enabled': False}
+        definition['ports'] = [port for port in definition['ports'] if port['name'] != 'http-metrics']
     return value
 
 

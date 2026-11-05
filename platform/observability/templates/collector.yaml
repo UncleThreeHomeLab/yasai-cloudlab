@@ -8,6 +8,7 @@ metadata:
 data:
   config.alloy: |
 {{ .Files.Get "config.alloy" | indent 4 }}
+{{ include "observability.serviceLogs" . | indent 4 }}
 {{- if .Values.monitoringEnabled }}
 ---
 apiVersion: monitoring.coreos.com/v1

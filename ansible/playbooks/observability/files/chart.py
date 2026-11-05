@@ -41,7 +41,7 @@ def configuration(enabled=False):
 def check():
     pins = json.loads((BASE / 'images.lock.json').read_text())
     expected = {value.rsplit('@', 1)[1] for value in pins.values()}
-    cpu, memory, crds = 0, 0, 0
+    cpu, memory, requested_cpu, requested_memory, crds = 0, 0, 0, 0, 0
     identities = set()
     for name in COMPONENTS:
         path = BASE / name
@@ -82,8 +82,13 @@ def check():
                     limits = container.get('resources', {}).get('limits', {})
                     if set(limits) != {'cpu', 'memory'}:
                         raise ValueError('Telemetry container lacks explicit resource limits: ' + container['name'])
+                    requests = container.get('resources', {}).get('requests', {})
+                    if set(requests) != {'cpu', 'memory'}:
+                        raise ValueError('Telemetry container lacks explicit resource requests: ' + container['name'])
                     cpu += int(limits['cpu'].removesuffix('m')) * copies
                     memory += int(limits['memory'].removesuffix('Mi')) * copies
+                    requested_cpu += int(requests['cpu'].removesuffix('m')) * copies
+                    requested_memory += int(requests['memory'].removesuffix('Mi')) * copies
                 for claim in obj['spec'].get('volumeClaimTemplates', []):
                     if claim['spec'].get('storageClassName') != POLICY['storage_class']:
                         raise ValueError('Telemetry PVC lacks its backup-excluded storage class')
@@ -91,13 +96,25 @@ def check():
                 limits = obj['spec']['resources']['limits']
                 cpu += int(limits['cpu'].removesuffix('m'))
                 memory += int(limits['memory'].removesuffix('Mi'))
+                requests = obj['spec']['resources']['requests']
+                requested_cpu += int(requests['cpu'].removesuffix('m'))
+                requested_memory += int(requests['memory'].removesuffix('Mi'))
                 # Operator creates one main plus one bounded reloader per CR.
                 cpu += 25
                 memory += 48
+                requested_cpu += 5
+                requested_memory += 16
             if kind == 'PersistentVolumeClaim' and obj['spec'].get('storageClassName') != POLICY['storage_class']:
                 raise ValueError('Telemetry PVC can inherit monthly backups')
     if cpu > POLICY['cpu_limit_millicores'] or memory > POLICY['memory_limit_mib']:
         raise ValueError('Telemetry exceeds its agreed domain envelope')
+    quota = next(o['spec']['hard'] for o in configuration(True) if o['kind'] == 'ResourceQuota')
+    cpu_quota = str(quota['requests.cpu'])
+    memory_quota = str(quota['requests.memory'])
+    requested_cpu_limit = int(float(cpu_quota.removesuffix('m')) * (1 if cpu_quota.endswith('m') else 1000))
+    requested_memory_limit = int(memory_quota.removesuffix('Mi').removesuffix('Gi')) * (1024 if memory_quota.endswith('Gi') else 1)
+    if requested_cpu > requested_cpu_limit or requested_memory > requested_memory_limit:
+        raise ValueError('Telemetry requests exceed namespace quota')
     prometheus = values('prometheus')['prometheus']['prometheusSpec']
     if prometheus['retention'] != '7d' or prometheus['retentionSize'] != '25GB' or prometheus.get('remoteWrite'):
         raise ValueError('Metrics local retention or no-offsite policy changed')

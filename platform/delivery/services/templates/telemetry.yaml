@@ -1,0 +1,20 @@
+{{- range .Values.catalog -}}
+{{- if ne .publication "retired" -}}
+{{- $monitoring := include "cloudlab.service.monitoring" . | fromJson -}}
+{{- if $monitoring.logs.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cloudlab-alloy-logs, namespace: {{ .approval.namespace }}}
+rules:
+  - {apiGroups: [''], resources: [pods], verbs: [get, list, watch]}
+  - {apiGroups: [''], resources: [pods/log], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cloudlab-alloy-logs, namespace: {{ .approval.namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cloudlab-alloy-logs}
+subjects: [{kind: ServiceAccount, name: cloudlab-alloy, namespace: cloudlab-observability}]
+{{- end -}}
+{{- end -}}
+{{- end -}}

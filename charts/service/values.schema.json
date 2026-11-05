@@ -469,39 +469,52 @@
       ]
     },
     "monitoring": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "enabled"
-          ],
-          "properties": {
-            "enabled": {
-              "const": false
-            }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^/([A-Za-z0-9_-]+|:[a-z][a-z0-9_]*)(/([A-Za-z0-9_-]+|:[a-z][a-z0-9_]*))*$|^/$"
           }
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "enabled",
-            "metrics"
-          ],
-          "properties": {
-            "enabled": {
-              "const": true
-            },
-            "metrics": {
+        "metrics": {
+          "oneOf": [
+            {
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "profile",
-                "endpoints",
-                "routes"
+                "enabled"
               ],
               "properties": {
+                "enabled": {
+                  "const": false
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "profile",
+                "endpoints"
+              ],
+              "properties": {
+                "enabled": {
+                  "const": true
+                },
                 "profile": {
                   "const": "cloudlab-http"
                 },
@@ -525,16 +538,114 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          ]
+        },
+        "logs": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "const": false
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "profile"
+              ],
+              "properties": {
+                "enabled": {
+                  "const": true
                 },
-                "routes": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 8,
-                  "uniqueItems": true,
-                  "items": {
-                    "type": "string",
-                    "maxLength": 96,
-                    "pattern": "^/([A-Za-z0-9_-]+|:[a-z][a-z0-9_]*)(/([A-Za-z0-9_-]+|:[a-z][a-z0-9_]*))*$|^/$"
+                "profile": {
+                  "const": "cloudlab-http-json-v1"
+                }
+              }
+            }
+          ]
+        },
+        "traces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Generic service traces require qualified ambient workload attribution; metrics and logs are supported."
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "routes"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "metrics"
+                ],
+                "properties": {
+                  "metrics": {
+                    "properties": {
+                      "enabled": {
+                        "const": true
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "logs"
+                ],
+                "properties": {
+                  "logs": {
+                    "properties": {
+                      "enabled": {
+                        "const": true
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "else": {
+            "properties": {
+              "metrics": {
+                "properties": {
+                  "enabled": {
+                    "const": false
+                  }
+                }
+              },
+              "logs": {
+                "properties": {
+                  "enabled": {
+                    "const": false
                   }
                 }
               }

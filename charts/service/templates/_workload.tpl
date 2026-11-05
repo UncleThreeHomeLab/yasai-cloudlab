@@ -3,7 +3,7 @@
 {{- if and .Values.persistence.enabled (gt (int .Values.replicas) 1) }}
 {{- fail "ReadWriteOnce service persistence requires one replica" }}
 {{- end }}
-{{- $_ := include "cloudlab.service.monitoring" (dict "definition" $v) }}
+{{- $monitoring := include "cloudlab.service.monitoring" (dict "definition" $v) | fromJson }}
 {{- if and .Values.rollouts.enabled (or .Values.persistence.enabled (eq .Values.exposure.class "none")) }}
 {{- fail "Rollouts require a stateless service and a Gateway API exposure" }}
 {{- end }}
@@ -100,6 +100,9 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Values.name }}
         cloudlab.io/owner: {{ .Values.owner | quote }}
+        {{- if $monitoring.logs.enabled }}
+        cloudlab.io/log-profile: cloudlab-http-json-v1
+        {{- end }}
         {{- if .Values.rollouts.enabled }}
         cloudlab.io/release-analysis: approved
         {{- end }}

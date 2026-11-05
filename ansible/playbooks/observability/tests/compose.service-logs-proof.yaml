@@ -1,0 +1,157 @@
+services:
+  prepare:
+    image: cloudlab-service-logs-fixture:local
+    build:
+      context: ../../../runner
+      additional_contexts:
+        ci-source: ../../../../platform/delivery/ci
+    entrypoint:
+    - python
+    - -m
+    - playbooks.observability.tests.service_logs_proof
+    - prepare
+    working_dir: /workspace
+    volumes:
+    - ../../../..:/workspace:ro
+    - fixture:/fixture
+    - collector:/fixture/alloy
+    network_mode: none
+  loki:
+    image: docker.io/grafana/loki:3.6.12@sha256:2483b71b28b15dee230f85512cae2b20c4b5f6e98a6eabe686cbccfa5ea3ba4a
+    command:
+    - -config.file=/fixture/loki.yaml
+    volumes:
+    - fixture:/fixture:ro
+    tmpfs:
+    - /var/loki:uid=10001,gid=10001,mode=0700,size=256m
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    networks:
+      fixture:
+        aliases:
+        - cloudlab-loki
+        - cloudlab-loki-memberlist.cloudlab-observability.svc.cluster.local
+    mem_limit: 768m
+    cpus: 0.4
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+  tempo:
+    image: docker.io/grafana/tempo:3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd
+    command:
+    - -config.file=/fixture/tempo.yaml
+    volumes:
+    - fixture:/fixture:ro
+    tmpfs:
+    - /var/tempo:uid=10001,gid=10001,mode=0700,size=256m
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    networks:
+      fixture:
+        aliases:
+        - cloudlab-tempo
+    mem_limit: 768m
+    cpus: 0.4
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+  alloy:
+    image: docker.io/grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    command:
+    - run
+    - /etc/alloy/config.alloy
+    - --storage.path=/tmp/alloy
+    - --server.http.listen-addr=0.0.0.0:12345
+    - --disable-reporting
+    volumes:
+    - fixture:/fixture:ro
+    - type: volume
+      source: collector
+      target: /etc/alloy
+      read_only: true
+      volume:
+        nocopy: true
+    tmpfs:
+    - /tmp:mode=1777,size=32m
+    read_only: true
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    networks:
+      fixture:
+        aliases:
+        - cloudlab-alloy.cloudlab-observability.svc
+    mem_limit: 384m
+    cpus: 0.25
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+  reloader:
+    image: quay.io/prometheus-operator/prometheus-config-reloader:v0.94.1@sha256:06b52bd4dbe3ed6dd5905aadaf8b9987d9da4c31d37bb86deaadae68cee2d26b
+    command:
+    - --watched-dir=/etc/alloy
+    - --reload-url=http://localhost:12345/-/reload
+    volumes:
+    - type: volume
+      source: collector
+      target: /etc/alloy
+      read_only: true
+      volume:
+        nocopy: true
+    network_mode: service:alloy
+    depends_on:
+      alloy:
+        condition: service_started
+    user: 65534:65534
+    read_only: true
+    mem_limit: 48m
+    cpus: 0.025
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+  proof:
+    build:
+      context: .
+      dockerfile: proof.Dockerfile
+    entrypoint:
+    - python
+    - -m
+    - playbooks.observability.tests.service_logs_proof
+    - verify
+    working_dir: /workspace
+    volumes:
+    - ../../../..:/workspace:ro
+    - fixture:/fixture:ro
+    - collector:/fixture/alloy
+    depends_on:
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      alloy:
+        condition: service_started
+      reloader:
+        condition: service_started
+    networks:
+    - fixture
+    mem_limit: 256m
+    cpus: 0.25
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+networks:
+  fixture:
+    internal: true
+    ipam:
+      config:
+      - subnet: ${SERVICE_LOGS_PROOF_SUBNET:-10.245.236.0/24}
+volumes:
+  fixture: null
+  collector: null

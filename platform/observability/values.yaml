@@ -6,3 +6,4 @@ loginHost: login.example.invalid
 apiPeers: []
 serviceMetrics: {}
 serviceRules: {}
+serviceLogs: {}
