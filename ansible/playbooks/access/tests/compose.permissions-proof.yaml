@@ -37,6 +37,7 @@ services:
       - ../../admission/files/verify.py:/inputs/playbooks/admission/files/verify.py:ro
       - ../../istio/files/kube.py:/inputs/playbooks/istio/files/kube.py:ro
       - ../../argocd/files/source_revision.py:/inputs/playbooks/argocd/files/source_revision.py:ro
+      - ../../argocd/tests/fixtures.py:/inputs/playbooks/argocd/tests/fixtures.py:ro
       - ../../../../platform/delivery/argocd/charts/argo-cd-10.9.6.tgz:/inputs/argo-cd-10.9.6.tgz:ro
       - ../../../../platform/delivery/argocd/artifact.lock.json:/inputs/artifact.lock.json:ro
       - ../../../../platform/delivery/argocd/values.yaml:/inputs/values.yaml:ro
