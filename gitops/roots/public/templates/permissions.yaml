@@ -3,11 +3,11 @@
 {{- fail "Permissions require a YAML boolean enabled setting" -}}
 {{- end -}}
 {{- if $permissions.enabled -}}
-{{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" ($permissions.revision | default ""))) (not (hasKey .Values.identity "argo")) -}}
-{{- fail "Permissions require admission, External Secrets, approved private identity and an immutable public revision" -}}
+{{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" ($permissions.revision | default ""))) -}}
+{{- fail "Permissions require admission, External Secrets and an immutable public revision" -}}
 {{- end -}}
+{{- if hasKey .Values.identity "argo" -}}
 {{- $private := .Values.identity.argo.valuesRepository -}}
-{{- if not (regexMatch "^https://github.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" ($private | default "")) -}}{{ fail "Permissions require the approved private GitHub repository" }}{{- end }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: cloudlab-permissions, namespace: {{ .Values.namespace }}}
@@ -71,4 +71,5 @@ spec:
     retry:
       limit: 5
       backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- end }}
 {{- end }}

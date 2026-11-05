@@ -23,6 +23,33 @@ class BootstrapTests(unittest.TestCase):
                 apply.assert_not_called()
                 self.assertEqual((base / 'checkpoint.json').exists(), phase is not None)
 
+    def test_accepted_permissions_bootstrap_preserves_bound_root_without_reapplying_public_roots(self):
+        from fixtures import binding_fixture
+        objects, _, _, state = binding_fixture()
+        bound_root = objects['application.argoproj.io', 'cloudlab-public-root']
+        bound_root['spec']['source'] = copy.deepcopy(state['patchedSource'])
+        original = copy.deepcopy(bound_root)
+        public_root = copy.deepcopy(bound_root)
+        public_root['spec']['source'] = {'repoURL': 'public', 'targetRevision': 'main', 'path': 'gitops/roots/public'}
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            checkpoint = base / 'checkpoint.json'
+            checkpoint.write_text(json.dumps({'phase': 'accepted'}))
+            before = checkpoint.read_bytes()
+            with patch.object(bootstrap, 'BASE', base), \
+                    patch.object(bootstrap, 'get', side_effect=lambda *key: objects.get(key)), \
+                    patch.object(bootstrap, 'wait_application', return_value='revision') as wait, \
+                    patch.object(bootstrap, 'apply') as apply, patch.object(bootstrap, 'kube') as write, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                bootstrap.run({'operator': [], 'roots': [public_root], 'revision': 'revision', 'permissions_enabled': True})
+            apply.assert_not_called()
+            write.assert_not_called()
+            self.assertEqual([item.args for item in wait.call_args_list], [
+                ('cloudlab-public-root', 'revision'), ('cloudlab-argocd', 'revision')])
+            self.assertFalse(json.loads(output.getvalue())['changed'])
+            self.assertEqual(bound_root, original)
+            self.assertEqual(checkpoint.read_bytes(), before)
+
     def identity_project(self):
         return {'metadata': {'uid': 'project', 'resourceVersion': '7'}, 'spec': {
             'sourceRepos': ['public'], 'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],

@@ -2,15 +2,49 @@ import unittest
 import json
 import subprocess
 from pathlib import Path
+import shutil
+import tempfile
+from unittest.mock import patch
 import yaml
+import render
 from render import payload, images
 
 
 class RenderTests(unittest.TestCase):
     def test_permissions_are_disabled_until_explicit_guarded_activation(self):
-        self.assertFalse(any(row['metadata']['name'] == 'cloudlab-permissions' for row in self.root_with({})))
-        self.assertFalse(payload()['permissions_enabled'])
+        self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
+                             for row in self.root_with({'permissions': {'enabled': False}})))
+        declared = yaml.safe_load((render.PUBLIC / 'values.yaml').read_text())['permissions']['enabled']
+        self.assertIs(self.data['permissions_enabled'], declared)
         self.root_with({'permissions': {'enabled': 'true'}}, success=False)
+
+    def test_enabled_permissions_without_binding_omit_consumers_but_validate_prerequisites(self):
+        values = {'permissions': {'enabled': True, 'revision': 'a' * 40}}
+        self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
+                             for row in self.root_with(values)))
+        for pin in ('', 'main', 'a' * 39):
+            with self.subTest(pin=pin):
+                self.root_with({'permissions': {'enabled': True, 'revision': pin}}, success=False)
+        for field, configuration in (('admission', {'enabled': False}),
+                ('externalSecrets', {'enabled': False}), ('externalSecrets', {'reconcile': False})):
+            with self.subTest(field=field, configuration=configuration):
+                self.root_with(values | {field: configuration}, success=False)
+
+    def test_enabled_public_only_payload_retains_bootstrap_flag_without_permission_consumers(self):
+        with tempfile.TemporaryDirectory() as folder:
+            public = Path(folder) / 'public'
+            shutil.copytree(render.PUBLIC, public)
+            values = yaml.safe_load((public / 'values.yaml').read_text())
+            values['identity'].pop('argo', None)
+            values['permissions'] = {'enabled': True, 'revision': 'a' * 40}
+            (public / 'values.yaml').write_text(yaml.safe_dump(values))
+            with patch.object(render, 'PUBLIC', public):
+                data = payload()
+                version = json.loads((render.OPERATOR / 'artifact.lock.json').read_text())['kube_version']
+                self.assertEqual(data['roots'], render.documents(public, 'cloudlab-public-root', version))
+            self.assertIs(data['permissions_enabled'], True)
+            self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
+                                 for row in data['roots']))
 
     def test_permissions_use_reviewed_public_pin_private_main_and_rbac_only_project(self):
         values = {'permissions': {'enabled': True, 'revision': 'a' * 40}, 'identity': {'argo': {
@@ -33,7 +67,13 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(secret['spec']['target']['deletionPolicy'], 'Retain')
         self.root_with(values | {'admission': {'enabled': False}}, success=False)
         self.root_with(values | {'permissions': {'enabled': True, 'revision': 'main'}}, success=False)
-        self.root_with(values | {'identity': {}}, success=False)
+        for binding in ({}, None, False, 'invalid',
+                values['identity']['argo'] | {'valuesRepository': self.data['repository']},
+                values['identity']['argo'] | {'valuesRepository': 'https://example.invalid/private.git'},
+                values['identity']['argo'] | {'valuesRevision': 'main'}):
+            with self.subTest(binding=binding):
+                self.root_with(values | {'identity': {'argo': binding}}, success=False)
+        self.root_with(values | {'identity': values['identity'] | {'enabled': False}}, success=False)
 
     def test_native_certificate_preparation_is_disabled_and_absent_binding_is_safe(self):
         for configuration, identity in (({'enabled': False}, {}), ({'enabled': True}, {}),
