@@ -7,6 +7,7 @@
 {{- $v := .definition }}
 {{- if or (hasKey $v "routeOnly") (hasKey $v "routeBackends") }}{{ fail "Routing controls belong to the administrator catalog renderer" }}{{ end }}
 {{- $a := .approval }}
+{{- $monitoring := include "cloudlab.service.monitoring" . | fromJson }}
 {{- $composition := $a.composition | default dict }}
 {{- if and $composition $v.rollouts.enabled }}{{ fail "Composition canaries require a separate supported contract" }}{{ end }}
 {{- $releaseService := $v.name }}
@@ -103,6 +104,12 @@ spec:
     - from:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ printf "cloudlab-gateway-%s" . }}}}
     {{- end }}
+    {{- if $monitoring.enabled }}
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-observability}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+      ports: [{protocol: TCP, port: {{ $monitoring.port }}}, {protocol: TCP, port: 15008}]
+    {{- end }}
 {{- end }}
 ---
 apiVersion: security.istio.io/v1
@@ -138,11 +145,30 @@ spec:
               {{- else }}
               - {{ printf "cluster.local/ns/%s/sa/%s" $namespace $v.name | quote }}
               {{- end }}
-              {{- if not $composition }}
+              {{- if and (not $composition) (not $monitoring.enabled) }}
               {{- range $classes }}
               - {{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" . | quote }}
               {{- end }}
               {{- end }}
+      {{- if $monitoring.enabled }}
+      to:
+        - operation: {notPorts: [{{ $monitoring.port | quote }}]}
+    {{- range $class := $classes }}
+    {{- $exposedPorts := list }}
+    {{- range concat (list $v.exposure) ($v.additionalExposures | default list) }}
+    {{- if eq .class $class }}{{ $exposedPorts = append $exposedPorts (printf "%d" (int .port)) }}{{ end }}
+    {{- end }}
+    {{- if not $exposedPorts }}{{ fail "Gateway requires explicit exposure ports" }}{{ end }}
+    - from:
+        - source: {principals: [{{ printf "cluster.local/ns/cloudlab-gateway-%s/sa/cloudlab-istio" $class | quote }}]}
+      to:
+        - operation: {ports: {{ $exposedPorts | uniq | toJson }}}
+    {{- end }}
+    - from:
+        - source: {principals: ['cluster.local/ns/cloudlab-observability/sa/cloudlab-prometheus']}
+      to:
+        - operation: {ports: [{{ $monitoring.port | quote }}]}
+      {{- end }}
   {{- end }}
 {{- if $v.rollouts.enabled }}
 ---

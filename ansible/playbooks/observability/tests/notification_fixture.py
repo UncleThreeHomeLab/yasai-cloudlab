@@ -99,7 +99,7 @@ class Webhook(BaseHTTPRequestHandler):
                 if not isinstance(alert, dict) or not isinstance(alert.get('labels'), dict): return self.reply(400, {})
                 name = alert.get('labels', {}).get('alertname', '')
                 status = alert.get('status')
-                if isinstance(name, str) and name.startswith('Fixture') and len(name) <= 64 and status in ('firing', 'resolved'):
+                if isinstance(name, str) and name.startswith(('Fixture', 'Svc_synthetic_')) and len(name) <= 64 and status in ('firing', 'resolved'):
                     if len(EVENTS) >= 128: return self.reply(429, {})
                     EVENTS.append({'channel': self.path, 'name': name, 'status': status})
         self.reply(200, {'accepted': True})

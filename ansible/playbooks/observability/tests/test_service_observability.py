@@ -1,0 +1,195 @@
+"""Native collection isolation, trusted rule inputs and one bounded override payload."""
+import copy
+import json
+from pathlib import Path
+import subprocess
+import tarfile
+import unittest
+
+import jsonschema
+import yaml
+
+from playbooks.observability.tests.fixtures import monitored_service_inputs, native_source_inputs, helm, native_overrides
+from playbooks.observability.files.chart import render
+from playbooks.services.files import package
+
+ROOT = Path(__file__).resolve().parents[4]
+
+
+
+class ServiceObservabilityTests(unittest.TestCase):
+    def test_canonical_schema_and_independent_consumer_validation(self):
+        package.check()
+        schema = json.loads((ROOT / 'charts/service/values.schema.json').read_text())
+        native = json.loads((ROOT / 'platform/observability/gitops/values.schema.json').read_text())
+        value = monitored_service_inputs()
+        definition = value['catalog'][0]['definition']
+        jsonschema.validate(definition, schema)
+        jsonschema.validate(value, native)
+        for change in ('unknown', 'profile', 'query-route', 'duplicate-route', 'endpoint', 'many-routes'):
+            row = copy.deepcopy(value)
+            monitoring = row['catalog'][0]['definition']['monitoring']
+            metrics = monitoring['metrics']
+            if change == 'unknown': monitoring['receiver'] = 'unexpected'
+            if change == 'profile': metrics['profile'] = 'arbitrary'
+            if change == 'query-route': metrics['routes'] = ['/api/items?token=secret']
+            if change == 'duplicate-route': metrics['routes'] *= 2
+            if change == 'endpoint': metrics['endpoints'] *= 2
+            if change == 'many-routes': metrics['routes'] = ['/route' + str(n) for n in range(9)]
+            with self.subTest(change=change):
+                for candidate, contract in ((row['catalog'][0]['definition'], schema), (row, native)):
+                    with self.assertRaises(jsonschema.ValidationError): jsonschema.validate(candidate, contract)
+
+    def test_cross_fields_rejected_by_both_catalog_and_native_owner(self):
+        cases = []
+        for change in ('missing-port', 'aliased-port', 'duplicate-name', 'udp', 'probe', 'public', 'private',
+                       'additional', 'implicit-exposure', 'rollout', 'notes', 'composition', 'targets'):
+            row = monitored_service_inputs()
+            entry = row['catalog'][0]
+            definition = entry['definition']
+            if change == 'missing-port': definition['ports'].pop()
+            if change == 'aliased-port': definition['ports'].append({'name': 'alias', 'port': 9191})
+            if change == 'duplicate-name': definition['ports'].append({'name': 'http-metrics', 'port': 9292})
+            if change == 'udp': definition['ports'][-1]['protocol'] = 'UDP'
+            if change == 'probe': definition['health']['readiness']['port'] = 'http-metrics'
+            if change in ('public', 'private', 'implicit-exposure', 'additional'):
+                definition['exposure'] = {'class': 'public', 'hostname': 'fixture.example.invalid',
+                    'access': 'public', 'port': 8080, 'path': '/'}
+                if change in ('public', 'private'): definition['exposure'].update({'class': change, 'port': 9191})
+                if change == 'additional': definition['additionalExposures'] = [dict(definition['exposure'], **{'class': 'private', 'port': 9191})]
+                if change == 'implicit-exposure': definition['exposure'].pop('port')
+            if change == 'rollout': definition['rollouts']['enabled'] = True
+            if change == 'notes': entry['approval']['chartPath'] = 'apps/notes'
+            if change == 'composition': entry['approval']['composition'] = {}
+            if change == 'targets': definition['replicas'] = 5
+            cases.append((change, row))
+        for change, value in cases:
+            with self.subTest(change=change):
+                for chart in ('platform/delivery/services', 'platform/observability/gitops'):
+                    with self.assertRaises(ValueError): helm(chart, value if chart.endswith('gitops') else {
+                        'repository': value['nativeSource']['repository'], 'catalog': value['catalog']})
+
+    def test_combined_application_allow_rules_isolate_metrics_and_preserve_ports_order(self):
+        value = monitored_service_inputs()
+        definition = value['catalog'][0]['definition']
+        definition['exposure'] = {'class': 'public', 'hostname': 'fixture.example.invalid', 'access': 'public', 'port': 8080, 'path': '/'}
+        definition['ports'].append({'name': 'private', 'port': 8443})
+        definition['additionalExposures'] = [dict(definition['exposure'], **{'class': 'private', 'port': 8443})]
+        def policies():
+            return helm('platform/delivery/services', {'repository': value['nativeSource']['repository'], 'catalog': value['catalog']})
+        objects = policies()
+        policy = next(o for o in objects if o['kind'] == 'AuthorizationPolicy' and o['metadata']['name'] == 'platform-workloads')
+        def allowed(principal, port):
+            for rule in policy['spec']['rules']:
+                identities = [p for origin in rule.get('from', []) for p in origin['source'].get('principals', [])]
+                if principal not in identities: continue
+                for target in rule.get('to', [{'operation': {}}]):
+                    operation = target['operation']
+                    if ('ports' not in operation or str(port) in operation['ports']) and str(port) not in operation.get('notPorts', []):
+                        return True
+            return False
+        prefixes = 'cluster.local/ns/'
+        callers = {'prometheus': prefixes + 'cloudlab-observability/sa/cloudlab-prometheus',
+            'app': prefixes + 'cloudlab-app-synthetic/sa/synthetic',
+            'same-namespace': prefixes + 'cloudlab-app-synthetic/sa/other',
+            'observability-peer': prefixes + 'cloudlab-observability/sa/cloudlab-alloy',
+            'public': prefixes + 'cloudlab-gateway-public/sa/cloudlab-istio',
+            'private': prefixes + 'cloudlab-gateway-private/sa/cloudlab-istio', 'unauthenticated': ''}
+        expected = {'prometheus': {9191}, 'app': {8080, 8443}, 'public': {8080}, 'private': {8443}}
+        for caller, principal in callers.items():
+            for port in (8080, 8443, 9191):
+                self.assertEqual(allowed(principal, port), port in expected.get(caller, set()), (caller, port))
+        definition['ports'].reverse()
+        self.assertEqual(next(o for o in policies() if o['kind'] == 'AuthorizationPolicy' and o['metadata']['name'] == 'platform-workloads'), policy)
+        workload = helm('charts/service', definition)
+        self.assertFalse(any(o['kind'] in ('PodMonitor', 'AuthorizationPolicy', 'NetworkPolicy') for o in workload))
+        service = next(o for o in workload if o['kind'] == 'Service')
+        self.assertEqual({p['port']: p['targetPort'] for p in service['spec']['ports']}, {9191: 'http-metrics', 8080: 'http', 8443: 'private'})
+
+    def test_native_limits_match_pinned_crd_and_rules_and_dashboards_reach_native_owners(self):
+        value = monitored_service_inputs()
+        overrides = native_overrides(value)
+        configuration = helm('platform/observability', overrides['cloudlab-observability'])
+        monitor = next(o for o in configuration if o['kind'] == 'PodMonitor' and o['metadata']['name'] == 'svc-synthetic')
+        archive = ROOT / 'platform/observability/prometheus/charts/kube-prometheus-stack-92.3.1.tgz'
+        with tarfile.open(archive) as source:
+            name = next(n for n in source.getnames() if n.endswith('/crd-podmonitors.yaml'))
+            crd = yaml.safe_load(source.extractfile(name))
+        schema = next(v for v in crd['spec']['versions'] if v['name'] == 'v1')['schema']['openAPIV3Schema']
+        jsonschema.validate(monitor, schema)
+        spec = monitor['spec']
+        self.assertEqual((spec['bodySizeLimit'], spec['sampleLimit'], spec['targetLimit'], spec['labelLimit']), ('1MB', 1000, 8, 20))
+        endpoint = spec['podMetricsEndpoints'][0]
+        self.assertFalse(endpoint['honorLabels'])
+        self.assertFalse(endpoint['honorTimestamps'])
+        self.assertEqual(spec['selector']['matchExpressions'], [{'key': 'cloudlab.io/release-analysis', 'operator': 'DoesNotExist'}])
+        rules = next(o for o in configuration if o['kind'] == 'PrometheusRule' and o['metadata']['name'] == 'svc-synthetic-availability')
+        alert = rules['spec']['groups'][0]['rules'][0]
+        self.assertEqual(alert['labels']['service'], 'synthetic')
+        self.assertIn('/d/svc-synthetic', alert['annotations']['dashboard_url'])
+        prometheus = render('prometheus', overrides['cloudlab-prometheus'])
+        dashboards = next(o['data'] for o in prometheus if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'cloudlab-dashboards')
+        self.assertEqual(json.loads(dashboards['svc-synthetic.json'])['uid'], 'svc-synthetic')
+        self.assertIn('ALERTS{', dashboards['active-alerts.json'])
+        links = json.loads(dashboards['active-alerts.json'])['links']
+        self.assertEqual(links, [{'title': 'synthetic', 'type': 'link', 'url': '/d/svc-synthetic'}])
+        empty = native_overrides(native_source_inputs())
+        self.assertEqual(empty['cloudlab-observability']['serviceMetrics'], {})
+
+    def test_target_limit_reserves_default_pod_quota_for_surge_and_terminating_overlap(self):
+        value = monitored_service_inputs()
+        definition = value['catalog'][0]['definition']
+        definition['replicas'] = 3
+        overrides = native_overrides(value)
+        configuration = helm('platform/observability', overrides['cloudlab-observability'])
+        monitor = next(o for o in configuration if o['kind'] == 'PodMonitor' and o['metadata']['name'] == 'svc-synthetic')
+        workload = next(o for o in helm('charts/service', definition) if o['kind'] == 'Deployment')
+        catalog = helm('platform/delivery/services', {
+            'repository': value['nativeSource']['repository'], 'catalog': value['catalog']})
+        quota = next(o for o in catalog if o['kind'] == 'ResourceQuota')
+        replicas = workload['spec']['replicas']
+        surge = workload['spec']['strategy']['rollingUpdate']['maxSurge']
+        targets = monitor['spec']['targetLimit']
+        self.assertEqual((replicas, surge), (3, 1))
+        self.assertEqual((int(quota['spec']['hard']['pods']), targets), (8, 8))
+        # Reserve the default pod quota, including overlap beyond one surge pod.
+        self.assertGreater(targets, replicas + surge)
+        definition['replicas'] = 4
+        with self.assertRaises(ValueError): native_overrides(value)
+        with self.assertRaises(ValueError): helm('charts/service', definition)
+        with self.assertRaises(ValueError):
+            helm('platform/delivery/services', {
+                'repository': value['nativeSource']['repository'], 'catalog': value['catalog']})
+
+    def test_rules_only_links_use_existing_active_alerts_fallback(self):
+        value = monitored_service_inputs()
+        value['serviceObservability']['synthetic'].pop('dashboard')
+        overrides = native_overrides(value)
+        rule = overrides['cloudlab-observability']['serviceRules']['svc-synthetic-availability']['groups'][0]['rules'][0]
+        self.assertTrue(rule['annotations']['dashboard_url'].endswith('/d/active-alerts'))
+        self.assertEqual(overrides['cloudlab-prometheus']['serviceDashboardLinks'], [])
+
+    def test_rule_dashboard_binding_and_total_payload_fail_closed(self):
+        for change in ('foreign', 'retired', 'label', 'record-name-label', 'record-state-label', 'duplicate', 'group', 'record', 'uid', 'datasource', 'editable', 'overflow'):
+            value = monitored_service_inputs()
+            entry = value['serviceObservability']['synthetic']
+            rule = entry['rules']['availability']['groups'][0]['rules'][0]
+            if change == 'foreign': value['catalog'] = []
+            if change == 'retired': value['catalog'][0]['publication'] = 'retired'
+            if change == 'label': rule['labels'] = {'service': 'forged'}
+            if change in ('record-name-label', 'record-state-label'):
+                entry['rules']['availability']['groups'][0]['rules'][1]['labels'] = {
+                    '__name__' if change == 'record-name-label' else 'alertstate': 'forged'}
+            if change == 'duplicate': entry['rules']['availability']['groups'][0]['rules'].append(copy.deepcopy(rule))
+            if change == 'group': entry['rules']['availability']['groups'] *= 2
+            if change == 'record': entry['rules']['availability']['groups'][0]['rules'][1]['record'] = 'svc_foreign:requests:sum'
+            if change == 'uid': entry['dashboard']['uid'] = 'foreign'
+            if change == 'datasource': entry['dashboard']['panels'][0]['datasource']['uid'] = 'foreign'
+            if change == 'editable': entry['dashboard']['editable'] = True
+            if change == 'overflow':
+                # Each board fits its cap, their total JSON-encoded inline values do not.
+                for n in range(5):
+                    name = 'service' + str(n)
+                    value['catalog'].append({'approval': {'name': name, 'namespace': 'cloudlab-app-' + name}, 'definition': {'name': name}, 'publication': 'published'})
+                    value['serviceObservability'][name] = {'dashboard': {'uid': 'svc-' + name, 'title': name, 'editable': False, 'panels': [], 'description': 'a' * 80000}}
+            with self.subTest(change=change), self.assertRaises(ValueError): native_overrides(value)

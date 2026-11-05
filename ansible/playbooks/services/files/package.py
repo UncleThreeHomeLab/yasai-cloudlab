@@ -10,6 +10,14 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[4]
 
 
+def monitoring_projections():
+    """Consumers validate the exact shared collection contract, independently."""
+    helper = (ROOT / 'charts/service/templates/_monitoring.tpl').read_bytes().replace(b'\r\n', b'\n')
+    return {ROOT / path: helper for path in (
+        'platform/delivery/services/templates/_monitoring.tpl',
+        'platform/observability/gitops/templates/_monitoring.tpl')}
+
+
 def service_chart():
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode='w', format=tarfile.USTAR_FORMAT) as archive:
@@ -56,6 +64,19 @@ def build():
     catalog_schema = json.loads(schema_path.read_text())
     catalog_schema['definitions']['service'] = json.loads((ROOT / 'charts/service/values.schema.json').read_text())
     schema_path.write_text(json.dumps(catalog_schema, indent=2) + '\n', newline='\n')
+    for path, raw in monitoring_projections().items():
+        path.write_bytes(raw)
+    native_path = ROOT / 'platform/observability/gitops/values.schema.json'
+    native = json.loads(native_path.read_text())
+    definition = native['properties']['catalog']['items']['properties']['definition']['properties']
+    source = catalog_schema['definitions']['service']['properties']
+    for field in ('monitoring', 'ports', 'health', 'exposure', 'additionalExposures', 'rollouts', 'replicas', 'owner'):
+        definition[field] = source[field]
+    native['properties']['catalog']['items']['properties']['definition']['allOf'] = [{
+        'if': {'required': ['monitoring'], 'properties': {'monitoring': {
+            'required': ['enabled'], 'properties': {'enabled': {'const': True}}}}},
+        'then': {'required': ['ports', 'health', 'exposure', 'rollouts', 'replicas', 'owner']}}]
+    native_path.write_text(json.dumps(native, indent=2) + '\n', newline='\n')
 
 
 def check():
@@ -74,6 +95,14 @@ def check():
     entry = catalog_schema['properties']['catalog']['items']['properties']
     if catalog_schema['definitions']['service'] != schema or entry['definition'] != {'$ref': '#/definitions/service'}:
         raise ValueError('Catalog schema differs from the authoritative service schema')
+    for path, raw in monitoring_projections().items():
+        if path.read_bytes().replace(b'\r\n', b'\n') != raw:
+            raise ValueError('Collection validator differs from its authoritative source')
+    native = json.loads((ROOT / 'platform/observability/gitops/values.schema.json').read_text())
+    definition = native['properties']['catalog']['items']['properties']['definition']['properties']
+    for field in ('monitoring', 'ports', 'health', 'exposure', 'additionalExposures', 'rollouts', 'replicas', 'owner'):
+        if definition[field] != schema['properties'][field]:
+            raise ValueError('Native collection schema differs: ' + field)
 
 
 

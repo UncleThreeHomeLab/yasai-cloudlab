@@ -3,9 +3,7 @@
 {{- if and .Values.persistence.enabled (gt (int .Values.replicas) 1) }}
 {{- fail "ReadWriteOnce service persistence requires one replica" }}
 {{- end }}
-{{- if .Values.monitoring.enabled }}
-{{- fail "Monitoring requires a separately accepted dependency integration" }}
-{{- end }}
+{{- $_ := include "cloudlab.service.monitoring" (dict "definition" $v) }}
 {{- if and .Values.rollouts.enabled (or .Values.persistence.enabled (eq .Values.exposure.class "none")) }}
 {{- fail "Rollouts require a stateless service and a Gateway API exposure" }}
 {{- end }}

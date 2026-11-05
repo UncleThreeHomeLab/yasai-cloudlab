@@ -55,6 +55,32 @@ def notification_application(inputs):
                 if obj and obj['metadata']['name'] == 'cloudlab-prometheus')
 
 
+def monitored_service_inputs():
+    """Reviewed compatible producer declaration, independent of Notes/release profiles."""
+    from playbooks.services.tests.fixtures import definition, approval
+    value = native_source_inputs()
+    service = definition()
+    service['ports'].append({'name': 'http-metrics', 'port': 9191})
+    service['monitoring'] = {'enabled': True, 'metrics': {'profile': 'cloudlab-http',
+        'endpoints': [{'port': 'http-metrics', 'path': '/metrics'}], 'routes': ['/api/items', '/api/items/:id']}}
+    allowed = approval()
+    allowed['chartPath'] = 'charts/service'
+    value['catalog'] = [{'approval': allowed, 'definition': service, 'publication': 'published'}]
+    value['serviceObservability'] = {'synthetic': {
+        'rules': {'availability': {'groups': [{'name': 'http', 'rules': [
+            {'alert': 'Svc_synthetic_Errors',
+             'expr': 'sum(cloudlab_http_requests_total{service="synthetic",status=~"5.."}) > 0',
+             'for': '3s', 'annotations': {'summary': 'Observed HTTP errors'}},
+            {'record': 'svc_synthetic:requests:sum',
+             'expr': 'sum(cloudlab_http_requests_total{service="synthetic"})'}]}]}},
+        'dashboard': {'uid': 'svc-synthetic', 'title': 'Synthetic', 'editable': False,
+            'schemaVersion': 39, 'panels': [{'id': 1, 'type': 'timeseries', 'title': 'Requests',
+                'datasource': {'type': 'prometheus', 'uid': 'metrics'},
+                'targets': [{'expr': 'cloudlab_http_requests_total{service="synthetic"}', 'refId': 'A'}],
+                'gridPos': {'x': 0, 'y': 0, 'w': 24, 'h': 8}}]}}}
+    return value
+
+
 def service_bindings():
     return [{'name': 'example-notes', 'namespace': 'fixture', 'workloads': [
         {'name': 'notes-api', 'kind': 'Deployment'}, {'name': 'notes-web', 'kind': 'Rollout'}]},
@@ -241,3 +267,21 @@ def rollout_visibility_tests():
     return {'rule_files': ['/workspace/platform/observability/prometheus/rollout-rules.yaml'],
             'evaluation_interval': '15s', 'tests': [{'name': name, 'interval': '15s', 'input_series': series,
                 'promql_expr_test': expectations} for name, series, expectations in cases]}
+
+
+def helm(chart, values):
+    import json
+    import subprocess
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).resolve().parents[4]
+    result = subprocess.run(['helm', 'template', 'fixture', str(root / chart), '-n', 'cloudlab-observability',
+        '--kube-version', '1.36.5', '-f', '-'], input=json.dumps(values), capture_output=True, text=True, timeout=90)
+    if result.returncode:
+        raise ValueError(result.stderr)
+    return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+
+
+def native_overrides(value):
+    return {obj['metadata']['name']: obj['spec']['sources'][0]['helm'].get('valuesObject', {})
+            for obj in helm('platform/observability/gitops', value)}

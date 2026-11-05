@@ -16,3 +16,4 @@ platformNotifications:
 alertmanagerState:
   storageClass: cloudlab-telemetry
   sizeGiB: 1
+serviceObservability: {}

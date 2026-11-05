@@ -1,0 +1,59 @@
+{
+  "uid": "active-alerts",
+  "title": "Active alerts",
+  "editable": false,
+  "schemaVersion": 39,
+  "tags": [
+    "platform",
+    "alerts"
+  ],
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Observed alerts",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Pending and firing alerts observed by Prometheus. Empty rows mean no active observed alerts; they do not prove health or rule coverage. Missing HTTP series and low traffic require investigation. Workload readiness describes readiness only."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Pending and firing",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metrics"
+      },
+      "gridPos": {
+        "h": 15,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{alertstate=~\"pending|firing\"}",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}
