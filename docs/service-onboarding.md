@@ -142,11 +142,18 @@ Its receipt fields are `version`, `consumer`, ordered `paths`, `revision` and
 `platform/observability.yaml`; permissions binds `platform/permissions.yaml`.
 `read_consumer` authenticates current protected public approval and reads the
 complete bundle at one accepted commit. Owners still validate their document
-profiles. Permissions verification checks authenticated parent/child ownership,
-approved revisions and health. Validate the exact pinned permission chart and input
-before approval: approved invalid values retain live grants but previous-revision
-drift repair remains unqualified. Production activation stays gated on consumer
-domain validation and qualified repair behavior.
+profiles. Permissions use normalized `cloudlab-permissions-input/v2`: the native
+Git generator extracts `permissions` into fixed inline chart values; unrelated
+root fields are not an authorization interface. One native validating admission policy owns private
+subject/profile/scope validation before Application updates. Public profiles have
+an independent owner at the same immutable chart pin. Start with an empty assignment
+list; converge catalog pin changes before adding IDs. Adding or reusing IDs requires
+complete old-state convergence at the same catalog pin. Missing profile
+projection pauses Application updates until its independent public owner restores it. Remove an ID,
+observe binding absence and fresh denial before reusing it. Production activation
+requires complete native invalid-input repair and separately established evaluator
+effectiveness. Stored declarations, status and admitted-source convergence alone
+do not authorize activation.
 
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service

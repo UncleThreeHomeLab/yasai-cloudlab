@@ -15,6 +15,38 @@
 {{- end -}}
 {{- if hasKey .Values.identity "argo" -}}
 {{- $private := .Values.identity.argo.valuesRepository -}}
+{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("permissions" | toJson) | replace "@@PRIVATE_REPOSITORY@@" ($private | toJson) | replace "@@COMMITMENT@@" ($acceptance | toJson) | replace "@@PATHS_LF@@" ("platform/permissions.yaml" | toJson) | trim -}}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: cloudlab-permissions-profiles, namespace: {{ .Values.namespace }}}
+spec:
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations: [{server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace }}}]
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: [{group: '', kind: ConfigMap}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-permissions-profiles
+  namespace: {{ .Values.namespace }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+spec:
+  project: cloudlab-permissions-profiles
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ $permissions.revision | quote }}
+    path: platform/connectivity/permissions
+    helm:
+      releaseName: cloudlab-permissions-profiles
+      valuesObject:
+        mode: profiles
+        context: {repository: {{ .Values.repository | quote }}, revision: {{ $permissions.revision | quote }}, commitment: {{ $acceptance | quote }}, namespace: {{ .Values.namespace }}}
+  destination: {server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace }}}
+  syncPolicy:
+    automated: {enabled: true, prune: true, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: cloudlab-permissions, namespace: {{ .Values.namespace }}}
@@ -66,33 +98,44 @@ spec:
   goTemplate: true
   goTemplateOptions: ['missingkey=error']
   generators:
-    - merge:
-        mergeKeys: [consumer]
+    - matrix:
         generators:
-          - list:
-              elements: [{consumer: permissions}]
           - git:
               repoURL: {{ $private | quote }}
               revision: main
               files: [{path: platform/acceptance/permissions.yaml}]
+          - git:
+              repoURL: {{ $private | quote }}
+              revision: {{ $gate | quote }}
+              pathParamPrefix: permissionInput
+              files: [{path: platform/permissions.yaml}]
   syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
   template:
     metadata:
       name: cloudlab-permissions
+      namespace: {{ .Values.namespace }}
       labels: {cloudlab.io/owner: permissions-platform}
       annotations:
         argocd.argoproj.io/compare-options: IgnoreExtraneous
         argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
         argocd.argoproj.io/tracking-id: {{ printf "cloudlab-public-root:argoproj.io/Application:%s/cloudlab-permissions" .Values.namespace | quote }}
+        cloudlab.io/permission-input-version: cloudlab-permissions-input/v2
+        cloudlab.io/permission-revision: '{{ "{{ .revision }}" }}'
+        cloudlab.io/permission-commitment: {{ $acceptance | quote }}
+        cloudlab.io/permission-public-revision: {{ $permissions.revision | quote }}
     spec:
-{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("permissions" | toJson) | replace "@@PRIVATE_REPOSITORY@@" ($private | toJson) | replace "@@COMMITMENT@@" ($acceptance | toJson) | replace "@@PATHS_LF@@" ("platform/permissions.yaml" | toJson) | trim }}
-{{- $spec := dict "project" "cloudlab-permissions" "sources" (list
-  (dict "repoURL" .Values.repository "targetRevision" $permissions.revision "path" "platform/connectivity/permissions" "helm" (dict "releaseName" "cloudlab-permissions" "valueFiles" (list "$values/platform/permissions.yaml")))
-  (dict "repoURL" $private "targetRevision" $gate "ref" "values"))
+{{- $spec := dict "project" "cloudlab-permissions" "source"
+  (dict "repoURL" .Values.repository "targetRevision" $permissions.revision "path" "platform/connectivity/permissions" "helm" (dict "releaseName" "cloudlab-permissions"))
   "destination" (dict "server" "https://kubernetes.default.svc" "namespace" .Values.namespace)
   "syncPolicy" (dict "automated" (dict "enabled" true "prune" true "selfHeal" true "allowEmpty" false)
     "syncOptions" (list "FailOnSharedResource=true" "DisableClientSideApplyMigration=true" "PrunePropagationPolicy=background")
     "retry" (dict "limit" 5 "backoff" (dict "duration" "5s" "factor" 2 "maxDuration" "1m"))) }}
 {{ toYaml $spec | indent 6 }}
+  templatePatch: |
+    spec:
+      source:
+        helm:
+          valuesObject:
+            permissions: {{ "{{ .permissions | toJson }}" }}
 {{- end }}
 {{- end }}

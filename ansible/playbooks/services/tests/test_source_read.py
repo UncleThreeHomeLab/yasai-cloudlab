@@ -68,6 +68,9 @@ class SourceReadTests(unittest.TestCase):
         for consumer in ('observability', 'permissions'):
             with self.subTest(consumer=consumer), ExitStack() as stack:
                 public, receipt, documents, _, calls, clients, fields, authority = self.consumer_fixture(stack, consumer=consumer)
+                if consumer == 'permissions':
+                    documents = {path: {'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest(), 'size': len(raw)}
+                        for path, value in documents.items() for raw in [yaml.safe_dump(value).encode()]}
                 result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, consumer, public=public)
                 self.assertEqual(result, {'consumer': consumer, 'publicRevision': 'c' * 40, 'proposalRevision': 'a' * 40,
                     'acceptedRevision': 'b' * 40, 'acceptanceCommitment': (public['observability']['configuration'] if consumer == 'observability' else public['permissions'])['acceptanceCommitment'],
@@ -77,6 +80,18 @@ class SourceReadTests(unittest.TestCase):
                     {'repositories': ['private'], 'permissions': {'contents': 'read'}})
                 authority.assert_called_once_with({'publicSource': {'repository': public['repository'], 'branch': 'main'}}, deadline=250)
                 self.assertTrue(all(client.deadline is not None for client in clients))
+
+    def test_permission_body_is_opaque_but_integrity_and_token_cleanup_remain_required(self):
+        for failure in ('malformed', 'incomplete', 'integrity'):
+            with self.subTest(failure=failure), ExitStack() as stack:
+                public, _, _, _, calls, _, _, _ = self.consumer_fixture(stack, consumer='permissions', failure=failure)
+                if failure == 'integrity':
+                    with self.assertRaises(RuntimeError):
+                        source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, 'permissions', public=public)
+                else:
+                    result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, 'permissions', public=public)
+                    self.assertEqual(set(result['inputs']['platform/permissions.yaml']), {'sha', 'size'})
+                self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
 
     def test_consumer_rejects_stale_public_context_missing_approval_or_repo_before_credentials(self):
         for case in ('enabled', 'paused', 'pin', 'commitment', 'path', 'service-pin', 'identity', 'external', 'missing-approval', 'missing-repo', 'same-repo-alias', 'source-failure'):

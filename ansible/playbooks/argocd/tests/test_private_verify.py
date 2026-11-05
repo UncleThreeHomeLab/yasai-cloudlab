@@ -19,8 +19,13 @@ class PermissionsConvergenceTests(unittest.TestCase):
     def setUpClass(cls):
         import yaml
         from private_sources import CONSUMER_ACCEPTANCE_VERSION, acceptance_spec, consumer_contract
-        chart = Path(__file__).resolve().parents[4] / 'gitops/roots/public'
-        cls.files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+        from private_verify import permissions_declaration
+        root = Path(__file__).resolve().parents[4]
+        cls.snapshots = {}
+        for directory in ('gitops/roots/public', 'platform/connectivity/permissions', 'platform/delivery/admission/policies'):
+            chart = root / directory
+            cls.snapshots[directory] = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+        cls.files = cls.snapshots['gitops/roots/public']
         cls.public = yaml.safe_load(cls.files['values.yaml'])
         cls.public['repository'] = 'https://github.com/example/platform.git'
         cls.repository = 'https://github.com/example/private.git'
@@ -33,73 +38,103 @@ class PermissionsConvergenceTests(unittest.TestCase):
         cls.evidence = {'publicRevision': 'c' * 40, 'acceptedRevision': receipt['revision'],
             'acceptanceCommitment': commitment, 'acceptanceReceipt': receipt,
             'contract': consumer_contract(cls.public, 'permissions'), 'applicationSet': cls.spec}
+        with patch('playbooks.data.files.native.published_source', return_value=(cls.public, 'c' * 40)), \
+                patch('playbooks.data.files.native.source_snapshot.chart_files', side_effect=lambda source, **kwargs: cls.snapshots[source['path']]):
+            cls.guard = permissions_declaration(cls.evidence, cls.repository)
 
     def objects(self):
         name = 'cloudlab-permissions'
         spec = copy.deepcopy(self.spec['template']['spec'])
-        spec['sources'][1]['targetRevision'] = self.evidence['acceptedRevision']
+        spec['source']['helm']['valuesObject'] = {'permissions': {'state': 'active', 'assignments': []}}
         parent = {'metadata': {'name': name, 'uid': 'parent', 'labels': {'cloudlab.io/owner': 'permissions-platform'},
             'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + name}},
             'spec': copy.deepcopy(self.spec), 'status': {'conditions': [{'type': 'ParametersGenerated', 'status': 'True'}]}}
         child = {'metadata': copy.deepcopy(self.spec['template']['metadata']) | {'uid': 'child', 'ownerReferences': [{
             'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': name,
             'uid': 'parent', 'controller': True, 'blockOwnerDeletion': True}]}, 'spec': spec,
-            'status': {'sync': {'status': 'Synced', 'revisions': ['a' * 40, 'b' * 40], 'comparedTo': {'sources': spec['sources']}},
+            'status': {'sync': {'status': 'Synced', 'revision': 'a' * 40, 'comparedTo': {'source': copy.deepcopy(spec['source']), 'destination': copy.deepcopy(spec['destination'])}},
                 'health': {'status': 'Healthy'}}}
+        child['metadata']['annotations']['cloudlab.io/permission-revision'] = 'b' * 40
         root = {'metadata': {'uid': 'root'}, 'spec': {'project': 'cloudlab-root', 'source': {
             'repoURL': self.public['repository'], 'targetRevision': 'main', 'path': 'gitops/roots/public',
             'helm': {'valuesObject': {'identity': {'argo': {'valuesRepository': self.repository, 'valuesRevision': 'd' * 40}}}}}},
             'status': {'sync': {'status': 'Synced', 'revision': 'c' * 40}, 'health': {'status': 'Healthy'}}}
-        return parent, child, root
+        profile = copy.deepcopy(self.guard['profileApplication'])
+        profile['metadata']['uid'] = 'profiles'
+        profile['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-permissions-profiles'
+        profile['status'] = {'sync': {'status': 'Synced', 'revision': 'a' * 40, 'comparedTo': {'source': copy.deepcopy(profile['spec']['source']), 'destination': copy.deepcopy(profile['spec']['destination'])}},
+            'health': {'status': 'Healthy'}}
+        projection = copy.deepcopy(self.guard['projection'])
+        projection['metadata'].update(uid='projection', annotations={'argocd.argoproj.io/tracking-id':
+            'cloudlab-permissions-profiles:/ConfigMap:argocd/cloudlab-permissions-profiles'})
+        objects = {('applicationset.argoproj.io', name): parent, ('application.argoproj.io', name): child,
+            ('application.argoproj.io', 'cloudlab-public-root'): root,
+            ('application.argoproj.io', 'cloudlab-permissions-profiles'): profile,
+            ('configmap', 'cloudlab-permissions-profiles'): projection}
+        for reference in self.guard['policies']:
+            policy = copy.deepcopy(reference)
+            kind, policy_name = policy['kind'], policy['metadata']['name']
+            policy['metadata'].update(uid=policy_name + kind, generation=2, annotations={'argocd.argoproj.io/tracking-id':
+                'cloudlab-workload-policy:admissionregistration.k8s.io/' + kind + ':cloudlab-policy/' + policy_name})
+            if kind == 'ValidatingAdmissionPolicy': policy['status'] = {'observedGeneration': 2, 'typeChecking': {}}
+            objects[kind.lower() + '.admissionregistration.k8s.io', policy_name] = policy
+        return objects
 
-    def test_exact_parent_child_and_root_reject_old_healthy_child_parent_errors_and_foreign_ownership(self):
+    def test_exact_parent_child_root_projection_and_current_guard_are_required(self):
         from private_verify import permissions_healthy
-        for case in ('valid', 'parent-error', 'parent-missing-status', 'parent-spec', 'owner', 'accepted-revision', 'compared-source', 'child-error', 'root-revision', 'root-override'):
-            parent, child, root = self.objects()
+        for case in ('valid', 'parent-error', 'owner', 'accepted-revision', 'compared-source', 'root-revision', 'root-override',
+                'projection', 'profile-source', 'policy', 'policy-readiness', 'policy-stale', 'policy-missing-generation', 'binding', 'missing-profile-guard'):
+            objects = self.objects()
+            parent = objects['applicationset.argoproj.io', 'cloudlab-permissions']
+            child = objects['application.argoproj.io', 'cloudlab-permissions']
+            root = objects['application.argoproj.io', 'cloudlab-public-root']
+            policy = objects['validatingadmissionpolicy.admissionregistration.k8s.io', 'cloudlab-permissions-input']
             if case == 'parent-error': parent['status']['conditions'].append({'type': 'ErrorOccurred', 'status': 'True'})
-            if case == 'parent-missing-status': parent.pop('status')
-            if case == 'parent-spec': parent['spec']['generators'] = []
             if case == 'owner': child['metadata']['ownerReferences'][0]['uid'] = 'foreign'
-            if case == 'accepted-revision': child['spec']['sources'][1]['targetRevision'] = 'e' * 40
+            if case == 'accepted-revision': child['metadata']['annotations']['cloudlab.io/permission-revision'] = 'e' * 40
             if case == 'compared-source': child['status']['sync'].pop('comparedTo')
-            if case == 'child-error': child['status']['conditions'] = [{'type': 'ComparisonError'}]
             if case == 'root-revision': root['status']['sync']['revision'] = 'e' * 40
             if case == 'root-override': root['spec']['source']['helm']['valuesObject']['permissions'] = {'enabled': False}
-            def get(kind, name):
-                return root if name == 'cloudlab-public-root' else parent if kind == 'applicationset.argoproj.io' else child
-            with self.subTest(case=case), patch('private_verify.get', side_effect=get):
-                self.assertEqual(bool(permissions_healthy(self.evidence, self.repository, self.spec)), case == 'valid')
+            if case == 'projection': objects['configmap', 'cloudlab-permissions-profiles']['data'] = {}
+            if case == 'profile-source': objects['application.argoproj.io', 'cloudlab-permissions-profiles']['status']['sync'].pop('comparedTo')
+            if case == 'policy': policy['spec']['failurePolicy'] = 'Ignore'
+            if case == 'policy-readiness': policy['status']['typeChecking']['expressionWarnings'] = [{'warning': 'synthetic'}]
+            if case == 'policy-stale': policy['metadata']['generation'] = 3
+            if case == 'binding': objects['validatingadmissionpolicybinding.admissionregistration.k8s.io', 'cloudlab-permissions-input']['spec']['paramRef']['parameterNotFoundAction'] = 'Allow'
+            if case == 'missing-profile-guard': objects.pop(('validatingadmissionpolicy.admissionregistration.k8s.io', 'cloudlab-permissions-profiles'))
+            if case == 'policy-missing-generation': policy['status'].pop('observedGeneration')
+            with self.subTest(case=case), patch('private_verify.get', side_effect=lambda kind, name: objects.get((kind, name))):
+                self.assertEqual(bool(permissions_healthy(self.evidence, self.repository, self.guard)), case == 'valid')
 
-    def test_declaration_authenticates_current_public_intent_and_native_snapshot(self):
+    def test_declaration_authenticates_current_public_intent_and_native_snapshots(self):
         from private_verify import permissions_declaration
         with patch('playbooks.data.files.native.published_source', return_value=(self.public, 'c' * 40)), \
-                patch('playbooks.data.files.native.source_snapshot.chart_files', return_value=self.files):
-            self.assertEqual(permissions_declaration(self.evidence, self.repository), self.spec)
+                patch('playbooks.data.files.native.source_snapshot.chart_files', side_effect=lambda source, **kwargs: self.snapshots[source['path']]):
+            self.assertEqual(permissions_declaration(self.evidence, self.repository), self.guard)
             for field, value in (('publicRevision', 'e' * 40), ('acceptedRevision', 'e' * 40), ('applicationSet', {})):
                 with self.subTest(field=field), self.assertRaises((RuntimeError, ValueError)):
                     permissions_declaration(dict(self.evidence, **{field: value}), self.repository)
 
-    def test_root_alternative_helm_inputs_cannot_override_the_authenticated_values_object(self):
+    def test_root_alternative_helm_inputs_cannot_override_authenticated_values(self):
         from private_verify import permissions_healthy
         for channel, value in ((None, None), ('parameters', [{'name': 'permissions.enabled', 'value': 'false'}]),
                 ('fileParameters', [{'name': 'permissions.enabled', 'path': 'override.txt'}]),
-                ('values', 'permissions:\n  enabled: false\n'), ('valueFiles', ['override.yaml'])):
-            parent, child, root = self.objects()
-            helm = root['spec']['source']['helm']
+                ('values', 'permissions: {enabled: false}'), ('valueFiles', ['override.yaml'])):
+            objects = self.objects()
+            helm = objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source']['helm']
             helm['valuesObject']['data'] = {'configuration': {'enabled': True}}
             if channel is not None: helm[channel] = value
-            def get(kind, name):
-                return root if name == 'cloudlab-public-root' else parent if kind == 'applicationset.argoproj.io' else child
-            with self.subTest(channel=channel), patch('private_verify.get', side_effect=get):
-                self.assertEqual(bool(permissions_healthy(self.evidence, self.repository, self.spec)), channel is None)
+            with self.subTest(channel=channel), patch('private_verify.get', side_effect=lambda kind, name: objects.get((kind, name))):
+                self.assertEqual(bool(permissions_healthy(self.evidence, self.repository, self.guard)), channel is None)
 
-    def test_active_child_or_parent_without_evidence_never_falls_back_to_generic_pin_health(self):
-        parent, child, _ = self.objects()
+    def test_pub_only_child_or_parent_without_evidence_never_uses_generic_pin_health(self):
+        objects = self.objects()
         for present in ('child', 'parent'):
+            child = objects['application.argoproj.io', 'cloudlab-permissions']
             consumer = child if present == 'child' else {'metadata': {'name': 'other'}, 'spec': {'source': {'repoURL': self.repository}}}
             payload = {'configuration_repository': self.repository, 'configuration_revision': 'd' * 40, 'sources': []}
             with self.subTest(present=present), patch('private_verify.kube', return_value=json.dumps({'items': [consumer]})), \
-                    patch('private_verify.get', return_value=parent), patch('private_verify.configuration_healthy') as health:
+                    patch('private_verify.get', side_effect=lambda kind, name: objects.get((kind, name))), patch('private_verify.configuration_healthy') as health:
                 with self.assertRaisesRegex(RuntimeError, 'authenticated consumer approval evidence'): run(payload)
                 health.assert_not_called()
 

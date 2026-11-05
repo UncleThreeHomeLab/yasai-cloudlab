@@ -145,10 +145,35 @@ def permissions_declaration(evidence, repository):
     expected = acceptance_spec(public, repository, evidence['acceptedRevision'], files=files, consumer='permissions')
     if expected != evidence.get('applicationSet'):
         raise RuntimeError('Permissions parent differs from its authenticated native declaration')
-    return expected
+    profile_files = native.source_snapshot.chart_files({'repository': public_repository,
+        'revision': current['context']['permissions']['revision'], 'path': 'platform/connectivity/permissions'}, deadline=deadline)
+    projection = native.render_objects(profile_files, [{'mode': 'profiles', 'context': {
+        'repository': public_repository, 'revision': current['context']['permissions']['revision'],
+        'commitment': current['acceptanceCommitment'], 'namespace': 'argocd'}}])
+    policy_files = native.source_snapshot.chart_files({'repository': public_repository,
+        'revision': revision, 'path': 'platform/delivery/admission/policies'}, deadline=deadline)
+    policies = [row for row in native.render_objects(policy_files, [])
+        if row['kind'] in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')
+        and row['metadata']['name'] in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')]
+    if (len(projection) != 1 or projection[0]['kind'] != 'ConfigMap' or len(policies) != 4
+            or {(row['kind'], row['metadata']['name']) for row in policies} != {
+                (kind, name) for kind in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')
+                for name in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')}):
+        raise RuntimeError('Permissions require their canonical public projection and input policy')
+    roots = native.render_objects(files, [public | {'identity': public['identity'] | {'argo': {
+        'valuesRepository': repository, 'valuesRevision': evidence['acceptedRevision']}}}])
+    profile_apps = [row for row in roots if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions-profiles']
+    if len(profile_apps) != 1:
+        raise RuntimeError('Permissions public profile owner is missing')
+    return {'parent': expected, 'projection': projection[0], 'policies': policies, 'profileApplication': profile_apps[0]}
 
 
 def permissions_healthy(evidence, repository, expected):
+    # Observe stored declarations, ownership, type checking and admitted-source
+    # convergence only. This is not current-evaluator effectiveness proof and
+    # cannot alone authorize production activation.
+    guard = expected
+    expected = guard['parent']
     name = 'cloudlab-permissions'
     parent = get('applicationset.argoproj.io', name) or {}
     meta = parent.get('metadata', {})
@@ -167,18 +192,62 @@ def permissions_healthy(evidence, repository, expected):
     child = get('application.argoproj.io', name) or {}
     child_meta = child.get('metadata', {})
     desired = copy.deepcopy(expected['template']['spec'])
-    desired['sources'][1]['targetRevision'] = evidence['acceptedRevision']
+    actual_source = child.get('spec', {}).get('source', {})
+    # Admission owns normalized private semantics; readiness observes its admitted
+    # source and proves that it belongs to this exact accepted parent revision.
+    desired['source'].setdefault('helm', {})['valuesObject'] = actual_source.get('helm', {}).get('valuesObject')
+    annotations = copy.deepcopy(expected['template']['metadata']['annotations'])
+    annotations['cloudlab.io/permission-revision'] = evidence['acceptedRevision']
     owner = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': name,
         'uid': meta['uid'], 'controller': True, 'blockOwnerDeletion': True}
     if (not isinstance(child_meta.get('uid'), str) or not child_meta['uid']
             or child_meta.get('deletionTimestamp') or child_meta.get('finalizers')
             or child_meta.get('ownerReferences') != [owner]
-            or any(child_meta.get(field, {}).get(key) != value
-                for field in ('labels', 'annotations') for key, value in expected['template']['metadata'].get(field, {}).items())
+            or child_meta.get('labels', {}).get('cloudlab.io/owner') != 'permissions-platform'
+            or any(child_meta.get('annotations', {}).get(key) != value for key, value in annotations.items())
             or child.get('spec') != desired
-            or child.get('status', {}).get('sync', {}).get('comparedTo', {}).get('sources') != desired['sources']
+            or not isinstance(desired['source']['helm']['valuesObject'], dict)
+            or set(desired['source']['helm']['valuesObject']) != {'permissions'}
+            or child.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source') != desired['source']
+            or child.get('status', {}).get('sync', {}).get('comparedTo', {}).get('destination') != desired['destination']
             or not application_healthy(child)):
         return False
+    projection = get('configmap', 'cloudlab-permissions-profiles') or {}
+    projection_meta = projection.get('metadata', {})
+    profile_app = get('application.argoproj.io', 'cloudlab-permissions-profiles') or {}
+    if (not projection_meta.get('uid') or projection_meta.get('deletionTimestamp') or projection_meta.get('ownerReferences')
+            or projection_meta.get('labels', {}).get('cloudlab.io/owner') != 'permissions-profile-platform'
+            or projection_meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                'cloudlab-permissions-profiles:/ConfigMap:argocd/cloudlab-permissions-profiles'
+            or projection.get('data') != guard['projection'].get('data')
+            or profile_app.get('spec') != guard['profileApplication']['spec']
+            or profile_app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source') != guard['profileApplication']['spec']['source']
+            or profile_app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('destination') != guard['profileApplication']['spec']['destination']
+            or not profile_app.get('metadata', {}).get('uid')
+            or profile_app['metadata'].get('deletionTimestamp') or profile_app['metadata'].get('ownerReferences')
+            or profile_app['metadata'].get('finalizers')
+            or profile_app['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-permissions-profiles'
+            or not application_healthy(profile_app)):
+        return False
+    for reference in guard['policies']:
+        kind, policy_name = reference['kind'], reference['metadata']['name']
+        policy = get(kind.lower() + '.admissionregistration.k8s.io', policy_name) or {}
+        policy_meta = policy.get('metadata', {})
+        status = policy.get('status', {})
+        if (not policy_meta.get('uid') or policy_meta.get('deletionTimestamp') or policy_meta.get('ownerReferences')
+                or policy.get('apiVersion') != reference['apiVersion'] or policy.get('kind') != kind
+                or policy_meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                    'cloudlab-workload-policy:admissionregistration.k8s.io/' + kind + ':cloudlab-policy/' + policy_name
+                or policy.get('spec') != reference['spec']):
+            return False
+        if kind == 'ValidatingAdmissionPolicy' and (
+                type(policy_meta.get('generation')) is not int
+                or status.get('observedGeneration') != policy_meta['generation']
+                or not isinstance(status.get('typeChecking'), dict)
+                or status['typeChecking'].get('expressionWarnings')
+                or any(row.get('status') == 'False' for row in status.get('conditions') or [])):
+            return False
     root = get('application.argoproj.io', 'cloudlab-public-root') or {}
     source = root.get('spec', {}).get('source', {})
     helm = source.get('helm', {})
@@ -212,16 +281,16 @@ def run(payload):
     applications = json.loads(kube('get', 'applications.argoproj.io', '-n', 'argocd', '-o', 'json'))['items']
     consumers = [app for app in applications if any(source.get('repoURL') == repository for source in
                  app['spec'].get('sources', [app['spec'].get('source', {})]))]
-    if not consumers:
-        raise RuntimeError('Actual private configuration source has no reconciled consumers')
     revision = payload.get('configuration_revision')
     symbolic_revisions = payload.get('symbolic_revisions')
     if not revision:
         raise RuntimeError('Private verification requires an authenticated configuration revision')
     permissions = payload.get('permissions')
-    if permissions is None and (any(app.get('metadata', {}).get('name') == 'cloudlab-permissions' for app in consumers)
+    if permissions is None and (any(app.get('metadata', {}).get('name') == 'cloudlab-permissions' for app in applications)
             or (get('applicationset.argoproj.io', 'cloudlab-permissions') or {}).get('metadata', {}).get('name') == 'cloudlab-permissions'):
         raise RuntimeError('Active permissions require authenticated consumer approval evidence')
+    if not consumers and permissions is None:
+        raise RuntimeError('Actual private configuration source has no reconciled consumers')
     permission_spec = permissions_declaration(permissions, repository) if permissions is not None else None
     if permission_spec is not None:
         wait(lambda: permissions_healthy(permissions, repository, permission_spec), 'permissions approval convergence')
@@ -230,6 +299,8 @@ def run(payload):
     for app in consumers:
         wait(lambda: configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions), 'configuration convergence')
         credential_owner(app, repository, secrets, externals)
+    if permission_spec is not None:
+        credential_owner({'spec': {'project': 'cloudlab-permissions'}}, repository, secrets, externals)
     if payload.get('catalog_enabled'):
         catalog = get('application.argoproj.io', APP) or {}
         evidence = {'repository': payload['public_repository'], 'revision': payload['platform_revision'],

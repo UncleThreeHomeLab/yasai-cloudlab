@@ -95,7 +95,7 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         from private_sources import acceptance_spec
         public, receipt = fixture('permissions')
         spec = acceptance_spec(public, REPOSITORY, 'a' * 40, consumer='permissions')
-        gate = spec['template']['spec']['sources'][1]['targetRevision']
+        gate = spec['generators'][0]['matrix']['generators'][1]['git']['revision']
         contract = consumer_contract(public, 'permissions')
         result = self.gate(contract, self.params(receipt), policy=gate)
         self.assertEqual(result.returncode, 0, result.stderr)

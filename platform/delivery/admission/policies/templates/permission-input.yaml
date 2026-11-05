@@ -1,0 +1,325 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-permissions-input
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Exact
+    namespaceSelector: {}
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - argoproj.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - applications
+      scope: Namespaced
+      resourceNames:
+      - cloudlab-permissions
+  matchConditions:
+  - name: fixed-permission-application
+    expression: |-
+      request.name == 'cloudlab-permissions'
+  variables:
+  - name: metadata
+    expression: |-
+      dyn(object.metadata)
+  - name: oldMetadata
+    expression: |-
+      request.operation == 'UPDATE' ? dyn(oldObject.metadata) : {}
+  - name: annotations
+    expression: |-
+      has(object.metadata.annotations) ? object.metadata.annotations : {}
+  - name: protected
+    expression: |-
+      ['cloudlab.io/permission-input-version', 'cloudlab.io/permission-revision', 'cloudlab.io/permission-commitment', 'cloudlab.io/permission-public-revision', 'argocd.argoproj.io/tracking-id', 'argocd.argoproj.io/compare-options', 'argocd.argoproj.io/sync-options']
+  - name: spec
+    expression: |-
+      dyn(object.spec)
+  - name: oldSpec
+    expression: |-
+      request.operation == 'UPDATE' ? dyn(oldObject.spec) : {}
+  - name: unchanged
+    expression: |-
+      request.operation == 'UPDATE' && variables.spec == variables.oldSpec && has(oldObject.metadata.annotations) && variables.protected.all(k, k in variables.annotations && k in oldObject.metadata.annotations && variables.annotations[k] == oldObject.metadata.annotations[k])
+  - name: source
+    expression: |-
+      variables.spec.source
+  - name: input
+    expression: |-
+      dyn(variables.source.helm.valuesObject).permissions
+  - name: assignments
+    expression: |-
+      variables.input.assignments
+  - name: oldAssignments
+    expression: |-
+      request.operation == 'CREATE' ? [] : dyn(variables.oldSpec.source.helm.valuesObject).permissions.assignments
+  - name: owner
+    expression: |-
+      variables.metadata.ownerReferences[0]
+  - name: controller
+    expression: |-
+      request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller'
+  - name: server
+    expression: |-
+      request.userInfo.username == 'system:serviceaccount:argocd:argocd-server'
+  - name: status
+    expression: |-
+      has(object.status) && object.status != null ? dyn(object.status) : {}
+  - name: oldStatus
+    expression: |-
+      request.operation == 'UPDATE' && has(oldObject.status) && oldObject.status != null ? dyn(oldObject.status) : {}
+  - name: operation
+    expression: |-
+      has(object.operation) && object.operation != null ? dyn(object.operation) : {}
+  - name: oldOperation
+    expression: |-
+      request.operation == 'UPDATE' && has(oldObject.operation) && oldObject.operation != null ? dyn(oldObject.operation) : {}
+  - name: carriedOperation
+    expression: |-
+      size(variables.oldOperation) > 0 && variables.operation == variables.oldOperation
+  - name: syncOptions
+    expression: |-
+      ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PrunePropagationPolicy=background']
+  - name: sameStatusExceptOperationState
+    expression: |-
+      variables.status.all(k, k == 'operationState' || (k in variables.oldStatus && variables.status[k] == variables.oldStatus[k])) && variables.oldStatus.all(k, k == 'operationState' || (k in variables.status && variables.oldStatus[k] == variables.status[k]))
+  validations:
+  - expression: |-
+      variables.metadata.namespace == 'argocd' &&
+      (!has(object.metadata.deletionTimestamp) || object.metadata.deletionTimestamp == null) &&
+      (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) &&
+      has(object.metadata.labels) && object.metadata.labels['cloudlab.io/owner'] == 'permissions-platform' &&
+      has(variables.metadata.ownerReferences) && size(variables.metadata.ownerReferences) == 1 &&
+      size(variables.owner) == 6 && variables.owner.all(k, k in ['apiVersion', 'kind', 'name', 'uid', 'controller', 'blockOwnerDeletion']) &&
+      variables.owner.apiVersion == 'argoproj.io/v1alpha1' && variables.owner.kind == 'ApplicationSet' &&
+      variables.owner.name == 'cloudlab-permissions' && type(variables.owner.uid) == string && size(variables.owner.uid) > 0 &&
+      variables.owner.controller == true && variables.owner.blockOwnerDeletion == true &&
+      (request.operation == 'CREATE' || variables.metadata.ownerReferences == variables.oldMetadata.ownerReferences)
+    message: Permission applications require their fixed native parent identity and immutable owner reference; adoption is refused.
+  - expression: |-
+      variables.protected.all(k, k in variables.annotations) &&
+       variables.annotations['cloudlab.io/permission-input-version'] == 'cloudlab-permissions-input/v2' &&
+       variables.annotations['cloudlab.io/permission-revision'].matches('^[a-f0-9]{40}$') &&
+       variables.annotations['cloudlab.io/permission-commitment'].matches('^[a-f0-9]{64}$') &&
+       variables.annotations['cloudlab.io/permission-public-revision'].matches('^[a-f0-9]{40}$') &&
+       variables.annotations['argocd.argoproj.io/tracking-id'] == 'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-permissions'
+      &&
+       variables.annotations['argocd.argoproj.io/compare-options'] == 'IgnoreExtraneous' &&
+       variables.annotations['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false' &&
+       !('argocd.argoproj.io/skip-reconcile' in variables.annotations) &&
+       variables.annotations.all(k, !k.startsWith('argocd.argoproj.io/') ||
+         k in ['argocd.argoproj.io/tracking-id', 'argocd.argoproj.io/compare-options',
+               'argocd.argoproj.io/sync-options', 'argocd.argoproj.io/refresh']) &&
+       (!('argocd.argoproj.io/refresh' in variables.annotations) || variables.annotations['argocd.argoproj.io/refresh']
+      in ['normal', 'hard'])
+    message: Permission reconciliation controls and source provenance cannot be disabled or overridden.
+  - expression: |-
+      variables.unchanged ||
+      (request.userInfo.username == 'system:serviceaccount:argocd:argocd-applicationset-controller' &&
+       params.data.inputVersion == 'cloudlab-permissions-input/v2' && params.data.namespace == 'argocd' &&
+       params.data.revision == variables.annotations['cloudlab.io/permission-public-revision'] &&
+       params.data.commitment == variables.annotations['cloudlab.io/permission-commitment'])
+    message: Only the native permission parent can change specifications and provenance against current public approval.
+  - expression: |-
+      variables.unchanged ||
+      (size(variables.spec) == 4 && variables.spec.all(k, k in ['project', 'source', 'destination', 'syncPolicy']) &&
+       variables.spec.project == 'cloudlab-permissions' &&
+       variables.spec.destination == {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'} &&
+       size(variables.spec.syncPolicy) == 3 && variables.spec.syncPolicy.all(k, k in ['automated', 'syncOptions',
+      'retry']) &&
+       variables.spec.syncPolicy.automated == {'enabled': true, 'prune': true, 'selfHeal': true, 'allowEmpty': false}
+      &&
+       variables.spec.syncPolicy.syncOptions == variables.syncOptions &&
+       size(variables.spec.syncPolicy.retry) == 2 && variables.spec.syncPolicy.retry.all(k, k in ['limit', 'backoff'])
+      &&
+       variables.spec.syncPolicy.retry.limit == 5 && size(variables.spec.syncPolicy.retry.backoff) == 3 &&
+       variables.spec.syncPolicy.retry.backoff.all(k, k in ['duration', 'factor', 'maxDuration']) &&
+       variables.spec.syncPolicy.retry.backoff.duration == '5s' && variables.spec.syncPolicy.retry.backoff.factor
+      == 2 &&
+       variables.spec.syncPolicy.retry.backoff.maxDuration == '1m' &&
+       size(variables.source) == 4 && variables.source.all(k, k in ['repoURL', 'targetRevision', 'path', 'helm'])
+      &&
+       variables.source.repoURL == params.data.repository && variables.source.targetRevision == params.data.revision
+      &&
+       variables.source.targetRevision.matches('^[a-f0-9]{40}$') && variables.source.path == 'platform/connectivity/permissions'
+      &&
+       size(variables.source.helm) == 2 && variables.source.helm.all(k, k in ['releaseName', 'valuesObject']) &&
+       variables.source.helm.releaseName == 'cloudlab-permissions' &&
+       type(variables.source.helm.valuesObject) == map && size(variables.source.helm.valuesObject) == 1 &&
+       variables.source.helm.valuesObject.all(k, k == 'permissions'))
+    message: Permission specifications use only the fixed immutable chart and canonical inline input.
+  - expression: |-
+      variables.unchanged || (type(variables.input) == map && size(variables.input) == 2 &&
+       variables.input.all(k, k in ['state', 'assignments']) &&
+       variables.input.state in ['active', 'retired'] && type(variables.assignments) == list &&
+       size(variables.assignments) <= 128 &&
+       (variables.input.state != 'retired' || size(variables.assignments) == 0) &&
+       variables.assignments.all(a, type(a) == map && size(a) == 4 &&
+         a.all(k, k in ['id', 'profile', 'subject', 'scope']) &&
+         type(a.id) == string && a.id.matches('^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$') &&
+         type(a.profile) == string && a.profile.matches('^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$') &&
+         variables.assignments.filter(b, b.id == a.id).size() == 1 &&
+         type(a.subject) == map && type(a.subject.name) == string && size(a.subject.name) > 0 && size(a.subject.name)
+      <= 253 &&
+         ((a.subject.kind == 'User' && size(a.subject) == 2 && a.subject.all(k, k in ['kind', 'name']) &&
+           !a.subject.name.matches('.*\\s.*') && !a.subject.name.startsWith('system:')) ||
+          (a.subject.kind == 'ServiceAccount' && size(a.subject) == 3 && a.subject.all(k, k in ['kind', 'name',
+      'namespace']) &&
+           a.subject.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$') &&
+           type(a.subject.namespace) == string && size(a.subject.namespace) <= 63 &&
+           a.subject.namespace.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'))) &&
+         type(a.scope) == map && size(a.scope) == 1 &&
+         (('namespace' in a.scope && type(a.scope.namespace) == string && size(a.scope.namespace) <= 63 &&
+            a.scope.namespace.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')) ||
+          ('cluster' in a.scope && a.scope.cluster == true)) &&
+         (a.profile + (('cluster' in a.scope) ? '.cluster' : '.namespace')) in params.data &&
+         params.data[a.profile + (('cluster' in a.scope) ? '.cluster' : '.namespace')] == 'true'))
+    message: Permission input violates its bounded subject, profile, scope or retirement contract.
+  - expression: |-
+      variables.unchanged || request.operation == 'CREATE' || variables.assignments.all(a, variables.oldAssignments.all(b, a.id != b.id || a == b))
+    message: Remove an assignment and wait for revocation before changing its subject, scope or profile.
+  - expression: |-
+      variables.unchanged ||
+      !variables.assignments.exists(a, !variables.oldAssignments.exists(b, a.id == b.id)) ||
+      (request.operation == 'UPDATE' && variables.source.targetRevision == variables.oldSpec.source.targetRevision &&
+       size(variables.oldOperation) == 0 &&
+       variables.oldStatus.sync.status == 'Synced' && variables.oldStatus.health.status == 'Healthy' &&
+       variables.oldStatus.sync.comparedTo.source == variables.oldSpec.source &&
+        variables.oldStatus.sync.comparedTo.destination == variables.oldSpec.destination &&
+       variables.oldStatus.sync.revision == variables.oldSpec.source.targetRevision &&
+       (!('operationState' in variables.oldStatus) || variables.oldStatus.operationState == null ||
+        variables.oldStatus.operationState.phase in ['Succeeded', 'Failed', 'Error']))
+    message: New or reused assignment IDs require the already converged catalog pin, current complete old-state convergence and completed revocation.
+  - expression: |-
+      request.operation == 'CREATE' ?
+      (size(variables.status) == 0 ||
+       (size(variables.status) == 4 && variables.status.all(k, k in ['sync', 'health', 'summary', 'sourceHydrator'])
+      &&
+        variables.status.health == {} && variables.status.summary == {} && variables.status.sourceHydrator == {}
+      &&
+        size(variables.status.sync) == 2 && variables.status.sync.all(k, k in ['status', 'comparedTo']) &&
+        variables.status.sync.status == '' && size(variables.status.sync.comparedTo) == 2 &&
+        variables.status.sync.comparedTo.all(k, k in ['source', 'destination']) &&
+        variables.status.sync.comparedTo.source == {'repoURL': ''} && variables.status.sync.comparedTo.destination
+      == {})) : (variables.controller || variables.status == variables.oldStatus ||
+       (variables.server && variables.sameStatusExceptOperationState &&
+        ((size(variables.oldOperation) == 0 && size(variables.operation) > 0 &&
+          (!('operationState' in variables.status) || variables.status.operationState == null)) ||
+         (variables.carriedOperation && 'operationState' in variables.oldStatus && 'operationState' in variables.status
+      &&
+          variables.oldStatus.operationState != null && variables.status.operationState != null &&
+          variables.status.operationState.phase == 'Terminating' &&
+          variables.status.operationState.all(k, k == 'phase' ||
+            (k in variables.oldStatus.operationState && variables.status.operationState[k] == variables.oldStatus.operationState[k]))
+      &&
+          variables.oldStatus.operationState.all(k, k == 'phase' ||
+            (k in variables.status.operationState && variables.oldStatus.operationState[k] == variables.status.operationState[k]))))))
+    message: Only the native controller can write convergence status; server operation start and termination preserve all other evidence.
+  - expression: |-
+      size(variables.operation) > 0 || size(variables.oldOperation) == 0 || variables.controller
+    message: Only the native application controller can clear an existing permission operation.
+  - expression: |-
+      size(variables.operation) == 0 ||
+      (variables.operation.all(k, k in ['sync', 'initiatedBy', 'info', 'retry']) &&
+       (!has(variables.operation.retry) || variables.operation.retry == variables.spec.syncPolicy.retry) &&
+       has(variables.operation.sync) &&
+       variables.operation.sync.all(k, k in ['revision', 'revisions', 'prune', 'dryRun', 'syncStrategy', 'resources',
+      'source', 'sources', 'syncOptions', 'autoHealAttemptsCount']) &&
+       (!has(variables.operation.sync.sources) || variables.operation.sync.sources == null || variables.operation.sync.sources
+      == []) &&
+       (!has(variables.operation.sync.revisions) || variables.operation.sync.revisions == null || variables.operation.sync.revisions
+      == []) &&
+       has(variables.operation.sync.syncOptions) && variables.operation.sync.syncOptions == variables.syncOptions
+      &&
+       (!has(variables.operation.sync.syncStrategy) ||
+        ((!has(variables.operation.sync.syncStrategy.apply) || !has(variables.operation.sync.syncStrategy.apply.force)
+      || !variables.operation.sync.syncStrategy.apply.force) &&
+         (!has(variables.operation.sync.syncStrategy.hook) || !has(variables.operation.sync.syncStrategy.hook.force)
+      || !variables.operation.sync.syncStrategy.hook.force))) &&
+       (variables.carriedOperation ||
+        ((variables.controller || (variables.server && size(variables.oldOperation) == 0)) &&
+         has(variables.operation.sync.source) && variables.operation.sync.source == variables.source &&
+         has(variables.operation.sync.revision) && variables.operation.sync.revision == variables.source.targetRevision)))
+    message: Permission operations cannot override admitted sources, revisions, manifests or safe synchronization options.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-permissions-input
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  policyName: cloudlab-permissions-input
+  validationActions:
+  - Deny
+  paramRef:
+    name: cloudlab-permissions-profiles
+    namespace: argocd
+    parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-permissions-profiles
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Exact
+    namespaceSelector: {}
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - configmaps
+      scope: Namespaced
+      resourceNames:
+      - cloudlab-permissions-profiles
+  matchConditions:
+  - name: fixed-public-profile-projection
+    expression: |-
+      request.name == 'cloudlab-permissions-profiles'
+  validations:
+  - expression: |-
+      request.namespace == 'argocd' && request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller' &&
+      (!has(object.metadata.deletionTimestamp) || object.metadata.deletionTimestamp == null) &&
+      (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) &&
+      (!has(dyn(object.metadata).ownerReferences) || size(dyn(object.metadata).ownerReferences) == 0) &&
+      has(object.metadata.labels) && object.metadata.labels['cloudlab.io/owner'] == 'permissions-profile-platform' &&
+      has(object.metadata.annotations) && object.metadata.annotations['argocd.argoproj.io/tracking-id'] ==
+       'cloudlab-permissions-profiles:/ConfigMap:argocd/cloudlab-permissions-profiles' &&
+      (request.operation == 'CREATE' ||
+       (has(oldObject.metadata.labels) && oldObject.metadata.labels['cloudlab.io/owner'] == 'permissions-profile-platform'
+      &&
+        has(oldObject.metadata.annotations) && oldObject.metadata.annotations['argocd.argoproj.io/tracking-id']
+      == object.metadata.annotations['argocd.argoproj.io/tracking-id']))
+    message: Permission profile projection requires its public chart owner; implicit adoption is refused.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-permissions-profiles
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  policyName: cloudlab-permissions-profiles
+  validationActions:
+  - Deny
