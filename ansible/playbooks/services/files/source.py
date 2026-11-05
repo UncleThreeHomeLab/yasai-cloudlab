@@ -1,5 +1,6 @@
 """Read versioned private intent with the existing scoped GitHub App."""
 import json
+import time
 import yaml
 
 from playbooks.secrets.files.vault import fields
@@ -8,26 +9,66 @@ from playbooks.argocd.files.github_setup import GitHub, repository
 from playbooks.keycloak.files.private_source import decode_contents
 
 WRITER = None
+READ_SECONDS = 180
+CLEANUP_SECONDS = 30
+METADATA_BYTES = 64 * 1024
+CONTENTS_BYTES = 2 * 1024 * 1024
 
 
 def read(values, *, include_revision=False):
     from playbooks.services.files.owner import configuration
-    selected_path = configuration()['catalogPath']
-    credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
-    api = GitHub(app_token(credentials))
-    path = 'app/installations/' + credentials['INSTALLATION_ID']
-    verify_installation(api.request('GET', path), credentials['APP_ID'])
-    repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
-    token = api.request('POST', path + '/access_tokens', {
-        'repositories': [repo.split('/')[1]], 'permissions': {'contents': 'read'}})['token']
-    client = GitHub(token)
+    deadline = time.monotonic() + READ_SECONDS
+    work_deadline = deadline - CLEANUP_SECONDS
+    stage, failure, cleanup = 'configuration', None, 'not-issued'
+    token, result = None, None
     try:
+        selected_path = configuration()['catalogPath']
+        stage = 'credentials'
+        credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+        if time.monotonic() >= work_deadline:
+            raise RuntimeError('Read deadline expired')
+        api = GitHub(app_token(credentials), deadline=work_deadline, max_response=METADATA_BYTES)
+        path = 'app/installations/' + credentials['INSTALLATION_ID']
+        stage = 'installation'
+        verify_installation(api.request('GET', path), credentials['APP_ID'])
+        repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
+        if time.monotonic() >= work_deadline:
+            raise RuntimeError('Read deadline expired')
+        stage, cleanup = 'issuance', 'issuance-unconfirmed'
+        token = api.request('POST', path + '/access_tokens', {
+            'repositories': [repo.split('/')[1]], 'permissions': {'contents': 'read'}})['token']
+        if not isinstance(token, str) or not token:
+            raise RuntimeError('Invalid read credential')
+        stage = 'catalog'
+        client = GitHub(token, deadline=work_deadline, max_response=METADATA_BYTES)
         revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
+        client = GitHub(token, deadline=work_deadline, max_response=CONTENTS_BYTES)
         value = client.request('GET', 'repos/' + repo + '/contents/' + selected_path + '?ref=' + revision)
         catalog = yaml.safe_load(decode_contents(value))
-        return (catalog, revision) if include_revision else catalog
+        if time.monotonic() >= work_deadline:
+            raise RuntimeError('Read deadline expired')
+        result = (catalog, revision) if include_revision else catalog
+        stage = 'complete'
+    except Exception:
+        failure = stage
     finally:
-        client.request('DELETE', 'installation/token')
+        if isinstance(token, str) and token:
+            cleanup = 'unconfirmed'
+            try:
+                # Revocation retains its reserved budget after the read expires.
+                revoked = GitHub(token, deadline=min(deadline, time.monotonic() + CLEANUP_SECONDS), max_response=METADATA_BYTES).request(
+                    'DELETE', 'installation/token')
+                if revoked is not None:
+                    raise RuntimeError('Token revocation was not acknowledged')
+                cleanup = 'revoked'
+            except Exception:
+                state = 'complete' if stage == 'complete' else 'failed at ' + stage
+                raise RuntimeError('Private catalog read: ' + state + '; token cleanup: unconfirmed') from None
+    if time.monotonic() > deadline:
+        failure = failure or 'deadline'
+    if failure is not None:
+        raise RuntimeError('Private catalog read failed at ' + failure + '; token cleanup: ' + cleanup) from None
+    return result
 
 
 def publish(value, *, expected=None):
