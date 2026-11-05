@@ -106,6 +106,8 @@ def retire_delivery(request):
         path = BASE / ('proof-' + nonce + '.json')
         record = json.loads(path.read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
+        from playbooks.keycloak.files.ownership import accepted_application
+        accepted_application(app, revision=owner.get('revision'), base=BASE)
         values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
         if (owner.get('phase') != 'scoped' or record.get('nonce') != nonce or
                 record.get('phase') != 'enrolled' or not record.get('user_id') or
@@ -148,6 +150,8 @@ def enroll(request, *, stage=False, application_owner=False):
         owner = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
         values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
+        from playbooks.keycloak.files.ownership import accepted_application
+        accepted_application(app, revision=owner.get('revision'), base=BASE)
         checkpoint = BASE / ('proof-' + nonce + '.json')
         saved = json.loads(checkpoint.read_text()) if checkpoint.exists() else {}
         if saved.get('delivery_retired'):

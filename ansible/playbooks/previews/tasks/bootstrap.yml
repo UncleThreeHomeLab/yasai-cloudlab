@@ -38,6 +38,8 @@
     mode: '0600'
   loop:
     - {owner: keycloak, name: maintenance.py}
+    - {owner: keycloak, name: ownership.py}
+    - {owner: keycloak, name: configuration.py}
     - {owner: istio, name: kube.py}
 
 - name: Require accepted native identity and source readiness before discovery credentials

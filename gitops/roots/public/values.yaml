@@ -38,6 +38,8 @@ data:
     seaweedfsRevision: 854be1ad6f1ad821297db21a660b8d07560c9b38
 identity:
   enabled: true
+  application:
+    enabled: false
 services:
   enabled: true
   revision: 1d46b7c645c1fe8048d1710b3070ba1fdf2b59c2

@@ -1,11 +1,14 @@
 """Declared host assets preserve identity operations without workstation imports."""
 import os
+import copy
+import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from jinja2 import Template
 import yaml
@@ -15,6 +18,58 @@ OWNER = ROOT / 'ansible/playbooks/keycloak'
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_native_installation_render_and_typed_private_patch_refuse_other_pins(self):
+        from playbooks.keycloak.files import ownership
+        root = ROOT / 'gitops/roots/public'
+        public = yaml.safe_load((root / 'values.yaml').read_text())
+        def render(values):
+            result = subprocess.run(['helm', 'template', 'cloudlab-public-root', str(root), '-f', '-'],
+                input=json.dumps(values), capture_output=True, text=True, timeout=30, check=True)
+            return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+        self.assertFalse(any(obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity' for obj in render(public)))
+        public['identity']['application']['enabled'] = True
+        self.assertFalse(any(obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity' for obj in render(public)))
+        public['identity']['argo'] = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private-fixture.git', 'valuesRevision': 'a' * 40}
+        parent = next(obj for obj in render(public) if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity')['spec']
+        self.assertEqual(parent['template']['spec']['source']['targetRevision'], ownership.INSTALLATION_REVISION)
+        self.assertNotIn('sources', parent['template']['spec'])
+        self.assertEqual(parent['ignoreApplicationDifferences'], [{'jsonPointers': ['/spec/source/helm/valuesObject/' + field for field in ownership.OPERATION_FIELDS]}])
+        generators = parent['generators'][0]['merge']['generators']
+        self.assertEqual(generators[0]['list']['elements'], [{'installationRevision': ownership.INSTALLATION_REVISION}])
+        self.assertEqual(generators[1]['git']['revision'], 'a' * 40)
+        self.assertEqual(generators[1]['git']['files'], [{'path': 'identity/keycloak-values.yaml'}])
+        self.assertEqual(parent['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
+        invalid_binding = copy.deepcopy(public); invalid_binding['identity']['argo']['valuesRevision'] = 'main'
+        with self.assertRaises(subprocess.CalledProcessError): render(invalid_binding)
+        document = {'installationRevision': ownership.INSTALLATION_REVISION, 'loginHost': 'login.example.invalid',
+            'adminHost': 'identity-admin.internal.example.invalid', 'database': 'keycloak', 'databaseRole': 'keycloak',
+            'databaseHost': 'cloudlab-postgres-rw.cloudlab-data.svc.cluster.local', 'databasePort': 5432,
+            'databaseCA': 'synthetic-ca', 'trustedProxyAddresses': ['10.42.0.0/24'], 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32}
+        with tempfile.TemporaryDirectory() as directory:
+            chart = Path(directory); (chart / 'templates').mkdir()
+            (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: identity-patch-proof\nversion: 1.0.0\n')
+            (chart / 'templates/patch.yaml').write_text('apiVersion: v1\nkind: ConfigMap\nmetadata: {name: proof}\ndata:\n  patch: {{ tpl .Values.policy .Values.input | quote }}\n')
+            for case in ('valid', 'missing-file', 'pin', 'metadata', 'cidr', 'port', 'reserved-database'):
+                candidate = copy.deepcopy(document)
+                if case == 'missing-file': candidate = generators[0]['list']['elements'][0]
+                if case == 'pin': candidate['installationRevision'] = 'b' * 40
+                if case == 'metadata': candidate['metadata'] = {'name': 'foreign'}
+                if case == 'cidr': candidate['trustedProxyAddresses'] = ['10.42.0.1/24']
+                if case == 'port': candidate['databasePort'] = '5432'
+                if case == 'reserved-database': candidate['databaseRole'] = 'postgres'
+                candidate['path'] = {'path': 'identity', 'filename': 'keycloak-values.yaml', 'segments': ['identity']}
+                result = subprocess.run(['helm', 'template', 'proof', str(chart), '-f', '-'],
+                    input=json.dumps({'policy': parent['templatePatch'], 'input': candidate}), capture_output=True, text=True, timeout=30)
+                if case == 'valid':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = yaml.safe_load(yaml.safe_load(result.stdout)['data']['patch'])['spec']['source']['helm']['valuesObject']
+                    self.assertIs(type(values['databasePort']), int); self.assertIs(type(values['trustedProxyAddresses']), list)
+                    self.assertEqual(values, {key: value for key, value in document.items() if key != 'installationRevision'})
+                    ownership.installation_values(document)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Identity installation input refused', result.stderr)
+
     def test_installed_runtime_imports_without_checkout_or_pythonpath(self):
         tasks = []
         for path in (ROOT / 'ansible/playbooks/data/tasks/runtime.yml',

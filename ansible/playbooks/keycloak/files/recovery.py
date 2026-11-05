@@ -23,6 +23,8 @@ def capture_state():
     app = get('application.argoproj.io', APP, 'argocd')
     if not app:
         return None
+    from playbooks.keycloak.files.ownership import accepted_application
+    accepted_application(app)
     if app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
         raise RuntimeError('Identity recovery cannot inventory a foreign owner')
     values = app['spec']['source']['helm']['valuesObject']

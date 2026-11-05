@@ -30,6 +30,8 @@ def remove(request):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         app = get('application.argoproj.io', APP, 'argocd') or {}
         state = json.loads((BASE / 'ownership.json').read_text())
+        from playbooks.keycloak.files.ownership import accepted_application
+        accepted_application(app, revision=state.get('revision'), base=BASE)
         if (app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 app['metadata']['uid'] != state['uid'] or state['phase'] != 'scoped'):
             raise RuntimeError('Removal requires the unchanged scoped identity owner')
@@ -133,6 +135,8 @@ def offboard(request):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
+        from playbooks.keycloak.files.ownership import accepted_application
+        accepted_application(app, revision=state.get('revision'), base=BASE)
         if (state.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != state.get('uid')
                 or app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or not application_ready(APP, state['revision'])):

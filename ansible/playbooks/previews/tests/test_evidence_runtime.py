@@ -89,6 +89,7 @@ class EvidenceTests(unittest.TestCase):
         request = {'action': 'lifecycle', 'nonce': 'e'*32, 'realm': 'applications',
             'approvals': [], 'expected': {}, 'revision': requested}
         with patch.object(maintenance, 'BASE') as base, \
+                patch('playbooks.keycloak.files.ownership.ownership_receipt', return_value=receipts['ownership.json']), \
                 patch.object(maintenance, 'get', side_effect=lambda kind,*args: app if kind == 'application.argoproj.io' else server), \
                 patch.object(maintenance, 'application_ready', side_effect=lambda name,revision: revision == old), \
                 patch.object(maintenance, 'contains', return_value=True), patch.object(maintenance, 'condition', return_value=True), \

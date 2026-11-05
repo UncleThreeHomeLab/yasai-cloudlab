@@ -29,6 +29,8 @@ def digest(value):
 
 
 def phase_sync_patches(current, revision):
+    from playbooks.keycloak.files.ownership import accepted_application
+    accepted_application(current, revision=revision, base=BASE)
     if not re.fullmatch('[a-f0-9]{40}', revision) or current.get('operation'):
         raise RuntimeError('Emergency phase requires an immutable revision and no active Argo operation')
     # Hook-only changes do not make an Application OutOfSync. Request a full,
@@ -138,6 +140,8 @@ def current_private(values, primary):
 def owner():
     receipt = json.loads((BASE / 'ownership.json').read_text())
     app = get('application.argoproj.io', APP, 'argocd') or {}
+    from playbooks.keycloak.files.ownership import accepted_application
+    accepted_application(app, revision=receipt.get('revision'), base=BASE)
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
     if (receipt.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != receipt.get('uid') or
             app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER):

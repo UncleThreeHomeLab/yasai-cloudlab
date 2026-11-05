@@ -173,7 +173,8 @@ def run(request):
     from playbooks.keycloak.files.maintenance import accepted_scoped_identity
     from playbooks.keycloak.files.configuration import private_request
     from playbooks.keycloak.files.emergency import vault_secret
-    accepted_scoped_identity(revision=request['revision'])
+    from playbooks.keycloak.files.ownership import installation_revision
+    accepted_scoped_identity(revision=installation_revision(request['revision']))
     app = get('application.argoproj.io', 'cloudlab-identity', 'argocd')
     admin = app['spec']['source']['helm']['valuesObject']['adminHost']
     approvals = get('configmap', contract.APPROVALS, 'argocd')

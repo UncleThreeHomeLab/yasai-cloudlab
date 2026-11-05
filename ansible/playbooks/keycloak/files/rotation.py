@@ -66,6 +66,8 @@ def inventory(request):
     from playbooks.keycloak.files.bootstrap import private_inputs
     request_scope(request)
     app = get('application.argoproj.io', APP, 'argocd') or {}
+    from playbooks.keycloak.files.ownership import accepted_application
+    accepted_application(app)
     if app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER:
         raise RuntimeError('Credential operation requires the designated identity owner')
     values = app['spec']['source']['helm']['valuesObject']

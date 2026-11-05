@@ -18,7 +18,8 @@ from playbooks.argocd.files.sync_recovery import recovered_secret_sync
 from playbooks.keycloak.files.lease import available, previous_writer_done
 
 from playbooks.keycloak.files.ownership import (PHASES, completed_job_retention, check_private_owner,
-    private_resources, discover, application, prerequisites, private_inputs, branch_handoff_patches, enrollment_handoff)
+    private_resources, discover, application, prerequisites, private_inputs, branch_handoff_patches, enrollment_handoff,
+    accepted_application, prepare_native)
 
 
 def writer_idle():
@@ -64,9 +65,15 @@ def run(payload, phase, *, retained_only=False):
         if retained_only and (phase != 'scoped' or not retirement or not state or state.get('phase') != 'scoped'):
             raise RuntimeError('Normal apply requires an accepted retired scoped identity owner')
         current = get('application.argoproj.io', APP, 'argocd')
+        handoff = payload.get('native_handoff') is True
+        native_revision = accepted_application(current or {}, base=BASE,
+            revision=payload.get('installation_revision'), register=retained_only) if current and (
+                not handoff or (state or {}).get('native', {}).get('phase') == 'accepted') else None
+        if payload.get('identity_application_enabled') and not native_revision and not handoff:
+            raise RuntimeError('Prepare and adopt the accepted identity installation before normal setup')
         if current and (not state or current['metadata']['uid'] != state['uid'] or
                         current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
-                        current['metadata'].get('finalizers') or current['metadata'].get('ownerReferences')):
+                        current['metadata'].get('finalizers') or (current['metadata'].get('ownerReferences') and not native_revision)):
             raise RuntimeError('Identity Application has conflicting or changed ownership')
         if state and not current:
             raise RuntimeError('Identity Application identity was lost; automatic recreation refused')
@@ -74,6 +81,17 @@ def run(payload, phase, *, retained_only=False):
             raise RuntimeError('Accepted retirement resource identity changed; bootstrap recreation refused')
         if retirement and retirement.get('keycloak_uid') != (get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}).get('metadata', {}).get('uid'):
             raise RuntimeError('Accepted retirement server identity changed; recovery review required')
+        if payload.get('native_handoff') is True:
+            if not retained_only or not current or not state or not retirement:
+                raise RuntimeError('Native handoff requires the retained scoped owner')
+            private_inputs(payload)
+            changed = prepare_native(payload, current, state, retirement, base=BASE)
+            return {'changed': changed, 'phase': phase, 'native_handoff_prepared': True, 'bootstrap_admin_retired': True}
+        identity_revision = native_revision or payload['revision']
+        if native_revision:
+            # The prepared or accepted native owner alone controls routine App fields.
+            desired = current
+            state = json.loads(receipt.read_text())
         previous = state['phase'] if state else None
         recovery = BASE / 'startup-recovery.json'
         if recovery.exists() and json.loads(recovery.read_text()).get('phase') != 'accepted':
@@ -81,7 +99,7 @@ def run(payload, phase, *, retained_only=False):
         if (previous is None and phase != 'server') or (previous is not None and
                 PHASES.index(phase) not in (PHASES.index(previous), PHASES.index(previous) + 1)):
             raise RuntimeError('Identity bootstrap phase transition is not permitted')
-        if previous is not None and previous != phase and (not application_ready(APP, payload['revision']) or
+        if previous is not None and previous != phase and (not application_ready(APP, identity_revision) or
                 not condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready')):
             raise RuntimeError('Previous identity phase must converge before advancing')
         if current and current['spec']['source']['helm']['valuesObject'].get('operation'):
@@ -115,12 +133,13 @@ def run(payload, phase, *, retained_only=False):
             kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
         current = get('application.argoproj.io', APP, 'argocd')
         # Save identity before waiting so interrupted convergence can resume safely.
-        checkpoint = {'uid': current['metadata']['uid'], 'phase': phase, 'revision': payload['revision'],
+        checkpoint = {'uid': current['metadata']['uid'], 'phase': phase, 'revision': identity_revision,
                       'private_uids': private_uids}
+        if native_revision: checkpoint['native'] = state['native']
         receipt_changed = state != checkpoint
         atomic(receipt, checkpoint)
         changed = changed or private_changed or receipt_changed
-        wait(lambda: reconciled(payload['revision'], current['metadata']['uid']) and
+        wait(lambda: reconciled(identity_revision, current['metadata']['uid']) and
              condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready'),
              'identity Application and server readiness convergence', timeout=900)
         if phase == 'scoped':

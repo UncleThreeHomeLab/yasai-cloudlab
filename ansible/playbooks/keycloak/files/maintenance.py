@@ -24,12 +24,14 @@ def accepted_scoped_identity(*, revision):
     if not isinstance(receipt, dict) or not isinstance(retirement, dict):
         raise RuntimeError('Accepted scoped identity receipts are invalid')
     app = get('application.argoproj.io', APP, 'argocd') or {}
+    from playbooks.keycloak.files.ownership import accepted_application
+    native_revision = accepted_application(app, revision=revision, base=BASE)
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
     values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
     if (receipt.get('phase') != 'scoped' or receipt.get('revision') != revision or not receipt.get('uid') or
             app.get('metadata', {}).get('uid') != receipt['uid'] or
             app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
-            app['metadata'].get('ownerReferences') or app['metadata'].get('finalizers') or app['metadata'].get('deletionTimestamp') or
+            (app['metadata'].get('ownerReferences') and not native_revision) or app['metadata'].get('finalizers') or app['metadata'].get('deletionTimestamp') or
             retirement.get('phase') != 'accepted' or retirement.get('application_uid') != receipt['uid'] or
             not retirement.get('keycloak_uid') or server.get('metadata', {}).get('uid') != retirement['keycloak_uid'] or
             server.get('metadata', {}).get('deletionTimestamp') or
@@ -52,6 +54,8 @@ def _set_maintenance(enabled, identities=None):
         raise RuntimeError('Startup recovery resource identity changed')
     if not app:
         return False
+    from playbooks.keycloak.files.ownership import accepted_application
+    accepted_application(app, base=BASE)
     if app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
         raise RuntimeError('Identity backup boundary cannot modify a foreign Application')
     desired = app['spec']['source']['helm']['valuesObject']
@@ -110,6 +114,8 @@ def recover_startup():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         ownership = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
+        from playbooks.keycloak.files.ownership import accepted_application
+        accepted_application(app, base=BASE)
         values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
         if (ownership.get('phase') != 'server' or app.get('metadata', {}).get('uid') != ownership.get('uid') or
                 app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or

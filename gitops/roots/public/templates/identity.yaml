@@ -22,7 +22,11 @@ metadata:
   name: cloudlab-{{ $name }}
   namespace: argocd
 spec:
-  sourceRepos: [{{ $.Values.repository | quote }}]
+  sourceRepos:
+    - {{ $.Values.repository | quote }}
+    {{- if and (eq $name "identity") $.Values.identity.application.enabled $.Values.identity.argo }}
+    - {{ $.Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations:
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
     - {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity-admin}

@@ -65,9 +65,12 @@ def run(payload):
             prerequisites(payload)
         receipt = json.loads((BASE / 'ownership.json').read_text())
         current = get('application.argoproj.io', APP, 'argocd') or {}
+        from playbooks.keycloak.files.ownership import accepted_application, installation_revision
+        identity_revision = installation_revision(payload['revision'], base=BASE)
+        accepted_application(current, revision=identity_revision, base=BASE)
         if (receipt.get('phase') != 'scoped' or current.get('metadata', {}).get('uid') != receipt.get('uid') or
                 current.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
-                not application_ready(APP, payload['revision'])):
+                not application_ready(APP, identity_revision)):
             raise RuntimeError('Native Argo requires converged scoped identity reconciliation')
         if recovery is None:
             source, revoked, private_revision = private_inputs(payload)

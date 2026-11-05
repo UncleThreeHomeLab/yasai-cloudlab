@@ -96,6 +96,8 @@ def snapshot(team):
     from playbooks.istio.files.kube import application_ready, condition, get
     ownership = json.loads((BASE / 'ownership.json').read_text())
     app = get('application.argoproj.io', APP, 'argocd') or {}
+    from playbooks.keycloak.files.ownership import accepted_application
+    accepted_application(app, revision=ownership.get('revision'), base=BASE)
     native = Path('/var/lib/cloudlab/gitops/identity-values-binding.json')
     if (ownership.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != ownership.get('uid') or
             app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
