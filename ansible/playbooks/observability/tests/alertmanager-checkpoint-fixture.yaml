@@ -1,0 +1,214 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: '${NAMESPACE}'
+  labels:
+    cloudlab.io/owner: observability-checkpoint-proof
+    cloudlab.io/checkpoint-proof: '${OPERATION}'
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    istio.io/dataplane-mode: ambient
+    istio-injection: disabled
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: proof, namespace: '${NAMESPACE}'}
+spec:
+  hard:
+    pods: '8'
+    requests.cpu: 500m
+    limits.cpu: '2'
+    requests.memory: 768Mi
+    limits.memory: 2Gi
+    persistentvolumeclaims: '1'
+    requests.storage: 1Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: proof-operator, namespace: '${NAMESPACE}'}
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: proof-client, namespace: '${NAMESPACE}'}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: proof-alertmanager, namespace: '${NAMESPACE}'}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: proof-operator, namespace: '${NAMESPACE}'}
+rules:
+  - apiGroups: [monitoring.coreos.com]
+    resources: [alertmanagers, alertmanagerconfigs]
+    verbs: [get, list, watch]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [alertmanagers/status, alertmanagers/finalizers]
+    verbs: [get, update, patch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [secrets, services]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: proof-operator, namespace: '${NAMESPACE}'}
+subjects: [{kind: ServiceAccount, name: proof-operator, namespace: '${NAMESPACE}'}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: proof-operator}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: 'checkpoint-${OPERATION}'}
+rules:
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectaccessreviews]
+    verbs: [create]
+  - apiGroups: ['']
+    resources: [namespaces]
+    resourceNames: ['${NAMESPACE}']
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: 'checkpoint-${OPERATION}'}
+subjects: [{kind: ServiceAccount, name: proof-operator, namespace: '${NAMESPACE}'}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: 'checkpoint-${OPERATION}'}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: '${NAMESPACE}'}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: fixture-http, namespace: '${NAMESPACE}'}
+spec:
+  podSelector:
+    matchLabels: {cloudlab.io/checkpoint-proof: '${OPERATION}'}
+    matchExpressions: [{key: checkpoint-role, operator: NotIn, values: [manager]}]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {cloudlab.io/checkpoint-proof: '${OPERATION}'}}}]
+      ports: [{port: 9093, protocol: TCP}, {port: 8080, protocol: TCP}, {port: 15008, protocol: TCP}]
+  egress:
+    - to: [{podSelector: {matchLabels: {cloudlab.io/checkpoint-proof: '${OPERATION}'}}}]
+      ports: [{port: 9093, protocol: TCP}, {port: 8080, protocol: TCP}, {port: 15008, protocol: TCP}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: source-access, namespace: '${NAMESPACE}'}
+spec:
+  podSelector: {matchLabels: {checkpoint-role: manager}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {checkpoint-role: client, cloudlab.io/checkpoint-proof: '${OPERATION}'}}}]
+      ports: [{port: 9093, protocol: TCP}, {port: 15008, protocol: TCP}]
+  egress:
+    - to: [{podSelector: {matchLabels: {checkpoint-role: receiver, cloudlab.io/checkpoint-proof: '${OPERATION}'}}}]
+      ports: [{port: 8080, protocol: TCP}, {port: 15008, protocol: TCP}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: native-health, namespace: '${NAMESPACE}'}
+spec:
+  podSelector:
+    matchLabels: {cloudlab.io/checkpoint-proof: '${OPERATION}'}
+    matchExpressions: [{key: checkpoint-role, operator: In, values: [manager, validator]}]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 169.254.7.127/32}
+        - ipBlock: {cidr: 'fd16:9254:7127:1337:ffff:ffff:ffff:ffff/128'}
+      ports: [{port: 9093, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: operator-api, namespace: '${NAMESPACE}'}
+spec:
+  podSelector: {matchLabels: {checkpoint-role: operator}}
+  policyTypes: [Egress]
+  egress:
+    - to: [{ipBlock: {cidr: '${API_CIDR}'}}]
+      ports: [{port: '${API_PORT}', protocol: TCP}]
+    - to: [{ipBlock: {cidr: '${API_SERVICE_CIDR}'}}]
+      ports: [{port: 443, protocol: TCP}]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: fixture-readers, namespace: '${NAMESPACE}'}
+spec:
+  selector: {matchLabels: {cloudlab.io/checkpoint-proof: '${OPERATION}'}}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - 'cluster.local/ns/${NAMESPACE}/sa/proof-client'
+              - 'cluster.local/ns/${NAMESPACE}/sa/proof-alertmanager'
+      to: [{operation: {ports: ['9093', '8080']}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: proof-operator, namespace: '${NAMESPACE}'}
+spec:
+  replicas: 1
+  selector: {matchLabels: {checkpoint-role: operator}}
+  template:
+    metadata:
+      labels:
+        cloudlab.io/owner: observability-checkpoint-proof
+        cloudlab.io/checkpoint-proof: '${OPERATION}'
+        checkpoint-role: operator
+    spec:
+      serviceAccountName: proof-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: operator
+          image: '${OPERATOR_IMAGE}'
+          args:
+            - '--namespaces=${NAMESPACE}'
+            - '--alertmanager-instance-namespaces=${NAMESPACE}'
+            - '--alertmanager-config-namespaces=${NAMESPACE}'
+            - '--controller-id=${OPERATION}'
+            - '--labels=cloudlab.io/owner=observability-checkpoint-proof,cloudlab.io/checkpoint-proof=${OPERATION}'
+            - '--prometheus-config-reloader=${RELOADER_IMAGE}'
+            - '--config-reloader-cpu-request=5m'
+            - '--config-reloader-cpu-limit=25m'
+            - '--config-reloader-memory-request=16Mi'
+            - '--config-reloader-memory-limit=48Mi'
+            - '--kubelet-endpoints=false'
+            - '--kubelet-endpointslice=false'
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 250m, memory: 256Mi}
