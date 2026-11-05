@@ -34,6 +34,8 @@ services:
       - ../../../../platform/connectivity/permissions/profiles.yaml:/inputs/catalog/profiles.yaml:ro
       - ../../../../platform/connectivity/permissions/templates/rbac.yaml:/inputs/catalog/templates/rbac.yaml:ro
       - ../../../../platform/delivery/admission/policies/templates/permissions.yaml:/inputs/guard.yaml:ro
+      - ../../../../platform/delivery/admission/policies/templates/permission-input.yaml:/inputs/input-guard.yaml:ro
+      - ../../../../gitops/roots/public:/inputs/root:ro
       - ../../admission/files/verify.py:/inputs/playbooks/admission/files/verify.py:ro
       - ../../istio/files/kube.py:/inputs/playbooks/istio/files/kube.py:ro
       - ../../argocd/files/source_revision.py:/inputs/playbooks/argocd/files/source_revision.py:ro

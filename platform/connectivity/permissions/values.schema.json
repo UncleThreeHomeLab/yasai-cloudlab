@@ -2,49 +2,42 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["permissions"],
+  "required": [
+    "mode",
+    "context",
+    "permissions"
+  ],
   "properties": {
-    "permissions": {
+    "mode": {
+      "enum": [
+        "profiles",
+        "bindings"
+      ]
+    },
+    "context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state", "assignments"],
+      "required": [
+        "repository",
+        "revision",
+        "namespace",
+        "commitment"
+      ],
       "properties": {
-        "state": {"enum": ["active", "retired"]},
-        "assignments": {
-          "type": "array", "maxItems": 128,
-          "items": {"$ref": "#/definitions/assignment"}
-        }
-      },
-      "allOf": [{
-        "if": {"properties": {"state": {"const": "retired"}}},
-        "then": {"properties": {"assignments": {"maxItems": 0}}}
-      }]
-    }
-  },
-  "definitions": {
-    "slug": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}[a-z0-9]$|^[a-z]$", "maxLength": 32},
-    "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
-    "assignment": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "profile", "subject", "scope"],
-      "properties": {
-        "id": {"$ref": "#/definitions/slug"},
-        "profile": {"$ref": "#/definitions/slug"},
-        "subject": {
-          "oneOf": [
-            {"type": "object", "additionalProperties": false, "required": ["kind", "name"],
-             "properties": {"kind": {"const": "User"}, "name": {"type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[^\\s]+$", "not": {"pattern": "^system:"}}}},
-            {"type": "object", "additionalProperties": false, "required": ["kind", "name", "namespace"],
-             "properties": {"kind": {"const": "ServiceAccount"}, "name": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"}, "namespace": {"$ref": "#/definitions/namespace"}}}
-          ]
+        "repository": {
+          "type": "string"
         },
-        "scope": {
-          "oneOf": [
-            {"type": "object", "additionalProperties": false, "required": ["namespace"], "properties": {"namespace": {"$ref": "#/definitions/namespace"}}},
-            {"type": "object", "additionalProperties": false, "required": ["cluster"], "properties": {"cluster": {"const": true}}}
-          ]
+        "revision": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "commitment": {
+          "type": "string"
         }
       }
-    }
+    },
+    "permissions": {}
   }
 }

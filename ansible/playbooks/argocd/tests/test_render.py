@@ -56,16 +56,20 @@ class RenderTests(unittest.TestCase):
         parent = next(row for row in rows if row['kind'] == 'ApplicationSet' and row['metadata']['name'] == 'cloudlab-permissions')
         self.assertFalse(any(row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions' for row in rows))
         application = parent['spec']['template']
-        self.assertEqual(application['spec']['sources'][0],
+        self.assertEqual(application['spec']['source'],
             {'repoURL': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git', 'targetRevision': 'a' * 40,
-             'path': 'platform/connectivity/permissions', 'helm': {'releaseName': 'cloudlab-permissions', 'valueFiles': ['$values/platform/permissions.yaml']}})
-        self.assertEqual(application['spec']['sources'][1]['repoURL'], values['identity']['argo']['valuesRepository'])
-        self.assertEqual(application['spec']['sources'][1]['ref'], 'values')
-        self.assertIn('Consumer source acceptance refused', application['spec']['sources'][1]['targetRevision'])
-        self.assertEqual(parent['spec']['generators'][0]['merge']['generators'], [
-            {'list': {'elements': [{'consumer': 'permissions'}]}}, {'git': {
+             'path': 'platform/connectivity/permissions', 'helm': {'releaseName': 'cloudlab-permissions'}})
+        generators = parent['spec']['generators'][0]['matrix']['generators']
+        self.assertEqual(generators[0], {'git': {
                 'repoURL': values['identity']['argo']['valuesRepository'], 'revision': 'main',
-                'files': [{'path': 'platform/acceptance/permissions.yaml'}]}}])
+                'files': [{'path': 'platform/acceptance/permissions.yaml'}]}})
+        self.assertIn('Consumer source acceptance refused', generators[1]['git']['revision'])
+        self.assertEqual(generators[1]['git']['files'], [{'path': 'platform/permissions.yaml'}])
+        self.assertEqual(application['metadata']['namespace'], 'argocd')
+        self.assertIn('{{ .permissions | toJson }}', parent['spec']['templatePatch'])
+        profile = next(row for row in rows if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions-profiles')
+        self.assertEqual(profile['spec']['source']['targetRevision'], application['spec']['source']['targetRevision'])
+        self.assertEqual(profile['spec']['source']['helm']['valuesObject']['mode'], 'profiles')
         self.assertEqual(parent['spec']['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
         self.assertEqual(parent['spec']['goTemplateOptions'], ['missingkey=error'])
         self.assertNotIn('finalizers', application['metadata'])

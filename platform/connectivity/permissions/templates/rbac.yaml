@@ -31,14 +31,21 @@
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- $ids := dict -}}
-{{- range $assignment := .Values.permissions.assignments -}}
-{{- if hasKey $ids $assignment.id -}}{{ fail "Permission assignment IDs must be unique" }}{{- end -}}
-{{- $_ := set $ids $assignment.id true -}}
-{{- if not (hasKey $profiles $assignment.profile) -}}{{ fail "Permission assignment references an unknown public profile" }}{{- end -}}
-{{- $scope := ternary "cluster" "namespace" (hasKey $assignment.scope "cluster") -}}
-{{- if eq (len (index (index $profiles $assignment.profile) (printf "%sRules" $scope))) 0 -}}{{ fail "Permission assignment scope has no declared profile rules" }}{{- end -}}
-{{- end -}}
+{{- if eq .Values.mode "profiles" }}
+{{- $projection := dict "inputVersion" "cloudlab-permissions-input/v2" "repository" .Values.context.repository "revision" .Values.context.revision "commitment" .Values.context.commitment "namespace" .Values.context.namespace -}}
+{{- range $name, $profile := $profiles -}}
+{{- $_ := set $projection (printf "%s.namespace" $name) (gt (len $profile.namespaceRules) 0 | toString) -}}
+{{- $_ := set $projection (printf "%s.cluster" $name) (gt (len $profile.clusterRules) 0 | toString) -}}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-permissions-profiles
+  namespace: {{ .Values.context.namespace }}
+  labels: {cloudlab.io/owner: permissions-profile-platform}
+data: {{ $projection | toJson }}
+{{- else }}
 {{- range $name, $profile := $profiles }}
 {{- range $scope := list "namespace" "cluster" }}
 {{- $rules := index $profile (printf "%sRules" $scope) }}
@@ -77,4 +84,5 @@ subjects:
     {{- else }}
     apiGroup: rbac.authorization.k8s.io
     {{- end }}
+{{- end }}
 {{- end }}

@@ -11,4 +11,6 @@
 # Replace identity/scope/profile/ID only after removal sync, binding absence and
 # fresh request denial. RBAC is additive; existing streams can survive revocation.
 # Missing/invalid sources retain prior grants; disabling the owner does not revoke.
+mode: bindings
+context: {repository: '', revision: '', commitment: '', namespace: argocd}
 permissions: {}
