@@ -1,0 +1,23 @@
+{{/* Trusted substitutions: VERSION, CONSUMER, PRIVATE_REPOSITORY, COMMITMENT,
+and PATHS_LF are Go quoted strings (JSON string literals). PATHS_LF joins the
+ordered approved paths with LF and has no trailing LF. This gate checks parsed
+generator fields; it does not enforce raw YAML duplicate-key/alias restrictions. */}}
+{{- range $key, $_ := . -}}
+{{- if not (has $key (list "version" "consumer" "paths" "revision" "nonce" "path")) -}}{{- fail "Consumer source acceptance refused" -}}{{- end -}}
+{{- end -}}
+{{- range $key := list "version" "consumer" "revision" "nonce" -}}
+{{- if not (kindIs "string" (index $ $key)) -}}{{- fail "Consumer source acceptance refused" -}}{{- end -}}
+{{- end -}}
+{{- $expected := splitList "\n" @@PATHS_LF@@ -}}
+{{- if or (ne .version @@VERSION@@) (ne .consumer @@CONSUMER@@) (not (kindIs "slice" .paths)) (not (regexMatch "^[a-f0-9]{40}$" .revision)) (not (regexMatch "^[a-f0-9]{64}$" .nonce)) -}}
+{{- fail "Consumer source acceptance refused" -}}
+{{- end -}}
+{{- if ne (len .paths) (len $expected) -}}{{- fail "Consumer source acceptance refused" -}}{{- end -}}
+{{- $preimage := printf "%s\n%s\n%s\n%d\n" .version .consumer @@PRIVATE_REPOSITORY@@ (len .paths) -}}
+{{- range $index, $path := .paths -}}
+{{- if or (not (kindIs "string" $path)) (ne $path (index $expected $index)) -}}{{- fail "Consumer source acceptance refused" -}}{{- end -}}
+{{- $preimage = printf "%s%s\n" $preimage $path -}}
+{{- end -}}
+{{- $commitment := printf "%s%s\n%s\n" $preimage .revision .nonce | sha256sum -}}
+{{- if ne $commitment @@COMMITMENT@@ -}}{{- fail "Consumer source acceptance refused" -}}{{- end -}}
+{{- .revision -}}

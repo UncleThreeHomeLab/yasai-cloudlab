@@ -8,6 +8,103 @@ import re
 
 ACCEPTANCE_PATH = 'platform/acceptance/private-sources.yaml'
 ACCEPTANCE_VERSION = 'cloudlab-private-source-acceptance/v1'
+CONSUMER_ACCEPTANCE_VERSION = 'cloudlab-consumer-source-acceptance/v1'
+
+
+def consumer_contract(public, consumer):
+    """Validate supplied context only; callers must authenticate public authority."""
+    from playbooks.argocd.files.github_setup import repository
+    from playbooks.argocd.files.service_activation import catalog_path
+    if not isinstance(public, dict) or consumer not in ('observability', 'permissions'):
+        raise ValueError('Consumer source acceptance refused')
+    repository(public.get('repository'))
+    if public.get('revision') != 'main': raise ValueError('Consumer source acceptance refused')
+    selected = ('observability', 'services', 'identity', 'externalSecrets', 'admission') if consumer == 'observability' else ('permissions', 'identity', 'externalSecrets', 'admission')
+    context = {key: copy.deepcopy(public.get(key, {})) for key in selected}
+    if any(not isinstance(value, dict) for value in context.values()): raise ValueError('Consumer source acceptance refused')
+    context['identity'].pop('argo', None)  # Private identity binding is separate from public input approval.
+    for key, node in context.items():
+        if type(node.get('enabled', False)) is not bool: raise ValueError('Consumer source acceptance refused')
+    external = context['externalSecrets']
+    if type(external.get('reconcile', False)) is not bool: raise ValueError('Consumer source acceptance refused')
+    settings = context[consumer]
+    if consumer == 'observability':
+        settings = settings.get('configuration', {})
+        if (not isinstance(settings, dict) or type(settings.get('enabled', False)) is not bool
+                or type(settings.get('paused', False)) is not bool): raise ValueError('Consumer source acceptance refused')
+        paths = [catalog_path(context['services'].get('catalogPath', catalog_path())), 'platform/observability.yaml']
+    else:
+        paths = ['platform/permissions.yaml']
+    enabled = settings.get('enabled', False)
+    if consumer == 'observability' and enabled:
+        service_pin = context['services'].get('revision')
+        if not isinstance(service_pin, str) or not re.fullmatch('[a-f0-9]{40}', service_pin):
+            raise ValueError('Consumer source acceptance refused')
+    pin, commitment = settings.get('revision', ''), settings.get('acceptanceCommitment', '')
+    if (not isinstance(pin, str) or (pin and not re.fullmatch('[a-f0-9]{40}', pin))
+            or not isinstance(commitment, str) or (commitment and not re.fullmatch('[a-f0-9]{64}', commitment))):
+        raise ValueError('Consumer source acceptance refused')
+    if enabled and (not re.fullmatch('[a-f0-9]{40}', pin) or not re.fullmatch('[a-f0-9]{64}', commitment)
+            or context['identity'].get('enabled') is not True or external.get('enabled') is not True or external.get('reconcile') is not True
+            or (consumer == 'observability' and context['observability'].get('enabled') is not True)
+            or (consumer == 'permissions' and context['admission'].get('enabled') is not True)):
+        raise ValueError('Consumer source acceptance refused')
+    context.update(repository=public['repository'], revision=public['revision'])
+    return {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'enabled': enabled,
+        'receiptPath': 'platform/acceptance/' + consumer + '.yaml', 'paths': paths,
+        'acceptanceCommitment': commitment, 'context': context}
+
+
+def validate_consumer_acceptance(receipt, repository, contract):
+    """Check a finite consumer proof; supplied contracts alone grant no authority."""
+    from playbooks.argocd.files.github_setup import repository as repository_name
+    from playbooks.argocd.files.service_activation import catalog_path
+    try:
+        repository_name(repository)
+        consumer = contract['consumer']
+        paths = contract['paths']
+        expected_paths = ([catalog_path(paths[0]), 'platform/observability.yaml'] if consumer == 'observability'
+            else ['platform/permissions.yaml'] if consumer == 'permissions' else None)
+        if (set(contract) != {'version', 'consumer', 'enabled', 'receiptPath', 'paths', 'acceptanceCommitment', 'context'}
+                or contract['version'] != CONSUMER_ACCEPTANCE_VERSION or contract['enabled'] is not True
+                or contract['receiptPath'] != 'platform/acceptance/' + consumer + '.yaml'
+                or not isinstance(paths, list) or paths != expected_paths or any(not isinstance(path, str) for path in paths)
+                or not isinstance(receipt, dict) or set(receipt) != {'version', 'consumer', 'paths', 'revision', 'nonce'}
+                or any(not isinstance(receipt.get(key), str) for key in ('version', 'consumer', 'revision', 'nonce'))
+                or receipt['version'] != CONSUMER_ACCEPTANCE_VERSION or receipt['consumer'] != consumer
+                or not isinstance(receipt['paths'], list) or receipt['paths'] != paths
+                or any(not isinstance(path, str) for path in receipt['paths'])
+                or not re.fullmatch('[a-f0-9]{40}', receipt['revision']) or not re.fullmatch('[a-f0-9]{64}', receipt['nonce'])
+                or not isinstance(contract['acceptanceCommitment'], str) or not re.fullmatch('[a-f0-9]{64}', contract['acceptanceCommitment'])):
+            raise ValueError()
+        preimage = '\n'.join([CONSUMER_ACCEPTANCE_VERSION, consumer, repository, str(len(paths)), *paths, receipt['revision'], receipt['nonce'], ''])
+        if not hmac.compare_digest(hashlib.sha256(preimage.encode()).hexdigest(), contract['acceptanceCommitment']): raise ValueError()
+    except (KeyError, IndexError, TypeError, ValueError, RuntimeError):
+        raise ValueError('Consumer source acceptance refused') from None
+
+
+def accepted_consumer(client, repository, head, public, consumer):
+    """Read a strict receipt against supplied context, never authenticate that context."""
+    contract = consumer_contract(public, consumer)
+    if not contract['enabled']: return None
+    import base64
+    import yaml
+    from playbooks.argocd.files.github_setup import repository as repository_name
+    from playbooks.data.files.native import PrivateLoader
+    try:
+        if not isinstance(head, str) or not re.fullmatch('[a-f0-9]{40}', head): raise ValueError()
+        path = contract['receiptPath']
+        document = client.request('GET', 'repos/' + repository_name(repository) + '/contents/' + path + '?ref=' + head)
+        if (not isinstance(document, dict) or document.get('type') != 'file' or document.get('path') != path
+                or document.get('encoding') != 'base64' or type(document.get('size')) is not int or not 0 < document['size'] <= 4096
+                or not isinstance(document.get('content'), str) or len(document['content']) > 8192): raise ValueError()
+        raw = base64.b64decode(document['content'].replace('\n', '').replace('\r', ''), validate=True)
+        if (len(raw) != document['size'] or hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() != document.get('sha')): raise ValueError()
+        receipt = yaml.load(raw, Loader=PrivateLoader)
+        validate_consumer_acceptance(receipt, repository, contract)
+        return {'acceptanceCommitment': contract['acceptanceCommitment'], 'acceptedRevision': receipt['revision'], 'acceptanceReceipt': receipt}
+    except Exception:
+        raise ValueError('Consumer source acceptance refused') from None
 
 
 def acceptance_commitment(public):

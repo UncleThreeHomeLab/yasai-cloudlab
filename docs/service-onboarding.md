@@ -98,6 +98,20 @@ uses only `cloudlab-prices-source-proof`. Its guarded seed/adopt interface check
 the same Application and resource UIDs across owner transfer; it does not
 authorize production adoption.
 
+The registry receipt above is operational. The separate
+`cloudlab-consumer-source-acceptance/v1` contract is an opt-in reader and unused
+native gate; observability and permissions controllers do not consume it yet.
+Receipts use `platform/acceptance/observability.yaml` or
+`platform/acceptance/permissions.yaml`, paired with
+`observability.configuration.acceptanceCommitment` or `permissions.acceptanceCommitment`.
+Its receipt fields are `version`, `consumer`, ordered `paths`, `revision` and
+`nonce`. Observability binds the selected `services.catalogPath` followed by
+`platform/observability.yaml`; permissions binds `platform/permissions.yaml`.
+`read_consumer` authenticates current protected public approval and reads the
+complete bundle at one accepted commit. Owners still validate their document
+profiles. Native retention, repair, advancement and removal remain unqualified
+for these consumer receipts.
+
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
 catalog and need no additional root. For an approved separate root:

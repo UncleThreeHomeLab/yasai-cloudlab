@@ -1,5 +1,7 @@
 """Bound private reads and retire their scoped credential on every known-token path."""
 import base64
+import copy
+import hashlib
 from contextlib import ExitStack
 import io
 import json
@@ -7,9 +9,11 @@ import os
 import traceback
 import unittest
 from unittest.mock import Mock, patch
+import yaml
 
 from playbooks.argocd.files import github_setup
 from playbooks.services.files import inputs, source
+from playbooks.data.files import native
 
 
 class Response(io.BytesIO):
@@ -22,6 +26,99 @@ class Response(io.BytesIO):
 
 
 class SourceReadTests(unittest.TestCase):
+    def consumer_fixture(self, stack, *, consumer='observability', failure=None):
+        paths = ['services/catalog-selected.yaml', 'platform/observability.yaml'] if consumer == 'observability' else ['platform/permissions.yaml']
+        receipt = {'version': 'cloudlab-consumer-source-acceptance/v1', 'consumer': consumer, 'paths': paths,
+            'revision': 'b' * 40, 'nonce': '1' * 64}
+        commitment = hashlib.sha256(('\n'.join([receipt['version'], consumer, 'https://github.com/example/private.git',
+            str(len(paths)), *paths, receipt['revision'], receipt['nonce'], ''])).encode()).hexdigest()
+        public = {'repository': 'https://github.com/example/platform.git', 'revision': 'main',
+            'identity': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}, 'admission': {'enabled': True},
+            'services': {'enabled': True, 'revision': 'd' * 40, 'catalogPath': paths[0] if consumer == 'observability' else 'services/catalog.json'},
+            'observability': {'enabled': True, 'configuration': {'enabled': True, 'paused': False, 'revision': 'e' * 40}},
+            'permissions': {'enabled': True, 'revision': 'f' * 40}}
+        settings = public['observability']['configuration'] if consumer == 'observability' else public['permissions']
+        settings['acceptanceCommitment'] = commitment
+        documents = {path: {'complete': path} for path in paths}
+        def effect(method, url, clock):
+            if '/contents/' not in url: return None
+            path = url.split('/contents/')[1].split('?ref=')[0]
+            if path == 'platform/acceptance/' + consumer + '.yaml':
+                self.assertTrue(url.endswith('?ref=' + 'a' * 40)); value = copy.deepcopy(receipt)
+                if failure == 'receipt': value['nonce'] = '2' * 64
+                if failure == 'replay': value['revision'] = 'a' * 40
+            else:
+                self.assertIn(path, paths); self.assertTrue(url.endswith('?ref=' + 'b' * 40)); value = documents[path]
+                if path == paths[-1]:
+                    if failure == 'unavailable': raise RuntimeError('private-input-sentinel')
+                    if failure == 'incomplete': value = None
+                    if failure == 'expired': clock[0] = 251
+            raw = yaml.safe_dump(value).encode()
+            if failure == 'malformed' and path == paths[-1]: raw = b'private-input-sentinel: [\n'
+            result = {'type': 'file', 'path': path, 'encoding': 'base64', 'size': len(raw),
+                'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest(), 'content': base64.b64encode(raw).decode()}
+            if failure == 'integrity' and path == paths[-1]: result['sha'] = '0' * 40
+            return Response(result)
+        clock, calls, clients, fields = self.fixture(stack, effect=effect)
+        stack.enter_context(patch('playbooks.services.files.owner.configuration', return_value={'repository': public['repository'], 'catalogPath': paths[0]}))
+        authority = stack.enter_context(patch.object(native, 'published_source', return_value=(public, 'c' * 40)))
+        return public, receipt, documents, clock, calls, clients, fields, authority
+
+    def test_consumer_reads_complete_bundle_at_one_approved_revision_and_revokes(self):
+        for consumer in ('observability', 'permissions'):
+            with self.subTest(consumer=consumer), ExitStack() as stack:
+                public, receipt, documents, _, calls, clients, fields, authority = self.consumer_fixture(stack, consumer=consumer)
+                result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, consumer, public=public)
+                self.assertEqual(result, {'consumer': consumer, 'publicRevision': 'c' * 40, 'proposalRevision': 'a' * 40,
+                    'acceptedRevision': 'b' * 40, 'acceptanceCommitment': (public['observability']['configuration'] if consumer == 'observability' else public['permissions'])['acceptanceCommitment'],
+                    'acceptanceReceipt': receipt, 'inputs': documents})
+                self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
+                self.assertEqual(json.loads(next(row[2] for row in calls if row[0] == 'POST')),
+                    {'repositories': ['private'], 'permissions': {'contents': 'read'}})
+                authority.assert_called_once_with({'publicSource': {'repository': public['repository'], 'branch': 'main'}}, deadline=250)
+                self.assertTrue(all(client.deadline is not None for client in clients))
+
+    def test_consumer_rejects_stale_public_context_missing_approval_or_repo_before_credentials(self):
+        for case in ('enabled', 'paused', 'pin', 'commitment', 'path', 'service-pin', 'identity', 'external', 'missing-approval', 'missing-repo', 'same-repo-alias', 'source-failure'):
+            with self.subTest(case=case), ExitStack() as stack:
+                public, _, _, _, calls, _, fields, authority = self.consumer_fixture(stack)
+                supplied = copy.deepcopy(public); values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+                if case == 'enabled': supplied['observability']['configuration']['enabled'] = False
+                if case == 'paused': supplied['observability']['configuration']['paused'] = True
+                if case == 'pin': supplied['observability']['configuration']['revision'] = 'a' * 40
+                if case == 'commitment': supplied['observability']['configuration']['acceptanceCommitment'] = '0' * 64
+                if case == 'path': supplied['services']['catalogPath'] = 'services/catalog-other.json'
+                if case == 'service-pin': supplied['services']['revision'] = 'a' * 40
+                if case == 'identity': supplied['identity']['enabled'] = False
+                if case == 'external': supplied['externalSecrets']['reconcile'] = False
+                if case == 'missing-approval': public['observability']['configuration'].pop('acceptanceCommitment')
+                if case == 'missing-repo': values = {}
+                if case == 'same-repo-alias': values['PRIVATE_CONFIG_REPOSITORY'] = 'https://github.com/EXAMPLE/PLATFORM.git'
+                if case == 'source-failure': authority.side_effect = RuntimeError('private-input-sentinel')
+                with self.assertRaisesRegex(RuntimeError, 'configuration; token cleanup: not-issued') as caught:
+                    source.read_consumer(values, 'observability', public=supplied)
+                self.assertNotIn('private-input-sentinel', ''.join(traceback.format_exception(caught.exception)))
+                fields.assert_not_called(); self.assertEqual(calls, [])
+
+    def test_disabled_consumer_authenticates_current_public_but_never_reads_private_inputs(self):
+        for consumer in ('observability', 'permissions'):
+            with self.subTest(consumer=consumer), ExitStack() as stack:
+                public, _, _, _, calls, _, fields, authority = self.consumer_fixture(stack, consumer=consumer)
+                settings = public['observability']['configuration'] if consumer == 'observability' else public['permissions']
+                settings['enabled'] = False
+                result = source.read_consumer({}, consumer, public=public)
+                self.assertEqual(result['inputs'], {}); self.assertIsNone(result['acceptedRevision']); self.assertIsNone(result['proposalRevision'])
+                authority.assert_called_once(); fields.assert_not_called(); self.assertEqual(calls, [])
+
+    def test_consumer_failure_never_returns_partial_bundle_and_retires_known_token(self):
+        for failure in ('receipt', 'replay', 'unavailable', 'incomplete', 'malformed', 'integrity', 'expired'):
+            with self.subTest(failure=failure), ExitStack() as stack:
+                _, _, _, _, calls, _, _, _ = self.consumer_fixture(stack, failure=failure)
+                with self.assertRaisesRegex(RuntimeError, 'catalog; token cleanup: revoked') as caught:
+                    source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, 'observability')
+                self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
+                self.assertNotIn('private-input-sentinel', ''.join(traceback.format_exception(caught.exception)))
+
     def fixture(self, stack, *, content=None, effect=None, fields_effect=None):
         clock = [100.0]
         calls, clients = [], []
