@@ -78,22 +78,21 @@ Argo origins advance only after that identity revision is approved; changing mai
 alone does not authorize new administrative origins. Controllers reconcile these
 shared inputs; service onboarding does not apply a gateway playbook.
 
-`privateSources.acceptanceCommitment` defaults to empty, preserving the current
-catalog owner. The prepared approval interface binds one private receipt at
-`platform/acceptance/private-sources.yaml` to an immutable catalog revision through
-a reviewed public SHA-256 commitment. Its exact fields are `version`
+`privateSources.acceptanceCommitment` selects native ApplicationSet catalog
+ownership once `identity.argo` is bound. The reviewed public SHA-256 commitment
+binds one private receipt at `platform/acceptance/private-sources.yaml` to an
+immutable catalog revision. Its exact fields are `version`
 (`cloudlab-private-source-acceptance/v1`), `consumer` (`private-sources`), `revision`
 (40 lowercase hex characters), and a fresh cryptographically random `nonce`
 (64 lowercase hex characters). Keep the receipt, source address and revision private.
-Native controller adoption and missing-file readiness remain unqualified; keep
-production commitment empty. The legacy catalog Application, prepared AppSet and
-generated child declare `Prune=false,Delete=false`; the prepared owner also
-declares create-update retention.
+An empty commitment retains the legacy Application during upgrade. The legacy
+catalog Application, native AppSet and generated child declare
+`Prune=false,Delete=false`; the native owner also declares create-update retention.
 Verification refuses missing or mismatched receipts. The commitment hashes UTF-8 fields separated by
 LF: version, consumer, designated private URL, `platform/sources.yaml`, revision,
 nonce, followed by a final LF.
 
-The prepared generator merges a fixed consumer row with the exact private receipt,
+The native generator merges a fixed consumer row with the exact private receipt,
 so missing input reaches validation. The isolated
 [native qualification procedure](../verification/integration/private_source_acceptance.py)
 uses only `cloudlab-prices-source-proof`. Its guarded seed/adopt interface checks
@@ -112,10 +111,15 @@ sources:
     path: gitops
 ```
 
-Merge the complete list through a reviewed private PR. Argo maintains its restricted
-project, repository credential and isolated `cloudlab-private-example` namespace.
-No Ansible apply is needed for registration changes. Check the catalog and child
-Applications are Healthy/Synced and their repository ExternalSecrets are Ready.
+Merge the complete list through a reviewed private PR and record its immutable
+catalog commit. Publish a fresh `platform/acceptance/private-sources.yaml` receipt
+in a later private commit, setting its `revision` to the catalog commit, not the
+receipt commit. Approve the matching public `privateSources.acceptanceCommitment`,
+then verify native reconciliation: the catalog and child Applications must be
+Healthy/Synced and their repository ExternalSecrets Ready. Catalog, receipt-publication
+and identity-binding revisions are independent. Argo maintains the restricted
+project, repository credential and isolated `cloudlab-private-example` namespace;
+registration changes need no Ansible apply.
 Private roots accept branches, tags and commit pins; verification snapshots declared
 symbolic refs in the designated repository through its authenticated reader.
 Invalid YAML or unavailable Git blocks reconciliation and preserves accepted resources.

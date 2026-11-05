@@ -237,7 +237,31 @@ assert not (base/'gitops/roots/public').exists();assert 'dotenv' not in sys.modu
                     self.assertTrue(private_verify.run(payload)['private_access_verified'])
                 authenticate.assert_called_once()
 
-    def test_dormant_public_defaults_preserve_legacy_owner_and_reject_invalid_commitment(self):
+    def test_public_defaults_select_native_catalog_only_with_identity_binding(self):
+        defaults = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+        self.assertRegex(defaults['privateSources']['acceptanceCommitment'], '^[a-f0-9]{64}$')
+        for bound in (False, True):
+            values = {'identity': {'enabled': True}}
+            if bound:
+                values['identity']['argo'] = {'valuesRepository': REPOSITORY, 'valuesRevision': 'b' * 40}
+            result = subprocess.run(['helm', 'template', 'root', str(ROOT / 'gitops/roots/public'), '-f', '-'],
+                input=json.dumps(values), capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            objects = [row for row in yaml.safe_load_all(result.stdout) if row]
+            catalogs = [row for row in objects if row['metadata']['name'] == APP and row['kind'] in ('Application', 'ApplicationSet')]
+            if not bound:
+                self.assertEqual(catalogs, [])
+                continue
+            self.assertEqual([row['kind'] for row in catalogs], ['ApplicationSet'])
+            parent = catalogs[0]
+            self.assertEqual(parent['spec']['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
+            sources = parent['spec']['template']['spec']['sources']
+            self.assertEqual(sources[0]['targetRevision'], defaults['privateSources']['revision'])
+            self.assertEqual(sources[1]['repoURL'], REPOSITORY)
+            self.assertIn('sha256sum', sources[1]['targetRevision'])
+            self.assertIn(defaults['privateSources']['acceptanceCommitment'], sources[1]['targetRevision'])
+
+    def test_explicit_legacy_upgrade_preserves_owner_and_rejects_invalid_commitment(self):
         values = public(); values['privateSources']['acceptanceCommitment'] = ''
         values['identity'] = {'enabled': True, 'argo': {'valuesRepository': REPOSITORY, 'valuesRevision': 'b' * 40}}
         for value in ('', False, None, 'short', 'A' * 64):

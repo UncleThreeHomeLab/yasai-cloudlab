@@ -44,7 +44,7 @@ services:
 privateSources:
   enabled: true
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
-  acceptanceCommitment: ''
+  acceptanceCommitment: '42f6b76048fb5fcaf0413067f4e27f14831993b1a678ebc286eccf3448ab8376'
 observability:
   enabled: true
   configuration:
