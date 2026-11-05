@@ -184,27 +184,66 @@ except OSError: print('denied')
             'peer_callers_unavailable': [name for name in workloads if not python_container(targets[name])]}
 
 
-def policy(entry):
-    definition, approval = entry['definition'], entry['approval']
-    namespace = approval['namespace']
-    accounts = ['notes-web', 'notes-api'] if approval.get('chartPath') == 'apps/notes' else [definition['name']]
-    classes = sorted({exposure['class'] for exposure in [definition['exposure']] +
-                      definition.get('additionalExposures', []) if exposure['class'] != 'none'})
-    expected = ['cluster.local/ns/' + namespace + '/sa/' + account for account in accounts]
-    expected += ['cluster.local/ns/cloudlab-gateway-' + exposure + '/sa/cloudlab-istio' for exposure in classes]
-    actual = get('authorizationpolicy.security.istio.io', 'platform-workloads', namespace)
-    if (not actual or not actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id', '').startswith('cloudlab-services:') or
-            actual['spec'] != {'selector': {'matchLabels': {'cloudlab.io/owner': definition['owner']}},
-                               'action': 'ALLOW', 'rules': [{'from': [{'source': {'principals': expected}}]}]}):
-        raise RuntimeError('Workload policy differs from its exact platform-owned identities')
-    return accounts[0]
+def policy(entry, expected):
+    """Require the exact selected catalog owner before any workload execution."""
+    import json
+    import re
+    namespace = entry['approval']['namespace']
+    if (not isinstance(expected, list) or not 1 <= len(expected) <= 128 or
+            len(json.dumps(expected).encode()) > 1048576):
+        raise RuntimeError('Selected authorization evidence is incomplete')
+    desired = {}
+    accounts = []
+    prefix = 'cluster.local/ns/' + namespace + '/sa/'
+    for row in expected:
+        if (not isinstance(row, dict) or set(row) != {'apiVersion', 'kind', 'metadata', 'spec'} or
+                row['apiVersion'] != 'security.istio.io/v1' or row['kind'] != 'AuthorizationPolicy' or
+                not isinstance(row['metadata'], dict) or set(row['metadata']) != {'name', 'namespace'} or
+                row['metadata']['namespace'] != namespace or not isinstance(row['metadata']['name'], str) or
+                not re.fullmatch('[a-z0-9][a-z0-9.-]{0,252}', row['metadata']['name']) or
+                row['metadata']['name'] in desired or not isinstance(row['spec'], dict)):
+            raise RuntimeError('Selected authorization evidence has an invalid coordinate')
+        desired[row['metadata']['name']] = row['spec']
+        for rule in row['spec'].get('rules', []):
+            for source in rule.get('from', []):
+                for principal in source.get('source', {}).get('principals', []):
+                    if isinstance(principal, str) and principal.startswith(prefix):
+                        account = principal[len(prefix):]
+                        if re.fullmatch('[a-z0-9][a-z0-9.-]{0,252}', account) and account not in accounts:
+                            accounts.append(account)
+    actual = (get('authorizationpolicies.security.istio.io', namespace=namespace) or {}).get('items')
+    if not isinstance(actual, list) or len(actual) > 128:
+        raise RuntimeError('Workload authorization inventory is incomplete')
+    found = set()
+    for row in actual:
+        meta = row.get('metadata', {})
+        name = meta.get('name')
+        tracking = meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id', '')
+        if name not in desired and not tracking.startswith('cloudlab-services:'): continue
+        marker = 'cloudlab-services:security.istio.io/AuthorizationPolicy:' + namespace + '/' + str(name)
+        if (row.get('apiVersion') != 'security.istio.io/v1' or row.get('kind') != 'AuthorizationPolicy' or
+                name not in desired or name in found or row.get('spec') != desired[name] or tracking != marker or
+                meta.get('namespace') != namespace or meta.get('deletionTimestamp')):
+            raise RuntimeError('Workload policy differs from its exact selected catalog owner')
+        found.add(name)
+    if found != set(desired):
+        raise RuntimeError('Workload authorization policy set is incomplete')
+    if entry['approval'].get('composition') or entry.get('publication') == 'retired': return None
+    if entry['approval'].get('chartPath') == 'apps/notes':
+        if 'notes-web' not in accounts:
+            raise RuntimeError('Selected Notes policy has no scoped web identity')
+        return 'notes-web'
+    if not accounts:
+        raise RuntimeError('Selected workload policy has no scoped application identity')
+    preferred = entry['definition']['name']
+    return preferred if preferred in accounts else accounts[0]
 
 
-def run(entry, image):
+def run(entry, image, expected):
     if entry['approval'].get('composition'):
         return composition(entry)
     definition, namespace = entry['definition'], entry['approval']['namespace']
-    account = policy(entry)
+    account = policy(entry, expected)
     backend = next((pod for pod in get('pods', namespace=namespace)['items'] if
                     pod['metadata'].get('labels', {}).get('app.kubernetes.io/name') == account and condition(pod, 'Ready')), None)
     nodes = get('nodes')['items']
@@ -251,4 +290,5 @@ print('allowed' if success else 'denied')
             if actual and (actual['metadata']['uid'] != uid or actual['metadata'].get('labels', {}).get('cloudlab.io/fixture') != nonce):
                 raise RuntimeError('Workload proof ownership changed; cleanup refused')
             if actual: kube('delete', 'pod', name, '-n', namespace, '--wait=true')
-    return {'cross_node_workload_identity': True, 'unapproved_identity_denied': True}
+    return {'cross_node_workload_identity': True, 'unapproved_identity_denied': True,
+            'catalog_authorization_exact': True, 'other_additive_and_root_policies': 'not qualified'}

@@ -1,4 +1,5 @@
 import copy
+from contextlib import nullcontext
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -13,6 +14,7 @@ class CatalogOwnerTests(unittest.TestCase):
         public = yaml.safe_load((payload.ROOT / 'gitops/roots/public/values.yaml').read_text())
         with patch.object(payload, 'committed_payload', return_value={'repository': public['repository'], 'revision': 'a' * 40}), \
                 patch.object(payload, 'dotenv_values', return_value={'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}), \
+                patch('playbooks.services.files.owner.chart', return_value=nullcontext(payload.ROOT / 'platform/delivery/services')), \
                 patch.object(payload, 'catalog', return_value=({'catalog': [], 'dataApprovals': {}}, 'b' * 40)):
             result = payload.payload()
         self.assertEqual(result['revision'], public['services']['revision'])

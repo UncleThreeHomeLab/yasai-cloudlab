@@ -26,6 +26,75 @@ def namespace(row):
 
 
 class EgressProofTests(unittest.TestCase):
+    def test_application_inventory_requires_a_successful_typed_empty_or_populated_collection(self):
+        namespace = 'cloudlab-app-egress-' + RUN[:12]
+        collection = {'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicyList',
+                      'metadata': {'resourceVersion': '7'}, 'items': []}
+        rpc = Mock()
+        rpc.call.return_value = json.dumps(collection)
+        self.assertEqual(proof.application_policies(rpc, namespace), [])
+        rpc.call.assert_called_once_with(['get', '--raw',
+            '/apis/security.istio.io/v1/namespaces/' + namespace + '/authorizationpolicies'])
+        rpc.get.assert_not_called()
+        row = {'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicy',
+               'metadata': {'name': 'platform-workloads', 'namespace': namespace, 'uid': UID, 'resourceVersion': '8'},
+               'spec': {'action': 'ALLOW', 'rules': []}}
+        collection['items'] = [row]
+        rpc.call.return_value = json.dumps(collection)
+        self.assertEqual(proof.application_policies(rpc, namespace), [row])
+
+    def test_application_inventory_never_substitutes_empty_for_missing_malformed_or_paginated_data(self):
+        namespace = 'cloudlab-app-egress-' + RUN[:12]
+        complete = {'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicyList',
+                    'metadata': {'resourceVersion': '7'}, 'items': []}
+        row = {'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicy',
+               'metadata': {'name': 'platform-workloads', 'namespace': namespace, 'uid': UID, 'resourceVersion': '8'},
+               'spec': {'action': 'ALLOW', 'rules': []}}
+        cases = [None, '', 'null', '{}', '[', ' ' * (proof.LIMIT + 1)]
+        for changed in (dict(complete, kind='List'), dict(complete, apiVersion='v1'),
+                        dict(complete, metadata={}), dict(complete, items=None),
+                        dict(complete, metadata={'resourceVersion': '7', 'continue': 'next'}),
+                        dict(complete, metadata={'resourceVersion': '7', 'remainingItemCount': 1}),
+                        dict(complete, items=[dict(row, metadata=dict(row['metadata'], namespace='foreign'))]),
+                        dict(complete, items=[dict(row, spec=None)]), dict(complete, items=[row, row]),
+                        dict(complete, items=[row] * 129)):
+            cases.append(json.dumps(changed))
+        for index, raw in enumerate(cases):
+            with self.subTest(case=index), self.assertRaises(RuntimeError):
+                proof.application_policies(Mock(call=Mock(return_value=raw)), namespace)
+
+    def test_application_inventory_transport_failure_propagates_without_retry_or_fallback(self):
+        failure = RuntimeError('synthetic transport unavailable')
+        rpc = Mock(call=Mock(side_effect=failure))
+        with self.assertRaises(RuntimeError) as caught:
+            proof.application_policies(rpc, 'cloudlab-app-egress-' + RUN[:12])
+        self.assertIs(caught.exception, failure)
+        rpc.call.assert_called_once()
+        rpc.get.assert_not_called()
+        rpc.reset_mock()
+        with self.assertRaises(RuntimeError): proof.application_policies(rpc, '../foreign')
+        rpc.call.assert_not_called()
+
+    def test_actual_candidate_application_ports_and_retirement_share_native_identity(self):
+        active, retired = proof.application_policy('egress-proof'), proof.application_policy('egress-proof', 'retired')
+        self.assertEqual(active['metadata'], retired['metadata'])
+        self.assertEqual(active['spec']['rules'][0], {'from': [{'source': {'principals': [
+            'cluster.local/ns/cloudlab-app-egress-proof/sa/allowed']}}],
+            'to': [{'operation': {'ports': ['8080']}}]})
+        self.assertEqual(retired['spec']['rules'], [])
+
+    def test_application_mode_does_not_run_the_unrelated_dns_matrix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(receipts=directory, resume=None, cleanup=None, application_ports=True)
+            rpc = Mock(host='host')
+            with patch.object(proof, 'application_ports', return_value={'candidate_application_ports': 'passed'}) as application, \
+                    patch.object(proof, 'traffic') as traffic, patch.object(proof, 'cleanup') as cleanup:
+                result = proof.execute(args, rpc, 'target', 'image', ['one', 'two'])
+            self.assertEqual(result['candidate_application_ports'], 'passed')
+            application.assert_called_once()
+            traffic.assert_not_called()
+            cleanup.assert_called_once()
+
     def test_actual_native_empty_allow_and_retirement_use_public_owner(self):
         ns, empty = proof.native('egress-proof', [])
         allowed = proof.peer('target')

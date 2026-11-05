@@ -3,6 +3,7 @@
 Run through the existing Compose lab Python entrypoint. Receipts live under
 /recovery/workload-egress. --resume finishes interrupted cleanup; start a fresh
 run afterwards. --cleanup only cleans the exact recorded run and target.
+--application-ports runs only the candidate catalog authorization lifecycle.
 """
 import argparse
 import base64
@@ -1181,6 +1182,139 @@ def traffic(rpc, receipt, image, nodes):
             'dual_stack': 'not configured; not qualified', 'node_api_external': 'not qualified'}
 
 
+def application_policy(name, publication='ready'):
+    definition = yaml.safe_load((ROOT / 'charts/service/values.yaml').read_text())
+    definition['name'] = 'allowed'
+    approved = {'name': name, 'namespace': 'cloudlab-app-' + name,
+                'repository': 'https://github.com/example/fixture.git', 'revision': 'a' * 40,
+                'valuesPath': 'apps/proof.yaml', 'secretReferences': [], 'configMaps': [], 'egress': []}
+    rows = resources(definition, approved, 'https://github.com/example/platform.git', 'a' * 40,
+                     publication=publication)
+    selected = [row for row in rows if row['kind'] == 'AuthorizationPolicy']
+    if len(selected) != 1 or selected[0]['metadata']['name'] != 'platform-workloads':
+        fail('Candidate application authorization is ambiguous')
+    return selected[0]
+
+
+def application_policies(rpc, namespace):
+    """An empty inventory requires a successful, complete typed API collection."""
+    if not isinstance(namespace, str) or not re.fullmatch(r'cloudlab-app-egress-[a-f0-9]{12}', namespace):
+        fail('Application authorization inventory escaped its fixture namespace')
+    raw = rpc.call(['get', '--raw', '/apis/security.istio.io/v1/namespaces/' + namespace + '/authorizationpolicies'])
+    if not isinstance(raw, str) or len(raw.encode()) > LIMIT:
+        fail('Application authorization inventory exceeds its bound')
+    try: collection = json.loads(raw)
+    except (ValueError, TypeError): fail('Application authorization inventory is malformed')
+    if (not isinstance(collection, dict) or collection.get('apiVersion') != 'security.istio.io/v1' or
+            collection.get('kind') != 'AuthorizationPolicyList' or
+            not isinstance(collection.get('metadata'), dict) or
+            not isinstance(collection['metadata'].get('resourceVersion'), str) or
+            not collection['metadata']['resourceVersion'] or
+            ('continue' in collection['metadata'] and collection['metadata']['continue'] != '') or
+            ('remainingItemCount' in collection['metadata'] and
+             (type(collection['metadata']['remainingItemCount']) is not int or collection['metadata']['remainingItemCount'] != 0)) or
+            not isinstance(collection.get('items'), list) or len(collection['items']) > 128):
+        fail('Application authorization inventory is incomplete')
+    names, uids = set(), set()
+    for row in collection['items']:
+        meta = row.get('metadata') if isinstance(row, dict) else None
+        if (not isinstance(meta, dict) or row.get('apiVersion') != 'security.istio.io/v1' or
+                row.get('kind') != 'AuthorizationPolicy' or meta.get('namespace') != namespace or
+                not isinstance(meta.get('name'), str) or not re.fullmatch('[a-z0-9][a-z0-9.-]{0,252}', meta['name']) or
+                not isinstance(meta.get('uid'), str) or not re.fullmatch('[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', meta['uid']) or
+                not isinstance(meta.get('resourceVersion'), str) or not meta['resourceVersion'] or
+                meta.get('deletionTimestamp') or not isinstance(row.get('spec'), dict) or
+                meta['name'] in names or meta['uid'] in uids):
+            fail('Application authorization inventory has an invalid object')
+        names.add(meta['name'])
+        uids.add(meta['uid'])
+    return collection['items']
+
+
+def application_ports(rpc, receipt, image, nodes):
+    """Exercise unchanged native policy documents; L4 permissions never withdraw."""
+    rpc.stage = 'application-setup'
+    create_namespace(rpc, receipt, 'source')
+    namespace = receipt.value['namespaces']['source']['profile']['metadata']['name']
+    name = namespace.removeprefix('cloudlab-app-')
+    for account in ('allowed', 'denied'):
+        record(rpc, receipt, 'source', [fixtures.account(namespace, account),
+            placed_pod(namespace, account, image, account, nodes[1]['hostname'], receipt.run)])
+    backend = placed_pod(namespace, 'backend', image, 'allowed', nodes[0]['hostname'], receipt.run, server=True)
+    backend['metadata']['labels'].update({'cloudlab.io/owner': 'platform', 'app.kubernetes.io/name': 'allowed'})
+    record(rpc, receipt, 'source', [backend, fixtures.identity_policy(namespace, [])[0]])
+    pods = {}
+    for pod in ('allowed', 'denied', 'backend'):
+        row = wait_ready(rpc, namespace, pod)
+        expected_node = nodes[0 if pod == 'backend' else 1]
+        if (row['spec'].get('nodeName') != expected_node['name'] or
+                row['metadata'].get('annotations', {}).get('ambient.istio.io/redirection') != 'enabled'):
+            fail('Fixture application capture or placement differs')
+        pods[pod] = (row['metadata']['uid'], row['status']['podIP'])
+        rpc.pod_ips[(namespace, pod)] = row['status']['podIP']
+    apply_policy(rpc, receipt, [peer(namespace, ports=(8080, 8081, 15008))])
+    l4 = rpc.get('networkpolicy', 'platform-egress', namespace)
+    frozen_l4 = (l4['metadata']['uid'], copy.deepcopy(l4['spec']))
+    active, retired = application_policy(name), application_policy(name, 'retired')
+    if active['metadata'] != retired['metadata'] or retired['spec'].get('rules') != []:
+        fail('Candidate retirement did not preserve its denying policy identity')
+    fingerprint = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    receipt.value['proof']['preflight'] = {'application_policy_sha256': fingerprint(active),
+        'retired_policy_sha256': fingerprint(retired), 'l4_spec_sha256': fingerprint(frozen_l4[1]),
+        'pod_uids': {pod: value[0] for pod, value in pods.items()}}
+    receipt.save()
+    def stable():
+        for pod, (uid, address) in pods.items():
+            row = ready(rpc, namespace, pod)
+            if (row['metadata']['uid'], row['status']['podIP']) != (uid, address):
+                fail('Application fixture identity changed')
+        current = rpc.get('networkpolicy', 'platform-egress', namespace)
+        if (current['metadata']['uid'], current['spec']) != frozen_l4:
+            fail('Application fixture L4 control changed')
+    def connection(account='allowed', port=8080):
+        stable()
+        if not http(rpc, namespace, 'backend', '127.0.0.1', port, receipt.run):
+            fail('Backend listener unhealthy')
+        result = http(rpc, namespace, account, pods['backend'][1], port, receipt.run)
+        if not http(rpc, namespace, 'backend', '127.0.0.1', port, receipt.run):
+            fail('Backend listener became unhealthy')
+        return result
+    def install(document):
+        record(rpc, receipt, 'source', [document])
+        expected_uid = receipt.value['namespaces']['source']['objects'][object_key(document)]
+        policies = application_policies(rpc, namespace)
+        if (len(policies) != 1 or policies[0]['metadata']['name'] != document['metadata']['name'] or
+                policies[0]['metadata']['uid'] != expected_uid or policies[0]['spec'] != document['spec'] or
+                policies[0]['metadata'].get('labels', {}).get(MARKER) != receipt.run):
+            fail('Candidate application policy differs from its exact fixture owner')
+    rpc.stage = 'application-baselines'
+    if application_policies(rpc, namespace):
+        fail('Application fixture already has an authorization policy')
+    for account, port in (('allowed', 8080), ('allowed', 8081), ('denied', 8080)):
+        expect_connection(lambda a=account, p=port: connection(a, p), True)
+    rpc.stage = 'application-authorization'
+    install(active)
+    expect_connection(lambda: connection(), True)
+    expect_connection(lambda: connection(port=8081), False)
+    expect_connection(lambda: connection('denied'), False)
+    expect_connection(lambda: connection(), True)
+    rpc.stage = 'application-retirement'
+    install(retired)
+    expect_connection(lambda: connection(), False)
+    rpc.stage = 'application-restoration'
+    install(active)
+    expect_connection(lambda: connection(), True)
+    expect_connection(lambda: connection(port=8081), False)
+    expect_connection(lambda: connection('denied'), False)
+    expect_connection(lambda: connection(), True)
+    stable()
+    if node_targets(rpc.get('nodes')['items']) != nodes: fail('Node identities changed during application proof')
+    if receipt.value['hashes'] != hashes(): fail('Proof source changed; use exact receipt cleanup')
+    return {'candidate_application_ports': 'passed', 'candidate_retirement_restoration': 'passed',
+            'stable_pods_and_l4_controls': True,
+            'gateway_other_additive_root_udp_ipv6_external_existing_streams': 'not qualified'}
+
+
 def execute(args, rpc, target, image, nodes):
     receipt = Receipt(args.receipts, args.resume or args.cleanup)
     stage = 'receipt'
@@ -1203,7 +1337,8 @@ def execute(args, rpc, target, image, nodes):
         stage = 'traffic'
         verification_error = cleanup_error = None
         try:
-            result = traffic(rpc, receipt, image, nodes)
+            result = (application_ports if getattr(args, 'application_ports', False) else traffic)(
+                rpc, receipt, image, nodes)
         except BaseException as error:
             verification_error = error
         try:
@@ -1214,7 +1349,9 @@ def execute(args, rpc, target, image, nodes):
             known_stages = {'fixture-setup', 'reachable-baselines', 'empty-egress', 'exact-peer', 'dns-allow',
                             'dns-allow-udp', 'dns-allow-tcp', 'dns-withdrawal', 'dns-withdrawal-udp',
                             'dns-withdrawal-tcp', 'dns-restoration-udp', 'dns-restoration-tcp', 'dns-preflight',
-                            'additive-policy', 'retirement', 'ambient-transport', 'ambient-authorization'}
+                            'additive-policy', 'retirement', 'ambient-transport', 'ambient-authorization',
+                            'application-setup', 'application-baselines', 'application-authorization',
+                            'application-retirement', 'application-restoration'}
             stage = rpc.stage if getattr(rpc, 'stage', None) in known_stages else 'traffic'
             raise RunFailure(receipt.run, stage,
                              safe_reason(verification_error) if verification_error is not None else 'passed',
@@ -1235,6 +1372,7 @@ def main():
     choice = parser.add_mutually_exclusive_group()
     choice.add_argument('--resume')
     choice.add_argument('--cleanup')
+    parser.add_argument('--application-ports', action='store_true')
     parser.add_argument('--receipts', default='/recovery/workload-egress')
     args = parser.parse_args()
     from dotenv import dotenv_values

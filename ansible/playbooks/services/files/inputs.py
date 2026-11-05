@@ -8,7 +8,9 @@ from playbooks.services.files.contract import ROOT, validate
 from playbooks.services.files.gitops import resources
 
 
-def catalog(required=False, *, coordinates=False):
+def catalog(required=False, *, coordinates=False, public=None, chart_root=None):
+    if chart_root is not None and public is None:
+        raise ValueError('Selected chart validation requires its public source context')
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     if required:
         if not environment.get('PRIVATE_CONFIG_REPOSITORY') or not environment.get('OP_SERVICE_ACCOUNT_TOKEN'):
@@ -16,9 +18,13 @@ def catalog(required=False, *, coordinates=False):
         import os
         os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = environment.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
         from playbooks.services.files.source import read
-        value = read(environment, include_revision=coordinates)
-        public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
-        return (validate_catalog(value[0], public=public), value[1]) if coordinates else validate_catalog(value, public=public)
+        options = {'include_revision': coordinates}
+        if public is not None: options['public'] = public
+        value = read(environment, **options)
+        if public is None: public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+        validation = {'public': public}
+        if chart_root is not None: validation['chart_root'] = chart_root
+        return (validate_catalog(value[0], **validation), value[1]) if coordinates else validate_catalog(value, **validation)
     filename = environment.get('SERVICE_CATALOG_FILE')
     if not filename:
         if required: raise ValueError('Missing .env input: SERVICE_CATALOG_FILE')
@@ -30,8 +36,10 @@ def catalog(required=False, *, coordinates=False):
     if ROOT / 'docs/local' not in target.parents or not target.is_file() or target.stat().st_size > 1024 * 1024:
         raise ValueError('Private service catalog unavailable; refused before planning or mutation')
     value = yaml.safe_load(target.read_text())
-    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
-    return validate_catalog(value, public=public)
+    if public is None: public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    validation = {'public': public}
+    if chart_root is not None: validation['chart_root'] = chart_root
+    return validate_catalog(value, **validation)
 
 
 def validate_catalog(value, *, public=None, chart_root=None):

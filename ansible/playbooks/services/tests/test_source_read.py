@@ -90,6 +90,18 @@ class SourceReadTests(unittest.TestCase):
                 decode.assert_not_called()
                 self.assertEqual(sum(row[0] == 'DELETE' for row in calls), int(target == '/contents/'))
 
+    def test_trusted_public_context_selects_the_same_private_catalog_path(self):
+        chosen = {'repository': 'https://github.com/example/platform.git',
+                  'services': {'revision': 'a' * 40, 'catalogPath': 'services/catalog-selected.yaml'}}
+        with ExitStack() as stack:
+            _, calls, _, _ = self.fixture(stack)
+            configuration = stack.enter_context(patch('playbooks.services.files.owner.configuration',
+                return_value={'catalogPath': chosen['services']['catalogPath']}))
+            self.read(public=chosen)
+            configuration.assert_called_once_with(chosen)
+            self.assertTrue(any('/contents/services/catalog-selected.yaml?ref=' in row[1] for row in calls))
+            self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
+
     def test_expired_work_still_uses_reserved_fresh_cleanup_client(self):
         def expire(method, url, clock):
             if '/contents/' in url: clock[0] = 251

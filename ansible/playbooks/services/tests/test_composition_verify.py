@@ -82,7 +82,7 @@ class CompositionVerificationTests(unittest.TestCase):
         entry, state, get = composition_runtime()
         with patch.object(transport, 'get', side_effect=get), patch.object(
                 transport, 'kube', side_effect=['allowed', 'denied', 'allowed']) as kube:
-            result = transport.run(entry, 'unused')
+            result = transport.run(entry, 'unused', [])
         self.assertEqual(result['owned_pods'], 2)
         self.assertEqual(result['probe_pods_created'], 0)
         self.assertTrue(result['cross_node_caller'])

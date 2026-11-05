@@ -12,15 +12,16 @@ class VerifyTests(unittest.TestCase):
         entry = {'definition': value, 'approval': approval(), 'publication': 'retired'}
         with patch('playbooks.services.files.catalog.converged', return_value=True), \
                 patch.object(verify, 'inspect') as inspect, \
+                patch('playbooks.services.files.transport.policy'), \
                 patch('playbooks.data.files.service_proof.run') as data_proof:
-            result = verify.run({'values': {'catalog': [entry]}})
+            result = verify.run({'values': {'catalog': [entry]}, 'authorization': {entry['approval']['namespace']: []}})
         self.assertEqual(result['services_checked'], 1)
         inspect.assert_called_once_with({'definition': value, 'approval': entry['approval'], 'action': 'route-absent'})
         data_proof.assert_not_called()
 
     def test_unstable_service_cannot_pass_behavior_acceptance(self):
         entry = {'definition': definition(), 'approval': approval(), 'publication': 'ready'}
-        payload = {'values': {'catalog': [entry]}, 'proof_image': 'fixture'}
+        payload = {'values': {'catalog': [entry]}, 'proof_image': 'fixture', 'authorization': {entry['approval']['namespace']: []}}
         with patch('playbooks.services.files.catalog.converged', return_value=True), patch.object(verify, 'inspect'), patch.object(verify, 'unauthorized_destination'), \
-                patch('playbooks.services.files.transport.run'), patch.object(verify.subprocess, 'run', return_value=Mock(returncode=1)):
+                patch('playbooks.services.files.transport.policy'), patch('playbooks.services.files.transport.run'), patch.object(verify.subprocess, 'run', return_value=Mock(returncode=1)):
             with self.assertRaisesRegex(RuntimeError, 'did not remain stable'): verify.run(payload)
