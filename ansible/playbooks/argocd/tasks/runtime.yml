@@ -30,7 +30,7 @@
     src: '/workspace/ansible/playbooks/harbor/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/harbor/files/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, recovery.py, native.py, configuration.py]
+  loop: [recovery.py, native.py, configuration.py]
 - name: Create the packaged public source owner directory
   ansible.builtin.file:
     path: /opt/cloudlab/playbooks/argocd/files

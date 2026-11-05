@@ -91,16 +91,20 @@ def metadata(values, *, browser=False):
 sys.path.insert(0,'/opt/cloudlab')
 from playbooks.harbor.files.recovery import application,APPS,NAMESPACE
 from playbooks.istio.files.kube import application_ready,get
+from playbooks.harbor.files.native import operation
+import time
 request=json.load(sys.stdin)
-apps=[application(name) for name in APPS]
-revisions={app['spec']['source']['targetRevision'] for app in apps}
-if len(revisions)!=1 or not all(application_ready(app['metadata']['name'],app['spec']['source']['targetRevision']) for app in apps):raise RuntimeError('Harbor installation must converge')
-configuration=next(app for app in apps if app['metadata']['name']=='cloudlab-harbor-configuration')['spec']['source']['helm']['valuesObject']
-if request['browser']:
- from playbooks.harbor.files.verify import oidc_discovery
- oidc_discovery(configuration['loginHost'])
-images=sorted(container['image'] for kind in ('deployment','statefulset') for obj in (get(kind,namespace=NAMESPACE) or {}).get('items',[]) for container in obj['spec']['template']['spec']['containers'])
-print(json.dumps({'harborHost':configuration['harborHost'],'loginHost':configuration['loginHost'],'images':images,'repositories':sorted({app['spec']['source']['repoURL'] for app in apps})}))
+with operation(deadline=time.monotonic()+40):
+ apps=[application(name) for name in APPS]
+ revisions={app['spec']['source']['targetRevision'] for app in apps}
+ if len(revisions)!=1 or not all(application_ready(app['metadata']['name'],app['spec']['source']['targetRevision']) for app in apps):raise RuntimeError('Harbor installation must converge')
+ configuration=next(app for app in apps if app['metadata']['name']=='cloudlab-harbor-configuration')['spec']['source']['helm']['valuesObject']
+ if request['browser']:
+  from playbooks.harbor.files.verify import oidc_discovery
+  oidc_discovery(configuration['loginHost'])
+ images=sorted(container['image'] for kind in ('deployment','statefulset') for obj in (get(kind,namespace=NAMESPACE) or {}).get('items',[]) for container in obj['spec']['template']['spec']['containers'])
+ result = {'harborHost':configuration['harborHost'],'loginHost':configuration['loginHost'],'images':images,'repositories':sorted({app['spec']['source']['repoURL'] for app in apps})}
+print(json.dumps(result))
 '''
     value = json.loads(ssh('VM', values['VM_HOST'], 'python3 -c ' + shlex.quote(script),
                            input=json.dumps({'browser': browser}), timeout=60))

@@ -95,15 +95,18 @@ proxy inputs support canonical private IPv4 Pod ranges of /24 or narrower.
 Realm configuration remains a separate owner. Chart promotion requires a
 separately reviewed platform change.
 
-Harbor's native installation interface is disabled. Its private
+Harbor's native installation owner is enabled for the accepted installation. Its private
 `platform/harbor.yaml` accepts only `installationRevision`, `harborHost`,
 `loginHost` and `gatewayIP` at the accepted identity binding. The supported
 installation revision is `d3d639cf80e8cfecebeb756d666a24db92a6bb74`;
 pin promotion requires a separate guarded platform change. Public server
 defaults stay in `platform/harbor/server/values.json`. The two Applications
 retain data and credentials; coordinated recovery owns only maintenance and
-seven replica fields. Native activation requires protected initial intent or
-same-resource adoption through the existing Harbor owner. Registry API
+seven replica fields. Routine setup observes the accepted owner; it does not apply Applications.
+Explicit registration retains the existing host lock and protected adoption intent.
+Fresh enrollment still requires a separately approved disabled bootstrap profile
+and durable absence intent; the enabled default does not qualify empty-VM setup.
+The retained `harbor_native_handoff=true` task registers the reviewed handoff. Registry API
 resources keep their separate native provider owner.
 Validated idle captured monthly recovery is preserved through same-resource handoff; its offsite window and cleanup owner remain unchanged.
 

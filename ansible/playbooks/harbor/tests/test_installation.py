@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from playbooks.harbor.files.chart import check, render
 from playbooks.harbor.files.configuration import client
 from playbooks.harbor.files.installation_credentials import definitions, signing_material, htpasswd
-from playbooks.harbor.files.payload import compile_payload
+from playbooks.harbor.files import native
 
 
 class InstallationTests(unittest.TestCase):
@@ -108,14 +108,12 @@ class InstallationTests(unittest.TestCase):
         self.assertIn('--cookie-refresh=0', arguments)
         self.assertIn('--code-challenge-method=S256', arguments)
 
-    def test_payload_binds_only_the_private_origin_to_the_retained_issuer(self):
-        payload = compile_payload({'repository': 'https://github.com/fixture/platform.git', 'revision': 'a' * 40},
-                                  {'loginHost': 'login.example.invalid', 'gatewayIP': '10.43.0.100'})
-        self.assertEqual(payload['configuration']['harborHost'], 'harbor.internal.example.invalid')
-        self.assertEqual(payload['identity_client']['id'], 'harbor')
-        self.assertEqual(payload['server']['harbor']['core']['hostAliases'],
-                         [{'ip': '10.43.0.100', 'hostnames': ['login.example.invalid']}])
-        core = next(obj for obj in render('server', payload['server']) if obj['kind'] == 'Deployment' and
-                    obj['metadata']['labels'].get('component') == 'core')
-        self.assertEqual(core['spec']['template']['spec']['hostAliases'],
-                         [{'ip': '10.43.0.100', 'hostnames': ['login.example.invalid']}])
+    def test_private_profile_binds_only_the_private_origin_to_the_retained_issuer(self):
+        document = {'installationRevision': native.REVISION, 'harborHost': 'harbor.internal.example.invalid',
+            'loginHost': 'login.example.invalid', 'gatewayIP': '10.43.0.100'}
+        server = native.values(document, native.APPS[0])
+        self.assertEqual(client('https://' + document['loginHost'] + '/realms/platform',
+            'https://' + document['harborHost'])['id'], 'harbor')
+        self.assertEqual(server['harbor']['core']['hostAliases'], [{'ip': document['gatewayIP'], 'hostnames': [document['loginHost']]}])
+        core = next(obj for obj in render('server', server) if obj['kind'] == 'Deployment' and obj['metadata']['labels'].get('component') == 'core')
+        self.assertEqual(core['spec']['template']['spec']['hostAliases'], server['harbor']['core']['hostAliases'])
