@@ -379,7 +379,11 @@ def bind_identity_locked(payload, target):
         raise RuntimeError('Native identity binding resource identity changed')
     access_evidence = access_guard(access_evidence, target, get, root)
     public_revision = capture_public_revision(payload)
-    data_evidence = data_guard(payload.get('argo', {}).get('dataActivation'), target, get, root, held=True)
+    if checkpoint and checkpoint['phase'] != 'accepted':
+        data_evidence = data_guard(checkpoint['dataActivation'], target, get, root,
+            patched=binding_source(checkpoint, root) == 'patched', binding=checkpoint, held=True)
+    else:
+        data_evidence = data_guard(payload.get('argo', {}).get('dataActivation'), target, get, root, held=True)
     if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] in ('source-updated', 'resumed', 'accepted'):
         wait_application(ROOT_APP, payload['revision'])
         wait_application('cloudlab-argocd', payload['revision'])
