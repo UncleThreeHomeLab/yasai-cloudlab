@@ -157,7 +157,9 @@ def accepted_source(client, repository, head, public):
 def acceptance_spec(public, repository, revision, *, files=None, consumer='private-sources'):
     """Capture the reviewed native contract directly from its owning Root chart."""
     from playbooks.data.files.native import render_objects
-    if consumer not in ('private-sources', 'permissions'):
+    targets = {'private-sources': 'cloudlab-private-sources', 'permissions': 'cloudlab-permissions',
+               'observability': 'cloudlab-observability-gitops'}
+    if not isinstance(consumer, str) or consumer not in targets:
         raise ValueError('Private source acceptance declaration is unsupported')
     values = copy.deepcopy(public)
     values.setdefault('identity', {}).update(enabled=True, argo={'valuesRepository': repository, 'valuesRevision': revision})
@@ -165,7 +167,7 @@ def acceptance_spec(public, repository, revision, *, files=None, consumer='priva
     if files is None:
         files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
     sets = [obj for obj in render_objects(files, [values]) if obj['kind'] == 'ApplicationSet'
-        and obj['metadata']['name'] == 'cloudlab-' + consumer]
+        and obj['metadata']['name'] == targets[consumer]]
     if len(sets) != 1: raise ValueError('Private source acceptance declaration is missing')
     return sets[0]['spec']
 
