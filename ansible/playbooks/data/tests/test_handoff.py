@@ -33,7 +33,7 @@ class HandoffTests(unittest.TestCase):
             self.fixture['binding'] if path == native.BINDING else json.loads(path.read_text()) if path.exists() else {}))
         self.head = self.stack.enter_context(patch.object(native, 'published_source', side_effect=lambda *a, **k:
             (self.fixture['committed'], 'd' * 40)))
-        self.stack.enter_context(patch.object(native.source_snapshot, 'chart_files', return_value=self.fixture['files']))
+        self.charts = self.stack.enter_context(patch.object(native.source_snapshot, 'chart_files', return_value=self.fixture['files']))
         self.stack.enter_context(patch.object(native, 'authenticated_inputs', return_value=self.fixture['documents']))
         self.stack.enter_context(patch.object(native, 'render_settings', return_value=self.fixture['expected']))
         self.inventory = self.stack.enter_context(patch.object(handoff, 'resources', return_value={'fixture': {'uid': 'preserved'}}))
@@ -65,6 +65,81 @@ class HandoffTests(unittest.TestCase):
         for key, value in self.native_objects.items():
             self.objects[key] = copy.deepcopy(value)
         self.fixture['committed']['data']['configuration']['enabled'] = True
+
+    def omit_legacy_image(self):
+        app = self.objects['application.argoproj.io', native.APP, 'argocd']
+        app['spec']['source']['helm']['valuesObject'] = copy.deepcopy(self.fixture['expected'])
+        app['spec']['source']['helm']['valuesObject'].pop('postgresImage')
+        app['status']['sync'].update(revision='d' * 40, comparedTo={'source': copy.deepcopy(app['spec']['source'])})
+        cluster = next(obj for obj in native.render_objects(self.fixture['files'],
+            [app['spec']['source']['helm']['valuesObject']]) if obj['kind'] == 'Cluster')
+        cluster['metadata'].update(uid='existing-cluster', namespace=control.NAMESPACE)
+        cluster['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = native.APP + ':postgresql.cnpg.io/Cluster:cloudlab-data/cloudlab-postgres'
+        self.objects['cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE] = cluster
+        return app, cluster
+
+    def first_binding(self):
+        self.fixture['binding'] = {}  # Initial binding has no previously accepted profile.
+        self.fixture['committed']['data']['configuration']['enabled'] = True
+        evidence = dict(self.fixture['committed']['data']['configuration'], required=True,
+            repository=self.fixture['public']['repository'], settings=self.fixture['expected'])
+        with control.locked():
+            handoff.prepare_binding(evidence, self.fixture['target'],
+                self.objects['application.argoproj.io', 'cloudlab-public-root', 'argocd'],
+                lambda kind, name: self.read(kind, name, 'argocd'))
+
+    def test_real_chart_omitted_image_default_arms_both_entrypoints_without_mutating_legacy(self):
+        for first in (False, True):
+            self.setUp()
+            with self.subTest(first_binding=first), patch.object(control, 'kube') as write:
+                app, cluster = self.omit_legacy_image()
+                before = copy.deepcopy(app)
+                self.head.reset_mock(); self.charts.reset_mock()
+                self.first_binding() if first else self.arm()
+                value = handoff.state()['handoff']
+                self.assertEqual(value['settings'], self.fixture['expected'])
+                self.assertEqual(app, before)
+                self.assertNotIn('postgresImage', value['specs'][native.APP]['source']['helm']['valuesObject'])
+                self.assertEqual(cluster['spec']['imageName'], value['settings']['postgresImage'])
+                self.assertEqual(self.head.call_count, 1)
+                self.assertEqual(self.charts.call_args.args[0], {'repository': self.fixture['public']['repository'],
+                    'revision': 'd' * 40, 'path': 'platform/data/configuration'})
+                self.assertFalse((self.base / 'desired.json').exists())
+                write.assert_not_called()
+                self.fixture['binding'] = copy.deepcopy(self.template['binding'])
+                self.activate()
+                with control.locked():
+                    self.assertEqual(handoff.complete_locked().settings(), self.fixture['expected'])
+
+    def test_omitted_image_rejects_default_drift_foreign_cluster_and_unknown_fields_before_journal(self):
+        for case in ('chart-default', 'live-image', 'projection-image', 'cluster-owner', 'unknown-field', 'stale-revision', 'stale-source', 'public-pins'):
+            for first in (False, True):
+                if case == 'public-pins' and not first:
+                    continue
+                self.setUp()
+                with self.subTest(case=case, first_binding=first), patch.object(control, 'kube') as write:
+                    app, cluster = self.omit_legacy_image()
+                    if case == 'chart-default':
+                        files = dict(self.fixture['files'])
+                        files['values.yaml'] = files['values.yaml'].replace(self.fixture['expected']['postgresImage'].encode(),
+                            self.fixture['expected']['postgresImage'].replace('ebf391', 'ffffff').encode())
+                        self.charts.side_effect = lambda source, **kwargs: files if source['revision'] == 'd' * 40 else self.fixture['files']
+                    if case == 'live-image': cluster['spec']['imageName'] = 'foreign'
+                    if case == 'projection-image': self.fixture['expected']['postgresImage'] = 'foreign'
+                    if case == 'cluster-owner': cluster['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+                    if case == 'unknown-field': app['spec']['source']['helm']['valuesObject']['unknownField'] = True
+                    if case == 'stale-revision': app['status']['sync']['revision'] = 'e' * 40
+                    if case == 'stale-source': app['status']['sync']['comparedTo']['source']['path'] = 'foreign'
+                    if case == 'public-pins':
+                        self.head.side_effect = lambda *args, **kwargs: (dict(self.fixture['committed'], data={
+                            'enabled': True, 'configuration': dict(self.fixture['committed']['data']['configuration'], revision='e' * 40)}), 'd' * 40)
+                    before = (self.base / 'ownership.json').read_bytes()
+                    with self.assertRaises(RuntimeError):
+                        self.first_binding() if first else self.arm()
+                    self.assertEqual((self.base / 'ownership.json').read_bytes(), before)
+                    self.assertIsNone(handoff.journal(handoff.state()))
+                    self.assertFalse((self.base / 'desired.json').exists())
+                    write.assert_not_called()
 
     def test_prepare_repeat_and_first_registration_require_original_evidence(self):
         self.assertTrue(self.arm())

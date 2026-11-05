@@ -9,6 +9,7 @@ import fcntl
 import base64
 import time
 from pathlib import Path
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from playbooks.data.files import control, native
@@ -121,7 +122,45 @@ def legacy_projects(public, target):
         native.project_guard(name, project, public, target, legacy=True)
 
 
-def capture(owner, target, pins, expected, owners):
+def legacy_settings(owner, app, pins, expected, public_revision=None):
+    source = app['spec']['source']
+    actual = copy.deepcopy(source['helm']['valuesObject'])
+    if 'postgresImage' not in actual and 'postgresImage' in expected:
+        status = app.get('status', {}).get('sync', {})
+        deadline = time.monotonic() + 120
+        if public_revision is None:
+            public, public_revision = native.published_source(owner, deadline=deadline)
+            config = public.get('data', {}).get('configuration', {})
+            if (public.get('data', {}).get('enabled') is not True or config.get('enabled') is not True
+                    or {key: config.get(key) for key in pins} != pins):
+                raise RuntimeError('Data image default conflicts with its independently published owner')
+        if (not isinstance(public_revision, str) or not re.fullmatch('[a-f0-9]{40}', public_revision)
+                or not native.matches_revision(app, public_revision)
+                or status.get('comparedTo', {}).get('source') != source):
+            raise RuntimeError('Data image default requires its exact accepted chart source')
+        files = native.source_snapshot.chart_files({'repository': source['repoURL'], 'revision': public_revision,
+            'path': source['path']}, deadline=deadline)
+        default = yaml.safe_load(files['values.yaml']).get('postgresImage')
+        clusters = [obj for obj in native.render_objects(files, [actual]) if obj.get('kind') == 'Cluster'
+            and obj.get('apiVersion') == 'postgresql.cnpg.io/v1'
+            and obj.get('metadata', {}).get('name') == 'cloudlab-postgres'
+            and obj['metadata'].get('namespace', app['spec']['destination']['namespace']) == control.NAMESPACE]
+        live = native.get('cluster.postgresql.cnpg.io', 'cloudlab-postgres', control.NAMESPACE) or {}
+        meta = live.get('metadata', {})
+        if (not isinstance(default, str) or len(clusters) != 1
+                or default != clusters[0].get('spec', {}).get('imageName') or default != expected['postgresImage']
+                or live.get('apiVersion') != 'postgresql.cnpg.io/v1' or live.get('kind') != 'Cluster'
+                or meta.get('name') != 'cloudlab-postgres' or meta.get('namespace') != control.NAMESPACE
+                or not meta.get('uid') or meta.get('deletionTimestamp') or meta.get('ownerReferences')
+                or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                    native.APP + ':postgresql.cnpg.io/Cluster:cloudlab-data/cloudlab-postgres'
+                or live.get('spec', {}).get('imageName') != default):
+            raise RuntimeError('Data image default differs from its accepted chart, owned Cluster or native projection')
+        actual['postgresImage'] = default
+    return actual
+
+
+def capture(owner, target, pins, expected, owners, *, public_revision=None):
     binding_target(target)
     quiescent()
     apps = {name: native.get('application.argoproj.io', name, 'argocd') or {} for name in (native.APP, native.SEAWEED)}
@@ -132,7 +171,7 @@ def capture(owner, target, pins, expected, owners):
     if any(obj.get('status', {}).get('sync', {}).get('status') != 'Synced'
            or obj.get('status', {}).get('health', {}).get('status') != 'Healthy' for obj in apps.values()):
         raise RuntimeError('Data handoff requires ready legacy owners')
-    actual = apps[native.APP]['spec']['source']['helm']['valuesObject']
+    actual = legacy_settings(owner, apps[native.APP], pins, expected, public_revision)
     if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
         raise RuntimeError('Authenticated data settings differ from the existing owner')
     previous = journal(owner)
@@ -166,7 +205,7 @@ def prepare(target):
         owners = {key: binding[key] for key in ('root_uid', 'project_uid', 'controller_uid')}
         pins = {key: source.public['data']['configuration'][key] for key in ('revision', 'seaweedfsRevision')}
         legacy_projects(source.public, target)
-        return capture(owner, target, pins, source.expected, owners)
+        return capture(owner, target, pins, source.expected, owners, public_revision=source.revision)
 
 
 def prepare_binding(evidence, target, root, read):

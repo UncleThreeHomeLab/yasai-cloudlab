@@ -261,7 +261,7 @@ def private_file(client, repo, revision, path, *, missing=False):
         raise RuntimeError('Data source content, raw schema or Git blob identity is invalid') from None
 
 
-def render_settings(files, documents):
+def render_objects(files, documents):
     """Use Helm's pinned schema and normalization without importing runner modules."""
     with tempfile.TemporaryDirectory(prefix='cloudlab-data-owner-') as directory:
         root = Path(directory) / 'chart'
@@ -282,11 +282,15 @@ def render_settings(files, documents):
             if result.returncode or output.tell() > 2 * 1024 * 1024:
                 raise RuntimeError('Pinned data chart rejected its authenticated inputs')
             output.seek(0)
-            objects = [obj for obj in yaml.safe_load_all(output) if obj]
-        selected = [obj for obj in objects if obj.get('kind') == 'ConfigMap' and obj.get('metadata', {}).get('name') == SETTINGS]
-        if len(selected) != 1 or set(selected[0].get('data', {})) != {'settings'}:
-            raise RuntimeError('Pinned data chart lacks its unique settings projection')
-        return json.loads(selected[0]['data']['settings'])
+            return [obj for obj in yaml.safe_load_all(output) if obj]
+
+
+def render_settings(files, documents):
+    objects = render_objects(files, documents)
+    selected = [obj for obj in objects if obj.get('kind') == 'ConfigMap' and obj.get('metadata', {}).get('name') == SETTINGS]
+    if len(selected) != 1 or set(selected[0].get('data', {})) != {'settings'}:
+        raise RuntimeError('Pinned data chart lacks its unique settings projection')
+    return json.loads(selected[0]['data']['settings'])
 
 
 def reader_spec(repo, name='cloudlab-argocd-identity-source', project='cloudlab-platform'):
