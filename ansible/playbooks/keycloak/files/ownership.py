@@ -131,9 +131,9 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
     resolved = head if source['targetRevision'] == 'main' else INSTALLATION_REVISION
     if not application_ready(APP, resolved) or not native.matches_revision(current, resolved):
         raise RuntimeError('Identity installation must converge before its source freeze')
-    pinned = native.source_snapshot.chart_files({'repository': PUBLIC_REPOSITORY, 'revision': INSTALLATION_REVISION, 'path': 'platform/identity/keycloak'}, deadline=deadline)
+    pinned = native.source_snapshot.chart_files({'repository': PUBLIC_REPOSITORY, 'revision': INSTALLATION_REVISION, 'path': 'platform/identity/keycloak'}, deadline=deadline, require_schema=False)
     if resolved != INSTALLATION_REVISION and pinned != native.source_snapshot.chart_files(
-            {'repository': PUBLIC_REPOSITORY, 'revision': resolved, 'path': 'platform/identity/keycloak'}, deadline=deadline):
+            {'repository': PUBLIC_REPOSITORY, 'revision': resolved, 'path': 'platform/identity/keycloak'}, deadline=deadline, require_schema=False):
         raise RuntimeError('Identity installation chart changed; source freeze cannot upgrade code')
     before = [copy.deepcopy(obj) for obj in (current, root, project, server)]
     wait(writer_idle, 'identity native handoff writer completion and lease expiry', timeout=300)
