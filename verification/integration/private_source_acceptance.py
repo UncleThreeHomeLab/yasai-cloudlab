@@ -1,7 +1,10 @@
 """Explicit fixed-scope native qualification; never a production onboarding writer.
 
 Parent supplies private config/receipt A and B, and edits only its dedicated proof
-branch. Create, accept A, then test each invalid/missing receipt from an accepted
+branch. Persist each returned state: create, seed, adopt, accept A.
+Seed intent precedes child creation; adoption intent precedes AppSet
+creation. The healthy seed and its resources must keep their UIDs after adoption.
+Then test each invalid/missing receipt from an accepted
 baseline; refresh is test-only. Restore valid A and accept cleared native errors
 between negative cases. Drift never refreshes/syncs; compensation is not repair.
 After publishing valid B, approve-b then accept by normal controller polling.
@@ -24,6 +27,7 @@ from playbooks.istio.files.kube import get, kube
 
 VERSION = 'cloudlab-source-acceptance-proof/v1'
 NAME = 'cloudlab-prices-source-proof'
+TRACKING_OWNER = 'cloudlab-prices-source-proof-root'
 OWNER = 'source-acceptance-proof'
 PUBLIC = 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'
 CHART = 'ansible/playbooks/argocd/tests/fixtures/source-acceptance'
@@ -62,17 +66,24 @@ def config_guard(config, state=None):
         validate_acceptance(receipt, config['privateRepository'], commitment(config, approval))
     if (config['receiptA']['revision'] == config['receiptB']['revision'] or config['receiptA']['nonce'] == config['receiptB']['nonce']):
         raise ProofError('Proof revisions and receipt nonces must differ')
-    if state is not None and (not isinstance(state, dict) or set(state) != {'version', 'attempt', 'publicRevision', 'authority', 'identities', 'approval', 'markerEnabled', 'sourceAvailable', 'acceptedApproval', 'acceptedMarkerEnabled', 'lastObservation'}
+    if state is not None and (not isinstance(state, dict) or set(state) != {'version', 'attempt', 'publicRevision', 'authority', 'identities', 'approval', 'markerEnabled', 'sourceAvailable', 'acceptedApproval', 'acceptedMarkerEnabled', 'lastObservation', 'adoptionPhase'}
             or state['version'] != VERSION or state['publicRevision'] != config['publicRevision']
             or state['attempt'] != config['attempt']
             or state['approval'] not in ('A', 'B') or state['acceptedApproval'] not in (None, 'A', 'B')
             or state['lastObservation'] not in ('pending', 'accepted', 'rejected')
+            or state['adoptionPhase'] not in ('seed-intent', 'seeded', 'adopting', 'adopted')
             or not isinstance(state['authority'], dict) or set(state['authority']) != {'Root', 'ApplicationSetController'}
             or any(not isinstance(uid, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,128}', uid) for uid in state['authority'].values())
             or any(type(state[key]) is not bool for key in ('markerEnabled', 'sourceAvailable', 'acceptedMarkerEnabled'))
             or not isinstance(state['identities'], dict) or not set(state['identities']) <= set(RESOURCES)
             or any(not isinstance(uid, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,128}', uid) for uid in state['identities'].values())):
         raise ProofError('Invalid captured source proof scope')
+    if state is not None and state['adoptionPhase'] in ('adopting', 'adopted'):
+        required = {'Namespace', 'Project', 'ExternalSecret', 'Secret', 'Application', 'Marker', 'Retained',
+            'DefaultAccount', 'RootCA', 'IstioRoot', 'IstioCRL'}
+        if state['adoptionPhase'] == 'adopted': required.add('ApplicationSet')
+        if not required <= set(state['identities']):
+            raise ProofError('Adoption requires every previously observed seed identity')
 
 
 def commitment(config, approval):
@@ -154,6 +165,8 @@ def declarations(config, state, public, files):
     branch = config['privateBranch'] if state['sourceAvailable'] else config['privateBranch'] + '-unavailable-' + config['attempt']
     spec['generators'][0]['merge']['generators'][1]['git']['revision'] = branch
     child = spec['template']; child['metadata'] = meta(NAME)
+    child['metadata']['annotations'] = {'argocd.argoproj.io/sync-options': 'Prune=false,Delete=false',
+        'argocd.argoproj.io/tracking-id': TRACKING_OWNER + ':argoproj.io/Application:argocd/' + NAME}
     child['spec']['project'] = NAME; child['spec']['destination']['namespace'] = NAME
     child['spec']['sources'][0].update(path=CHART)
     gate = child['spec']['sources'][1]['targetRevision']
@@ -211,7 +224,10 @@ def declaration_guard(key, obj, uid, config, desired):
 
 def controls(config, state, desired):
     authority_guard(state)
-    for key in ('Namespace', 'Project', 'ExternalSecret', 'ApplicationSet'):
+    keys = ('Namespace', 'Project', 'ExternalSecret')
+    if state['adoptionPhase'] in ('adopting', 'adopted'): keys += ('ApplicationSet',)
+    elif read('ApplicationSet'): raise ProofError('AppSet exists before recorded adoption intent')
+    for key in keys:
         declaration_guard(key, read(key), state['identities'].get(key), config, desired)
     secret = read('Secret') or {}
     external = read('ExternalSecret')
@@ -250,20 +266,34 @@ def quiet_child(app):
     return native.quiet(current)
 
 
+def child_metadata(app, desired):
+    expected = desired['ApplicationSet']['spec']['template']['metadata']
+    if (app.get('kind') != 'Application' or app.get('apiVersion') != 'argoproj.io/v1alpha1'
+            or app['metadata'].get('name') != NAME or app['metadata'].get('namespace') != 'argocd'
+            or app['metadata'].get('annotations', {}) != expected['annotations']
+            or set(app) - {'apiVersion', 'kind', 'metadata', 'spec', 'status', 'operation'}):
+        raise ProofError('Proof child metadata or protection differs from recorded intent')
+
+
 def child(config, state, desired, approval, marker, *, ready=True, drift=None):
     app = read('Application') or {}
     if not app:
         if 'Application' in state['identities']: raise ProofError('Captured proof Application is missing')
         return False
-    owners = [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': NAME,
-        'uid': state['identities']['ApplicationSet'], 'controller': True, 'blockOwnerDeletion': True}]
+    pending_owner = state['adoptionPhase'] == 'adopting' and not app['metadata'].get('ownerReferences')
+    owners = []
+    if state['adoptionPhase'] in ('adopting', 'adopted') and not pending_owner:
+        owners = [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': NAME,
+            'uid': state['identities']['ApplicationSet'], 'controller': True, 'blockOwnerDeletion': True}]
     owned(app, state['identities'].get('Application', app.get('metadata', {}).get('uid')), config, owners=owners)
+    child_metadata(app, desired)
     if app.get('spec') != child_spec(config, state, desired, approval, marker):
         if (state['acceptedApproval'] and (approval != state['acceptedApproval'] or marker != state['acceptedMarkerEnabled'])
                 and app.get('spec') == child_spec(config, state, desired, state['acceptedApproval'], state['acceptedMarkerEnabled'])):
             return False
         raise ProofError('Proof child source or scope differs from accepted intent')
     state['identities'].setdefault('Application', app['metadata']['uid'])
+    if pending_owner: return False
     if ready and (not quiet_child(app) or not native.matches_revision(app, config['publicRevision'])
             or app.get('status', {}).get('sync', {}).get('status') != 'Synced'
             or app.get('status', {}).get('health', {}).get('status') != 'Healthy'
@@ -374,14 +404,14 @@ def namespace_inventory(state):
 
 def create(config):
     public, files, _, authority = context(config)
-    if any(read(key) for key in RESOURCES): raise ProofError('Proof refuses every preexisting fixture resource')
+    if any(read(key) for key in RESOURCES) or get('application.argoproj.io', TRACKING_OWNER, 'argocd'):
+        raise ProofError('Proof refuses preexisting fixture resources or its synthetic tracking owner')
     state = {'version': VERSION, 'attempt': config['attempt'], 'publicRevision': config['publicRevision'], 'authority': authority, 'identities': {}, 'approval': 'A',
-        'markerEnabled': True, 'sourceAvailable': True, 'acceptedApproval': None, 'acceptedMarkerEnabled': True, 'lastObservation': 'pending'}
+        'markerEnabled': True, 'sourceAvailable': True, 'acceptedApproval': None, 'acceptedMarkerEnabled': True, 'lastObservation': 'pending',
+        'adoptionPhase': 'seed-intent'}
     desired = declarations(config, state, public, files)
     try:
-        for key in ('Namespace', 'Project', 'ExternalSecret', 'ApplicationSet'):
-            if key == 'ApplicationSet' and any(read(child) for child in ('Application', 'Marker', 'Retained')):
-                raise ProofError('Creation refuses preexisting child resources before enabling its controller')
+        for key in ('Namespace', 'Project', 'ExternalSecret'):
             authority_guard(state)
             obj = json.loads(kube('create', '-f', '-', '-o', 'json', document=desired[key]))
             uid = obj.get('metadata', {}).get('uid'); owned(obj, uid, config)
@@ -394,16 +424,16 @@ def create(config):
 
 def resume_create(config, state):
     public, files, _, _ = context(config, state)
-    if (state['acceptedApproval'] is not None or state['approval'] != 'A' or not state['markerEnabled']
+    if (state['adoptionPhase'] != 'seed-intent' or state['acceptedApproval'] is not None or state['approval'] != 'A' or not state['markerEnabled']
             or not state['sourceAvailable'] or state['lastObservation'] != 'pending'):
         raise ProofError('Only interrupted initial fixture creation may resume')
     desired = declarations(config, state, public, files)
-    for key in ('Namespace', 'Project', 'ExternalSecret', 'ApplicationSet'):
+    if any(read(key) for key in ('ApplicationSet', 'Application', 'Marker', 'Retained')):
+        raise ProofError('Base creation resume refuses preexisting child resources')
+    for key in ('Namespace', 'Project', 'ExternalSecret'):
         obj = read(key)
         if not obj:
             if key in state['identities']: raise ProofError('Resume refuses a missing captured fixture owner')
-            if key == 'ApplicationSet' and any(read(child) for child in ('Application', 'Marker', 'Retained')):
-                raise ProofError('Resume refuses preexisting child resources before enabling its controller')
             authority_guard(state)
             obj = json.loads(kube('create', '-f', '-', '-o', 'json', document=desired[key]))
         # Recovery may capture only this unique attempt's exact fixed declaration.
@@ -413,8 +443,61 @@ def resume_create(config, state):
     return {'state': state, 'created': True}
 
 
+def seed(config, state, *, timeout=240):
+    public, files, _, _ = context(config, state); desired = declarations(config, state, public, files)
+    if state['adoptionPhase'] not in ('seed-intent', 'seeded') or state['acceptedApproval'] is not None:
+        raise ProofError('Seed requires recorded pre-adoption intent')
+    try:
+        if not controls(config, state, desired): raise ProofError('Proof credentials are pending')
+        obj = read('Application')
+        if not obj:
+            if 'Application' in state['identities']: raise ProofError('Captured seed Application is missing')
+            if any(read(key) for key in ('Marker', 'Retained')): raise ProofError('Seed refuses preexisting workload resources')
+            authority_guard(state)
+            obj = json.loads(kube('create', '-f', '-', '-o', 'json', document={
+                'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+                'metadata': desired['ApplicationSet']['spec']['template']['metadata'],
+                'spec': child_spec(config, state, desired, 'A', True)}))
+        # A lost create response is recoverable only under the already recorded seed intent.
+        owned(obj, state['identities'].get('Application', obj.get('metadata', {}).get('uid')), config)
+        child_metadata(obj, desired)
+        if obj.get('spec') != child_spec(config, state, desired, 'A', True):
+            raise ProofError('Seed source or scope differs from recorded intent')
+        state['identities'].setdefault('Application', obj['metadata']['uid'])
+        state['adoptionPhase'] = 'seeded'
+        def healthy():
+            return controls(config, state, desired) and child(config, state, desired, 'A', True) and defaults(state)
+        poll(healthy, timeout=timeout)
+        state['adoptionPhase'] = 'adopting'  # Returned durable parent-creation intent, after real seed readiness.
+        return {'state': state, 'seed_healthy': True}
+    except Exception as error:
+        return dict(failure_result({'action': 'seed', 'config': config, 'state': state}, error), seed_healthy=False)
+
+
+def adopt(config, state):
+    public, files, _, _ = context(config, state); desired = declarations(config, state, public, files)
+    if (state['adoptionPhase'] != 'adopting' or state['acceptedApproval'] is not None
+            or not {'Application', 'Marker', 'Retained', 'DefaultAccount', 'RootCA', 'IstioRoot', 'IstioCRL', 'Secret'} <= set(state['identities'])):
+        raise ProofError('Adoption requires captured healthy seed identities and recorded intent')
+    obj = read('ApplicationSet')
+    if not obj:
+        if 'ApplicationSet' in state['identities']: raise ProofError('Captured adoption parent is missing')
+        # Check the recorded ownerless seed again before enabling its only new controller.
+        seed_state = copy.deepcopy(state); seed_state['adoptionPhase'] = 'seeded'
+        if not (controls(config, seed_state, desired) and child(config, seed_state, desired, 'A', True) and defaults(seed_state)):
+            raise ProofError('Adoption requires the same healthy ownerless seed')
+        authority_guard(state)
+        obj = json.loads(kube('create', '-f', '-', '-o', 'json', document=desired['ApplicationSet']))
+    uid = state['identities'].get('ApplicationSet', obj.get('metadata', {}).get('uid'))
+    declaration_guard('ApplicationSet', obj, uid, config, desired)
+    state['identities'].setdefault('ApplicationSet', uid)
+    return {'state': state, 'adoption_queued': True}
+
+
 def observe(config, state, *, rejected=False, timeout=240):
     public, files, _, _ = context(config, state); desired = declarations(config, state, public, files)
+    if state['adoptionPhase'] not in ('adopting', 'adopted') or 'ApplicationSet' not in state['identities']:
+        raise ProofError('Native observation requires the recorded adoption parent')
     if rejected and state['lastObservation'] == 'rejected':
         raise ProofError('Restore valid A and observe cleared native error before another rejection case')
     def check():
@@ -434,6 +517,7 @@ def observe(config, state, *, rejected=False, timeout=240):
         if not child(config, state, desired, state['approval'], state['markerEnabled']): return False
         if not defaults(state): return False
         state.update(acceptedApproval=state['approval'], acceptedMarkerEnabled=state['markerEnabled'])
+        state['adoptionPhase'] = 'adopted'
         return True
     poll(check, timeout=timeout)
     state['lastObservation'] = 'rejected' if rejected else 'accepted'
@@ -562,10 +646,19 @@ def cleanup(config, state):
             expected = [{'apiVersion': 'argoproj.io/v1alpha1' if key == 'Application' else 'external-secrets.io/v1',
                 'kind': parent_kind, 'name': parent_name, 'uid': state['identities'].get(parent_key), 'controller': True, 'blockOwnerDeletion': True}]
             if not read(parent_key) and not owners: expected = []  # Exact captured child after orphaning its parent.
+            if (key == 'Application' and state['adoptionPhase'] == 'adopting'
+                    and state['acceptedApproval'] is None and state['lastObservation'] == 'pending' and not owners
+                    and state['identities'].get('ApplicationSet')
+                    and (read('ApplicationSet') or {}).get('metadata', {}).get('uid') == state['identities']['ApplicationSet']):
+                expected = []  # Captured healthy seed awaiting its already captured parent.
+            if key == 'Application' and state['adoptionPhase'] in ('seed-intent', 'seeded'):
+                if read('ApplicationSet'): raise ProofError('Cleanup refuses an unrecorded adoption parent')
+                expected = []
         owned(obj, uid, config, owners=expected)
         if key in desired:
             declaration_guard(key, obj, uid, config, desired)
         if key == 'Application':
+            child_metadata(obj, desired)
             if (obj.get('kind') != 'Application' or obj.get('apiVersion') != 'argoproj.io/v1alpha1'
                     or obj['metadata'].get('name') != NAME or obj['metadata'].get('namespace') != 'argocd'
                     or set(obj) - {'apiVersion', 'kind', 'metadata', 'spec', 'status'}
@@ -622,6 +715,8 @@ def main(envelope):
     config_guard(config, state)
     if state is None: raise ProofError('Proof operation requires its captured UID scope')
     if action == 'resume-create': return resume_create(config, state)
+    if action == 'seed': return seed(config, state, timeout=envelope.get('timeout', 240))
+    if action == 'adopt': return adopt(config, state)
     if action in ('accept', 'reject'): return observe(config, state, rejected=action == 'reject', timeout=envelope.get('timeout', 240))
     if action == 'refresh': return refresh(config, state)
     if action == 'approve-b': return change(config, state, approval='B')
@@ -634,7 +729,7 @@ def main(envelope):
 
 
 def failure_result(envelope, error):
-    actions = ('create', 'resume-create', 'accept', 'reject', 'refresh', 'approve-b', 'remove-marker',
+    actions = ('create', 'resume-create', 'seed', 'adopt', 'accept', 'reject', 'refresh', 'approve-b', 'remove-marker',
         'source-failure', 'restore-source', 'drift', 'cleanup')
     operation = envelope.get('action') if isinstance(envelope, dict) else None
     result = {'verified': False, 'operation': operation if operation in actions else 'input',

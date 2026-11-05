@@ -86,6 +86,7 @@ class PrivateAcceptanceTests(unittest.TestCase):
             'files': [{'path': 'platform/acceptance/private-sources.yaml'}]}}]}}])
         self.assertEqual(spec['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
         child = spec['template']
+        self.assertEqual(child['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
         self.assertEqual(child['metadata']['name'], APP); self.assertEqual(child['spec']['project'], APP)
         self.assertEqual(child['spec']['sources'][0], {'repoURL': public()['repository'], 'targetRevision': 'f' * 40,
             'path': 'platform/delivery/private-sources', 'helm': {'valueFiles': ['$values/platform/sources.yaml']}})
@@ -247,5 +248,6 @@ assert not (base/'gitops/roots/public').exists();assert 'dotenv' not in sys.modu
             if value == '' and isinstance(value, str):
                 objects = [row for row in yaml.safe_load_all(result.stdout) if row]
                 catalog = next(row for row in objects if row['metadata']['name'] == APP and row['kind'] == 'Application')
+                self.assertEqual(catalog['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
                 self.assertEqual(catalog['spec']['sources'][1]['targetRevision'], 'main')
                 self.assertFalse(any(row['kind'] == 'ApplicationSet' and row['metadata']['name'] == APP for row in objects))

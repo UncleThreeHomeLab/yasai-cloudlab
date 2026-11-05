@@ -86,15 +86,19 @@ a reviewed public SHA-256 commitment. Its exact fields are `version`
 (40 lowercase hex characters), and a fresh cryptographically random `nonce`
 (64 lowercase hex characters). Keep the receipt, source address and revision private.
 Native controller adoption and missing-file readiness remain unqualified; keep
-production commitment empty. The prepared owner declares create-update retention;
-verification refuses missing or mismatched receipts. The commitment hashes UTF-8 fields separated by
+production commitment empty. The legacy catalog Application, prepared AppSet and
+generated child declare `Prune=false,Delete=false`; the prepared owner also
+declares create-update retention.
+Verification refuses missing or mismatched receipts. The commitment hashes UTF-8 fields separated by
 LF: version, consumer, designated private URL, `platform/sources.yaml`, revision,
 nonce, followed by a final LF.
 
 The prepared generator merges a fixed consumer row with the exact private receipt,
 so missing input reaches validation. The isolated
 [native qualification procedure](../verification/integration/private_source_acceptance.py)
-uses only `cloudlab-prices-source-proof`; it does not authorize production adoption.
+uses only `cloudlab-prices-source-proof`. Its guarded seed/adopt interface checks
+the same Application and resource UIDs across owner transfer; it does not
+authorize production adoption.
 
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
