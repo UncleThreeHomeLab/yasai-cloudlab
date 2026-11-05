@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["consumer", "acceptedRevision", "proofAttempt", "markerEnabled"],
+  "properties": {
+    "consumer": {"enum": ["observability", "permissions"]},
+    "acceptedRevision": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "proofAttempt": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "markerEnabled": {"type": "boolean"},
+    "catalog": {"type": "array", "maxItems": 0},
+    "dataApprovals": {"type": "object", "maxProperties": 0},
+    "observabilityProof": {"$ref": "#/definitions/artifact"},
+    "permissionsProof": {"$ref": "#/definitions/artifact"}
+  },
+  "definitions": {"artifact": {
+    "type": "object", "additionalProperties": false, "required": ["marker"],
+    "properties": {"marker": {"enum": ["A", "B"]}}
+  }},
+  "allOf": [
+    {"if": {"properties": {"consumer": {"const": "observability"}}},
+      "then": {"required": ["catalog", "dataApprovals", "observabilityProof"], "not": {"required": ["permissionsProof"]}}},
+    {"if": {"properties": {"consumer": {"const": "permissions"}}},
+      "then": {"required": ["permissionsProof"], "not": {"anyOf": [{"required": ["catalog"]}, {"required": ["dataApprovals"]}, {"required": ["observabilityProof"]}]}}}
+  ]
+}
