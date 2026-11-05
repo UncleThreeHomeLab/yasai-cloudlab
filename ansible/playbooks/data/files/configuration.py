@@ -25,6 +25,33 @@ def application(payload, component, values=None):
 
 def configure(payload):
     with locked():
+        receipt = BASE / 'ownership.json'
+        from playbooks.data.files import handoff
+        state = handoff.state() or {'applications': {}}
+        existing = get('application.argoproj.io', APP, 'argocd')
+        from playbooks.data.files.native import native_application, operation
+        if state.get('settings_uid') and not native_application(existing):
+            raise RuntimeError('Registered native data ownership cannot downgrade to its obsolete writer')
+        if native_application(existing):
+            if handoff.active(state) and not state.get('settings_uid'):
+                handoff.complete_locked()
+            else:
+                operation(read=get)
+            return False
+        if set(state.get('applications', {})) == {APP, 'cloudlab-seaweedfs'}:
+            operation(read=get)
+            coordinates = {'repository': payload['repository'], 'branch': payload['branch']}
+            for name in state['applications']:
+                source = get('application.argoproj.io', name, 'argocd')['spec']['source']
+                if coordinates != {'repository': source['repoURL'], 'branch': source['targetRevision']}:
+                    raise RuntimeError('Published metadata differs from accepted data public owner')
+            if state.get('publicSource', coordinates) != coordinates:
+                raise RuntimeError('Data public owner attestation changed; explicit recovery required')
+            if 'values' in payload and payload['values'] != existing['spec']['source']['helm']['valuesObject']:
+                raise RuntimeError('Accepted data ownership does not replay legacy desired-scope changes')
+            state['publicSource'] = coordinates
+            return atomic(receipt, state)
+        handoff.fence('initial configuration')
         for name, path in [('Longhorn', '/var/lib/cloudlab/longhorn/ownership.json'),
                            ('ESO', '/var/lib/cloudlab/external-secrets/ownership.json'),
                            ('backup', '/var/lib/cloudlab/longhorn/backup-ownership.json')]:
@@ -35,15 +62,6 @@ def configure(payload):
         private_zone = payload['values']['s3Host'].split('.', 1)[1]
         if not condition(private_cert, 'Ready') or private_cert['spec']['dnsNames'] != ['*.' + private_zone, 'login.' + private_zone.removeprefix('internal.')]:
             raise RuntimeError('Data endpoint must belong to the existing ready private certificate zone')
-        receipt = BASE / 'ownership.json'
-        state = json.loads(receipt.read_text()) if receipt.exists() else {'applications': {}}
-        existing = get('application.argoproj.io', APP, 'argocd')
-        from playbooks.data.files.native import native_application, operation
-        if state.get('settings_uid') and not native_application(existing):
-            raise RuntimeError('Registered native data ownership cannot downgrade to its obsolete writer')
-        if native_application(existing):
-            operation(read=get)
-            return False
         coordinates = {'repository': payload['repository'], 'branch': payload['branch']}
         if state.get('publicSource', coordinates) != coordinates:
             raise RuntimeError('Data public owner attestation changed; explicit recovery required')

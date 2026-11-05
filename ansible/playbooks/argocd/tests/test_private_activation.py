@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -7,6 +8,7 @@ import tempfile
 import unittest
 
 import yaml
+from jinja2 import Template
 
 from fixtures import binding_fixture, private_policies, private_probe
 from private_activation import APP, OWNER, POLICIES, TRACKING, guard, prepare
@@ -165,4 +167,56 @@ class PrivateActivationTests(unittest.TestCase):
                     '"valuesRevision":"b"*40},lambda *args:None)["required"]; assert p.PEM_TEMPLATE')
                 result = subprocess.run([sys.executable, '-S', '-c', code], cwd=directory,
                     env=dict(os.environ, PYTHONPATH=directory), capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_installed_early_resume_uses_data_fence_before_data_bootstrap(self):
+        root = Path(__file__).resolve().parents[4]
+        for relative, prefix in (('tasks/main.yml', ''), ('tasks/runtime.yml', 'playbooks.argocd.files.')):
+            tasks = yaml.safe_load((root / 'ansible/playbooks/argocd' / relative).read_text())
+            expanded = []
+            for task in tasks:
+                if task.get('ansible.builtin.import_tasks') == 'runtime.yml':
+                    expanded.extend(yaml.safe_load((root / 'ansible/playbooks/argocd/tasks/runtime.yml').read_text()))
+                else:
+                    expanded.append(task)
+            with self.subTest(layout=relative), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                for task in expanded:
+                    asset = task.get('ansible.builtin.copy', {})
+                    if not asset.get('dest', '').startswith('/opt/cloudlab/'):
+                        continue
+                    for item in task.get('loop', [None]):
+                        source = Template(asset['src']).render(item=item)
+                        target = base / Path(Template(asset['dest']).render(item=item)).relative_to('/opt/cloudlab')
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes((root / Path(source).relative_to('/workspace')).read_bytes())
+                code = '''import importlib,json,pathlib,sys
+base=pathlib.Path(sys.argv[1]);sys.path.insert(0,str(base));sys.path.insert(0,str(base/'gitops'))
+b=importlib.import_module(PREFIX+'bootstrap')
+from playbooks.data.files import control,native,handoff
+control.BASE=base/'data-state';control.BASE.mkdir(mode=0o700)
+b.BASE=base/'gitops-state';b.BASE.mkdir(mode=0o700)
+native.receipt=lambda p,**kwargs:json.loads(p.read_text()) if p.exists() else {}
+owner=control.BASE/'ownership.json';control.atomic(owner,{'applications':{}})
+checkpoint={'phase':'paused','root_uid':'root','project_uid':'project','controller_uid':'controller'}
+(b.BASE/'identity-values-binding.json').write_text(json.dumps(checkpoint))
+objects={'application.argoproj.io':{'metadata':{'uid':'root'},'spec':{'source':{'repoURL':'public'}}},
+'appproject.argoproj.io':{'metadata':{'uid':'project'}},
+'statefulset':{'metadata':{'uid':'controller'},'spec':{'replicas':0}}}
+b.get=lambda kind,name:objects[kind]
+writes=[];b.kube=lambda *args,**kwargs:writes.append(args)
+assert b.resume_identity_binding();assert len(writes)==1
+target={'valuesRepository':'https://github.com/example/private.git','valuesRevision':'b'*40}
+control.atomic(owner,{'applications':{},'handoff':{'phase':'armed','target':target,
+'pins':{'revision':'a'*40,'seaweedfsRevision':'c'*40},'owners':{},
+'specs':{native.APP:{},native.SEAWEED:{}},'settings':{},'resources':{},
+'absence':[native.SETTINGS,native.APP+'-source']}})
+try:b.resume_identity_binding()
+except RuntimeError as error:assert 'different private binding' in str(error)
+else:raise AssertionError('Armed source fence was skipped')
+assert len(writes)==1;assert 'dotenv' not in sys.modules
+'''.replace('PREFIX', repr(prefix))
+                result = subprocess.run([sys.executable, '-I', '-c', code, str(base)], cwd=base,
+                    env={key: value for key, value in os.environ.items() if key != 'PYTHONPATH'},
+                    capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)

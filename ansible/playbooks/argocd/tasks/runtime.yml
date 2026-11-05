@@ -1,4 +1,25 @@
 ---
+- name: Install host parsers required by independent source and data recovery
+  ansible.builtin.apt:
+    name: [python3-yaml, python3-cryptography]
+    state: present
+- name: Create the data recovery and Kubernetes reader owner directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    mode: '0700'
+  loop: [/opt/cloudlab/playbooks/data/files, /opt/cloudlab/playbooks/istio/files]
+- name: Install the data handoff fence before public binding recovery consumers
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/data/files/{{ item }}'
+    dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
+    mode: '0600'
+  loop: [handoff.py, native.py, control.py, s3.py, requests.py, volumes.py]
+- name: Install the shared Kubernetes reader before recovery consumers
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/istio/files/kube.py
+    dest: /opt/cloudlab/playbooks/istio/files/kube.py
+    mode: '0600'
 - name: Create the packaged public source owner directory
   ansible.builtin.file:
     path: /opt/cloudlab/playbooks/argocd/files

@@ -12,6 +12,11 @@ APP = 'cloudlab-data-configuration'
 SEAWEED = 'cloudlab-seaweedfs'
 
 
+def binding_fence(target):
+    from playbooks.data.files.handoff import binding_target
+    binding_target(target)
+
+
 def prepare(public, repository, revision, client, catalog=None, *, lookup=None):
     from playbooks.argocd.files.source_snapshot import chart_files
     from playbooks.data.files.native import private_file, render_settings, validate_private_input
@@ -101,8 +106,13 @@ def guard(evidence, target, read, root=None, *, patched=False, held=False):
     from playbooks.data.files import control
     from playbooks.data.files.native import native_application, quiet, quiet_operation, legacy_guard
     with exclusion(held=held):
+        binding_fence(target)
         app = read('application.argoproj.io', APP)
         seaweed = read('application.argoproj.io', SEAWEED)
+        if patched and evidence.get('authority'):
+            from playbooks.data.files.handoff import transition_guard
+            if transition_guard(evidence, target, root, read):
+                return evidence
         native = native_application(app) or native_application(seaweed)
         if native and not evidence['required']:
             raise RuntimeError('Data native consumer conflicts with disabled activation')
@@ -164,7 +174,8 @@ def guard(evidence, target, read, root=None, *, patched=False, held=False):
             if native:
                 obj = control.get('configmap', 'cloudlab-data-settings', control.NAMESPACE) or {}
                 meta = obj.get('metadata', {})
-                if (not state.get('settings_uid') or meta.get('uid') != state['settings_uid']
+                registered = state.get('settings_uid')
+                if (not registered or meta.get('uid') != registered
                         or meta.get('deletionTimestamp') or meta.get('ownerReferences') or meta.get('finalizers')
                         or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
                             APP + ':/ConfigMap:cloudlab-data/cloudlab-data-settings'
@@ -252,4 +263,7 @@ def guard(evidence, target, read, root=None, *, patched=False, held=False):
         if saved is not None and saved != authority:
             raise RuntimeError('Data activation absence evidence differs from its captured scopes')
         evidence['authority'] = authority
+        if not native and evidence['required']:
+            from playbooks.data.files.handoff import prepare_binding
+            prepare_binding(evidence, target, root, read)
         return evidence

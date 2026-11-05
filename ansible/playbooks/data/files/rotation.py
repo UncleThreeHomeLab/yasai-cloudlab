@@ -7,6 +7,7 @@ from pathlib import Path
 import secrets
 import sys
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 if not (ROOT / 'platform').is_dir():
@@ -66,9 +67,23 @@ def local():
                 old = command(['item', 'get', matches[0]['id'], '--vault', 'CloudLab'], token)
                 documents[title] = {'old': old, 'new': replacement(old, names)}
             atomic(path, documents)
-        documents = json.loads(path.read_text())
+        checkpoint = json.loads(path.read_text())
+        if set(checkpoint) == set(FIELDS):
+            checkpoint = {'attempt': uuid.uuid4().hex, 'documents': checkpoint}
+            atomic(path, checkpoint)
+        if set(checkpoint) != {'attempt', 'documents'}:
+            raise RuntimeError('Rotation checkpoint has an unexpected envelope')
+        documents = checkpoint['documents']
         if set(documents) != set(FIELDS):
             raise RuntimeError('Rotation checkpoint has an unexpected scope')
+        reservation = json.loads(ssh('VM', os.environ['VM_HOST'],
+            'python3 /opt/cloudlab/playbooks/data/files/handoff.py rotation-reserve',
+            input=json.dumps({'attempt': checkpoint['attempt']}), timeout=180))
+        if reservation.get('attempt') != checkpoint['attempt']:
+            raise RuntimeError('Rotation reservation identity changed')
+        if reservation.get('completed') is True:
+            path.unlink()
+            return {'rotated_and_verified': True, 'already_verified': True}
         for title, pair in documents.items():
             old, new = pair['old'], pair['new']
             if [row['id'] for row in inventory if row['title'] == title] != [old['id']]:
@@ -89,6 +104,7 @@ def local():
             command(['item', 'edit', current['id'], '--vault', 'CloudLab'], token, current)
         payload = {title: {version: values(document) for version, document in pair.items()}
                    for title, pair in documents.items()}
+        payload['attempt'] = checkpoint['attempt']
         result = json.loads(ssh('VM', os.environ['VM_HOST'],
             'python3 /opt/cloudlab/playbooks/data/files/rotation.py verify',
             input=json.dumps(payload), timeout=1200))
@@ -103,6 +119,8 @@ def remote(payload):
     from playbooks.data.files.s3 import S3, S3Error
     from playbooks.istio.files.kube import get, kube, wait
     with control.locked():
+        from playbooks.data.files.handoff import rotation_required, ROTATION
+        rotation_required(payload.get('attempt'))
         source = control.operation()
         desired = control.settings(source)
         if desired['maintenance']:
@@ -140,7 +158,9 @@ def remote(payload):
         evidence = {'rotated_and_verified': True, 'old_sql_password_denied': True,
                     'old_s3_key_denied': True, 'new_credentials_accepted': True,
                     'verified_at': time.time(), 'b2_requests': 0}
+        evidence['attempt'] = payload['attempt']
         control.atomic(control.BASE / 'rotation-receipt.json', evidence)
+        (control.BASE / ROTATION).unlink()
         return evidence
 
 

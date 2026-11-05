@@ -15,7 +15,7 @@ from playbooks.data.files.capture import verify
 from playbooks.data.files.s3 import S3, S3Error
 from playbooks.istio.files.kube import condition, get, kube, wait
 
-NAMESPACE = 'cloudlab-data-restore'
+NAMESPACE = control.RESTORE_NAMESPACE
 LABEL = {'cloudlab.io/fixture': 'application-data-restore'}
 
 
@@ -154,6 +154,8 @@ def cleanup():
 
 
 def run(manifest, offsite=False, source=None):
+    from playbooks.data.files.handoff import fence
+    fence('restore')
     if offsite:
         from playbooks.data.files.remote import require_window
         require_window(reserve=3600)
