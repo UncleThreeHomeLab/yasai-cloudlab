@@ -95,6 +95,17 @@ proxy inputs support canonical private IPv4 Pod ranges of /24 or narrower.
 Realm configuration remains a separate owner. Chart promotion requires a
 separately reviewed platform change.
 
+Harbor's native installation interface is disabled. Its private
+`platform/harbor.yaml` accepts only `installationRevision`, `harborHost`,
+`loginHost` and `gatewayIP` at the accepted identity binding. The supported
+installation revision is `d3d639cf80e8cfecebeb756d666a24db92a6bb74`;
+pin promotion requires a separate guarded platform change. Public server
+defaults stay in `platform/harbor/server/values.json`. The two Applications
+retain data and credentials; coordinated recovery owns only maintenance and
+seven replica fields. Native activation requires protected initial intent or
+same-resource adoption through the existing Harbor owner. Registry API
+resources keep their separate native provider owner.
+
 Native ApplicationSet catalog ownership requires `privateSources.acceptanceCommitment`
 once `identity.argo` is bound. The reviewed public SHA-256 commitment
 binds one private receipt at `platform/acceptance/private-sources.yaml` to an
@@ -594,6 +605,8 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
 3. For automatic promotion, confirm the matching release App can propose PRs in the destination below.
    Use the [Harbor installation contract](../ansible/playbooks/harbor/files/contract.json)
    for App fields and grants. Keep App keys in 1Password.
+
+
 4. For automatic promotion, confirm the destination has the required server-enforced release merge guard:
    approved administrators merge through PRs; release Apps cannot merge.
    Use the existing [workflow policy owner](../infra/github-workflows/merge-guard.tf).

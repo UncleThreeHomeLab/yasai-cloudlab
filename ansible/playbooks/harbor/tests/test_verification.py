@@ -102,7 +102,7 @@ class VerificationTests(unittest.TestCase):
                 patch.object(verify, 'oidc_discovery', return_value={'core_oidc_discovery': True}), \
                 patch.object(verify.deployments, 'verify', return_value={'active': False}) as deployed, \
                 patch.object(verify, 'application_ready', return_value=True), \
-                patch.object(recovery, 'application', return_value={'spec': {'source': {'repoURL': payload['repository']}}}), \
+                patch.object(recovery, 'application', return_value={'spec': {'source': {'repoURL': payload['repository'], 'targetRevision': 'd3d639cf80e8cfecebeb756d666a24db92a6bb74'}}}), \
                 patch.object(recovery, 'sources', return_value={}), patch.object(recovery, 'fingerprints', return_value={}), \
                 patch.object(recovery, 'secret', return_value={'username': base64.b64encode(b'admin'), 'password': base64.b64encode(b'synthetic')}), \
                 patch.object(recovery, 'run', return_value={'restored': True}) as restore:
@@ -119,7 +119,7 @@ class VerificationTests(unittest.TestCase):
         with patch.object(verify, 'get', side_effect=resource), \
                 patch.object(verify, 'direct_https', return_value=(200, json.dumps({key: {'value': value} for key, value in settings.items()}).encode())), \
                 patch.object(verify, 'application_ready', return_value=True), \
-                patch.object(recovery, 'application', return_value={'spec': {'source': {'repoURL': payload['repository']}}}), \
+                patch.object(recovery, 'application', return_value={'spec': {'source': {'repoURL': payload['repository'], 'targetRevision': 'd3d639cf80e8cfecebeb756d666a24db92a6bb74'}}}), \
                 patch.object(recovery, 'sources', return_value={}), \
                 patch.object(recovery, 'secret', return_value={'username': base64.b64encode(b'admin'), 'password': base64.b64encode(b'synthetic')}), \
                 patch.object(recovery, 'run') as restore:

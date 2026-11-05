@@ -10,7 +10,8 @@
 
 - name: Reconcile Harbor only through Argo
   ansible.builtin.command: python3 /opt/cloudlab/playbooks/harbor/files/bootstrap.py
-  args: {stdin: '{{ harbor_payload.stdout }}'}
+  args:
+    stdin: '{{ (harbor_payload.stdout | from_json) | combine({"native_handoff": harbor_native_handoff | default(false) | bool, "native_initial": harbor_native_initial | default(false) | bool}) | to_json }}'
   register: harbor_applied
   changed_when: harbor_applied.rc == 0 and (harbor_applied.stdout | from_json).changed
   failed_when: false

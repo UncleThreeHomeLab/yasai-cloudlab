@@ -31,6 +31,9 @@ def application(payload, configuration=False):
 
 
 def seed(payload, configuration=False):
+    from playbooks.harbor.files.native import receipt
+    if receipt():
+        raise RuntimeError('Harbor native ownership intent forbids the legacy Application writer')
     desired = application(payload, configuration)
     name = desired['metadata']['name']
     current = get('application.argoproj.io', name, 'argocd')
@@ -58,7 +61,8 @@ def seed(payload, configuration=False):
 
 
 def run(payload):
-    if (set(payload) != {'repository', 'revision', 'configuration', 'server', 'identity_client'} or
+    if (set(payload) - {'native_handoff', 'native_initial'} != {'repository', 'revision', 'configuration', 'server', 'identity_client'} or
+            any(type(payload.get(key, False)) is not bool for key in ('native_handoff', 'native_initial')) or
             not re.fullmatch('[a-f0-9]{40}', payload['revision']) or
             payload['configuration'].get('enabled') is not True or
             set(payload['server']) != {'harbor'}):
@@ -68,6 +72,22 @@ def run(payload):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if Path('/var/lib/cloudlab/harbor/maintenance.json').exists():
             raise RuntimeError('Finish or resume coordinated Harbor recovery before applying setup')
+        from playbooks.harbor.files import native
+        if payload.get('native_handoff'):
+            changed = native.prepare(initial=payload.get('native_initial', False))
+            return {'changed': changed, 'owner': 'argocd', 'native_handoff': True}
+        if native.receipt():
+            snapshot = native.context()
+            if snapshot is None: raise RuntimeError('Complete prepared Harbor native handoff before normal setup')
+            native.observe(snapshot, native.receipt())
+            return {'changed': False, 'owner': 'argocd', 'native_installation': True}
+        if native.context() is not None:
+            raise RuntimeError('Harbor native installation requires its protected initial or adoption intent')
+        for name in native.APPS:
+            current = get('application.argoproj.io', name, 'argocd')
+            if current and current.get('spec', {}).get('source', {}).get('targetRevision') != native.REVISION:
+                raise RuntimeError('Harbor setup cannot promote or silently freeze another installation revision')
+        installation_payload = dict(payload, revision=native.REVISION)
         private = get('configmap', 'identity-private-state', 'cloudlab-identity') or {}
         source = json.loads(private.get('data', {}).get('desired_state', '{}'))
         revoked = json.loads(private.get('data', {}).get('revocations', '{}')).get('realms', {}).get('platform', {})
@@ -79,11 +99,11 @@ def run(payload):
             existing = get(kind, name)
             if existing and existing['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
                 raise RuntimeError('Existing Harbor boundary has another owner')
-        changed = seed(payload, True)
+        changed = seed(installation_payload, True)
         wait(lambda: all(condition(get('externalsecret.external-secrets.io', name, NAMESPACE), 'Ready')
                          for name in SECRETS), 'Harbor vault delivery', timeout=300)
-        changed = seed(payload) or changed
-        wait(lambda: application_ready('cloudlab-harbor-configuration', payload['revision']),
+        changed = seed(installation_payload) or changed
+        wait(lambda: application_ready('cloudlab-harbor-configuration', native.REVISION),
              'complete private Harbor route', timeout=300)
         return {'changed': changed, 'owner': 'argocd', 'components': 7, 'offsite_backup': False}
 
