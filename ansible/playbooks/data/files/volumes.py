@@ -39,6 +39,8 @@ def inventory():
 
 
 def patch_values(app, values, source=None):
+    from playbooks.data.files.handoff import fence
+    fence('topology changes')
     if source:
         return source.patch(app, values)
     obj = get('application.argoproj.io', app, 'argocd')
@@ -53,6 +55,8 @@ def patch_values(app, values, source=None):
 
 
 def resume(source=None):
+    from playbooks.data.files.handoff import fence
+    fence('cold recovery')
     source = control.operation(recovery=True) if source is None else source
     # The runtime Applications retain sole ownership of desired workload state.
     patch_values('cloudlab-seaweedfs', {'seaweedfs': {c: {'replicas': 1} for c in ('master', 'volume', 'filer', 's3')}}, source)
@@ -72,6 +76,8 @@ def resume(source=None):
 
 
 def stop(source=None):
+    from playbooks.data.files.handoff import fence
+    fence('cold capture')
     source = control.operation() if source is None else source
     control.atomic(control.BASE / 'cold-maintenance.json', {'started_at': time.time()})
     from playbooks.keycloak.files.maintenance import set_maintenance

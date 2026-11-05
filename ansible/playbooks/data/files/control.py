@@ -21,6 +21,8 @@ from playbooks.data.files.s3 import S3, S3Error
 
 BASE = Path('/var/lib/cloudlab/application-data')
 NAMESPACE = 'cloudlab-data'
+RESTORE_NAMESPACE = 'cloudlab-data-restore'
+PROOF_NAMESPACE = 'cloudlab-data-proof'
 APP = 'cloudlab-data-configuration'
 OWNER = 'cloudlab-data-bootstrap'
 
@@ -180,6 +182,8 @@ def legacy_ready(expected):
 
 
 def maintenance(enabled, source=None):
+    from playbooks.data.files.handoff import fence
+    fence('maintenance')
     source = operation(recovery=not enabled) if source is None else source
     previous_client = s3(False, source) if enabled else None
     if source:
@@ -229,7 +233,8 @@ def maintenance(enabled, source=None):
 
 
 def reconcile(source=None):
-    source = operation() if source is None else source
+    from playbooks.data.files.handoff import reconcile_source
+    source = reconcile_source() if source is None else source
     values = settings(source)
     if values['maintenance']:
         raise RuntimeError('Interrupted data maintenance requires recovery before ordinary reconciliation')

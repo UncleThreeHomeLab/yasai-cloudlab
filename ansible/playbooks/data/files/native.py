@@ -27,6 +27,7 @@ BINDING = Path('/var/lib/cloudlab/gitops/identity-values-binding.json')
 COMPONENTS = ('master', 'volume', 'filer', 's3')
 VALUE_FILES = ('platform/certificates.yaml', 'platform/data.yaml', 'services/catalog.json')
 TRACKING = 'cloudlab-public-root:argoproj.io/'
+ESO_FINALIZER = 'externalsecrets.external-secrets.io/externalsecret-cleanup'
 
 
 def delegations():
@@ -48,14 +49,32 @@ def project_spec(name, public, target):
         'namespaceResourceWhitelist': [{'group': group, 'kind': kind} for group, kind in kinds]}
 
 
-def receipt(path):
+def receipt(path, *, missing=False):
     for current in (*reversed(path.parents), path):
-        info = current.lstat()
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            if missing:
+                return {}
+            raise
         if (info.st_uid != 0 or stat.S_ISLNK(info.st_mode)
                 or (current == path and (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600))
                 or (current != path and (not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022))):
             raise RuntimeError('Data authority receipt has unsafe ownership or permissions')
     return json.loads(path.read_text())
+
+
+def project_guard(name, obj, public, target, *, legacy=False, transitioning=False):
+    desired = project_spec(name, public, target)
+    old = copy.deepcopy(desired)
+    if name == APP:
+        old['sourceRepos'] = [public['repository']]
+        old['namespaceResourceWhitelist'].remove({'group': '', 'kind': 'ConfigMap'})
+    allowed = (old, desired) if transitioning else (old,) if legacy else (desired,)
+    if (not quiet(obj) or obj.get('spec') not in allowed
+            or obj['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                TRACKING + 'AppProject:argocd/' + name):
+        raise RuntimeError('Data project ownership or resource scope changed')
 
 
 def native_application(obj):
@@ -280,21 +299,26 @@ def reader_spec(repo, name='cloudlab-argocd-identity-source', project='cloudlab-
                     'githubAppPrivateKey': PEM_TEMPLATE}}}, 'dataFrom': [{'extract': {'key': 'github-argocd'}}]}
 
 
-def source_credentials(repo, name='cloudlab-argocd-identity-source', project='cloudlab-platform'):
+def source_credentials(repo, name='cloudlab-argocd-identity-source', project='cloudlab-platform', *, pending=False):
     external = get('externalsecret.external-secrets.io', name, 'argocd') or {}
     secret = get('secret', name, 'argocd') or {}
     meta = external.get('metadata', {}); owners = secret.get('metadata', {}).get('ownerReferences', [])
-    if (not condition(external, 'Ready') or meta.get('deletionTimestamp') or meta.get('ownerReferences')
+    if external and (not meta.get('uid') or (not pending and not condition(external, 'Ready'))
+            or meta.get('deletionTimestamp') or meta.get('ownerReferences')
+            or meta.get('finalizers', []) not in ([], [ESO_FINALIZER])
             or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
-                'cloudlab-public-root:external-secrets.io/ExternalSecret:argocd/' + name or external.get('spec') != reader_spec(repo, name, project)
-            or secret.get('metadata', {}).get('deletionTimestamp') or len(owners) != 1
+                'cloudlab-public-root:external-secrets.io/ExternalSecret:argocd/' + name or external.get('spec') != reader_spec(repo, name, project)):
+        raise RuntimeError('Data source credential is not owned by the accepted ready identity source')
+    if ((not pending and (not external or not secret)) or (secret and (not external
+            or secret.get('metadata', {}).get('deletionTimestamp') or secret.get('metadata', {}).get('finalizers')
+            or not secret.get('metadata', {}).get('uid') or len(owners) != 1
             or owners[0].get('uid') != meta.get('uid') or owners[0].get('kind') != 'ExternalSecret'
             or owners[0].get('name') != name or owners[0].get('apiVersion') != 'external-secrets.io/v1'
             or owners[0].get('controller') is not True
-            or secret.get('metadata', {}).get('labels', {}).get('argocd.argoproj.io/secret-type') != 'repository'):
+            or secret.get('metadata', {}).get('labels', {}).get('argocd.argoproj.io/secret-type') != 'repository'))):
         raise RuntimeError('Data source credential is not owned by the accepted ready identity source')
     data = {key: base64.b64decode(value, validate=True).decode() for key, value in secret.get('data', {}).items()}
-    if (set(data) != set(reader_spec(repo, name, project)['target']['template']['data']) or data.get('url') != repo
+    if secret and (set(data) != set(reader_spec(repo, name, project)['target']['template']['data']) or data.get('url') != repo
             or data.get('project') != project or data.get('type') != 'git'
             or not all(data.get(key) for key in ('githubAppID', 'githubAppInstallationID', 'githubAppPrivateKey'))):
         raise RuntimeError('Data source credential fields or repository scope changed')
@@ -306,8 +330,11 @@ def source_credentials(repo, name='cloudlab-argocd-identity-source', project='cl
         decoded = {key: base64.b64decode(obj.get('data', {}).get(key, ''), validate=True).decode() for key in ('url', 'project')}
         if decoded == {'url': repo, 'project': project}:
             matches.append(obj)
-    if len(matches) != 1 or matches[0].get('metadata', {}).get('uid') != secret.get('metadata', {}).get('uid'):
+    if (len(matches) != (1 if secret else 0) or (secret and
+            matches[0].get('metadata', {}).get('uid') != secret.get('metadata', {}).get('uid'))):
         raise RuntimeError('Data source has duplicate or changed repository credentials')
+    if not secret:
+        return None
     return dict(zip(('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'),
                     (data['githubAppID'], data['githubAppInstallationID'], data['githubAppPrivateKey'])))
 
@@ -348,7 +375,7 @@ def published_source(state, *, deadline):
     return public, revision
 
 
-def root_guard(state, public, revision, *, recovery=False):
+def root_guard(state, public, revision, *, recovery=False, preparation=False):
     binding = receipt(BINDING)
     if (not isinstance(binding, dict) or binding.get('phase') != 'accepted'
             or set(binding) != {'phase', 'target', 'root_uid', 'project_uid', 'controller_uid'}):
@@ -375,9 +402,10 @@ def root_guard(state, public, revision, *, recovery=False):
             or not matches_revision(root, revision) or root.get('status', {}).get('sync', {}).get('status') != 'Synced'
             or (not recovery and root.get('status', {}).get('health', {}).get('status') != 'Healthy')
             or root.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source') != source
-            or spec.get('ignoreDifferences') != delegations()
+            or spec.get('ignoreDifferences', []) != ([] if preparation and not public['data']['configuration']['enabled'] else delegations())
             or spec.get('syncPolicy', {}).get('syncOptions') !=
-                ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']
+                (['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true'] +
+                 ([] if preparation and not public['data']['configuration']['enabled'] else ['RespectIgnoreDifferences=true']))
             or any(c.get('type', '').endswith('Error') for c in root.get('status', {}).get('conditions', []))):
         raise RuntimeError('Data public root has not converged at its independently resolved revision')
     def compatible(actual, expected):
@@ -433,27 +461,47 @@ def operation(*, recovery=False, read=None):
     state = receipt(control.BASE / 'ownership.json')
     if not native_application(app) and not native_application(seaweed):
         legacy_guard(state, app, seaweed, recovery=recovery)
+        from playbooks.data.files.handoff import legacy_scope
+        legacy_scope(state, app, seaweed)
         return False
     if not native_application(app) or not native_application(seaweed):
         raise RuntimeError('Data source ownership is an unsupported legacy/native hybrid')
+    snapshot = projection(state, recovery=recovery)
+    if recovery and recorded_operation(state, app, seaweed):
+        snapshot.pending.update((APP, SEAWEED))
+    snapshot.observe(initial=True, recovery=recovery)
+    snapshot.settings()
+    return snapshot
+
+
+def projection(state, *, recovery=False, preparation=False):
+    """Acquire authenticated inputs; this alone never authorizes a settings read."""
     deadline = time.monotonic() + 120
     public, revision = published_source(state, deadline=deadline)
     config = public.get('data', {}).get('configuration', {})
-    if public.get('data', {}).get('enabled') is not True or config.get('enabled') is not True:
+    if public.get('data', {}).get('enabled') is not True or (not preparation and config.get('enabled') is not True):
         raise RuntimeError('Native data consumer conflicts with its independently disabled owner')
-    target = root_guard(state, public, revision, recovery=recovery)
+    target = root_guard(state, public, revision, recovery=recovery, preparation=preparation)
     files = source_snapshot.chart_files({'repository': public['repository'], 'revision': config['revision'],
                                         'path': 'platform/data/configuration'}, deadline=deadline)
     documents = authenticated_inputs(target['valuesRepository'], target['valuesRevision'], deadline)
     expected = render_settings(files, documents + [{'sharedInputs': True, 'maintenance': False, 'hibernated': False}])
     if time.monotonic() >= deadline:
         raise RuntimeError('Data source acquisition exceeded its total deadline')
-    snapshot = Observation(state, public, revision, target, expected)
-    if recovery and recorded_operation(state, app, seaweed):
-        snapshot.pending.update((APP, SEAWEED))
-    snapshot.observe(initial=True, recovery=recovery)
-    snapshot.settings()
-    return snapshot
+    return Observation(state, public, revision, target, expected)
+
+
+def application_sources(name, public, target, flags, replicas):
+    config = public['data']['configuration']
+    if name == APP:
+        return {'source': None, 'sources': [
+            {'repoURL': public['repository'], 'targetRevision': config['revision'], 'path': 'platform/data/configuration',
+             'helm': {'releaseName': APP, 'valueFiles': ['$values/' + path for path in VALUE_FILES],
+                      'valuesObject': dict(sharedInputs=True, **flags)}},
+            {'repoURL': target['valuesRepository'], 'targetRevision': target['valuesRevision'], 'ref': 'values'}]}
+    return {'source': {'repoURL': public['repository'], 'targetRevision': config['seaweedfsRevision'],
+        'path': 'platform/data/seaweedfs', 'helm': {'releaseName': SEAWEED,
+        'valuesObject': {'seaweedfs': {c: {'replicas': replicas[c]} for c in COMPONENTS}}}}}
 
 
 class Observation:
@@ -490,11 +538,8 @@ class Observation:
                         raise RuntimeError('Data operational settings are malformed')
                     self.flags = {key: values[key] for key in self.flags}
                     self.expected.update(self.flags)
-                expected_sources = [{'repoURL': self.public['repository'], 'targetRevision': pin, 'path': 'platform/data/configuration',
-                    'helm': {'releaseName': APP, 'valueFiles': ['$values/' + path for path in VALUE_FILES],
-                        'valuesObject': dict(sharedInputs=True, **self.flags)}},
-                    {'repoURL': self.target['valuesRepository'], 'targetRevision': self.target['valuesRevision'], 'ref': 'values'}]
-                valid = spec.get('source') is None and spec.get('sources') == expected_sources
+                expected_sources = application_sources(name, self.public, self.target, self.flags, self.replicas)
+                valid = spec.get('source') is None and spec.get('sources') == expected_sources['sources']
             else:
                 values = spec.get('source', {}).get('helm', {}).get('valuesObject', {})
                 if initial:
@@ -503,16 +548,12 @@ class Observation:
                             set(selected[c]) != {'replicas'} or type(selected[c]['replicas']) is not int or selected[c]['replicas'] not in (0, 1) for c in COMPONENTS):
                         raise RuntimeError('Data operational replica settings are malformed')
                     self.replicas = {c: selected[c]['replicas'] for c in COMPONENTS}
-                valid = not spec.get('sources') and spec.get('source') == {'repoURL': self.public['repository'], 'targetRevision': pin,
-                    'path': 'platform/data/seaweedfs', 'helm': {'releaseName': SEAWEED,
-                        'valuesObject': {'seaweedfs': {c: {'replicas': self.replicas[c]} for c in COMPONENTS}}}}
+                valid = not spec.get('sources') and spec.get('source') == application_sources(
+                    name, self.public, self.target, self.flags, self.replicas)['source']
             if not valid:
                 raise RuntimeError('Data native source differs from its independently committed owner')
             project = get('appproject.argoproj.io', name, 'argocd') or {}
-            if (not quiet(project) or project.get('spec') != project_spec(name, self.public, self.target)
-                    or project['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
-                        TRACKING + 'AppProject:argocd/' + name):
-                raise RuntimeError('Data native project ownership or resource scope changed')
+            project_guard(name, project, self.public, self.target)
             if initial and (not matches_revision(obj, pin) or (name not in self.pending and obj.get('status', {}).get('sync', {}).get('status') != 'Synced')
                     or (not recovery and obj.get('status', {}).get('health', {}).get('status') != 'Healthy')):
                 raise RuntimeError('Data native source has not converged')
@@ -522,8 +563,11 @@ class Observation:
         source_credentials(self.target['valuesRepository'], APP + '-source', APP)
         root_guard(self.state, self.public, self.revision, recovery=self.flags["hibernated"] or bool(self.pending))
         self.observe()
+        return self._settings(self.state.get('settings_uid'), lag=lag)
+
+    def _settings(self, uid, *, lag=False):
         obj = get('configmap', SETTINGS, 'cloudlab-data') or {}; meta = obj.get('metadata', {})
-        if (not self.state.get('settings_uid') or meta.get('uid') != self.state['settings_uid']
+        if (not uid or meta.get('uid') != uid
                 or meta.get('deletionTimestamp') or meta.get('ownerReferences') or meta.get('finalizers')
                 or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') != APP + ':/ConfigMap:cloudlab-data/' + SETTINGS
                 or set(obj.get('data', {})) != {'settings'} or obj.get('binaryData')):

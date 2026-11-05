@@ -58,8 +58,13 @@ def payload():
     return {key: result[key] for key in ('repository', 'branch', 'revision', 'values')}
 
 
+def metadata():
+    result = committed_payload()
+    return {key: result[key] for key in ('repository', 'branch', 'revision')}
+
+
 if __name__ == '__main__':
     try:
-        print(json.dumps(payload()))
+        print(json.dumps(metadata() if sys.argv[1:] == ['metadata'] else payload()))
     except Exception as error:
         raise SystemExit(str(error) if isinstance(error, (RuntimeError, ValueError)) else 'Data input resolution failed') from None

@@ -26,7 +26,7 @@ class ObservationTests(unittest.TestCase):
         self.stack = ExitStack(); self.addCleanup(self.stack.close)
         self.read = self.stack.enter_context(patch.object(native, 'get', side_effect=lambda kind, name=None, namespace=None: self.objects.get((kind, name, namespace))))
         self.stack.enter_context(patch.object(control, 'get', self.read))
-        self.stack.enter_context(patch.object(native, 'receipt', side_effect=lambda path: self.fixture['binding'] if path == native.BINDING
+        self.stack.enter_context(patch.object(native, 'receipt', side_effect=lambda path, **kwargs: self.fixture['binding'] if path == native.BINDING
             else json.loads(path.read_text()) if path.name == 'cold-maintenance.json' else self.fixture['state']))
         self.head = self.stack.enter_context(patch.object(native.source_snapshot, 'request', return_value={'protected': True, 'commit': {'sha': 'd' * 40}}))
         self.raw = self.stack.enter_context(patch.object(native.source_snapshot, 'read_url', return_value=yaml.safe_dump(self.fixture['committed']).encode()))
@@ -50,6 +50,7 @@ class ObservationTests(unittest.TestCase):
         self.stack.enter_context(patch.object(native, 'app_token', return_value='synthetic-app-token'))
 
     def test_acquires_once_and_revokes_before_repeated_settings_reads(self):
+        self.objects['externalsecret.external-secrets.io', 'cloudlab-argocd-identity-source', 'argocd']['metadata']['finalizers'] = [native.ESO_FINALIZER]
         source = control.operation()
         for _ in range(4):
             self.assertEqual(control.settings(source), self.fixture['expected'])
@@ -65,6 +66,16 @@ class ObservationTests(unittest.TestCase):
         actual = self.objects['externalsecret.external-secrets.io', 'cloudlab-argocd-identity-source', 'argocd']
         self.assertEqual(actual['spec'], native.reader_spec(self.fixture['target']['valuesRepository']))
         self.assertEqual(native.source_credentials(self.fixture['target']['valuesRepository'])['APP_ID'], '1')
+
+    def test_reader_rejects_unknown_eso_and_all_secret_finalizers(self):
+        name = 'cloudlab-argocd-identity-source'
+        external = self.objects['externalsecret.external-secrets.io', name, 'argocd']
+        for finalizers in (['foreign'], [native.ESO_FINALIZER, 'foreign']):
+            external['metadata']['finalizers'] = finalizers
+            with self.assertRaises(RuntimeError): native.source_credentials(self.fixture['target']['valuesRepository'])
+        external['metadata']['finalizers'] = [native.ESO_FINALIZER]
+        self.objects['secret', name, 'argocd']['metadata']['finalizers'] = [native.ESO_FINALIZER]
+        with self.assertRaises(RuntimeError): native.source_credentials(self.fixture['target']['valuesRepository'])
 
     def test_forged_settings_same_uid_fail_before_any_sql_or_s3_write(self):
         obj = self.objects['configmap', native.SETTINGS, 'cloudlab-data']

@@ -8,14 +8,14 @@ import time
 
 try:
     from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
-    from .data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion
+    from .data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion, binding_fence as data_binding_fence
     from .source_revision import matches_revision
     from .service_activation import validate as validate_activation, guard as activation_guard
     from .access_activation import validate as validate_access, guard as access_guard
     from .private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 except ImportError:
     from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
-    from data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion
+    from data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion, binding_fence as data_binding_fence
     from source_revision import matches_revision
     from service_activation import validate as validate_activation, guard as activation_guard
     from access_activation import validate as validate_access, guard as access_guard
@@ -135,6 +135,7 @@ def binding_source(state, root):
 
 
 def check_activation(state, root, read, *, data_held=False):
+    data_binding_fence(state['target'])
     evidence = state.get('serviceActivation')
     if evidence is None:
         raise RuntimeError('Pending service activation inputs unavailable; retry identity binding at its recorded private revision')
@@ -149,6 +150,7 @@ def check_activation(state, root, read, *, data_held=False):
 
 
 def safe_identity_resume(state, read, *, data_held=False):
+    data_binding_fence(state['target'])
     objects = {key: read(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', ROOT_APP), ('controller_uid', 'statefulset', CONTROLLER),
         ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
@@ -180,6 +182,7 @@ def accept_binding(path, checkpoint):
 
 def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     """An explicit retry may supply missing legacy evidence, never retarget it."""
+    data_binding_fence(target)
     if checkpoint['target'] != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
     for key, kind, name in (('root_uid', 'application.argoproj.io', ROOT_APP),
@@ -268,6 +271,7 @@ def bind_identity(payload, target):
 
 def bind_identity_locked(payload, target):
     import copy
+    data_binding_fence(target)
     path = BASE / 'identity-values-binding.json'
     checkpoint = json.loads(path.read_text()) if path.exists() else None
     access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))

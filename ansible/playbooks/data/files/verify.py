@@ -19,7 +19,7 @@ from playbooks.data.files import backup, control
 from playbooks.data.files.s3 import S3, S3Error, NoRedirect
 from playbooks.istio.files.kube import application_ready, condition, get, kube, wait
 
-NAMESPACE = 'cloudlab-data-proof'
+NAMESPACE = control.PROOF_NAMESPACE
 OWNER = 'cloudlab-data-proof'
 
 
@@ -118,6 +118,8 @@ def schedules_and_limits():
 
 
 def run():
+    from playbooks.data.files.handoff import fence
+    fence('schema verification')
     source = control.operation()
     values = control.settings(source)
     for name in ('cloudlab-cnpg', 'cloudlab-data-configuration', 'cloudlab-seaweedfs'):

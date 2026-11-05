@@ -1,0 +1,19 @@
+---
+- name: Require the exact approved handoff target
+  ansible.builtin.assert:
+    that:
+      - data_handoff_prepare is boolean
+      - data_handoff_target is mapping
+      - data_handoff_target.keys() | list | sort == ['valuesRepository', 'valuesRevision']
+    fail_msg: Data handoff requires its exact approved private target.
+    quiet: true
+  no_log: true
+- name: Arm the disabled data handoff against its accepted target
+  ansible.builtin.command:
+    argv: [python, /workspace/ansible/playbooks/data/files/handoff.py, prepare-local]
+    stdin: '{{ data_handoff_target | to_json }}'
+  register: data_handoff_result
+  changed_when: (data_handoff_result.stdout | from_json).changed
+  no_log: true
+  delegate_to: localhost
+  become: false

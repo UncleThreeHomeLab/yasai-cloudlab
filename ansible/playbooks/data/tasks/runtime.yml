@@ -1,12 +1,4 @@
 ---
-- name: Resolve the committed data contract and private identities
-  ansible.builtin.command: python /workspace/ansible/playbooks/data/files/inputs.py
-  delegate_to: localhost
-  become: false
-  changed_when: false
-  no_log: true
-  register: data_payload
-
 - name: Install the host parser used for isolated chart restores
   ansible.builtin.apt:
     name: [python3-yaml, python3-cryptography]
@@ -91,6 +83,7 @@
     dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
     mode: '0600'
   loop:
+    - handoff.py
     - native.py
     - configuration.py
     - public_ca.py
