@@ -1,8 +1,18 @@
 """Synthetic root and service activation inputs without credentials."""
 import copy
+import hashlib
 
 from service_activation import prepare
 from private_activation import prepare as prepare_private
+
+
+def source_approval(public, repository, revision='d' * 40):
+    receipt = {'version': 'cloudlab-private-source-acceptance/v1', 'consumer': 'private-sources',
+        'revision': revision, 'nonce': '1' * 64}
+    commitment = hashlib.sha256(('\n'.join([receipt['version'], receipt['consumer'], repository,
+        'platform/sources.yaml', revision, receipt['nonce'], ''])).encode()).hexdigest()
+    public['privateSources']['acceptanceCommitment'] = commitment
+    return {'acceptanceCommitment': commitment, 'acceptedRevision': revision, 'acceptanceReceipt': receipt}
 
 
 def private_policies(evidence):
@@ -32,7 +42,7 @@ def binding_fixture(required=True):
     objects = {
         ('application.argoproj.io', 'cloudlab-public-root'): {
             'metadata': {'uid': 'root', 'resourceVersion': '1'},
-            'spec': {'project': 'cloudlab-root', 'source': {'repoURL': repository,
+            'spec': {'project': 'cloudlab-root', 'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}, 'source': {'repoURL': repository,
                 'targetRevision': 'main', 'path': 'gitops/roots/public',
                 'helm': {'valuesObject': {'services': {'enabled': required}}}}}},
         ('statefulset', 'argocd-application-controller'): {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 1}},
@@ -42,7 +52,7 @@ def binding_fixture(required=True):
                 'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],
                 'clusterResourceWhitelist': [{'group': '', 'kind': 'Namespace'}],
                 'namespaceResourceWhitelist': [{'group': 'argoproj.io', 'kind': kind}
-                                               for kind in ('Application', 'AppProject')]}}}
+                                               for kind in ('Application', 'AppProject', 'ApplicationSet')]}}}
     payload = {'repository': repository, 'branch': 'main', 'revision': 'a' * 40,
                'private_repository': target['valuesRepository'], 'argo': {'serviceActivation': evidence,
                    'accessActivation': access_evidence(repository, target),

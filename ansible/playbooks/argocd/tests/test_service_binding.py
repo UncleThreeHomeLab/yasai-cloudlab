@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import bootstrap
 import source_transition as migration
-from fixtures import binding_fixture, private_policies, private_probe, access_evidence, access_authority
+from fixtures import binding_fixture, private_policies, private_probe, access_evidence, access_authority, source_approval
 import access_activation
 import data_activation
 from playbooks.data.files import control as data_control, native as data_native, handoff as data_handoff
@@ -21,6 +21,7 @@ class ServiceBindingTests(unittest.TestCase):
         self.patch_failure = None
         self.fail_guard_after_patch = False
         self.fail_private_after_patch = False
+        self.private_public = None
         self.payload['argo']['serviceActivation']['catalog']['catalog'] = [
             {'definition': {}, 'publication': 'ready',
              'approval': {'name': 'synthetic', 'namespace': 'cloudlab-app-synthetic'}}]
@@ -33,6 +34,7 @@ class ServiceBindingTests(unittest.TestCase):
         self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
 
     def write(self, *args, **kwargs):
+        if args[0] == 'get' and args[1] == 'pods': return json.dumps({'items': []})
         self.calls.append(args)
         if args[0] == 'scale':
             self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = int(args[-1].split('=')[1])
@@ -68,8 +70,12 @@ class ServiceBindingTests(unittest.TestCase):
         stack.enter_context(patch.object(migration, 'wait_application'))
         stack.enter_context(patch.object(migration, 'capture_public_revision', return_value=self.payload['revision']))
         stack.enter_context(patch.object(data_native, 'published_source', side_effect=lambda *a, **k: (
-            {'repository': self.payload['repository'], 'data': {'enabled': True, 'configuration': dict(
+            self.private_public or {'repository': self.payload['repository'], 'privateSources': {'enabled': False}, 'data': {'enabled': True, 'configuration': dict(
                 self.payload['argo']['dataActivation'], enabled=True)}}, self.payload['revision'])))
+        if self.private_public:
+            chart = Path(__file__).resolve().parents[4] / 'gitops/roots/public'
+            files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+            stack.enter_context(patch.object(data_native.source_snapshot, 'chart_files', return_value=files))
         stack.enter_context(patch.object(migration, 'private_server_probe', side_effect=lambda document:
             private_probe(self.payload['argo']['privateActivation'], document)))
         return stack
@@ -203,8 +209,10 @@ class ServiceBindingTests(unittest.TestCase):
         from private_activation import prepare
         public = {'repository': self.payload['repository'], 'privateSources': {'enabled': True, 'revision': 'c' * 40},
                   'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        approval = source_approval(public, self.target['valuesRepository'])
+        self.private_public = public
         self.payload['argo']['privateActivation'] = prepare(public, self.target['valuesRepository'], self.target['valuesRevision'],
-            {'sources': [{'name': 'synthetic', 'repository': self.target['valuesRepository'], 'revision': 'main', 'path': 'gitops'}]})
+            {'sources': [{'name': 'synthetic', 'repository': self.target['valuesRepository'], 'revision': 'main', 'path': 'gitops'}]}, acceptance=approval)
         self.objects.update(private_policies(self.payload['argo']['privateActivation']))
 
     def test_private_collision_after_committed_patch_keeps_controller_paused(self):
@@ -218,7 +226,213 @@ class ServiceBindingTests(unittest.TestCase):
                 migration.bind_identity(self.payload, self.target)
             self.assertFalse(any(call[0] == 'scale' for call in self.calls))
 
-    def test_legacy_missing_private_evidence_requires_exact_target_hydration(self):
+    def test_first_native_private_binding_authenticates_durable_paused_operation_before_patch(self):
+        self.enable_private()
+        self.assertNotIn('identity', self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source']['helm']['valuesObject'])
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            original = migration.pending_private_target
+            def checked(*args):
+                self.assertTrue((base / 'identity-values-binding.json').exists())
+                self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
+                self.assertFalse(any(call[0] == 'patch' for call in self.calls))
+                return original(*args)
+            with self.contexts(base), patch.object(migration, 'pending_private_target', side_effect=checked) as authority:
+                self.assertTrue(migration.bind_identity(self.payload, self.target)['changed'])
+            authority.assert_called_once()
+            self.assertEqual(json.loads((base / 'identity-values-binding.json').read_text())['phase'], 'accepted')
+            self.assertEqual(self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source']['helm']['valuesObject']['identity']['argo'], self.target)
+
+    def test_incoming_native_intent_denies_before_checkpoint_or_pause_then_corrected_retry_succeeds(self):
+        self.enable_private()
+        original_objects, original_payload = copy.deepcopy(self.objects), copy.deepcopy(self.payload)
+        for pending in (False, True):
+            for case in ('disabled', 'pin', 'receipt', 'parent', 'existing', 'identities', 'policyIdentities'):
+                self.objects = copy.deepcopy(original_objects); self.payload = copy.deepcopy(original_payload); self.calls.clear()
+                with self.subTest(pending=pending, case=case), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                    path = base / 'identity-values-binding.json'
+                    if pending:
+                        state = self.pending(base); state.update(phase='paused', publicRevision=self.payload['revision'])
+                        self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+                        path.write_text(json.dumps(state))
+                    before = path.read_bytes() if path.exists() else None
+                    root = copy.deepcopy(self.objects['application.argoproj.io', migration.ROOT_APP])
+                    controller = copy.deepcopy(self.objects['statefulset', migration.CONTROLLER])
+                    invalid = copy.deepcopy(self.payload)
+                    evidence = invalid['argo']['privateActivation']
+                    if case == 'disabled':
+                        from private_activation import prepare
+                        invalid['argo']['privateActivation'] = prepare({'repository': self.payload['repository']}, self.target['valuesRepository'], self.target['valuesRevision'])
+                    if case == 'pin': evidence['revision'] = 'f' * 40
+                    if case == 'receipt': evidence['acceptanceReceipt']['nonce'] = '2' * 64
+                    if case == 'parent': evidence['applicationSet']['syncPolicy']['applicationsSync'] = 'sync'
+                    if case == 'existing': evidence['existing'] = {'uid': 'invented', 'sources': []}
+                    if case == 'identities': evidence['identities'] = {'secret': 'invented'}
+                    if case == 'policyIdentities': evidence['policyIdentities'] = {'cloudlab-private-source-ownership': 'invented'}
+                    with self.contexts(base):
+                        with self.assertRaises((RuntimeError, ValueError)): migration.bind_identity(invalid, self.target)
+                        self.assertEqual(self.calls, [])
+                        self.assertEqual(path.read_bytes() if path.exists() else None, before)
+                        self.assertEqual(self.objects['application.argoproj.io', migration.ROOT_APP], root)
+                        self.assertEqual(self.objects['statefulset', migration.CONTROLLER], controller)
+                        self.assertTrue(migration.bind_identity(self.payload, self.target)['changed'])
+
+    def test_native_original_recovery_supports_stopped_and_running_controller_and_full_retry(self):
+        self.enable_private(); original = copy.deepcopy(self.objects)
+        for replicas in (0, 1):
+            for full_retry in (False, True):
+                self.objects = copy.deepcopy(original); self.calls.clear()
+                with self.subTest(replicas=replicas, full_retry=full_retry), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                    state = self.pending(base); state.update(phase='paused', publicRevision=self.payload['revision'])
+                    self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+                    self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = replicas
+                    path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state)); before = path.read_bytes()
+                    with self.contexts(base):
+                        result = migration.bind_identity(self.payload, self.target) if full_retry else bootstrap.resume_identity_binding()
+                    self.assertTrue(result)
+                    self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 1)
+                    if full_retry:
+                        self.assertEqual(json.loads(path.read_text())['phase'], 'accepted')
+                    else:
+                        self.assertEqual(path.read_bytes(), before)
+                        self.assertEqual(self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'], state['originalSource'])
+                        self.assertEqual(sum(call[0] == 'pause' for call in self.calls), replicas)
+
+    def test_original_recovery_preserves_legitimate_durable_private_captures(self):
+        self.enable_private()
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); state = self.pending(base); state.update(phase='paused', publicRevision=self.payload['revision'])
+            root = self.objects['application.argoproj.io', migration.ROOT_APP]
+            root['spec']['source'] = copy.deepcopy(state['originalSource'])
+            path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state))
+            with self.contexts(base):
+                migration.check_activation(state, root, self.read)
+                self.assertIn('policyIdentities', state['privateActivation'])
+                self.assertIn('identities', state['privateActivation'])
+                path.write_text(json.dumps(state)); before = path.read_bytes()
+                self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+                self.calls.clear()
+                self.assertTrue(bootstrap.resume_identity_binding())
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 1)
+
+    def test_original_resume_rechecks_captured_resources_after_pause_before_restart(self):
+        self.enable_private(); original = copy.deepcopy(self.objects)
+        for case in ('root', 'project', 'controller', 'controller-spec'):
+            self.objects = copy.deepcopy(original); self.calls.clear()
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); state = self.pending(base); state.update(phase='paused', publicRevision=self.payload['revision'])
+                self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+                self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+                path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state)); before = path.read_bytes()
+                def changed():
+                    self.pause()
+                    if case == 'root': self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source']['path'] = 'foreign'
+                    if case == 'project': self.objects['appproject.argoproj.io', 'cloudlab-root']['spec']['sourceRepos'].append('*')
+                    if case == 'controller': self.objects['statefulset', migration.CONTROLLER]['metadata']['uid'] = 'foreign'
+                    if case == 'controller-spec': self.objects['statefulset', migration.CONTROLLER]['spec']['unexpected'] = True
+                with self.contexts(base), patch.object(migration, 'pause', side_effect=changed):
+                    with self.assertRaisesRegex(RuntimeError, 'changed while stopping'): bootstrap.resume_identity_binding()
+                self.assertEqual(self.calls, [('pause',)])
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_approval_change_after_intent_preflight_blocks_quiescent_source_effects(self):
+        self.enable_private()
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            def changed():
+                self.pause()
+                self.private_public['privateSources']['acceptanceCommitment'] = 'f' * 64
+            with self.contexts(base), patch.object(migration, 'pause', side_effect=changed):
+                with self.assertRaisesRegex(RuntimeError, 'protected public intent'): migration.bind_identity(self.payload, self.target)
+            self.assertEqual(self.calls, [('pause',)])
+            self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
+            self.assertNotIn('identity', self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source']['helm']['valuesObject'])
+
+    def test_active_original_root_refuses_before_pause_and_same_pending_target_can_retry(self):
+        self.enable_private(); original = copy.deepcopy(self.objects)
+        for operation in ('queued', 'running'):
+            self.objects = copy.deepcopy(original); self.calls.clear()
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); state = self.pending(base); state.update(phase='paused', publicRevision=self.payload['revision'])
+                root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                root['spec']['source'] = copy.deepcopy(state['originalSource'])
+                self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+                if operation == 'queued': root['operation'] = {}
+                else: root['status'] = {'operationState': {'phase': 'Running'}}
+                path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state)); before = path.read_bytes()
+                with self.contexts(base):
+                    with self.assertRaisesRegex(RuntimeError, 'quiet original Root'): bootstrap.resume_identity_binding()
+                    self.assertEqual(self.calls, [])
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 1)
+                    root.pop('operation', None); root.pop('status', None)
+                    self.assertTrue(bootstrap.resume_identity_binding())
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 1)
+
+    def test_first_private_original_resume_refuses_unproved_authority_without_writes(self):
+        self.enable_private()
+        objects = copy.deepcopy(self.objects)
+        for case in ('valid', 'missing-record', 'forged-operation', 'public-revision', 'root_uid', 'controller_uid', 'project_uid',
+                'project', 'controller', 'pods', 'queued', 'running', 'original', 'delta', 'null', 'foreign-application', 'foreign-parent',
+                'foreign-project', 'foreign-external', 'foreign-secret', 'stale-approval', 'missing-approval', 'bound-mismatch'):
+            self.objects = copy.deepcopy(objects); self.calls.clear()
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); state = self.pending(base)
+                state.update(phase='paused', publicRevision=self.payload['revision'])
+                root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                root['spec']['source'] = copy.deepcopy(state['originalSource'])
+                if case in ('root_uid', 'controller_uid', 'project_uid'): state[case] = 'foreign'
+                if case == 'public-revision': state['publicRevision'] = 'not-a-sha'
+                if case == 'project': self.objects['appproject.argoproj.io', 'cloudlab-root']['spec']['sourceRepos'].append('*')
+                if case == 'controller': self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 2
+                if case == 'queued': root['operation'] = {}
+                if case == 'running': root['status'] = {'operationState': {'phase': 'Running'}}
+                if case == 'original': state['originalSource']['helm']['valuesObject']['foreign'] = True
+                if case == 'delta': state['patchedSource']['helm']['valuesObject']['foreign'] = True
+                if case in ('null', 'bound-mismatch'):
+                    root['spec']['source']['helm']['valuesObject']['identity'] = {'argo': None if case == 'null' else dict(self.target, valuesRepository='https://github.com/example/foreign.git')}
+                    state['originalSource'] = copy.deepcopy(root['spec']['source'])
+                controls = {'foreign-application': ('application.argoproj.io', 'cloudlab-private-sources'),
+                    'foreign-parent': ('applicationset.argoproj.io', 'cloudlab-private-sources'),
+                    'foreign-project': ('appproject.argoproj.io', 'cloudlab-private-sources'),
+                    'foreign-external': ('externalsecret.external-secrets.io', 'cloudlab-private-sources-source'),
+                    'foreign-secret': ('secret', 'cloudlab-private-sources-source')}
+                if case in controls: self.objects[controls[case]] = {'metadata': {'uid': 'foreign'}}
+                if case == 'stale-approval': state['privateActivation']['acceptanceReceipt']['nonce'] = '2' * 64
+                if case == 'missing-approval': state['privateActivation'].pop('acceptanceReceipt')
+                path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state)); before = path.read_bytes()
+                if case == 'missing-record': path.unlink()
+                supplied = copy.deepcopy(state)
+                if case == 'forged-operation': supplied['publicRevision'] = 'f' * 40
+                write = self.write
+                def pod_read(*args, **kwargs):
+                    if args[:2] == ('get', 'pods') and case == 'pods':
+                        return json.dumps({'items': [{'metadata': {'ownerReferences': [{'kind': 'StatefulSet', 'name': migration.CONTROLLER, 'uid': 'controller'}]}}]})
+                    return write(*args, **kwargs)
+                with self.contexts(base), patch.object(migration, 'kube', side_effect=pod_read):
+                    if case == 'valid': self.assertTrue(bootstrap.resume_identity_binding())
+                    elif case in ('missing-record', 'forged-operation'):
+                        with self.assertRaises(RuntimeError): migration.check_activation(supplied, root, self.read)
+                    else:
+                        with self.assertRaises((RuntimeError, ValueError)): bootstrap.resume_identity_binding()
+                if case != 'valid':
+                    self.assertEqual(self.calls, [])
+                    if path.exists(): self.assertEqual(path.read_bytes(), before)
+
+    def test_native_private_bound_revision_advance_uses_existing_repository_authority(self):
+        self.enable_private()
+        root = self.objects['application.argoproj.io', migration.ROOT_APP]
+        root['spec']['source']['helm']['valuesObject']['identity'] = {'enabled': True, 'argo': dict(self.target, valuesRevision='e' * 40)}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            with self.contexts(base), patch.object(migration, 'pending_private_target', side_effect=AssertionError('Bound path must not use absence')):
+                self.assertTrue(migration.bind_identity(self.payload, self.target)['changed'])
+
+    def test_legacy_missing_private_evidence_refuses_hydration_without_effects(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             state = self.pending(base)
@@ -226,11 +440,13 @@ class ServiceBindingTests(unittest.TestCase):
             path = base / 'identity-values-binding.json'
             path.write_text(json.dumps(state))
             with self.contexts(base):
-                with self.assertRaisesRegex(RuntimeError, 'private activation inputs'): bootstrap.resume_identity_binding()
+                with self.assertRaisesRegex(RuntimeError, '[Pp]rivate activation inputs'): bootstrap.resume_identity_binding()
                 self.assertFalse(any(call[0] == 'scale' for call in self.calls))
-                migration.hydrate_binding(path, state, self.payload, self.target)
-                self.assertIn('privateActivation', json.loads(path.read_text()))
-                self.assertTrue(bootstrap.resume_identity_binding())
+                before = path.read_bytes()
+                with self.assertRaisesRegex(RuntimeError, '[Pp]rivate activation inputs'):
+                    migration.hydrate_binding(path, state, self.payload, self.target)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(self.calls, [])
 
     def test_explicit_retry_refreshes_only_trusted_policy_specs(self):
         self.enable_private()
@@ -497,7 +713,7 @@ class ServiceBindingTests(unittest.TestCase):
                 with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
                         patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
                         patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}), \
-                        patch.object(data_native, 'published_source', side_effect=lambda *a, **k: ({'data': {'enabled': True,
+                        patch.object(data_native, 'published_source', side_effect=lambda *a, **k: ({'privateSources': {'enabled': False}, 'data': {'enabled': True,
                             'configuration': dict(self.payload['argo']['dataActivation'], enabled=True)}}, self.payload['revision'])), \
                         patch.object(migration, 'record', wraps=migration.record) as record, \
                         patch.object(data_control, 'sql') as sql, patch.object(data_control, 's3') as s3:
@@ -600,7 +816,7 @@ class ServiceBindingTests(unittest.TestCase):
                         if case in ('missing-evidence', 'missing-quiet'):
                             state.pop('publicRevision'); (base / 'identity-values-binding.json').write_text(json.dumps(state))
                         if case == 'missing-quiet': root['status'] = {}
-                        public = {'repository': self.payload['repository'], 'data': {'enabled': True,
+                        public = {'repository': self.payload['repository'], 'privateSources': {'enabled': False}, 'data': {'enabled': True,
                             'configuration': dict(data_handoff.state()['handoff']['pins'], enabled=True)}}
                         if case == 'scope-drift':
                             root['status'] = {}  # Quiet Root still requires current protected scope.
@@ -637,7 +853,7 @@ class ServiceBindingTests(unittest.TestCase):
                         'syncResult': {'revision': self.payload['revision'], 'source': copy.deepcopy(state['originalSource'])}}}
                     path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state))
                     before = path.read_bytes()
-                    public = {'repository': self.payload['repository'], 'data': {'enabled': True,
+                    public = {'repository': self.payload['repository'], 'privateSources': {'enabled': False}, 'data': {'enabled': True,
                         'configuration': dict(data_handoff.state()['handoff']['pins'], enabled=True)}}
                     with patch.object(migration, 'capture_public_revision', side_effect=capture), \
                             patch.object(data_native, 'published_source', return_value=(public, current)):

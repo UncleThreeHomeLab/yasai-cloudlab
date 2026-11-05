@@ -196,13 +196,40 @@ class PrivateAcceptanceTests(unittest.TestCase):
                         source = ROOT / Path(source).relative_to('/workspace')
                         if source.is_file():
                             target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(source.read_bytes())
-                code = '''import base64,importlib,json,pathlib,sys
+                code = '''import base64,copy,importlib,json,pathlib,sys
 base=pathlib.Path(sys.argv[1]);sys.path.insert(0,str(base));sys.path.insert(0,str(base/'gitops'))
 p=importlib.import_module(sys.argv[2]);from playbooks.data.files import native
 data=json.load(sys.stdin)
 native.published_source=lambda *a,**k:(data['public'],'a'*40)
 native.source_snapshot.chart_files=lambda *a,**k:{name:base64.b64decode(raw) for name,raw in data['files'].items()}
+p.preflight(data['evidence'],{'valuesRepository':data['evidence']['private_repository'],'valuesRevision':data['evidence']['private_revision']},lambda *args:data['root'])
 p.prepared_contract(data['evidence'],lambda *args:data['root'])
+m=importlib.import_module(sys.argv[2].rsplit('.',1)[0]+'.source_transition' if '.' in sys.argv[2] else 'source_transition')
+m.BASE=base/'state';m.BASE.mkdir(mode=0o700)
+root=copy.deepcopy(data['root']);root['spec']['destination']={'server':'https://kubernetes.default.svc','namespace':'argocd'}
+root['spec']['source']['helm']['valuesObject']['identity'].pop('argo')
+target={'valuesRepository':data['evidence']['private_repository'],'valuesRevision':data['evidence']['private_revision']}
+original=copy.deepcopy(root['spec']['source']);patched=copy.deepcopy(original)
+patched['helm']['valuesObject']['identity'].update(enabled=True,argo=target)
+state={'phase':'paused','target':target,'publicRevision':'a'*40,'root_uid':'accepted-root',
+'controller_uid':'controller','project_uid':'project','originalSource':original,'patchedSource':patched,'privateActivation':data['evidence']}
+p.preflight(data['evidence'],target,lambda *args:root)
+assert not (m.BASE/'identity-values-binding.json').exists()
+m.record(m.BASE/'identity-values-binding.json',state)
+objects={('application.argoproj.io','cloudlab-public-root'):root,
+('statefulset','argocd-application-controller'):{'metadata':{'uid':'controller'},'spec':{'replicas':0}},
+('appproject.argoproj.io','cloudlab-root'):{'metadata':{'uid':'project'},'spec':{
+'sourceRepos':[data['evidence']['repository']],'destinations':[{'server':'https://kubernetes.default.svc','namespace':'argocd'}],
+'clusterResourceWhitelist':[{'group':'','kind':'Namespace'}],
+'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':kind} for kind in ('Application','AppProject','ApplicationSet')]}}}
+m.get=lambda *key:objects.get(key)
+def kube(*args,**kwargs):
+ assert args==('get','pods','-n','argocd','-o','json');return '{"items":[]}'
+m.kube=kube
+captured=copy.deepcopy(data['evidence']);captured['identities']={}
+state['privateActivation']=captured;m.record(m.BASE/'identity-values-binding.json',state)
+p.preflight(captured,target,m.get,root)
+p.prepared_contract(captured,m.get,root,binding=state,target=target)
 assert not (base/'gitops/roots/public').exists();assert 'dotenv' not in sys.modules
 '''
                 result = subprocess.run([sys.executable, '-I', '-c', code, str(base),
@@ -240,8 +267,9 @@ assert not (base/'gitops/roots/public').exists();assert 'dotenv' not in sys.modu
     def test_public_defaults_select_native_catalog_only_with_identity_binding(self):
         defaults = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
         self.assertRegex(defaults['privateSources']['acceptanceCommitment'], '^[a-f0-9]{64}$')
-        for bound in (False, True):
+        for bound, enabled in ((False, True), (True, True), (True, False)):
             values = {'identity': {'enabled': True}}
+            if not enabled: values['privateSources'] = {'enabled': False}
             if bound:
                 values['identity']['argo'] = {'valuesRepository': REPOSITORY, 'valuesRevision': 'b' * 40}
             result = subprocess.run(['helm', 'template', 'root', str(ROOT / 'gitops/roots/public'), '-f', '-'],
@@ -249,7 +277,7 @@ assert not (base/'gitops/roots/public').exists();assert 'dotenv' not in sys.modu
             self.assertEqual(result.returncode, 0, result.stderr)
             objects = [row for row in yaml.safe_load_all(result.stdout) if row]
             catalogs = [row for row in objects if row['metadata']['name'] == APP and row['kind'] in ('Application', 'ApplicationSet')]
-            if not bound:
+            if not bound or not enabled:
                 self.assertEqual(catalogs, [])
                 continue
             self.assertEqual([row['kind'] for row in catalogs], ['ApplicationSet'])
@@ -261,17 +289,31 @@ assert not (base/'gitops/roots/public').exists();assert 'dotenv' not in sys.modu
             self.assertIn('sha256sum', sources[1]['targetRevision'])
             self.assertIn(defaults['privateSources']['acceptanceCommitment'], sources[1]['targetRevision'])
 
-    def test_explicit_legacy_upgrade_preserves_owner_and_rejects_invalid_commitment(self):
+    def test_enabled_bound_catalog_refuses_empty_or_invalid_approval(self):
         values = public(); values['privateSources']['acceptanceCommitment'] = ''
         values['identity'] = {'enabled': True, 'argo': {'valuesRepository': REPOSITORY, 'valuesRevision': 'b' * 40}}
         for value in ('', False, None, 'short', 'A' * 64):
             values['privateSources']['acceptanceCommitment'] = value
             result = subprocess.run(['helm', 'template', 'root', str(ROOT / 'gitops/roots/public'), '-f', '-'],
                 input=json.dumps(values), capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode == 0, value == '' and isinstance(value, str))
-            if value == '' and isinstance(value, str):
-                objects = [row for row in yaml.safe_load_all(result.stdout) if row]
-                catalog = next(row for row in objects if row['metadata']['name'] == APP and row['kind'] == 'Application')
-                self.assertEqual(catalog['metadata']['annotations']['argocd.argoproj.io/sync-options'], 'Prune=false,Delete=false')
-                self.assertEqual(catalog['spec']['sources'][1]['targetRevision'], 'main')
-                self.assertFalse(any(row['kind'] == 'ApplicationSet' and row['metadata']['name'] == APP for row in objects))
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_enabled_missing_approval_refuses_before_io_and_disabled_skips_it(self):
+        from private_activation import prepare
+        import private_sources
+        client = Mock()
+        for value in ('', None):
+            settings = public(); settings['privateSources']['acceptanceCommitment'] = value
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError): accepted_source(client, REPOSITORY, 'e' * 40, settings)
+                with self.assertRaises(ValueError): registry(client, {}, settings, 'c' * 40)
+                with patch.object(private_sources, 'policy_specs') as policies, self.assertRaises(ValueError):
+                    prepare(settings, REPOSITORY, 'b' * 40, {'sources': []})
+                policies.assert_not_called()
+        settings = public(); settings['privateSources'].pop('acceptanceCommitment')
+        with self.assertRaises(ValueError): accepted_source(client, REPOSITORY, 'e' * 40, settings)
+        settings = public(); settings['privateSources']['enabled'] = False
+        self.assertIsNone(accepted_source(client, REPOSITORY, 'not-a-revision', settings))
+        self.assertIsNone(registry(client, {}, settings, 'not-a-revision'))
+        self.assertFalse(prepare(settings, REPOSITORY, 'b' * 40)['required'])
+        client.request.assert_not_called()

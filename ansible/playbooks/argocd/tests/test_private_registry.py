@@ -6,6 +6,7 @@ import subprocess
 import unittest
 
 import yaml
+from fixtures import source_approval
 
 from private_sources import PEM_TEMPLATE, registry, validate_registry, verification_payload
 
@@ -20,12 +21,16 @@ class PrivateRegistryTests(unittest.TestCase):
         public = {'repository': 'https://github.com/example/platform.git',
                   'privateSources': {'enabled': True, 'revision': 'b' * 40},
                   'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        approval = source_approval(public, ENTRY['repository'])
         raw = json.dumps({'sources': rows}).encode()
         contents = {'type': 'file', 'encoding': 'base64', 'size': len(raw), 'content': base64.b64encode(raw).decode()}
         def request(method, path):
             self.assertEqual(method, 'GET')
+            if '/contents/platform/acceptance/private-sources.yaml?ref=' in path:
+                receipt = json.dumps(approval['acceptanceReceipt']).encode()
+                return {'type': 'file', 'encoding': 'base64', 'size': len(receipt), 'content': base64.b64encode(receipt).decode()}
             if '/contents/platform/sources.yaml?ref=' in path:
-                self.assertTrue(path.endswith('a' * 40))
+                self.assertTrue(path.endswith('d' * 40))
                 return contents
             if isinstance(response, Exception): raise response
             return response(path) if callable(response) else response
@@ -62,19 +67,22 @@ class PrivateRegistryTests(unittest.TestCase):
         public = {'repository': 'https://github.com/example/platform.git',
                   'privateSources': {'enabled': True, 'revision': 'b' * 40},
                   'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        approval = source_approval(public, ENTRY['repository'])
         client = Mock()
-        client.request.return_value = {'type': 'file', 'encoding': 'base64', 'size': 12,
-                                      'content': base64.b64encode(b'sources: []\n').decode()}
+        def read(method, path):
+            raw = json.dumps(approval['acceptanceReceipt']).encode() if '/acceptance/' in path else b'sources: []\n'
+            return {'type': 'file', 'encoding': 'base64', 'size': len(raw), 'content': base64.b64encode(raw).decode()}
+        client.request.side_effect = read
         def authenticated(values, *, read): return read(client, 'a' * 40)
         with patch('playbooks.argocd.files.github_app.configuration_revision', side_effect=authenticated):
             payload = verification_payload({'PRIVATE_CONFIG_REPOSITORY': ENTRY['repository']}, public)
         self.assertEqual(payload['sources'], [])
         self.assertEqual(payload['objects'], [])
         self.assertEqual(payload['configuration_revision'], 'a' * 40)
-        self.assertTrue(client.request.call_args.args[1].endswith('?ref=' + 'a' * 40))
+        self.assertTrue(client.request.call_args.args[1].endswith('?ref=' + 'd' * 40))
         for stale in ({'PRIVATE_GITOPS_SOURCES': '[{}]'}, {'PRIVATE_GITOPS_REMOVE': 'example'}):
             with self.assertRaisesRegex(ValueError, 'Legacy private source inputs'):
-                registry(client, stale, public, 'a' * 40)
+                registry(client, dict(stale, PRIVATE_CONFIG_REPOSITORY=ENTRY['repository']), public, 'd' * 40, acceptance=approval)
     def render(self, value, success=True):
         result = subprocess.run(['helm', 'template', 'private-sources',
             str(ROOT / 'platform/delivery/private-sources'), '-n', 'argocd', '-f', '-'],
@@ -136,9 +144,10 @@ class PrivateRegistryTests(unittest.TestCase):
         from unittest.mock import Mock
         public = {'privateSources': {'enabled': True}, 'admission': {'enabled': True},
                   'externalSecrets': {'enabled': True, 'reconcile': True}}
+        approval = source_approval(public, ENTRY['repository'], 'a' * 40)
         values = {'PRIVATE_CONFIG_REPOSITORY': ENTRY['repository']}
         document = {'type': 'file', 'encoding': 'base64', 'size': 3,
                     'content': base64.b64encode(b'{}\n').decode()}
         for change in ({}, {'type': 'symlink'}, {'encoding': 'none'}, {'size': 1048577}):
             with self.subTest(change=change), self.assertRaises(ValueError):
-                registry(Mock(request=Mock(return_value=document | change)), values, public, 'a' * 40)
+                registry(Mock(request=Mock(return_value=document | change)), values, public, 'a' * 40, acceptance=approval)
