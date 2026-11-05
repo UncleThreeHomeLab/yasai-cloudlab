@@ -3,9 +3,14 @@ kind: ConfigMap
 metadata:
   name: cloudlab-dashboards
   namespace: {{ .Release.Namespace }}
-  {{- with .Values.serviceCatalogRevision }}
+  {{- if or .Values.serviceCatalogRevision .Values.nativeInputDigest }}
   annotations:
+    {{- with .Values.serviceCatalogRevision }}
     cloudlab.io/service-catalog-revision: {{ . | quote }}
+    {{- end }}
+    {{- with .Values.nativeInputDigest }}
+    cloudlab.io/observability-input-digest: {{ . | quote }}
+    {{- end }}
   {{- end }}
 data:
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}

@@ -15,7 +15,7 @@ class NotificationTests(unittest.TestCase):
     def test_disabled_delivery_is_explicit_and_native_storage_does_not_switch_legacy(self):
         app = native_notifications(native_source_inputs())
         self.assertEqual(app['metadata']['annotations']['cloudlab.io/notification-delivery'], 'unconfigured')
-        overrides = app['spec']['sources'][0]['helm']['valuesObject']
+        overrides = app['spec']['source']['helm']['valuesObject']
         native = overrides['kube-prometheus-stack']['alertmanager']
         self.assertEqual(native['config']['receivers'], [{'name': 'unconfigured'}])
         objects = render('prometheus', overrides)
@@ -43,7 +43,7 @@ class NotificationTests(unittest.TestCase):
 
     def test_catalog_destination_authentication_and_fanout_reach_native_config(self):
         app = native_notifications(notification_inputs())
-        overrides = app['spec']['sources'][0]['helm']['valuesObject']
+        overrides = app['spec']['source']['helm']['valuesObject']
         objects = render('prometheus', overrides)
         secret = next(obj for obj in objects if obj['kind'] == 'Secret' and
                       obj['metadata']['name'] == 'alertmanager-cloudlab')
@@ -111,7 +111,7 @@ class NotificationTests(unittest.TestCase):
         hook['authentication'] = {'mode': 'mesh'}
         del hook['caSecretRef']
         app = native_notifications(value)
-        config = app['spec']['sources'][0]['helm']['valuesObject']['kube-prometheus-stack']['alertmanager']['config']
+        config = app['spec']['source']['helm']['valuesObject']['kube-prometheus-stack']['alertmanager']['config']
         delivery = next(row for row in config['receivers'] if row['name'] == 'primary')['webhook_configs'][0]
         self.assertTrue(delivery['url'].startswith('http://incident-receiver.cloudlab-app-incident-receiver.svc:9443/'))
         self.assertEqual(delivery['http_config'], {'follow_redirects': False})
@@ -119,9 +119,9 @@ class NotificationTests(unittest.TestCase):
 
     def test_subscription_removal_retains_shared_receivers_and_state(self):
         value = notification_inputs()
-        before = native_notifications(value)['spec']['sources'][0]['helm']['valuesObject']['kube-prometheus-stack']['alertmanager']
+        before = native_notifications(value)['spec']['source']['helm']['valuesObject']['kube-prometheus-stack']['alertmanager']
         value['platformNotifications']['subscriptions'] = []
-        after = native_notifications(value)['spec']['sources'][0]['helm']['valuesObject']['kube-prometheus-stack']['alertmanager']
+        after = native_notifications(value)['spec']['source']['helm']['valuesObject']['kube-prometheus-stack']['alertmanager']
         self.assertEqual(after['config']['route']['routes'], [])
         self.assertEqual(before['config']['receivers'], after['config']['receivers'])
         self.assertEqual(before['alertmanagerSpec'], after['alertmanagerSpec'])

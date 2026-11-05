@@ -1,5 +1,6 @@
 {{- $source := .Values.nativeSource }}
 {{- $inputs := .Values.observabilityInputs }}
+{{- $digest := toJson (dict "catalog" .Values.catalog "observabilityInputs" $inputs "platformNotifications" .Values.platformNotifications "serviceObservability" .Values.serviceObservability "alertmanagerState" .Values.alertmanagerState) | sha256sum }}
 {{- if eq $source.repository $source.valuesRepository }}{{ fail "Telemetry values require the distinct designated private source" }}{{ end }}
 {{- $zone := trimPrefix "login." $inputs.loginHost }}
 {{- if or (ne $inputs.grafanaHost (printf "grafana.internal.%s" $zone)) (ne $inputs.kialiHost (printf "kiali.internal.%s" $zone)) }}
@@ -18,7 +19,7 @@
 {{- $notifications := include "observability.notifications" . | fromYaml }}
 {{- $services := include "observability.services" . | fromJson }}
 {{- $configurationValues := merge (dict "enabled" true "serviceMetrics" $services.bindings "serviceLogs" $services.logs "serviceRules" $services.rules) (deepCopy $inputs) }}
-{{- $prometheusValues := dict "serviceCatalogRevision" $source.valuesRevision "serviceDashboards" $services.dashboards "serviceDashboardLinks" $services.links "kube-prometheus-stack" (dict
+{{- $prometheusValues := dict "nativeInputDigest" $digest "serviceDashboards" $services.dashboards "serviceDashboardLinks" $services.links "kube-prometheus-stack" (dict
   "alertmanager" (dict "config" $notifications.config "alertmanagerSpec" (dict
     "secrets" $notifications.secrets
     "persistentVolumeClaimRetentionPolicy" (dict "whenDeleted" "Retain" "whenScaled" "Retain")
@@ -43,15 +44,14 @@ metadata:
   namespace: argocd
   labels: {cloudlab.io/owner: observability-platform}
   annotations:
-    cloudlab.io/service-catalog-revision: {{ $source.valuesRevision | quote }}
+    cloudlab.io/observability-input-digest: {{ $digest | quote }}
     {{- if eq $component "prometheus" }}
     cloudlab.io/notification-delivery: {{ ternary "candidate" "unconfigured" $.Values.platformNotifications.enabled | quote }}
     {{- end }}
 spec:
   project: cloudlab-observability
-  source: null
-  sources:
-    - repoURL: {{ $source.repository | quote }}
+  source:
+      repoURL: {{ $source.repository | quote }}
       targetRevision: {{ $source.revision | quote }}
       path: platform/observability{{ if not $configuration }}/{{ $component }}{{ end }}
       helm:
@@ -63,9 +63,6 @@ spec:
         valuesObject:
 {{ toYaml (get $overrides $component) | indent 10 }}
         {{- end }}
-    - repoURL: {{ $source.valuesRepository | quote }}
-      targetRevision: {{ $source.valuesRevision | quote }}
-      ref: values
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-observability}
   revisionHistoryLimit: {{ ternary 0 10 (eq $component "prometheus") }}
   syncPolicy:

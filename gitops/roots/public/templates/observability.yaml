@@ -1,13 +1,13 @@
 {{- $configuration := .Values.observability.configuration }}
-{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) }}
-{{- fail "Observability configuration requires a YAML boolean enabled setting" }}
+{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) (not (kindIs "bool" $configuration.paused)) (not (kindIs "string" $configuration.revision)) }}
+{{- fail "Observability configuration requires YAML boolean enabled and paused settings and a string revision" }}
 {{- end }}
 {{- range $key, $_ := $configuration }}
-{{- if not (has $key (list "enabled" "revision" "valuesRevision")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
+{{- if not (has $key (list "enabled" "paused" "revision")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
 {{- end }}
 {{- if $configuration.enabled }}
 {{- $binding := .Values.identity.argo | default dict }}
-{{- if or (not (eq .Values.observability.enabled true)) (not (eq .Values.identity.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (kindIs "string" $configuration.revision)) (not (regexMatch "^[a-f0-9]{40}$" ($configuration.revision | toString))) (not (kindIs "string" $configuration.valuesRevision)) (not (regexMatch "^[a-f0-9]{40}$" ($configuration.valuesRevision | toString))) (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" ($binding.valuesRepository | default ""))) (eq ($binding.valuesRepository | default "") .Values.repository) }}
+{{- if or (not (eq .Values.observability.enabled true)) (not (eq .Values.identity.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" $configuration.revision)) (and (hasKey .Values.identity "argo") (or (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" ($binding.valuesRepository | default ""))) (eq ($binding.valuesRepository | default "") .Values.repository))) }}
 {{- fail "Native observability requires enabled telemetry, External Secrets and reviewed immutable source bindings" }}
 {{- end }}
 {{- end }}
@@ -21,9 +21,6 @@ spec:
   description: Administrator-owned private telemetry with local disposable storage.
   sourceRepos:
     - {{ .Values.repository | quote }}
-    {{- if $configuration.enabled }}
-    - {{ .Values.identity.argo.valuesRepository | quote }}
-    {{- end }}
   destinations:
     {{- range $namespace := list "cloudlab-observability" "cloudlab-app-notes" "cloudlab-identity" "istio-system" "cloudlab-gateway-public" "cloudlab-gateway-private" }}
     - {server: 'https://kubernetes.default.svc', namespace: {{ $namespace }}}
