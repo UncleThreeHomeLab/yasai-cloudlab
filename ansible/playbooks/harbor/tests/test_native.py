@@ -17,6 +17,112 @@ from playbooks.harbor.tests.fixtures import native_installation
 
 
 class NativeTests(unittest.TestCase):
+    def test_expected_application_uses_authenticated_template_without_legacy_constructor(self):
+        snapshot, _, _ = native_installation()
+        for name in native.APPS:
+            expected = native.expected_app(snapshot, name)
+            declared = copy.deepcopy(snapshot['contracts'][0][('ApplicationSet', name)]['spec']['template']['spec'])
+            declared['source']['helm']['valuesObject'] = native.values(snapshot['profile'], name)
+            self.assertEqual(expected['spec'], declared)
+        self.assertFalse(hasattr(native, 'application'))
+        snapshot['contracts'][0][('ApplicationSet', native.APPS[0])]['spec']['template']['spec']['source']['targetRevision'] = 'b' * 40
+        with self.assertRaisesRegex(RuntimeError, 'fixed installation scope'):
+            native.expected_app(snapshot, native.APPS[0])
+
+    def test_retirement_refuses_foreign_paths_and_removes_bytecode_before_writer_repeatably(self):
+        from contextlib import nullcontext
+        import importlib.util
+        import os
+        import py_compile
+        # /var/lib has the same non-writable root ancestry required by the host guard.
+        with tempfile.TemporaryDirectory(dir='/var/lib') as directory:
+            base = Path(directory); runtime = base / 'files'; runtime.mkdir(mode=0o700)
+            cache = runtime / '__pycache__'; cache.mkdir(mode=0o700)
+            writer = runtime / 'bootstrap.py'; old = b"raise RuntimeError('retired writer must never run')\n"
+            writer.write_bytes(old); writer.chmod(0o600)
+            bytecode = Path(importlib.util.cache_from_source(str(writer)))
+            py_compile.compile(str(writer), cfile=str(bytecode), doraise=True)
+            unrelated = cache / 'native.cpython-other.pyc'; unrelated.write_bytes(b'preserved')
+            with patch.object(recovery, 'BASE', base), patch.object(native, 'BASE', base), patch.object(native, 'RUNTIME', runtime), patch.object(native, 'LOCK', base / 'owner.lock'), \
+                    patch.object(native, 'RETIRED_BOOTSTRAP_SHA256', hashlib.sha256(old).hexdigest()), \
+                    patch.object(native, 'operation', return_value=nullcontext({'authenticated': True})), \
+                    patch.object(native, 'receipt', return_value={'phase': 'accepted'}), patch.object(native, 'observe') as observe:
+                writer.write_bytes(b'foreign')
+                with self.assertRaisesRegex(RuntimeError, 'published H1 checksum'): native.run({'retire': True})
+                self.assertTrue(bytecode.exists()); self.assertEqual(writer.read_bytes(), b'foreign')
+                writer.write_bytes(old); py_compile.compile(str(writer), cfile=str(bytecode), doraise=True)
+                bytecode.write_bytes(b'unknown bytecode')
+                with self.assertRaisesRegex(RuntimeError, 'unknown interpreter header'): native.run({'retire': True})
+                self.assertTrue(writer.exists())
+                py_compile.compile(str(writer), cfile=str(bytecode), doraise=True)
+                bytecode.write_bytes(bytecode.read_bytes()[:16] + b'foreign body')
+                with self.assertRaisesRegex(RuntimeError, 'body is foreign or invalid'): native.run({'retire': True})
+                self.assertTrue(writer.exists())
+                py_compile.compile(str(writer), cfile=str(bytecode), doraise=True)
+                original_cache = base / 'original-cache'; cache.rename(original_cache)
+                cache.symlink_to(original_cache, target_is_directory=True)
+                with self.assertRaisesRegex(RuntimeError, 'unsafe ancestors'): native.run({'retire': True})
+                self.assertTrue(writer.exists()); self.assertTrue(bytecode.exists())
+                cache.unlink(); original_cache.rename(cache)
+                reference = base / 'outside.py'; reference.write_bytes(old); reference.chmod(0o600)
+                writer.unlink(); writer.symlink_to(reference)
+                with self.assertRaisesRegex(RuntimeError, 'owned regular'): native.run({'retire': True})
+                self.assertTrue(bytecode.exists()); self.assertTrue(reference.exists())
+                writer.unlink(); writer.write_bytes(old); writer.chmod(0o600)
+                py_compile.compile(str(writer), cfile=str(bytecode), doraise=True)
+                (base / 'maintenance.json').write_text('{}'); (base / 'maintenance.json').chmod(0o600)
+                with self.assertRaisesRegex(RuntimeError, 'active Harbor recovery'): native.run({'retire': True})
+                self.assertTrue(bytecode.exists()); (base / 'maintenance.json').unlink()
+                witness = {'manifest': 'captured-monthly-witness'}
+                with patch.object(recovery, 'handoff_pending', side_effect=[witness, RuntimeError('Harbor pending recovery changed during installation handoff')]) as pending:
+                    with self.assertRaisesRegex(RuntimeError, 'pending recovery changed'): native.run({'retire': True})
+                    self.assertEqual(pending.call_args.kwargs, {'expected': witness})
+                self.assertTrue(bytecode.exists()); self.assertEqual(writer.read_bytes(), old)
+                observe.side_effect = [None, RuntimeError('Interrupted before source removal')]
+                with self.assertRaisesRegex(RuntimeError, 'Interrupted'): native.run({'retire': True})
+                self.assertFalse(bytecode.exists()); self.assertEqual(writer.read_bytes(), old)
+                observe.side_effect = None
+                self.assertTrue(native.run({'retire': True})['changed'])
+                self.assertFalse(writer.exists()); self.assertTrue(unrelated.exists())
+                self.assertFalse(native.run({'retire': True})['changed'])
+
+    def test_read_budget_cannot_extend_nested_context_and_reserves_acknowledged_revocation(self):
+        from contextlib import nullcontext
+        from playbooks.harbor.files import verify
+        snapshot = {'read_deadline': 140, 'profile': {'harborHost': 'harbor.internal.example.invalid'}}
+        token = native.ACTIVE.set(snapshot)
+        try:
+            with patch.object(native.time, 'monotonic', return_value=100), patch.object(native, 'observe'), patch.object(native, 'receipt', return_value={'phase': 'accepted'}):
+                with native.operation(deadline=120):
+                    self.assertEqual(native.ACTIVE.get()['read_deadline'], 120)
+                    with native.operation(deadline=160):
+                        self.assertEqual(native.ACTIVE.get()['read_deadline'], 120)
+                self.assertEqual(native.ACTIVE.get()['read_deadline'], 140)
+            with patch.object(native.time, 'monotonic', return_value=141), patch.object(native, 'observe') as observe:
+                with self.assertRaisesRegex(RuntimeError, 'exceeded'):
+                    with native.operation(deadline=160): pass
+                observe.assert_not_called()
+        finally:
+            native.ACTIVE.reset(token)
+        with patch.object(native, 'operation', return_value=nullcontext(snapshot)) as operation, patch.object(verify.time, 'monotonic', return_value=100):
+            self.assertEqual(verify.inputs(), {'configuration': {'harborHost': snapshot['profile']['harborHost']}})
+            operation.assert_called_once_with(deadline=140)
+        with patch.object(native.time, 'monotonic', return_value=100), patch.object(native.source, 'GitHub') as issue:
+            with self.assertRaisesRegex(RuntimeError, 'reserve token revocation'):
+                native.read_profiles([{'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}], {}, 110)
+            issue.assert_not_called()
+        import shlex
+        from playbooks.infrastructure.files import harbor as provider
+        root = Path(__file__).resolve().parents[4]
+        response = {'harborHost': snapshot['profile']['harborHost'], 'loginHost': 'login.example.invalid',
+            'images': sorted(json.loads((root / 'platform/harbor/images.lock.json').read_text()).values()),
+            'repositories': [native.PUBLIC]}
+        with patch.object(provider, 'ssh', return_value=json.dumps(response)) as remote:
+            self.assertEqual(provider.metadata({'VM_HOST': 'synthetic'}), response)
+            self.assertEqual(remote.call_args.kwargs['timeout'], 60)
+            script = shlex.split(remote.call_args.args[2])[2]
+            self.assertIn('with operation(deadline=time.monotonic()+40):', script)
+
     def test_pending_binding_uses_only_recorded_parent_contracts_and_equal_profile(self):
         snapshot, resources, state = native_installation()
         old = snapshot['targets'][0]; new = dict(old, valuesRevision='b' * 40)
@@ -72,13 +178,23 @@ class NativeTests(unittest.TestCase):
                         src = root / src.removeprefix('/workspace/')
                         if src.is_dir(): shutil.copytree(src, target, dirs_exist_ok=True)
                         else: shutil.copyfile(src, target)
-            for path in ('argocd/tasks/main.yml', 'harbor/tasks/runtime.yml'):
+            for path in ('argocd/tasks/main.yml', 'harbor/tasks/runtime.yml', 'keycloak/tasks/runtime.yml'):
                 install(root / 'ansible/playbooks' / path)
+            self.assertFalse((base / 'playbooks/harbor/files/bootstrap.py').exists())
+            cli = subprocess.run([sys.executable, '-I', str(base / 'playbooks/harbor/files/native.py')], input='{"bogus":true}',
+                cwd=base, env={key: value for key, value in os.environ.items() if key != 'PYTHONPATH'},
+                capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(cli.returncode, 0)
+            self.assertIn('Harbor native ownership incomplete', cli.stderr)
+            self.assertNotIn('Traceback', cli.stderr)
             for module in ('source_transition', 'playbooks.argocd.files.source_transition'):
                 code = '''import sys, importlib
 sys.path[:0] = [sys.argv[1], sys.argv[1] + "/gitops"]
 m = importlib.import_module(sys.argv[2])
-from playbooks.harbor.files import native, recovery
+from playbooks.harbor.files import native, recovery, verify
+assert callable(verify.oidc_discovery)
+import json
+assert json.loads((recovery.ARTIFACTS / "cosign.lock.json").read_text())["image"]
 assert native.REVISION == "d3d639cf80e8cfecebeb756d666a24db92a6bb74"
 assert callable(m.pending_root_context)
 try:
@@ -149,9 +265,9 @@ assert "dotenv" not in sys.modules
             with patch.object(native.source, 'GitHub', side_effect=[api, client]), patch.object(native.source, 'app_token', return_value='app'), \
                     patch.object(native.source, 'verify_installation'):
                 if changed:
-                    with self.assertRaisesRegex(RuntimeError, 'changes the Harbor'): native.read_profiles(targets, {'INSTALLATION_ID': '2', 'APP_ID': '1'}, 999999)
+                    with self.assertRaisesRegex(RuntimeError, 'changes the Harbor'): native.read_profiles(targets, {'INSTALLATION_ID': '2', 'APP_ID': '1'}, native.time.monotonic() + 60)
                 else:
-                    self.assertEqual(native.read_profiles(targets, {'INSTALLATION_ID': '2', 'APP_ID': '1'}, 999999), document)
+                    self.assertEqual(native.read_profiles(targets, {'INSTALLATION_ID': '2', 'APP_ID': '1'}, native.time.monotonic() + 60), document)
                 self.assertEqual(events[-1], ('DELETE', 'installation/token'))
                 self.assertEqual([path for method, path in events if '/contents/' in path], [
                     'repos/example/private/contents/platform/harbor.yaml?ref=' + target['valuesRevision'] for target in targets])
@@ -177,28 +293,15 @@ assert "dotenv" not in sys.modules
             write.reset_mock()
             self.assertFalse(native.observe(snapshot, state, register=True))
             write.assert_not_called()
-            from playbooks.harbor.files import bootstrap
-            payload = {'repository': native.PUBLIC, 'revision': 'c' * 40, 'configuration': {'enabled': True},
-                'server': {'harbor': {}}, 'identity_client': {'id': 'harbor'}}
-            with tempfile.TemporaryDirectory() as directory, patch.object(bootstrap, 'Path', side_effect=lambda path:
-                    Path(directory) / ('owner.lock' if path.startswith('/run/lock/') else 'maintenance.json')), \
+            with tempfile.TemporaryDirectory() as directory, patch.object(native, 'LOCK', Path(directory) / 'owner.lock'), \
                     patch.object(native, 'receipt', return_value=state), patch.object(native, 'context', return_value=snapshot), \
-                    patch.object(bootstrap, 'seed') as seed:
-                self.assertFalse(bootstrap.run(payload)['changed']); seed.assert_not_called()
-                def legacy_read(kind, name, *args):
-                    if kind == 'application.argoproj.io': return {'spec': {'source': {'targetRevision': native.REVISION}}}
-                    if kind == 'configmap': return {'data': {'desired_state': '{"realms":{"platform":{"clients":[{"id":"harbor"}]}}}'}}
-                    return None
-                with patch.object(native, 'receipt', return_value={}), patch.object(native, 'context', return_value=None), \
-                        patch.object(bootstrap, 'get', side_effect=legacy_read), patch.object(bootstrap, 'wait'), \
-                        patch.object(bootstrap, 'seed', return_value=False) as legacy_seed:
-                    bootstrap.run(payload)
-                    self.assertEqual(payload['revision'], 'c' * 40)
-                    self.assertTrue(all(call.args[0]['revision'] == native.REVISION for call in legacy_seed.call_args_list))
-                    legacy_seed.reset_mock()
-                    with patch.object(bootstrap, 'get', return_value={'spec': {'source': {'targetRevision': 'b' * 40}}}):
-                        with self.assertRaisesRegex(RuntimeError, 'cannot promote'): bootstrap.run(payload)
-                    legacy_seed.assert_not_called()
+                    patch.object(native.source, 'kube') as effects:
+                self.assertFalse(native.run({})['changed']); effects.assert_not_called()
+                with patch.object(native, 'receipt', return_value=prepared):
+                    with self.assertRaisesRegex(RuntimeError, 'registration before operations'): native.run({})
+                with patch.object(native, 'receipt', return_value={}):
+                    with self.assertRaisesRegex(RuntimeError, 'protected accepted'): native.run({})
+                effects.assert_not_called()
             resources[('application.argoproj.io', native.APPS[0])]['metadata']['uid'] = 'replaced'
             with self.assertRaisesRegex(RuntimeError, 'identity changed'): native.observe(snapshot, state)
             write.assert_not_called()

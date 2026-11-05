@@ -17,11 +17,10 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
-    - name: Resolve published Harbor host verification inputs
-      ansible.builtin.command: python -m playbooks.harbor.files.payload
-      args: {chdir: /workspace}
-      delegate_to: localhost
-      become: false
+    - name: Read authenticated Harbor host verification inputs
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/harbor/files/verify.py inputs
+      delegate_to: "{{ groups['k3s_servers'][0] }}"
+      run_once: true
       changed_when: false
       no_log: true
       register: harbor_host_payload

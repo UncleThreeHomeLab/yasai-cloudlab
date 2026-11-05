@@ -19,7 +19,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from playbooks.harbor.files.bootstrap import OWNER, NAMESPACE, SECRETS
+from playbooks.harbor.files.native import OWNER, NAMESPACE, SECRETS
 from playbooks.istio.files.kube import get, kube, condition, wait, application_ready
 
 BASE = Path('/var/lib/cloudlab/harbor')

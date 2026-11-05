@@ -5,6 +5,13 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
+    - name: Retire the attested replaced Harbor installation writer
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/harbor/files/native.py
+      args: {stdin: '{"retire": true}'}
+      register: harbor_retired
+      changed_when: (harbor_retired.stdout | from_json).changed
+      no_log: true
+      when: harbor_enabled | bool
     - name: Retire only replaced Harbor executables
       ansible.builtin.file:
         path: /opt/cloudlab/automation/harbor/{{ item }}

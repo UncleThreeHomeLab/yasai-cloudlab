@@ -1,22 +1,36 @@
 """Authenticated Harbor installation ownership; no routine Application writer."""
 import base64
 import copy
+import fcntl
 from contextlib import contextmanager
 from contextvars import ContextVar
 import hashlib
 import ipaddress
 import json
+import importlib.util
+import io
+import marshal
 from pathlib import Path
 import re
+import os
+import stat
+import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
 from playbooks.data.files import native as source
-from playbooks.harbor.files.bootstrap import application, OWNER, NAMESPACE, SECRETS
 from playbooks.istio.files.kube import application_ready, get
 
 REVISION = 'd3d639cf80e8cfecebeb756d666a24db92a6bb74'
 PUBLIC = 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'
+NAMESPACE, OWNER = 'cloudlab-harbor', 'harbor-platform'
+SECRETS = ('harbor-emergency', 'harbor-database', 'harbor-runtime', 'harbor-token-signing', 'harbor-oidc',
+           'harbor-browser-key', 'harbor-browser-oidc', 'harbor-recovery-verifier')
 BASE = Path('/var/lib/cloudlab/harbor')
+LOCK = Path('/run/lock/cloudlab-harbor.lock')
+RUNTIME = Path('/opt/cloudlab/playbooks/harbor/files')
+RETIRED_BOOTSTRAP_SHA256 = 'c4fd117b7dc6aa194b0fd002070a685280d7e3536ec312a48aaeac6b8cd7ea90'
 RECORD = 'native-ownership.json'
 APPS = ('cloudlab-harbor', 'cloudlab-harbor-configuration')
 READER = 'cloudlab-harbor-installation-source'
@@ -108,12 +122,14 @@ def read_profiles(targets, credentials, deadline):
     repo = targets[0]['valuesRepository']
     if any(target['valuesRepository'] != repo or not re.fullmatch('[a-f0-9]{40}', target['valuesRevision']) for target in targets):
         raise RuntimeError('Harbor requires recorded immutable sources in one repository')
-    api = source.GitHub(source.app_token(credentials), deadline=deadline, max_response=3 * 1024 * 1024)
+    work_deadline = deadline - 15
+    if time.monotonic() >= work_deadline: raise RuntimeError('Harbor source budget cannot reserve token revocation')
+    api = source.GitHub(source.app_token(credentials), deadline=work_deadline, max_response=3 * 1024 * 1024)
     installation = 'app/installations/' + credentials['INSTALLATION_ID']
     source.verify_installation(api.request('GET', installation), credentials['APP_ID'])
     token = api.request('POST', installation + '/access_tokens', {
         'repositories': [source.repository(repo).split('/')[1]], 'permissions': {'contents': 'read'}})['token']
-    client = source.GitHub(token, deadline=deadline, max_response=3 * 1024 * 1024)
+    client = source.GitHub(token, deadline=work_deadline, max_response=3 * 1024 * 1024)
     profiles = []
     try:
         actual = client.request('GET', 'repos/' + source.repository(repo))
@@ -135,7 +151,7 @@ def read_profiles(targets, credentials, deadline):
             except (ValueError, TypeError, source.yaml.YAMLError):
                 raise RuntimeError('Harbor private profile content or Git identity refused') from None
     finally:
-        client.deadline = time.monotonic() + 15
+        client.deadline = min(deadline, time.monotonic() + 15)
         if client.request('DELETE', 'installation/token') is not None:
             raise RuntimeError('Harbor source token revocation was not acknowledged')
     if any(document != profiles[0] for document in profiles):
@@ -143,9 +159,9 @@ def read_profiles(targets, credentials, deadline):
     return profiles[0]
 
 
-def context(*, preparing=False, recovery=None):
+def context(*, preparing=False, recovery=None, deadline=None):
     from playbooks.argocd.files.source_transition import pending_root_context
-    deadline = time.monotonic() + 180
+    deadline = min(time.monotonic() + 180, deadline) if deadline is not None else time.monotonic() + 180
     coordinates = {'publicSource': {'repository': PUBLIC, 'branch': 'main'}}
     public, head = source.published_source(coordinates, deadline=deadline)
     enabled = public.get('harbor', {}).get('installation', {}).get('enabled')
@@ -182,6 +198,7 @@ def context(*, preparing=False, recovery=None):
         'path': 'platform/harbor' + ('/server' if name == APPS[0] else '')}, deadline=deadline,
         require_schema=False, comparison_defaults='values.json' if name == APPS[0] else 'values.yaml') for name in APPS}
     if recovery is not None: pending_root_context(recovery, public)
+    if time.monotonic() >= deadline: raise RuntimeError('Harbor source acquisition exceeded its budget')
     return {'public': public, 'head': head, 'root': root, 'targets': targets, 'contracts': contracts, 'recovery': recovery,
         'authority': {key: binding[key] for key in ('root_uid', 'controller_uid', 'project_uid')},
         'profile': document, 'charts': charts, 'enabled': enabled}
@@ -216,10 +233,28 @@ def safe_absence(*, recorded=False):
 
 
 def expected_app(snapshot, name):
-    payload = {'repository': PUBLIC, 'revision': REVISION, 'server': values(snapshot['profile'], APPS[0]),
-        'configuration': values(snapshot['profile'], APPS[1])}
-    return application(payload, name == APPS[1])
-
+    if name not in APPS: raise RuntimeError('Unknown Harbor installation Application')
+    templates = [declaration[('ApplicationSet', name)]['spec']['template'] for declaration in snapshot['contracts']]
+    template = copy.deepcopy(templates[0])
+    if any(not same(template, candidate) for candidate in templates):
+        raise RuntimeError('Recorded Harbor parents disagree on the fixed installation contract')
+    spec = template.get('spec', {})
+    source_spec = {'repoURL': PUBLIC, 'targetRevision': REVISION,
+        'path': 'platform/harbor' + ('/server' if name == APPS[0] else ''), 'helm': {'releaseName': APPS[0]}}
+    if name == APPS[0]: source_spec['helm']['valueFiles'] = ['values.json']
+    policy = {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
+        'syncOptions': ['FailOnSharedResource=true', 'ServerSideApply=true', 'DisableClientSideApplyMigration=true'],
+        'retry': {'limit': 5, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '1m'}}}
+    metadata = template.get('metadata', {})
+    if (set(spec) != {'project', 'source', 'destination', 'syncPolicy'} or spec.get('project') != APPS[0]
+            or not same(spec.get('source'), source_spec) or not same(spec.get('syncPolicy'), policy)
+            or spec.get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE}
+            or metadata.get('name') != name or metadata.get('namespace') != 'argocd'
+            or metadata.get('labels', {}).get('cloudlab.io/owner') != OWNER
+            or metadata.get('ownerReferences') or metadata.get('finalizers')):
+        raise RuntimeError('Authenticated Harbor template exceeds its fixed installation scope')
+    spec['source']['helm']['valuesObject'] = values(snapshot['profile'], name)
+    return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': metadata, 'spec': spec}
 
 def child(snapshot, name, *, accepted=None):
     app = get('application.argoproj.io', name, 'argocd') or {}
@@ -384,24 +419,32 @@ def prepare(*, initial=False):
 
 
 @contextmanager
-def operation():
+def operation(*, deadline=None):
     existing = ACTIVE.get()
     if existing is not None:
-        observe(existing, receipt())
-        yield
+        limit = existing.get('read_deadline')
+        if deadline is not None: limit = min(limit, deadline) if limit is not None else deadline
+        if limit is not None and time.monotonic() >= limit: raise RuntimeError('Harbor read operation exceeded its budget')
+        scoped = dict(existing, read_deadline=limit)
+        observe(scoped, receipt())
+        token = ACTIVE.set(scoped)
+        try:
+            yield scoped
+            if limit is not None and time.monotonic() >= limit: raise RuntimeError('Harbor read operation exceeded its budget')
+        finally:
+            ACTIVE.reset(token)
         return
     if not receipt():
-        if any(get('applicationset.argoproj.io', name, 'argocd') for name in APPS):
-            raise RuntimeError('Harbor native operation lost its protected installation intent')
-        yield
-        return
-    snapshot = context()
+        raise RuntimeError('Harbor native operation requires its protected accepted installation intent')
+    snapshot = context(deadline=deadline)
     state = receipt()
     if state and snapshot is None: raise RuntimeError('Harbor prepared native intent forbids legacy operation fallback')
     if snapshot is not None: observe(snapshot, state)
+    snapshot['read_deadline'] = deadline
     token = ACTIVE.set(snapshot)
     try:
-        yield
+        yield snapshot
+        if deadline is not None and time.monotonic() >= deadline: raise RuntimeError('Harbor read operation exceeded its budget')
     finally:
         ACTIVE.reset(token)
 
@@ -411,9 +454,7 @@ def guard(name, app, *, write=False):
     if snapshot is None:
         if receipt() and not write:
             with operation(): return guard(name, app)
-        if receipt() or app.get('metadata', {}).get('ownerReferences'):
-            raise RuntimeError('Harbor native operations require their authenticated lock context')
-        return None
+        raise RuntimeError('Harbor native operations require their authenticated lock context')
     state = receipt()
     observe(snapshot, state)
     current, normalized = child(snapshot, name, accepted=state['applications'][name])
@@ -433,3 +474,95 @@ def binding_guard(binding, root, *, read=None):
     recovery = {'checkpoint': binding, 'sourceState': binding_source(binding, root), 'rootSource': copy.deepcopy(root['spec']['source'])}
     snapshot = context(recovery=recovery)
     if snapshot is not None: observe(snapshot, receipt())
+
+
+def regular_runtime(path):
+    """Inspect exact retired paths without following redirected ancestors."""
+    for ancestor in reversed(path.parents):
+        try: info = ancestor.lstat()
+        except FileNotFoundError: return None
+        if info.st_uid != 0 or not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022:
+            raise RuntimeError('Harbor retired runtime has unsafe ancestors')
+    try: info = path.lstat()
+    except FileNotFoundError: return None
+    if info.st_uid != 0 or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o022 or info.st_size > 2 * 1024 * 1024:
+        raise RuntimeError('Harbor retired runtime must be an owned regular bounded file')
+    return info
+
+
+def retire():
+    """Under the existing lock, remove only the attested replaced H1 writer."""
+    from playbooks.harbor.files.recovery import handoff_pending
+    with operation() as snapshot:
+        pending = handoff_pending()
+        path = RUNTIME / 'bootstrap.py'
+        info = regular_runtime(path)
+        raw = path.read_bytes() if info is not None else None
+        if raw is not None and hashlib.sha256(raw).hexdigest() != RETIRED_BOOTSTRAP_SHA256:
+            raise RuntimeError('Harbor retired writer differs from the published H1 checksum')
+        cache = RUNTIME / '__pycache__'
+        # This validates the cache directory/ancestors even when its leaf is absent.
+        regular_runtime(cache / 'bootstrap.absence-check')
+        candidates = []
+        if cache.exists():
+            for entry in sorted(cache.iterdir()):
+                if not entry.name.startswith('bootstrap.'): continue
+                match = re.fullmatch(r'bootstrap[.]cpython-([0-9]{2,3})(?:[.]opt-([12]))?[.]pyc', entry.name)
+                if not match or raw is None: raise RuntimeError('Harbor retired bytecode has unknown provenance')
+                regular_runtime(entry)
+                data = entry.read_bytes()
+                if len(data) < 16 or data[:4] != importlib.util.MAGIC_NUMBER:
+                    raise RuntimeError('Harbor retired bytecode has an unknown interpreter header')
+                flags = int.from_bytes(data[4:8], 'little')
+                if flags == 0:
+                    valid = data[8:12] == (int(info.st_mtime) & 0xffffffff).to_bytes(4, 'little') and data[12:16] == len(raw).to_bytes(4, 'little')
+                else:
+                    valid = flags in (1, 3) and data[8:16] == importlib.util.source_hash(raw)
+                if not valid: raise RuntimeError('Harbor retired bytecode does not match its approved writer')
+                try:
+                    encoded = io.BytesIO(data[16:])
+                    code = marshal.load(encoded)
+                    expected = compile(raw, str(path), 'exec', dont_inherit=True, optimize=int(match[2] or 0))
+                    if type(code) is not type(expected) or code != expected or encoded.tell() != len(data) - 16:
+                        raise ValueError()
+                except (ValueError, EOFError, TypeError, MemoryError, RecursionError):
+                    raise RuntimeError('Harbor retired bytecode body is foreign or invalid') from None
+                candidates.append((entry, data))
+        for entry, data in candidates:
+            observe(snapshot, receipt()); handoff_pending(expected=pending)
+            regular_runtime(entry)
+            if entry.read_bytes() != data: raise RuntimeError('Harbor retired bytecode changed before removal')
+            entry.unlink()
+        if raw is not None:
+            observe(snapshot, receipt()); handoff_pending(expected=pending)
+            regular_runtime(path)
+            if hashlib.sha256(path.read_bytes()).hexdigest() != RETIRED_BOOTSTRAP_SHA256:
+                raise RuntimeError('Harbor retired writer changed before removal')
+            path.unlink()
+        return bool(candidates) or raw is not None
+
+
+def run(request):
+    if (not isinstance(request, dict) or set(request) - {'native_handoff', 'native_initial', 'retire'}
+            or any(type(value) is not bool for value in request.values())
+            or request.get('native_initial') and not request.get('native_handoff')
+            or request.get('retire') and (request.get('native_handoff') or request.get('native_initial'))):
+        raise RuntimeError('Harbor retained owner accepts only its explicit lifecycle flags')
+    os.umask(0o077)
+    with LOCK.open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if request.get('retire'):
+            changed = retire()
+        elif request.get('native_handoff'):
+            changed = prepare(initial=request.get('native_initial', False))
+        else:
+            with operation(): pass
+            changed = False
+    return {'changed': changed, 'owner': 'argocd', 'native_installation': True}
+
+
+if __name__ == '__main__':
+    try:
+        print(json.dumps(run(json.load(sys.stdin)), sort_keys=True))
+    except Exception:
+        raise SystemExit('Harbor native ownership incomplete; existing owners, credentials and data retained') from None

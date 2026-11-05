@@ -27,7 +27,7 @@
     "projects_quotas_retention_designated_permissions": "OpenTofu after field/import acceptance",
     "database_blobs_signatures": "Harbor-specific coordinated recovery; no implicit shared CNPG or S3 migration"
   },
-  "installation_apply": "docker compose run --build --rm -e ANSIBLE_RUN_TAGS=harbor -e ANSIBLE_SKIP_TAGS=always lab setup; requires accepted identity, private DNS and storage. Skip unrelated host argument checks only; Harbor source, owner and identity gates remain. Full prove runs without tag selection.",
+  "installation_apply": "Root ApplicationSets own both installation Applications at d3d639cf80e8cfecebeb756d666a24db92a6bb74. Routine setup authenticates and observes the accepted owner; no Application installer remains. Explicit harbor_native_handoff registers a protected handoff under the existing host lock. Fresh enrollment requires a separately approved disabled bootstrap profile and prior durable absence intent; empty-VM setup is not qualified. Chart promotion requires a separate guarded platform change.",
   "installation_items": {
     "harbor-emergency": ["username", "password"],
     "harbor-database": ["password"],

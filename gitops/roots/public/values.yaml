@@ -56,7 +56,7 @@ observability:
 harbor:
   enabled: true
   installation:
-    enabled: false
+    enabled: true
 admission:
   enabled: true
 permissions:
