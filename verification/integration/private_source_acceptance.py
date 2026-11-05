@@ -127,7 +127,11 @@ def context(config, state=None):
             or root.get('status', {}).get('health', {}).get('status') != 'Healthy'
             or root.get('status', {}).get('sync', {}).get('status') != 'Synced'):
         raise ProofError('Proof requires the accepted designated Root binding')
-    snapshot = lambda path: native.source_snapshot.chart_files({'repository': PUBLIC, 'revision': config['publicRevision'], 'path': path}, deadline=deadline)
+    metadata = {}
+    def fetch(path, deadline):
+        if path not in metadata: metadata[path] = native.source_snapshot.request(path, deadline)
+        return metadata[path]
+    snapshot = lambda path: native.source_snapshot.chart_files({'repository': PUBLIC, 'revision': config['publicRevision'], 'path': path}, fetch=fetch, deadline=deadline)
     files = snapshot('gitops/roots/public')
     fixture = snapshot(CHART)
     images = artifact_lock(config, deadline)['images']
