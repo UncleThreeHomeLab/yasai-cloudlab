@@ -7,6 +7,34 @@ from render import payload, images
 
 
 class RenderTests(unittest.TestCase):
+    def test_permissions_are_disabled_until_explicit_guarded_activation(self):
+        self.assertFalse(any(row['metadata']['name'] == 'cloudlab-permissions' for row in self.root_with({})))
+        self.assertFalse(payload()['permissions_enabled'])
+        self.root_with({'permissions': {'enabled': 'true'}}, success=False)
+
+    def test_permissions_use_reviewed_public_pin_private_main_and_rbac_only_project(self):
+        values = {'permissions': {'enabled': True, 'revision': 'a' * 40}, 'identity': {'argo': {
+            'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}}}
+        rows = self.root_with(values)
+        application = next(row for row in rows if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions')
+        self.assertEqual(application['spec']['sources'], [
+            {'repoURL': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git', 'targetRevision': 'a' * 40,
+             'path': 'platform/connectivity/permissions', 'helm': {'releaseName': 'cloudlab-permissions', 'valueFiles': ['$values/platform/permissions.yaml']}},
+            {'repoURL': values['identity']['argo']['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'}])
+        self.assertEqual(application['spec']['syncPolicy']['automated'], {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': False})
+        self.assertIn('PrunePropagationPolicy=background', application['spec']['syncPolicy']['syncOptions'])
+        project = next(row for row in rows if row['kind'] == 'AppProject' and row['metadata']['name'] == 'cloudlab-permissions')
+        self.assertEqual(project['spec']['clusterResourceWhitelist'], [
+            {'group': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole'},
+            {'group': 'rbac.authorization.k8s.io', 'kind': 'ClusterRoleBinding'}])
+        self.assertEqual(project['spec']['namespaceResourceWhitelist'], [{'group': 'rbac.authorization.k8s.io', 'kind': 'RoleBinding'}])
+        secret = next(row for row in rows if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'cloudlab-permissions-source')
+        self.assertEqual(secret['spec']['target']['template']['data']['project'], 'cloudlab-permissions')
+        self.assertEqual(secret['spec']['target']['deletionPolicy'], 'Retain')
+        self.root_with(values | {'admission': {'enabled': False}}, success=False)
+        self.root_with(values | {'permissions': {'enabled': True, 'revision': 'main'}}, success=False)
+        self.root_with(values | {'identity': {}}, success=False)
+
     def test_native_certificate_preparation_is_disabled_and_absent_binding_is_safe(self):
         for configuration, identity in (({'enabled': False}, {}), ({'enabled': True}, {}),
                 ({'enabled': False}, {'argo': {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}})):

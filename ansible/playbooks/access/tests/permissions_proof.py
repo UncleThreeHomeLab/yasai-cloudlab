@@ -1,7 +1,7 @@
 """Qualify native Argo RBAC convergence in a disposable local Kubernetes cluster.
 
-This is a synthetic test chart, not a deployable permission catalog. The standalone
-Compose file mounts only this driver and verified Argo inputs. Remove its exact
+The standalone Compose file mounts explicit candidate chart/guard bytes,
+this driver and verified Argo inputs. Remove its exact
 unique Compose project and volumes after inspecting the receipt; interrupted or
 failed runs retain their receipt and never resume granting automatically.
 """
@@ -27,47 +27,31 @@ import urllib.parse
 import urllib.request
 
 import yaml
+from playbooks.admission.files import verify as admission_verify
 
 SOURCE = 'http://10.245.233.3:8000/'
 NAMESPACE = 'permissions-fixture'
-APPLICATION = '/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/permissions-proof'
+APPLICATION = '/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/cloudlab-permissions'
 RBAC = '/apis/rbac.authorization.k8s.io/v1'
-BINDING = RBAC + '/namespaces/' + NAMESPACE + '/rolebindings/fixture-reader'
-ROLE = RBAC + '/clusterroles/fixture-reader'
-TRACKING = 'permissions-proof:rbac.authorization.k8s.io/RoleBinding:' + NAMESPACE + '/fixture-reader'
-CHART = {
-    'Chart.yaml': 'apiVersion: v2\nname: permissions-proof\nversion: 0.1.0\n',
-    'values.yaml': '{}\n',
-    'templates/rbac.yaml': '''{{- $p := required "permissions required" .Values.permissions -}}
-{{- if not (hasKey $p "assignments") }}{{ fail "assignments required" }}{{ end -}}
-{{- if not (has $p.state (list "active" "retired")) }}{{ fail "state required" }}{{ end -}}
-{{- if and (eq $p.state "retired") $p.assignments }}{{ fail "retired must be empty" }}{{ end }}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: fixture-reader
-rules:
-- apiGroups: [""]
-  resources: {{ $p.resources | toJson }}
-  verbs: [get, list]
-{{ range $p.assignments }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: fixture-reader
-  namespace: permissions-fixture
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ .role }}
-subjects:
-- kind: ServiceAccount
-  name: reader
-  namespace: permissions-fixture
-{{ end }}
-''',
-}
+BINDING = RBAC + '/namespaces/' + NAMESPACE + '/rolebindings/cloudlab-permissions-fixture-reader'
+ROLE = RBAC + '/clusterroles/cloudlab-permissions-viewer-namespace'
+TRACKING = 'cloudlab-permissions:rbac.authorization.k8s.io/RoleBinding:' + NAMESPACE + '/cloudlab-permissions-fixture-reader'
+CONTROLLER = admission_verify.PERMISSIONS_CONTROLLER
+GUARD_API = '/apis/admissionregistration.k8s.io/v1'
+GUARD_NAME = admission_verify.PERMISSIONS_GUARD_NAME
+GUARD_APPLICATION = '/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/cloudlab-workload-policy'
+CATALOG_FILES = ('Chart.yaml', 'values.yaml', 'values.schema.json', 'profiles.yaml', 'templates/rbac.yaml')
+
+
+def catalog_files():
+    root = Path('/inputs/catalog')
+    if not root.exists(): root = Path(__file__).resolve().parents[4] / 'platform/connectivity/permissions'
+    return {name: (root / name).read_bytes().decode('utf-8') for name in CATALOG_FILES}
+
+
+def guard_path():
+    path = Path('/inputs/guard.yaml')
+    return path if path.exists() else Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates/permissions.yaml'
 
 
 def require(condition, label):
@@ -281,12 +265,15 @@ class API:
         self.client_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
                                                         urllib.request.HTTPSHandler(context=self.client))
 
-    def request(self, path, method='GET', value=None, token=None, expected=200, content_type=None):
+    def request(self, path, method='GET', value=None, token=None, expected=200, content_type=None, impersonate=None):
         require(path.startswith('/') and not path.startswith('//'), 'Invalid fixture API path')
         headers = {'Content-Type': 'application/json'}
         if method == 'PATCH': headers['Content-Type'] = 'application/apply-patch+yaml'
         if content_type: headers['Content-Type'] = content_type
         if token is not None: headers['Authorization'] = 'Bearer ' + token
+        if impersonate is not None:
+            require(impersonate == CONTROLLER and token is None, 'Unsupported fixture impersonation')
+            headers['Impersonate-User'] = impersonate
         request = urllib.request.Request('https://cluster:6443' + path, method=method,
                     data=json.dumps(value).encode() if value is not None else None, headers=headers)
         opener = self.client_opener if token is not None else self.opener
@@ -307,9 +294,11 @@ class API:
                  'RoleBinding': 'rolebindings', 'ClusterRole': 'clusterroles', 'ClusterRoleBinding': 'clusterrolebindings',
                  'Deployment': 'deployments', 'StatefulSet': 'statefulsets', 'Job': 'jobs',
                  'CustomResourceDefinition': 'customresourcedefinitions', 'Application': 'applications',
-                 'AppProject': 'appprojects'}
+                 'AppProject': 'appprojects', 'ValidatingAdmissionPolicy': 'validatingadmissionpolicies',
+                 'ValidatingAdmissionPolicyBinding': 'validatingadmissionpolicybindings'}
         require(kind in names, 'Unexpected fixture installation kind')
-        cluster = kind in {'Namespace', 'ClusterRole', 'ClusterRoleBinding', 'CustomResourceDefinition'}
+        cluster = kind in {'Namespace', 'ClusterRole', 'ClusterRoleBinding', 'CustomResourceDefinition',
+                           'ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding'}
         prefix = '/api/v1' if version == 'v1' else '/apis/' + version
         if not cluster:
             obj['metadata'].setdefault('namespace', 'argocd')
@@ -326,10 +315,50 @@ class API:
             if str(error) == 'Fixture API HTTP 404': return True
             raise
 
+    def dry_run(self, document, caller, *, update=False):
+        kind = document['kind']
+        names = {'ClusterRole': 'clusterroles', 'ClusterRoleBinding': 'clusterrolebindings', 'RoleBinding': 'rolebindings'}
+        require(kind in names and caller in (None, CONTROLLER), 'Unsupported fixture admission probe')
+        namespace = document['metadata'].get('namespace', NAMESPACE)
+        require(namespace in (NAMESPACE, 'argocd'), 'Admission probe namespace escaped fixture')
+        path = RBAC + ('/namespaces/' + namespace if kind == 'RoleBinding' else '') + '/' + names[kind]
+        if update: path += '/' + document['metadata']['name']
+        headers = {'Content-Type': 'application/json'}
+        if caller: headers['Impersonate-User'] = caller
+        request = urllib.request.Request('https://cluster:6443' + path + '?dryRun=All',
+            method='PUT' if update else 'POST', data=json.dumps(document).encode(), headers=headers)
+        try:
+            with self.opener.open(request, timeout=15) as response:
+                require(response.status in (200, 201), 'Unexpected admission probe status')
+                return 0, ''
+        except urllib.error.HTTPError as error:
+            diagnostic = error.read(8193)
+            require(len(diagnostic) <= 8192, 'Admission probe response exceeds bound')
+            return error.code, diagnostic.decode('utf-8')
 
-def values(resources=('pods', 'services'), assignments=True, state='active', role='fixture-reader'):
-    return yaml.safe_dump({'permissions': {'state': state, 'resources': list(resources),
-                           'assignments': [{'role': role}] if assignments else []}})
+
+def values(assignments=True, state='active', cluster=False):
+    subject = {'kind': 'ServiceAccount', 'name': 'reader', 'namespace': NAMESPACE}
+    rows = [{'id': 'fixture-reader', 'profile': 'viewer', 'subject': subject,
+             'scope': {'namespace': NAMESPACE}}] if assignments else []
+    if cluster:
+        rows.append({'id': 'node-reader', 'profile': 'platform-engineer', 'subject': subject, 'scope': {'cluster': True}})
+    return yaml.safe_dump({'permissions': {'state': state, 'assignments': rows}})
+
+
+def guarded_qualification(api, expected):
+    admission_verify.permission_guard_validate([api.request(GUARD_API + '/' +
+        ('validatingadmissionpolicies' if row['kind'] == 'ValidatingAdmissionPolicy' else 'validatingadmissionpolicybindings') +
+        '/' + row['metadata']['name']) for row in expected], expected)
+    admission_verify.permission_guard_probes(api.dry_run)
+    return True
+
+
+def guard_denied(api, document, caller, update=False):
+    code, message = api.dry_run(document, caller, update=update)
+    name = GUARD_NAME + ('-roles' if document['kind'] == 'ClusterRole' else '-bindings')
+    require(code and name in message and admission_verify.PERMISSIONS_GUARD_MESSAGE in message,
+            'Expected native permission-guard denial')
 
 
 def current_sync(status, revisions):
@@ -398,6 +427,8 @@ def run():
     state = {'version': 1, 'run': secrets.token_hex(16), 'project': project_name, 'phase': 'starting', 'checks': [],
              'inputs': {name: hashlib.sha256(Path('/inputs', name).read_bytes()).hexdigest() for name in
                         ('permissions_proof.py', 'argo-cd-10.9.6.tgz', 'artifact.lock.json', 'values.yaml')}}
+    state['catalog_inputs'] = {name: hashlib.sha256(value.encode()).hexdigest() for name, value in catalog_files().items()}
+    state['guard_input'] = hashlib.sha256(guard_path().read_bytes()).hexdigest()
 
     def save(phase):
         state['phase'] = phase
@@ -438,6 +469,7 @@ def run():
                  [('deployments', 'argocd-repo-server'), ('deployments', 'argocd-redis'),
                   ('statefulsets', 'argocd-application-controller')]), 'native controller readiness', 420)
             api.apply({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': NAMESPACE}})
+            api.apply({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'cloudlab-policy'}})
             api.apply({'apiVersion': 'v1', 'kind': 'ServiceAccount',
                        'metadata': {'name': 'reader', 'namespace': NAMESPACE}, 'automountServiceAccountToken': False})
             recovery = api.apply({'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'ClusterRoleBinding',
@@ -447,8 +479,13 @@ def run():
             state['recovery_uid'] = recovery['metadata']['uid']
             sources = directory / 'sources'
             sources.mkdir()
-            public = GitSource(sources, 'public', {'chart/' + key: value for key, value in CHART.items()})
-            private = GitSource(sources, 'private', {'permissions.yaml': values()})
+            candidate_chart = catalog_files()
+            candidate_guard = guard_path().read_bytes().decode('utf-8')
+            guard_expected = admission_verify.permission_guard_desired(guard_path())
+            public = GitSource(sources, 'public', {'chart/' + key: value for key, value in candidate_chart.items()} | {
+                'guard/Chart.yaml': 'apiVersion: v2\nname: permission-guard-proof\nversion: 0.1.0\n',
+                'guard/templates/permissions.yaml': candidate_guard})
+            private = GitSource(sources, 'private', {'permissions.yaml': values(assignments=False)})
             state['public_revision'] = public.revision
             state['private_revision'] = private.revision
             handler = functools.partial(ReadOnlyGit, directory=str(sources))
@@ -456,27 +493,83 @@ def run():
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                save('initial-native-sync')
+                save('guard-before-activation')
                 command(['git', 'ls-remote', SOURCE + 'public.git', 'refs/heads/main'])
+                def checkpoint(label):
+                    current = api.request(RBAC + '/clusterrolebindings/fixture-recovery')
+                    require(current['metadata']['uid'] == state['recovery_uid'] and
+                            all(current[key] == value for key, value in recovery_spec.items()),
+                            'Independent recovery binding changed')
+                    state['checks'].append(label)
+                    save(label)
+
+                def require_no_activation(expected):
+                    try: guarded_qualification(api, expected)
+                    except RuntimeError: pass
+                    else: raise RuntimeError('Unqualified guard incorrectly allowed activation')
+                    require(api.absent(APPLICATION), 'Permissions activated before guard qualification')
+
+                require_no_activation(guard_expected)
+                collision = api.apply({'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'ClusterRole',
+                    'metadata': {'name': 'cloudlab-permissions-collision-namespace'}, 'rules': []})
+                state['collision_uid'] = collision['metadata']['uid']
+                api.apply({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'AppProject',
+                    'metadata': {'name': 'permission-guard-proof', 'namespace': 'argocd'}, 'spec': {
+                    'sourceRepos': [SOURCE + 'public.git'],
+                    'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-policy'}],
+                    'clusterResourceWhitelist': [{'group': 'admissionregistration.k8s.io', 'kind': kind}
+                        for kind in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')],
+                    'namespaceResourceWhitelist': []}})
+                bad_guard = copy.deepcopy(guard_expected)
+                bad_guard[0]['spec']['validations'][0]['expression'] += ' && object.nonExistentPermissionField == true'
+                public.commit({'guard/templates/permissions.yaml': yaml.safe_dump_all(bad_guard)})
+                api.apply({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+                    'metadata': {'name': 'cloudlab-workload-policy', 'namespace': 'argocd'}, 'spec': {
+                    'project': 'permission-guard-proof', 'source': {'repoURL': SOURCE + 'public.git',
+                    'targetRevision': public.revision, 'path': 'guard'},
+                    'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-policy'},
+                    'syncPolicy': {'automated': {'prune': True, 'selfHeal': True}}}})
+                wait(lambda: api.request(GUARD_API + '/validatingadmissionpolicies/' + GUARD_NAME + '-roles')
+                     .get('status', {}).get('typeChecking', {}).get('expressionWarnings'), 'native guard warning')
+                require_no_activation(bad_guard)
+                public.commit({'guard/templates/permissions.yaml': candidate_guard})
+                api.request(GUARD_APPLICATION, 'PATCH', {'spec': {'source': {'targetRevision': public.revision}}},
+                            content_type='application/merge-patch+json')
+                wait(lambda: api.request(GUARD_APPLICATION).get('status', {}).get('sync', {}).get('revision') == public.revision,
+                     'exact guard source')
+                wait(lambda: guarded_qualification(api, guard_expected), 'current native guard qualification')
+                state['guard_public_revision'] = public.revision
+                checkpoint('guard-qualified-before-empty-owner')
+                require(api.dry_run({'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'ClusterRole',
+                        'metadata': {'name': 'fixture-unrelated'}, 'rules': []}, None)[0] == 0,
+                        'Unrelated RBAC was incorrectly guarded')
+                adopted = copy.deepcopy(collision)
+                adopted['metadata']['labels'] = {'cloudlab.io/owner': 'permissions-platform',
+                    'cloudlab.io/permission-profile': 'collision', 'cloudlab.io/permission-scope': 'namespace'}
+                adopted['metadata']['annotations'] = {'argocd.argoproj.io/tracking-id':
+                    admission_verify.permission_tracking('ClusterRole', adopted['metadata']['name'])}
+                guard_denied(api, adopted, CONTROLLER, update=True)
                 project = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'AppProject',
-                    'metadata': {'name': 'permissions-proof', 'namespace': 'argocd'}, 'spec': {
+                    'metadata': {'name': 'cloudlab-permissions', 'namespace': 'argocd'}, 'spec': {
                     'sourceRepos': [SOURCE + 'public.git', SOURCE + 'private.git'],
-                    'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE}],
-                    'clusterResourceWhitelist': [{'group': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole'}],
+                    'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': '*'}],
+                    'clusterResourceWhitelist': [{'group': 'rbac.authorization.k8s.io', 'kind': kind}
+                        for kind in ('ClusterRole', 'ClusterRoleBinding')],
                     'namespaceResourceWhitelist': [{'group': 'rbac.authorization.k8s.io', 'kind': 'RoleBinding'}]}}
                 project_record = api.apply(project)
                 project_spec = copy.deepcopy(project_record['spec'])
-                project_path = '/apis/argoproj.io/v1alpha1/namespaces/argocd/appprojects/permissions-proof'
+                project_path = '/apis/argoproj.io/v1alpha1/namespaces/argocd/appprojects/cloudlab-permissions'
                 api.apply({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
-                    'metadata': {'name': 'permissions-proof', 'namespace': 'argocd'}, 'spec': {
-                    'project': 'permissions-proof', 'sources': [
+                    'metadata': {'name': 'cloudlab-permissions', 'namespace': 'argocd'}, 'spec': {
+                    'project': 'cloudlab-permissions', 'sources': [
                     {'repoURL': SOURCE + 'public.git', 'targetRevision': public.revision, 'path': 'chart',
                      'helm': {'valueFiles': ['$values/permissions.yaml']}},
                     {'repoURL': SOURCE + 'private.git', 'targetRevision': 'main', 'ref': 'values'}],
-                    'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE},
-                    'syncPolicy': {'automated': {'prune': True, 'selfHeal': True, 'allowEmpty': True},
+                    'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
+                    'syncPolicy': {'automated': {'prune': True, 'selfHeal': True, 'allowEmpty': False},
                                    'retry': {'limit': 1, 'backoff': {'duration': '1s', 'factor': 1, 'maxDuration': '2s'}},
-                                   'syncOptions': ['FailOnSharedResource=true']}}})
+                                   'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true',
+                                                   'PrunePropagationPolicy=background']}}})
                 def synced():
                     app = api.request(APPLICATION)
                     return current_sync(app.get('status', {}), [public.revision, private.revision])
@@ -502,34 +595,64 @@ def run():
                     return api.request('/api/v1/namespaces/' + NAMESPACE + '/' + resource,
                                        token=token(), expected=expected)
 
-                def checkpoint(label):
-                    current = api.request(RBAC + '/clusterrolebindings/fixture-recovery')
-                    require(current['metadata']['uid'] == state['recovery_uid'] and
-                            all(current[key] == value for key, value in recovery_spec.items()),
-                            'Independent recovery binding changed')
-                    state['checks'].append(label)
-                    save(label)
-
                 wait(synced, 'initial native multi-source reconciliation')
+                def tracked_bindings():
+                    rows = api.request(RBAC + '/rolebindings')['items'] + api.request(RBAC + '/clusterrolebindings')['items']
+                    return [row for row in rows if row['metadata'].get('annotations', {}).get(
+                        'argocd.argoproj.io/tracking-id', '').startswith('cloudlab-permissions:') or
+                        row['metadata'].get('labels', {}).get('cloudlab.io/owner') == 'permissions-platform']
+                require(not tracked_bindings(), 'Empty owner produced permission grants')
+                checkpoint('empty-owner-before-first-assignment')
+                advance(values())
+                wait(synced, 'first exact private assignment')
                 require(api.request(BINDING)['metadata']['annotations'].get('argocd.argoproj.io/tracking-id') == TRACKING,
                         'Native binding ownership mismatch')
                 access('pods', 200)
                 access('services', 200)
                 access('secrets', 403)
                 api.request('/api/v1/namespaces/default/pods', token=token(), expected=403)
+                api.request('/api/v1/nodes', token=token(), expected=403)
                 checkpoint('create-and-real-token-authentication')
-                advance(values(resources=('pods',)))
+                for mutation in ('strip', 'tracking', 'scope'):
+                    changed = copy.deepcopy(api.request(ROLE))
+                    if mutation == 'strip': changed['metadata']['labels'] = {}
+                    if mutation == 'tracking': changed['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+                    if mutation == 'scope': changed['metadata']['labels']['cloudlab.io/permission-scope'] = 'cluster'
+                    guard_denied(api, changed, CONTROLLER, update=True)
+                    changed_binding = copy.deepcopy(api.request(BINDING))
+                    if mutation == 'strip': changed_binding['metadata']['labels'] = {}
+                    if mutation == 'tracking': changed_binding['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+                    if mutation == 'scope': changed_binding['metadata']['labels']['cloudlab.io/permission-scope'] = 'cluster'
+                    guard_denied(api, changed_binding, CONTROLLER, update=True)
+                guard_denied(api, api.request(BINDING), None, update=True)
+                checkpoint('actual-guard-caller-tracking-adoption-and-stripping')
+                advance(values(cluster=True))
+                wait(synced, 'explicit cluster assignment')
+                api.request('/api/v1/nodes', token=token(), expected=200)
+                api.request('/api/v1/secrets', token=token(), expected=403)
+                advance(values())
+                wait(synced, 'cluster assignment removal')
+                wait(lambda: api.request('/api/v1/nodes', token=token(), expected=403), 'cluster authorization removed')
+                checkpoint('namespace-and-explicit-cluster-scopes')
+                profiles = yaml.safe_load(candidate_chart['profiles.yaml'])
+                profiles['profiles']['viewer']['namespaceRules'] = [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['get', 'list']}]
+                public.commit({'chart/profiles.yaml': yaml.safe_dump(profiles)})
+                current_sources = api.request(APPLICATION)['spec']['sources']
+                current_sources[0]['targetRevision'] = public.revision
+                api.request(APPLICATION, 'PATCH', {'spec': {'sources': current_sources}}, content_type='application/merge-patch+json')
                 wait(synced, 'native narrowing')
                 access('pods', 200)
                 wait(lambda: access('services', 403), 'narrowed authorization')
                 checkpoint('narrowing')
                 role = api.request(ROLE)
+                require(not role['metadata'].get('ownerReferences') and not api.request(BINDING)['metadata'].get('ownerReferences'),
+                        'Catalog RBAC unexpectedly owns child resources')
                 role['rules'] = [{'apiGroups': [''], 'resources': ['pods', 'services'], 'verbs': ['get', 'list']}]
-                api.request(ROLE, 'PUT', role)
+                api.request(ROLE, 'PUT', role, impersonate=CONTROLLER)
                 wait(lambda: api.request(ROLE)['rules'][0]['resources'] == ['pods'], 'native drift repair')
                 wait(lambda: access('services', 403), 'repaired authorization')
                 checkpoint('drift-repair')
-                for label, content in [('invalid-source', 'permissions: [invalid]\n'), ('missing-source', None)]:
+                for label, content in [('invalid-source', 'permissions: [invalid]\n'), ('missing-source', None), ('empty-source', '')]:
                     advance(content)
                     wait(lambda: any(c.get('type') == 'ComparisonError' for c in
                          api.request(APPLICATION).get('status', {}).get('conditions', [])), label)
@@ -538,7 +661,7 @@ def run():
                     checkpoint(label + '-retains-grants')
                     # Clear the observed failure at an exact successful revision
                     # before inducing another failure; stale errors never count.
-                    advance(values(resources=('pods',)))
+                    advance(values())
                     wait(synced, label + ' recovery')
                 server.block_private = True
                 refresh()
@@ -551,7 +674,7 @@ def run():
                 refresh()
                 wait(synced, 'unavailable source recovery')
                 # A failed replacement is attempted only after observed revocation.
-                advance(values(resources=('pods',), assignments=False))
+                advance(values(assignments=False))
                 wait(synced, 'old assignment removal')
                 wait(lambda: api.absent(BINDING), 'old binding absent')
                 wait(lambda: access('pods', 403), 'old authorization denied')
@@ -564,7 +687,7 @@ def run():
                     {'group': 'rbac.authorization.k8s.io', 'kind': 'RoleBinding'}]
                 api.apply(blocked)
                 require(api.request(project_path)['spec'] == blocked['spec'], 'Fixture project failure injection mismatch')
-                advance(values(resources=('pods',)))
+                advance(values())
                 rejection = wait(lambda: current_project_rejection(api.request(APPLICATION).get('status', {}),
                                  [public.revision, private.revision]), 'controlled replacement rejection')
                 state['replacement_failure'] = rejection
@@ -577,17 +700,29 @@ def run():
                 restored = api.request(project_path)
                 require(restored['metadata']['uid'] == project_record['metadata']['uid'] and restored['spec'] == project_spec,
                         'Fixture project restoration mismatch')
-                advance(values(resources=('pods',)))
+                advance(values())
                 wait(synced, 'valid replacement')
                 access('pods', 200)
                 checkpoint('replacement')
-                advance(values(resources=('pods',), assignments=False, state='retired'))
+                leftover = {'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'ClusterRoleBinding',
+                    'metadata': {'name': 'cloudlab-permissions-leftover', 'labels': {
+                        'cloudlab.io/owner': 'permissions-platform', 'cloudlab.io/permission-profile': 'platform-engineer',
+                        'cloudlab.io/permission-scope': 'cluster'}, 'annotations': {'argocd.argoproj.io/tracking-id':
+                        admission_verify.permission_tracking('ClusterRoleBinding', 'cloudlab-permissions-leftover')}},
+                    'roleRef': {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole',
+                        'name': 'cloudlab-permissions-platform-engineer-cluster'},
+                    'subjects': [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': 'fixture-unused'}]}
+                api.request(RBAC + '/clusterrolebindings', 'POST', leftover, expected=201, impersonate=CONTROLLER)
+                advance(values(assignments=False, state='retired'))
                 wait(synced, 'retired owner reconciliation')
                 wait(lambda: api.absent(BINDING), 'retired binding absent')
                 access('pods', 403)
-                bindings = api.request(RBAC + '/namespaces/' + NAMESPACE + '/rolebindings')['items']
-                require(not bindings, 'Retired owner left binding grants')
+                wait(lambda: not tracked_bindings(), 'all tracked catalog bindings absent')
                 require(not api.absent(ROLE) and not api.absent(APPLICATION), 'Retired owner was removed')
+                require(api.request(RBAC + '/clusterroles/' + collision['metadata']['name'])['metadata']['uid'] == state['collision_uid'],
+                        'Foreign collision identity changed')
+                api.request(RBAC + '/clusterroles/' + collision['metadata']['name'], 'DELETE',
+                            {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'preconditions': {'uid': state['collision_uid']}})
                 checkpoint('retired-inert-owner')
                 save('complete')
                 print(json.dumps({'status': 'passed', 'run': state['run'], 'checks': state['checks'],

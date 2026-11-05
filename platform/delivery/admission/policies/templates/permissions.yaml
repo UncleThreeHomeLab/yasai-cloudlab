@@ -1,0 +1,128 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-permissions-ownership-roles
+  annotations: {argocd.argoproj.io/sync-wave: '-20'}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Exact
+    namespaceSelector: {}
+    objectSelector: {}
+    resourceRules:
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [clusterroles]
+        scope: '*'
+  matchConditions:
+    - name: catalog-objects-and-references
+      expression: >-
+        request.name.startsWith('cloudlab-permissions-') ||
+        (has(object.metadata.labels) && object.metadata.labels.exists(k, k.startsWith('cloudlab.io/permission'))) ||
+        (has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels && object.metadata.labels['cloudlab.io/owner'] == 'permissions-platform') ||
+        (has(object.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in object.metadata.annotations && object.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-permissions:')) ||
+        (oldObject != null && (
+          (has(oldObject.metadata.labels) && oldObject.metadata.labels.exists(k, k.startsWith('cloudlab.io/permission'))) ||
+          (has(oldObject.metadata.labels) && 'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'permissions-platform') ||
+          (has(oldObject.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations && oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-permissions:'))))
+  variables:
+    - name: targetNamespace
+      expression: "'argocd'"
+    - name: tracking
+      expression: "'cloudlab-permissions:rbac.authorization.k8s.io/' + request.kind.kind + ':' + variables.targetNamespace + '/' + request.name"
+    - name: owned
+      expression: >-
+        has(object.metadata.labels) && has(object.metadata.annotations) &&
+        'cloudlab.io/owner' in object.metadata.labels && object.metadata.labels['cloudlab.io/owner'] == 'permissions-platform' &&
+        'cloudlab.io/permission-profile' in object.metadata.labels && object.metadata.labels['cloudlab.io/permission-profile'].matches('^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$') &&
+        'cloudlab.io/permission-scope' in object.metadata.labels && object.metadata.labels['cloudlab.io/permission-scope'] in ['namespace', 'cluster'] &&
+        'argocd.argoproj.io/tracking-id' in object.metadata.annotations && object.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking
+  validations:
+    - expression: >-
+        request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller' &&
+        (!has(request.subResource) || request.subResource == '') && variables.owned &&
+        request.name.startsWith('cloudlab-permissions-') &&
+        (request.name == 'cloudlab-permissions-' + object.metadata.labels['cloudlab.io/permission-profile'] + '-' + object.metadata.labels['cloudlab.io/permission-scope']) &&
+        (oldObject == null ||
+          (has(oldObject.metadata.labels) && has(oldObject.metadata.annotations) &&
+           'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'permissions-platform' &&
+           'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations && oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking &&
+           'cloudlab.io/permission-profile' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/permission-profile'] == object.metadata.labels['cloudlab.io/permission-profile'] &&
+           'cloudlab.io/permission-scope' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/permission-scope'] == object.metadata.labels['cloudlab.io/permission-scope']))
+      message: Permission catalog writes require the native Argo owner, exact tracking and an unchanged owned scope.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-permissions-ownership-roles
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+spec:
+  policyName: cloudlab-permissions-ownership-roles
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-permissions-ownership-bindings
+  annotations: {argocd.argoproj.io/sync-wave: '-20'}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Exact
+    namespaceSelector: {}
+    objectSelector: {}
+    resourceRules:
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [clusterrolebindings, rolebindings]
+        scope: '*'
+  matchConditions:
+    - name: catalog-objects-and-references
+      expression: >-
+        request.name.startsWith('cloudlab-permissions-') ||
+        (has(object.roleRef) && object.roleRef.name.startsWith('cloudlab-permissions-')) ||
+        (has(object.metadata.labels) && object.metadata.labels.exists(k, k.startsWith('cloudlab.io/permission'))) ||
+        (has(object.metadata.labels) && 'cloudlab.io/owner' in object.metadata.labels && object.metadata.labels['cloudlab.io/owner'] == 'permissions-platform') ||
+        (has(object.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in object.metadata.annotations && object.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-permissions:')) ||
+        (oldObject != null && ((has(oldObject.roleRef) && oldObject.roleRef.name.startsWith('cloudlab-permissions-')) ||
+          (has(oldObject.metadata.labels) && oldObject.metadata.labels.exists(k, k.startsWith('cloudlab.io/permission'))) ||
+          (has(oldObject.metadata.labels) && 'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'permissions-platform') ||
+          (has(oldObject.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations && oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'].startsWith('cloudlab-permissions:'))))
+  variables:
+    - name: targetNamespace
+      expression: "request.resource.resource == 'rolebindings' ? request.namespace : 'argocd'"
+    - name: tracking
+      expression: "'cloudlab-permissions:rbac.authorization.k8s.io/' + request.kind.kind + ':' + variables.targetNamespace + '/' + request.name"
+    - name: owned
+      expression: >-
+        has(object.metadata.labels) && has(object.metadata.annotations) &&
+        'cloudlab.io/owner' in object.metadata.labels && object.metadata.labels['cloudlab.io/owner'] == 'permissions-platform' &&
+        'cloudlab.io/permission-profile' in object.metadata.labels && object.metadata.labels['cloudlab.io/permission-profile'].matches('^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$') &&
+        'cloudlab.io/permission-scope' in object.metadata.labels && object.metadata.labels['cloudlab.io/permission-scope'] in ['namespace', 'cluster'] &&
+        'argocd.argoproj.io/tracking-id' in object.metadata.annotations && object.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking
+  validations:
+    - expression: >-
+        request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller' &&
+        (!has(request.subResource) || request.subResource == '') && variables.owned &&
+        request.name.startsWith('cloudlab-permissions-') &&
+        (object.roleRef.apiGroup == 'rbac.authorization.k8s.io' && object.roleRef.kind == 'ClusterRole' &&
+        object.roleRef.name == 'cloudlab-permissions-' + object.metadata.labels['cloudlab.io/permission-profile'] + '-' + object.metadata.labels['cloudlab.io/permission-scope'] &&
+        object.metadata.labels['cloudlab.io/permission-scope'] == (request.resource.resource == 'rolebindings' ? 'namespace' : 'cluster')) &&
+        (oldObject == null ||
+          (has(oldObject.metadata.labels) && has(oldObject.metadata.annotations) &&
+           'cloudlab.io/owner' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/owner'] == 'permissions-platform' &&
+           'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations && oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking &&
+           'cloudlab.io/permission-profile' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/permission-profile'] == object.metadata.labels['cloudlab.io/permission-profile'] &&
+           'cloudlab.io/permission-scope' in oldObject.metadata.labels && oldObject.metadata.labels['cloudlab.io/permission-scope'] == object.metadata.labels['cloudlab.io/permission-scope']))
+      message: Permission catalog writes require the native Argo owner, exact tracking and an unchanged owned scope.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-permissions-ownership-bindings
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+spec:
+  policyName: cloudlab-permissions-ownership-bindings
+  validationActions: [Deny]

@@ -1,0 +1,4 @@
+apiVersion: v2
+name: cloudlab-permissions
+version: 0.1.0
+description: Reviewed Kubernetes roles and exact declarative assignments.

@@ -28,6 +28,15 @@ services:
     volumes:
       - ./permissions_proof.py:/inputs/permissions_proof.py:ro
       - ./test_permissions_proof.py:/inputs/test_permissions_proof.py:ro
+      - ../../../../platform/connectivity/permissions/Chart.yaml:/inputs/catalog/Chart.yaml:ro
+      - ../../../../platform/connectivity/permissions/values.yaml:/inputs/catalog/values.yaml:ro
+      - ../../../../platform/connectivity/permissions/values.schema.json:/inputs/catalog/values.schema.json:ro
+      - ../../../../platform/connectivity/permissions/profiles.yaml:/inputs/catalog/profiles.yaml:ro
+      - ../../../../platform/connectivity/permissions/templates/rbac.yaml:/inputs/catalog/templates/rbac.yaml:ro
+      - ../../../../platform/delivery/admission/policies/templates/permissions.yaml:/inputs/guard.yaml:ro
+      - ../../admission/files/verify.py:/inputs/playbooks/admission/files/verify.py:ro
+      - ../../istio/files/kube.py:/inputs/playbooks/istio/files/kube.py:ro
+      - ../../argocd/files/source_revision.py:/inputs/playbooks/argocd/files/source_revision.py:ro
       - ../../../../platform/delivery/argocd/charts/argo-cd-10.9.6.tgz:/inputs/argo-cd-10.9.6.tgz:ro
       - ../../../../platform/delivery/argocd/artifact.lock.json:/inputs/artifact.lock.json:ro
       - ../../../../platform/delivery/argocd/values.yaml:/inputs/values.yaml:ro

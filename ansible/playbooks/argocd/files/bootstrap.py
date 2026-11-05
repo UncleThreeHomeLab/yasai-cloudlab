@@ -182,6 +182,11 @@ def run(payload):
         path = BASE / 'checkpoint.json'
         operator, roots = payload['operator'], payload['roots']
         crds = [x for x in operator if x['kind'] == 'CustomResourceDefinition']
+        permissions_enabled = payload.get('permissions_enabled', False)
+        if type(permissions_enabled) is not bool:
+            raise RuntimeError('Permissions bootstrap input must be a boolean')
+        if permissions_enabled and (not path.exists() or json.loads(path.read_text()).get('phase') != 'accepted'):
+            raise RuntimeError('Initial bootstrap requires permissions disabled until the native guard is verified')
         if not path.exists():
             if get('namespace', 'argocd') or any(get('crd', x['metadata']['name']) for x in crds):
                 raise RuntimeError('Unowned Argo installation exists; automatic adoption refused')

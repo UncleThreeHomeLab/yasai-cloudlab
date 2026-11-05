@@ -1,0 +1,14 @@
+# Required private platform/permissions.yaml example (existing identities only):
+# permissions:
+#   state: active
+#   assignments:
+#     - id: example-reader
+#       profile: viewer
+#       subject: {kind: ServiceAccount, name: reader, namespace: cloudlab-app-example}
+#       scope: {namespace: cloudlab-app-example}
+# Public profiles.yaml owns rules; cluster: true requires separate cluster rules.
+# Retire with state: retired and assignments: []; retain the owner and roles.
+# Replace identity/scope/profile/ID only after removal sync, binding absence and
+# fresh request denial. RBAC is additive; existing streams can survive revocation.
+# Missing/invalid sources retain prior grants; disabling the owner does not revoke.
+permissions: {}

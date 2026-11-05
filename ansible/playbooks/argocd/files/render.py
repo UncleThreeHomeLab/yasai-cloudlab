@@ -56,11 +56,14 @@ def payload():
             if any(x in options for x in ('ServerSideApply=true', 'Replace=true', 'Force=true')):
                 raise RuntimeError('Broad forced ownership or replacement is forbidden')
     source = yaml.safe_load((PUBLIC / 'values.yaml').read_text())
+    permissions = source.get('permissions', {'enabled': False})
+    if not isinstance(permissions, dict) or type(permissions.get('enabled')) is not bool:
+        raise RuntimeError('Permissions bootstrap input requires a YAML boolean enabled setting')
     probe_image = next(image for image in expected if image.startswith('quay.io/argoproj/argocd:'))
     return {'operator': operator, 'roots': roots, 'version': lock['chart']['app_version'],
             'repository': source['repository'], 'branch': source['revision'],
             'public_namespace': source['publicNamespace'], 'probe_image': probe_image,
-            'image_refs': sorted(expected)}
+            'image_refs': sorted(expected), 'permissions_enabled': permissions['enabled']}
 
 
 def committed_payload():

@@ -10,6 +10,19 @@ import bootstrap
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_permissions_cannot_seed_before_an_accepted_bootstrap(self):
+        for phase in (None, 'seeding', 'seeded', 'argo-requested'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                if phase: (base / 'checkpoint.json').write_text(json.dumps({'phase': phase}))
+                with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get') as read, \
+                        patch.object(bootstrap, 'apply') as apply:
+                    with self.assertRaisesRegex(RuntimeError, 'Initial bootstrap requires permissions disabled'):
+                        bootstrap.run({'operator': [], 'roots': [], 'permissions_enabled': True})
+                read.assert_not_called()
+                apply.assert_not_called()
+                self.assertEqual((base / 'checkpoint.json').exists(), phase is not None)
+
     def identity_project(self):
         return {'metadata': {'uid': 'project', 'resourceVersion': '7'}, 'spec': {
             'sourceRepos': ['public'], 'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],
