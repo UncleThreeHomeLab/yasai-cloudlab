@@ -18,6 +18,23 @@ class OwnerSourceTests(unittest.TestCase):
         return {'repository': 'https://github.com/example/platform.git', 'revision': 'd' * 40,
                 'services': {'revision': revision, 'catalogPath': 'services/catalog-v2.yaml'}}
 
+    def test_explicit_historical_comparison_preserves_strict_default_and_blob_integrity(self):
+        files = owner_files(); files.pop('values.schema.json')
+        api, raw, _ = owner_api(files)
+        source = owner.configuration(self.public())
+        with self.assertRaisesRegex(ValueError, 'chart is missing'):
+            owner.chart_files(source, fetch=api, read_file=raw)
+        raw.assert_not_called()
+        selected = dict(source, path=owner.CHART)
+        self.assertEqual(owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=False), files)
+        api.reset_mock()
+        with self.assertRaisesRegex(ValueError, 'must be a boolean'):
+            owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=0)
+        api.assert_not_called()
+        raw.side_effect = lambda *args: b'corrupt bytes'
+        with self.assertRaisesRegex(ValueError, 'exact Git blob'):
+            owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=False)
+
     def test_exact_commit_tree_and_blob_bytes_need_only_two_rest_calls(self):
         files = owner_files()
         api, raw, _ = owner_api(files)
