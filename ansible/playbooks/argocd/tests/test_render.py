@@ -242,7 +242,7 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(any('*' in x for x in project['sourceRepos']))
 
     def test_private_catalog_requires_boolean_enablement_binding_pin_and_prerequisites(self):
-        values = {'privateSources': {'enabled': True}}
+        values = {'privateSources': {'enabled': True, 'acceptanceCommitment': ''}}
         self.assertFalse(any(obj['metadata']['name'] == 'cloudlab-private-sources' for obj in self.root_with(values)))
         for enabled in ('false', 'true', 0, None):
             with self.subTest(enabled=enabled): self.root_with({'privateSources': {'enabled': enabled}}, success=False)
