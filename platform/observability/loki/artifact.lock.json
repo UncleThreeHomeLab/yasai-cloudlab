@@ -3,6 +3,7 @@
   "version": "7.3.0",
   "appVersion": "3.6.12",
   "url": "https://github.com/grafana/helm-charts/releases/download/helm-loki-7.3.0/loki-7.3.0.tgz",
-  "sha256": "04a339f712d770a1f599f05fc0a5a3cde18e43914e49ae6a49f7171be86bcc09",
-  "archive": "charts/loki-7.3.0.tgz"
+  "sha256": "0f7576dfffb0e2338433aaa33cb2c4dfa3c9a087f223de31d213257ac61a9d60",
+  "archive": "charts/loki-7.3.0.tgz",
+  "upstream_sha256": "04a339f712d770a1f599f05fc0a5a3cde18e43914e49ae6a49f7171be86bcc09"
 }

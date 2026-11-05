@@ -8,7 +8,7 @@ import subprocess
 import yaml
 
 from playbooks.argocd.files.render import images
-from playbooks.observability.files.package import retained, kiali_declarative, tempo_protocols
+from playbooks.observability.files.package import retained, kiali_declarative, tempo_protocols, loki_declarative
 from playbooks.observability.files.values import values
 from playbooks.observability.files.configuration import POLICY
 
@@ -49,7 +49,7 @@ def check():
         raw = (path / lock['archive']).read_bytes()
         if hashlib.sha256(raw).hexdigest() != lock['sha256']:
             raise ValueError('Telemetry chart artifact checksum mismatch')
-        patcher = {'prometheus': retained, 'kiali': kiali_declarative, 'tempo': tempo_protocols}.get(name)
+        patcher = {'prometheus': retained, 'kiali': kiali_declarative, 'tempo': tempo_protocols, 'loki': loki_declarative}.get(name)
         if patcher:
             upstream = (path / 'upstream.tgz').read_bytes()
             if hashlib.sha256(upstream).hexdigest() != lock['upstream_sha256'] or patcher(upstream) != raw:
