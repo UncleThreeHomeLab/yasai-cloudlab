@@ -91,6 +91,11 @@ verification refuses missing or mismatched receipts. The commitment hashes UTF-8
 LF: version, consumer, designated private URL, `platform/sources.yaml`, revision,
 nonce, followed by a final LF.
 
+The prepared generator merges a fixed consumer row with the exact private receipt,
+so missing input reaches validation. The isolated
+[native qualification procedure](../verification/integration/private_source_acceptance.py)
+uses only `cloudlab-prices-source-proof`; it does not authorize production adoption.
+
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
 catalog and need no additional root. For an approved separate root:
