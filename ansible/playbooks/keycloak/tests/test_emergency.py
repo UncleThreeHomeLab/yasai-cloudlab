@@ -24,6 +24,9 @@ class EmergencyTests(unittest.TestCase):
         project = {'metadata': {'uid': 'project', 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/cloudlab-identity'}},
             'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY]}}
         desired = {'AppProject': {'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY, 'https://github.com/example/private.git']}}}
+        root = {'metadata': {'uid': 'root'}, 'spec': {'approved': 'root-source'}}
+        target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
+        server = {'metadata': {'uid': 'server'}, 'spec': {'instances': 1}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             state = {'phase': 'scoped', 'uid': 'app', 'revision': 'e' * 40}
@@ -35,18 +38,39 @@ class EmergencyTests(unittest.TestCase):
                 self.assertEqual(captured['native']['phase'], 'prepared')
                 patches = json.loads(args[-1])
                 self.assertEqual(patches[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'app'},
-                    {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '1'}])
+                    {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '2'}])
                 self.assertEqual(patches[2], {'op': 'test', 'path': '/spec', 'value': app['spec']})
                 self.assertEqual(patches[-1]['value'], ownership.INSTALLATION_REVISION)
                 app['spec']['source']['targetRevision'] = ownership.INSTALLATION_REVISION
             from playbooks.data.files import native
-            with patch.object(ownership, 'installation_context', return_value=(public, 'c' * 40, {}, {}, desired,
-                    {'metadata': {'uid': 'root'}}, project, 999)), \
-                    patch.object(ownership, 'get', side_effect=lambda kind, *args: {'metadata': {'uid': 'server'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}} if kind.startswith('keycloak.') else None), \
+            clock = Mock(return_value=100)
+            idle = Mock(return_value=False)
+            change = None
+            def late_wait(check, *args, **kwargs):
+                self.assertTrue(charts.called)
+                self.assertEqual(kwargs['timeout'], 300)
+                idle.return_value = False; self.assertFalse(check())
+                app['metadata']['resourceVersion'] = str(int(app['metadata']['resourceVersion']) + 1)
+                if change == 'spec': app['spec']['source']['helm']['valuesObject']['maintenance'] = 0
+                clock.return_value = 1000
+                idle.return_value = True; self.assertTrue(check())
+            def published(*args, **kwargs):
+                self.assertEqual(kwargs['deadline'], clock() + 120)
+                return public, 'f' * 40 if change == 'authority' else 'c' * 40
+            def observe(kind, name, namespace):
+                if kind.startswith('keycloak.'): return server
+                if kind == 'appproject.argoproj.io': return project
+                if kind == 'application.argoproj.io': return app if name == bootstrap.APP else root
+                return None
+            with patch.object(ownership, 'installation_context', side_effect=lambda **kwargs: (public, 'c' * 40, target, {}, desired,
+                    root, project, clock() + 180)), patch.object(ownership.time, 'monotonic', clock), \
+                    patch.object(ownership, 'get', side_effect=observe), \
                     patch.object(ownership, 'application_ready', return_value=True), patch.object(native, 'matches_revision', return_value=True), \
                     patch.object(native, 'receipt', side_effect=lambda path: json.loads(path.read_text())), \
                     patch.object(native.source_snapshot, 'chart_files', return_value={'Chart.yaml': b'unchanged'}) as charts, \
-                    patch.object(bootstrap, 'writer_idle', return_value=True), patch('playbooks.istio.files.kube.kube', side_effect=freeze) as write:
+                    patch.object(native, 'published_source', side_effect=published), patch.object(native, 'root_guard', return_value=target), \
+                    patch.object(bootstrap, 'writer_idle', idle), patch('playbooks.istio.files.kube.wait', side_effect=late_wait), \
+                    patch('playbooks.istio.files.kube.kube', side_effect=freeze) as write:
                 self.assertTrue(ownership.prepare_native({}, app, state, retired, base=base))
                 self.assertFalse(ownership.prepare_native({}, app, state, retired, base=base))
                 self.assertEqual(write.call_count, 1)
@@ -62,6 +86,17 @@ class EmergencyTests(unittest.TestCase):
                     ownership.prepare_native({}, app, state, retired, base=base)
                 app['spec']['source']['targetRevision'] = 'b' * 40
                 with self.assertRaisesRegex(RuntimeError, 'accepted idle scoped'):
+                    ownership.prepare_native({}, app, state, retired, base=base)
+                self.assertEqual(write.call_count, 1); self.assertEqual((base / 'ownership.json').read_bytes(), before)
+                charts.side_effect = None
+                app['spec']['source']['targetRevision'] = 'main'
+                baseline = copy.deepcopy(app)
+                change = 'spec'
+                with self.assertRaisesRegex(RuntimeError, 'scope changed while waiting'):
+                    ownership.prepare_native({}, app, state, retired, base=base)
+                app.clear(); app.update(copy.deepcopy(baseline))
+                change = 'authority'
+                with self.assertRaisesRegex(RuntimeError, 'authority or private binding changed'):
                     ownership.prepare_native({}, app, state, retired, base=base)
                 self.assertEqual(write.call_count, 1); self.assertEqual((base / 'ownership.json').read_bytes(), before)
 
