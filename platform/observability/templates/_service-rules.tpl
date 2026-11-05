@@ -1,0 +1,15 @@
+{{- define "observability.serviceRules" -}}
+{{- if and .Values.enabled .Values.monitoringEnabled }}
+{{- range $name, $rule := .Values.serviceRules }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}
+  namespace: cloudlab-observability
+  labels: {cloudlab.io/owner: observability-platform}
+spec:
+{{ toYaml $rule | indent 2 }}
+{{- end }}
+{{- end }}
+{{- end -}}

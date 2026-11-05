@@ -1,0 +1,228 @@
+# Disposable native six-chart qualification, never a lab deployment entry point.
+# Build runner first. Use a unique obs-lifecycle-stack-<run> Compose project.
+# Native sequence (capture full ID and every volume Name, never a short ID):
+# docker compose -p <project> -f <file> build runner
+# docker compose -p <project> -f <file> create --no-build cluster
+# docker compose -p <project> -f <file> ps --all --quiet cluster
+# docker inspect <FULL_ID>  # capture exact Mounts[].Name where Type=volume
+# docker inspect <FULL_ID> <ALL_VOLUME_NAMES> | docker compose -p <project> -f <file> run --no-deps --rm -T runner -m playbooks.observability.tests.lifecycle_stack_preflight --container-id <FULL_ID>
+# docker start <EXACT_FULL_ID>
+# docker compose -p <project> -f <file> run --no-deps --rm -T proof
+# Only the trusted native inspect/start sequence establishes full-ID authority.
+# The node's default 12-character hostname is replay defense, not Docker-admin authentication.
+# Inspect project/purpose labels before exact-project down --volumes.
+services:
+  runner:
+    image: ${COMPOSE_PROJECT_NAME:?Use a unique obs-lifecycle-stack- project}-runner:local
+    build:
+      context: ../../../runner
+      additional_contexts:
+        ci-source: ../../../../platform/delivery/ci
+    network_mode: none
+    entrypoint: [python]
+    working_dir: /workspace/ansible
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      FIXTURE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ../../../../:/workspace:ro
+      - credentials:/fixture
+    labels: {cloudlab.io/purpose: observability-native-stack-preflight}
+  cluster:
+    image: rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb
+    privileged: true
+    cpus: 6
+    mem_limit: 16g
+    entrypoint: [/bin/sh, -c]
+    environment:
+      FIXTURE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    command:
+      - |-
+        set -eu
+        incoming_umask=$$(umask)
+        case "$$incoming_umask" in
+          [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
+          *) echo 'Local node preflight refused stage=incoming-umask' >&2; exit 1;;
+        esac
+        umask 077
+        stage=receipt-directory
+        record_diagnostics() {
+          awk '$$5 == "/var/run/netns" {n++} index($$5,"/var/run/netns/") == 1 {child=1}
+            END {printf "zeroTargets=%s multipleTargets=%s noTargetDescendants=%s exactOneTarget=%s\n",
+              (n == 0 ? "true" : "false"), (n > 1 ? "true" : "false"),
+              (!child ? "true" : "false"), (n == 1 ? "true" : "false")}' "$$mountinfo" >&2
+        }
+        post_diagnostics() {
+          case "$$stage" in
+            private-post) record=$$private_record; expected=private;;
+            shared-post) record=$$shared_record; expected=shared;;
+            *) return;;
+          esac
+          printf '%s\n' "$$record" | awk -v expected="$$expected" '
+            {n++; root=($$4 == "/var/run/netns");
+             for(i=7;i<=NF && $$i!="-";i++) {
+               if($$i ~ /^master:/) master++;
+               if($$i ~ /^propagate_from:/) propagate++;
+               if($$i ~ /^shared:/) shared++;
+               if($$i ~ /^shared:[1-9][0-9]*$$/) validShared++;
+             }}
+            END {printf "rootFieldMatchesExpected=%s noMaster=%s noPropagateFrom=%s expectedSharedState=%s exactOneTarget=%s\n",
+              root ? "true" : "false", !master ? "true" : "false", !propagate ? "true" : "false",
+              (expected == "private" ? !shared : validShared == 1) ? "true" : "false", n == 1 ? "true" : "false"}' >&2
+        }
+        refuse() {
+          case "$$stage" in
+            receipt-directory|receipt-file|receipt-read|receipt-identity|receipt-time|receipt-consume|root-record|root-not-shared|ancestor|existing-mount|target-create|target-path|target-empty|bind|private|private-record|private-post|private-root-unchanged|shared|shared-record|shared-post|shared-root-unchanged|restore-umask)
+              printf 'Local node preflight refused stage=%s\n' "$$stage" >&2;;
+            *) echo 'Local node preflight refused stage=internal' >&2;;
+          esac
+          case "$$stage" in private-record|shared-record) record_diagnostics;; esac
+          post_diagnostics
+          exit 1
+        }
+        # BEGIN RECEIPT GUARD
+        receipt=/fixture/preflight.receipt
+        consumed=/fixture/preflight.consumed
+        [ -d /fixture ] && [ ! -L /fixture ] || refuse
+        [ "$$(readlink -f /fixture)" = /fixture ] || refuse
+        [ "$$(stat -c '%u:%g' /fixture)" = '0:0' ] || refuse
+        case "$$(stat -c '%a' /fixture)" in 700|750|755) ;; *) refuse;; esac
+        stage=receipt-file
+        [ ! -e "$$consumed" ] && [ ! -L "$$consumed" ] || refuse
+        [ -f "$$receipt" ] && [ ! -L "$$receipt" ] || refuse
+        [ "$$(stat -c '%u:%g:%a:%h' "$$receipt")" = '0:0:600:1' ] || refuse
+        [ "$$(stat -c '%s' "$$receipt")" -le 512 ] || refuse
+        stage=receipt-read
+        extra=''
+        {
+          IFS= read -r version || refuse
+          IFS= read -r full_id || refuse
+          IFS= read -r expected_host || refuse
+          IFS= read -r project || refuse
+          IFS= read -r issued || refuse
+          IFS= read -r expires || refuse
+          IFS= read -r inspect_digest || refuse
+          if IFS= read -r extra || [ -n "$$extra" ]; then refuse; fi
+        } < "$$receipt"
+        stage=receipt-identity
+        [ "$$version" = 'cloudlab-lifecycle-node-preflight/v1' ] || refuse
+        for hex in "$$full_id" "$$expected_host" "$$inspect_digest"; do
+          case "$$hex" in *[!0-9a-f]*|'') refuse;; esac
+        done
+        [ "$${#full_id}" -eq 64 ] && [ "$${#expected_host}" -eq 12 ] && [ "$${#inspect_digest}" -eq 64 ] || refuse
+        [ "$$expected_host" = "$$(printf '%.12s' "$$full_id")" ] || refuse
+        [ "$$(hostname)" = "$$expected_host" ] || refuse
+        case "$$project" in obs-lifecycle-stack-?*) ;; *) refuse;; esac
+        case "$$project" in *[!a-z0-9_-]*) refuse;; esac
+        [ "$${#project}" -le 63 ] && [ "$$project" = "$${FIXTURE_PROJECT:-}" ] || refuse
+        stage=receipt-time
+        case "$$issued:$$expires" in *[!0-9:]*) refuse;; esac
+        [ "$${#issued}" -eq 10 ] && [ "$${#expires}" -eq 10 ] || refuse
+        case "$$issued:$$expires" in 0*|*:0*) refuse;; esac
+        now=$$(date +%s)
+        [ "$$issued" -le "$$((now + 5))" ] && [ "$$expires" -ge "$$now" ] || refuse
+        [ "$$((expires - issued))" -gt 0 ] && [ "$$((expires - issued))" -le 120 ] || refuse
+        stage=receipt-consume
+        inode=$$(stat -c '%d:%i' "$$receipt")
+        ln "$$receipt" "$$consumed" || refuse
+        [ ! -L "$$consumed" ] && [ "$$(stat -c '%d:%i' "$$consumed")" = "$$inode" ] || refuse
+        [ "$$(stat -c '%d:%i' "$$receipt")" = "$$inode" ] || refuse
+        [ "$$(stat -c '%u:%g:%a:%h' "$$consumed")" = '0:0:600:2' ] || refuse
+        rm "$$receipt" || refuse
+        [ "$$(stat -c '%u:%g:%a:%h' "$$consumed")" = '0:0:600:1' ] || refuse
+        sync /fixture || refuse
+        # END RECEIPT GUARD
+        # BEGIN NETNS GUARD
+        target=/var/run/netns
+        mountinfo=/proc/self/mountinfo
+        root_record() { awk '$$5 == "/" {print; n++} END {if (n != 1) exit 1}' "$$mountinfo"; }
+        target_record() { awk '$$5 == "/var/run/netns" {print; n++} index($$5,"/var/run/netns/") == 1 {bad=1} END {if (n != 1 || bad) exit 1}' "$$mountinfo"; }
+        stage=root-record
+        root_before=$$(root_record) || refuse
+        stage=root-not-shared
+        printf '%s\n' "$$root_before" | awk '{for(i=7;i<=NF && $$i!="-";i++) if($$i ~ /^shared:/) exit 1}' || refuse
+        stage=ancestor
+        for ancestor in /var /var/run; do
+          [ -d "$$ancestor" ] && [ ! -L "$$ancestor" ] || refuse
+          [ "$$(readlink -f "$$ancestor")" = "$$ancestor" ] || refuse
+          [ "$$(stat -c '%u:%g' "$$ancestor")" = '0:0' ] || refuse
+          case "$$(stat -c '%a' "$$ancestor")" in 700|750|755) ;; *) refuse;; esac
+        done
+        stage=existing-mount
+        awk '$$5 == "/var" || $$5 == "/var/run" || $$5 == "/var/run/netns" || index($$5,"/var/run/netns/") == 1 {exit 1}' "$$mountinfo" || refuse
+        stage=target-create
+        if [ ! -e "$$target" ] && [ ! -L "$$target" ]; then mkdir "$$target" || refuse; fi
+        stage=target-path
+        [ -d "$$target" ] && [ ! -L "$$target" ] || refuse
+        [ "$$(readlink -f "$$target")" = "$$target" ] || refuse
+        [ "$$(stat -c '%u:%g' "$$target")" = '0:0' ] || refuse
+        case "$$(stat -c '%a' "$$target")" in 700|750|755) ;; *) refuse;; esac
+        stage=target-empty
+        contents=$$(find "$$target" -mindepth 1 -maxdepth 1 -print -quit) || refuse
+        [ -z "$$contents" ] || refuse
+        stage=bind
+        /bin/aux/mount -o bind "$$target" "$$target" || refuse
+        stage=private
+        /bin/aux/mount -o make-private "$$target" || refuse
+        stage=private-record
+        private_record=$$(target_record) || refuse
+        stage=private-post
+        printf '%s\n' "$$private_record" | awk '$$4 != "/var/run/netns" {exit 1} {for(i=7;i<=NF && $$i!="-";i++) if($$i ~ /^(shared:|master:|propagate_from:)/) exit 1}' || refuse
+        stage=private-root-unchanged
+        [ "$$(root_record)" = "$$root_before" ] || refuse
+        stage=shared
+        /bin/aux/mount -o make-shared "$$target" || refuse
+        stage=shared-record
+        shared_record=$$(target_record) || refuse
+        stage=shared-post
+        printf '%s\n' "$$shared_record" | awk '$$4 != "/var/run/netns" {exit 1} {for(i=7;i<=NF && $$i!="-";i++) {if($$i ~ /^(master:|propagate_from:)/) exit 1; if($$i ~ /^shared:[1-9][0-9]*$$/) n++}} END {if(n != 1) exit 1}' || refuse
+        stage=shared-root-unchanged
+        [ "$$(root_record)" = "$$root_before" ] || refuse
+        echo 'Local node receipt consumed; own netns mount private then shared'
+        # END NETNS GUARD
+        stage=restore-umask
+        umask "$$incoming_umask" || refuse
+        # BEGIN ORIGINAL STARTUP
+        for slot in 0 1 2 3 4; do mkdir -p /var/lib/lifecycle-storage/$$slot;
+        chmod 0777 /var/lib/lifecycle-storage/$$slot; done;
+        exec k3s server --node-name=obs-lifecycle-stack \
+        --disable=traefik,servicelb,local-storage,metrics-server \
+        --tls-san=cluster --node-ip=10.245.239.2 --advertise-address=10.245.239.2 \
+        --flannel-iface=eth0 --write-kubeconfig=/fixture/kubeconfig --write-kubeconfig-mode=600
+    tmpfs: [/run, /var/lib/rancher/k3s, /var/lib/lifecycle-storage]
+    volumes: [credentials:/fixture]
+    networks:
+      fixture: {ipv4_address: 10.245.239.2, priority: 100}
+      image_downloads: {ipv4_address: 10.245.240.2, priority: 0}
+    labels: {cloudlab.io/purpose: observability-native-stack-proof}
+  proof:
+    image: ${COMPOSE_PROJECT_NAME}-runner:local
+    entrypoint: [python, -m, playbooks.observability.tests.lifecycle_stack_proof]
+    working_dir: /workspace/ansible
+    cpus: 2
+    mem_limit: 1g
+    environment:
+      FIXTURE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ../../../../:/workspace:ro
+      - credentials:/fixture:ro
+    depends_on: [cluster]
+    networks:
+      fixture: {ipv4_address: 10.245.239.3}
+    labels: {cloudlab.io/purpose: observability-native-stack-proof}
+volumes:
+  credentials:
+    labels: {cloudlab.io/purpose: observability-native-stack-proof}
+networks:
+  fixture:
+    internal: true
+    labels: {cloudlab.io/purpose: observability-native-stack-proof}
+    ipam:
+      config: [{subnet: 10.245.239.0/24}]
+  image_downloads:
+    labels: {cloudlab.io/purpose: observability-native-stack-image-downloads}
+    ipam:
+      config: [{subnet: 10.245.240.0/24}]

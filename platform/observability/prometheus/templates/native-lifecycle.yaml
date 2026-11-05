@@ -1,0 +1,9 @@
+{{- with .Values.nativeLifecycle }}
+{{- if .enabled }}
+{{- $context := dict "Files" $.Files "Release" $.Release "Values" (merge (dict "enabled" true "routeNames" (list "grafana")) (deepCopy .)) }}
+{{ include "observability.baselineMonitors" $context }}
+{{ include "observability.serviceMetrics" $context }}
+{{ include "observability.serviceRules" $context }}
+{{ include "observability.routes" $context }}
+{{- end }}
+{{- end }}

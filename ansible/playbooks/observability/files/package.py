@@ -11,6 +11,24 @@ ROOT = Path(__file__).resolve().parents[4]
 BASE = ROOT / 'platform/observability'
 
 
+def projections(check=False):
+    """Project canonical resource templates into their native chart owners."""
+    for component, names in {
+        'prometheus': ('baseline-monitors', 'service-metrics', 'service-rules', 'routes'),
+        'kiali': ('routes',),
+    }.items():
+        inputs = [(BASE / 'policy.json', BASE / component / 'policy.json')]
+        inputs += [(BASE / 'templates' / ('_' + name + '.tpl'),
+                    BASE / component / 'templates' / ('_' + name + '.tpl')) for name in names]
+        for source, target in inputs:
+            content = source.read_bytes()
+            if check:
+                if not target.exists() or target.read_bytes() != content:
+                    raise ValueError('Native observability projection differs: ' + str(target.relative_to(BASE)))
+            else:
+                target.write_bytes(content)
+
+
 def loki_declarative(raw):
     """Correct the native governing Service without changing legacy chart output."""
     output, seen = io.BytesIO(), set()
@@ -60,6 +78,7 @@ def retained(raw):
     output = io.BytesIO()
     count = 0
     authentication = 0
+    storage = 0
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as source:
         with gzip.GzipFile(fileobj=output, mode='wb', filename='', mtime=0) as zipped:
             with tarfile.open(fileobj=zipped, mode='w') as target:
@@ -67,6 +86,36 @@ def retained(raw):
                     if not original.isfile() or original.name.startswith('/') or '..' in Path(original.name).parts:
                         raise ValueError('Unexpected monitoring chart member')
                     data = source.extractfile(original).read()
+                    if original.name == 'kube-prometheus-stack/templates/alertmanager/alertmanager.yaml':
+                        if hashlib.sha256(data).hexdigest() != '85bd50250d8f6400cba2fcc6ea9777b7b0b31dac71e6900f4c39048d0a07cfce':
+                            raise ValueError('Pinned Alertmanager template changed')
+                        marker = b'''{{- if .Values.alertmanager.alertmanagerSpec.storage }}
+  storage:
+{{ tpl (toYaml .Values.alertmanager.alertmanagerSpec.storage | indent 4) . }}
+{{- end }}'''
+                        if data.count(marker) != 1:
+                            raise ValueError('Pinned Alertmanager storage block changed')
+                        guard = b'''{{- $cloudlabNative := false -}}
+{{- if hasKey .Values "cloudlabNativeLifecycle" -}}
+{{- if not (kindIs "bool" .Values.cloudlabNativeLifecycle) }}{{ fail "cloudlabNativeLifecycle must be a boolean" }}{{ end -}}
+{{- $cloudlabNative = .Values.cloudlabNativeLifecycle -}}
+{{- end -}}
+{{- if $cloudlabNative -}}
+{{- $storage := .Values.alertmanager.alertmanagerSpec.storage -}}
+{{- if not (kindIs "map" $storage) }}{{ fail "Native Alertmanager requires explicit storage" }}{{ end -}}
+{{- range $key, $_ := $storage -}}
+{{- if not (has $key (list "emptyDir" "volumeClaimTemplate")) }}{{ fail "Unsupported native Alertmanager storage mode" }}{{ end -}}
+{{- end -}}
+{{- if or (not (kindIs "map" $storage.volumeClaimTemplate)) (empty $storage.volumeClaimTemplate) }}{{ fail "Native Alertmanager requires a volumeClaimTemplate" }}{{ end -}}
+{{- end -}}
+'''
+                        replacement = b'''{{- if $cloudlabNative }}
+  storage:
+{{ tpl (toYaml (dict "volumeClaimTemplate" .Values.alertmanager.alertmanagerSpec.storage.volumeClaimTemplate) | indent 4) . }}
+{{- else }}
+''' + marker + b'\n{{- end }}'
+                        data = guard + data.replace(marker, replacement)
+                        storage += 1
                     for component in ('kubelet', 'kubeApiServer'):
                         marker = ('{{- with .Values.' + component + '.serviceMonitor.authorization }}').encode()
                         if marker in data:
@@ -88,7 +137,7 @@ def retained(raw):
                     member = tarfile.TarInfo(original.name)
                     member.mode, member.size = 0o644, len(data)
                     target.addfile(member, io.BytesIO(data))
-    if count != 10 or authentication != 2:
+    if count != 10 or authentication != 2 or storage != 1:
         raise ValueError('Pinned monitoring CRD inventory changed')
     return output.getvalue()
 
@@ -185,6 +234,7 @@ def build():
     from playbooks.observability.files.values import values
     from playbooks.observability.files.slo import build as build_slo
     from playbooks.observability.files.configuration import audit_rules
+    projections()
     build_slo()
     resource = {'apiVersion': 'monitoring.coreos.com/v1', 'kind': 'PrometheusRule',
                 'metadata': {'name': 'identity-evidence', 'namespace': 'cloudlab-observability'}, 'spec': audit_rules()}

@@ -1,0 +1,25 @@
+# Local native checks only; never combine with deployment Compose.
+# Build runner first, then run --build proof with the same unique project name.
+services:
+  runner:
+    image: ${COMPOSE_PROJECT_NAME:?Use a unique lifecycle project}-runner:local
+    build:
+      context: ../../../runner
+      additional_contexts:
+        ci-source: ../../../../platform/delivery/ci
+    network_mode: none
+    entrypoint: [python]
+  proof:
+    build:
+      context: .
+      dockerfile: lifecycle.Dockerfile
+      args:
+        RUNNER_IMAGE: ${COMPOSE_PROJECT_NAME}-runner:local
+    entrypoint: [python]
+    working_dir: /workspace/ansible
+    network_mode: none
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ../../../../:/workspace:ro
+    labels: {cloudlab.io/purpose: observability-lifecycle-proof}

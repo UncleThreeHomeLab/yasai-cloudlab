@@ -63,7 +63,7 @@ class ServiceObservabilityTests(unittest.TestCase):
             value = logged_service_inputs(metrics=True) if logs else monitored_service_inputs()
             overrides = native_overrides(value)['cloudlab-observability']
             self.assertEqual(bool(overrides['serviceMetrics']), True)
-            rule = overrides['serviceRules']['svc-synthetic-availability']['groups'][0]['rules'][0]
+            rule = native_overrides(value)['cloudlab-prometheus']['nativeLifecycle']['serviceRules']['svc-synthetic-availability']['groups'][0]['rules'][0]
             self.assertEqual('logs_url' in rule['annotations'], logs)
             if logs:
                 self.assertIn('service%3D', rule['annotations']['logs_url'])
@@ -188,7 +188,7 @@ class ServiceObservabilityTests(unittest.TestCase):
     def test_native_limits_match_pinned_crd_and_rules_and_dashboards_reach_native_owners(self):
         value = monitored_service_inputs()
         overrides = native_overrides(value)
-        configuration = helm('platform/observability', overrides['cloudlab-observability'])
+        configuration = render('prometheus', overrides['cloudlab-prometheus'])
         monitor = next(o for o in configuration if o['kind'] == 'PodMonitor' and o['metadata']['name'] == 'svc-synthetic')
         archive = ROOT / 'platform/observability/prometheus/charts/kube-prometheus-stack-92.3.1.tgz'
         with tarfile.open(archive) as source:
@@ -220,7 +220,7 @@ class ServiceObservabilityTests(unittest.TestCase):
         definition = value['catalog'][0]['definition']
         definition['replicas'] = 3
         overrides = native_overrides(value)
-        configuration = helm('platform/observability', overrides['cloudlab-observability'])
+        configuration = render('prometheus', overrides['cloudlab-prometheus'])
         monitor = next(o for o in configuration if o['kind'] == 'PodMonitor' and o['metadata']['name'] == 'svc-synthetic')
         workload = next(o for o in helm('charts/service', definition) if o['kind'] == 'Deployment')
         catalog = helm('platform/delivery/services', {
@@ -244,7 +244,7 @@ class ServiceObservabilityTests(unittest.TestCase):
         value = monitored_service_inputs()
         value['serviceObservability']['synthetic'].pop('dashboard')
         overrides = native_overrides(value)
-        rule = overrides['cloudlab-observability']['serviceRules']['svc-synthetic-availability']['groups'][0]['rules'][0]
+        rule = overrides['cloudlab-prometheus']['nativeLifecycle']['serviceRules']['svc-synthetic-availability']['groups'][0]['rules'][0]
         self.assertTrue(rule['annotations']['dashboard_url'].endswith('/d/active-alerts'))
         self.assertEqual(overrides['cloudlab-prometheus']['serviceDashboardLinks'], [])
 

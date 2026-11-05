@@ -22,6 +22,104 @@ argo-cd:
       application.resourceTrackingMethod: annotation
       timeout.reconciliation: 60s
       timeout.reconciliation.jitter: 10s
+      resource.customizations.health.argoproj.io_Application: |
+        local paths = {
+          ["cloudlab-observability"] = "platform/observability",
+          ["cloudlab-prometheus"] = "platform/observability/prometheus",
+          ["cloudlab-loki"] = "platform/observability/loki",
+          ["cloudlab-tempo"] = "platform/observability/tempo",
+          ["cloudlab-alloy"] = "platform/observability/alloy",
+          ["cloudlab-kiali"] = "platform/observability/kiali"
+        }
+        local metadata = obj.metadata or {}
+        local annotations = metadata.annotations or {}
+        local spec = obj.spec or {}
+        local source = spec.source or {}
+        local values = (source.helm or {}).valuesObject or {}
+        local marker = annotations["cloudlab.io/observability-input-digest"]
+        local opted = annotations["cloudlab.io/observability-health"]
+        local nativeControls = values.nativeInputDigest ~= nil or (type(values.nativeLifecycle) == "table" and values.nativeLifecycle.enabled == true)
+        local native = opted ~= nil or marker ~= nil or (paths[metadata.name] ~= nil and nativeControls)
+        if not native then
+          return {status = "Healthy", message = "Child health propagation disabled; parent ordering only"}
+        end
+        local function result(status, message)
+          return {status = status, message = message}
+        end
+        local function same(a, b)
+          if type(a) ~= type(b) then return false end
+          if type(a) ~= "table" then return a == b end
+          for key, value in pairs(a) do
+            if not same(value, b[key]) then return false end
+          end
+          for key, _ in pairs(b) do
+            if a[key] == nil then return false end
+          end
+          return true
+        end
+        local function hash(value, length)
+          if type(value) ~= "string" or #value ~= length then return false end
+          -- Argo disables string libraries; lexical prefixes validate lowercase hex.
+          local alphabet = {["0"]="1", ["1"]="2", ["2"]="3", ["3"]="4", ["4"]="5", ["5"]="6", ["6"]="7", ["7"]="8", ["8"]="9", ["9"]=":", a="b", b="c", c="d", d="e", e="f", f="g"}
+          local prefix = ""
+          for _ = 1, length do
+            local found = false
+            for character, upper in pairs(alphabet) do
+              local candidate = prefix .. character
+              if value >= candidate and value < prefix .. upper then
+                prefix = candidate
+                found = true
+                break
+              end
+            end
+            if not found then return false end
+          end
+          return prefix == value
+        end
+        local destination = spec.destination or {}
+        if paths[metadata.name] == nil or metadata.namespace ~= "argocd" or (metadata.labels or {})["cloudlab.io/owner"] ~= "observability-platform" or opted ~= "required" or not hash(marker, 64) or values.nativeInputDigest ~= marker or spec.project ~= "cloudlab-observability" or destination.namespace ~= "cloudlab-observability" or destination.server ~= "https://kubernetes.default.svc" or source.path ~= paths[metadata.name] or spec.sources ~= nil or not hash(source.targetRevision, 40) then
+          return result("Degraded", "Native observability ownership or readiness metadata is invalid")
+        end
+        if annotations["argocd.argoproj.io/skip-reconcile"] == "true" or ((spec.syncPolicy or {}).automated or {}).enabled ~= true then
+          return result("Progressing", "Native observability child is paused")
+        end
+        if obj.operation ~= nil then
+          return result("Progressing", "Native observability child has an outstanding operation")
+        end
+        local status = obj.status or {}
+        local operation = status.operationState or {}
+        if operation.phase == "Running" or operation.phase == "Terminating" then
+          return result("Progressing", "Native observability child has an active operation")
+        end
+        local sync = status.sync or {}
+        local errors = {ComparisonError=true, InvalidSpecError=true, SyncError=true, UnknownError=true, DeletionError=true}
+        for _, condition in ipairs(status.conditions or {}) do
+          if errors[condition.type] then
+            return result("Degraded", condition.message or "Native source comparison failed")
+          end
+        end
+        if not same((sync.comparedTo or {}).source, source) or not same((sync.comparedTo or {}).destination, destination) or sync.revision ~= source.targetRevision then
+          return result("Progressing", "Waiting for current native source comparison")
+        end
+        local health = status.health or {}
+        if sync.status == "Synced" and health.status == "Healthy" then
+          return result("Healthy", "Current native source and child resources are healthy")
+        end
+        local completed = operation.syncResult or {}
+        local currentOperation = same(completed.source, source) and completed.revision == source.targetRevision
+        if currentOperation and (operation.phase == "Failed" or operation.phase == "Error") then
+          return result("Degraded", operation.message or "Current native sync failed")
+        end
+        if sync.status == "OutOfSync" and currentOperation and operation.phase == "Succeeded" and operation.finishedAt ~= nil and operation.finishedAt ~= "" then
+          return result("Degraded", "Current native sync completed with retained or nonconverged resources out of sync")
+        end
+        if sync.status ~= "Synced" then
+          return result("Progressing", "Waiting for current native synchronization")
+        end
+        if health.status == "Degraded" then
+          return result("Degraded", health.message or "Native child resource is degraded")
+        end
+        return result("Progressing", health.message or "Waiting for native child resource health")
       resource.customizations.health.cert-manager.io_Certificate: &certificateHealth |
         local health = {status = "Progressing", message = "Waiting for current generation readiness"}
         if obj.metadata == nil or obj.metadata.generation == nil then
