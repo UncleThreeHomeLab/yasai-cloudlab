@@ -9,8 +9,9 @@ import unittest
 
 import yaml
 from jinja2 import Template
+from unittest.mock import patch
 
-from fixtures import binding_fixture, private_policies, private_probe
+from fixtures import binding_fixture, private_policies, private_probe, source_approval
 from private_activation import APP, OWNER, POLICIES, TRACKING, guard, prepare
 
 
@@ -22,7 +23,15 @@ class PrivateActivationTests(unittest.TestCase):
             'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
         self.registry = {'sources': [{'name': 'fixture', 'repository': self.target['valuesRepository'],
                                      'revision': 'main', 'path': 'gitops'}]}
-        self.evidence = prepare(self.public, self.target['valuesRepository'], self.target['valuesRevision'], self.registry)
+        acceptance = source_approval(self.public, self.target['valuesRepository'])
+        self.evidence = prepare(self.public, self.target['valuesRepository'], self.target['valuesRevision'], self.registry, acceptance=acceptance)
+        self.objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source']['helm']['valuesObject']['identity'] = {'enabled': True, 'argo': self.target}
+        from playbooks.data.files import native
+        chart = Path(__file__).resolve().parents[4] / 'gitops/roots/public'
+        files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+        for mock in (patch.object(native, 'published_source', side_effect=lambda *args, **kwargs: (self.public, 'a' * 40)),
+                patch.object(native.source_snapshot, 'chart_files', return_value=files)):
+            mock.start(); self.addCleanup(mock.stop)
         self.objects.update(private_policies(self.evidence))
 
     def read(self, kind, name): return self.objects.get((kind, name))
@@ -88,10 +97,26 @@ class PrivateActivationTests(unittest.TestCase):
 
     def test_disabled_or_mismatched_inputs_do_not_read_or_retarget(self):
         disabled = prepare({'repository': self.public['repository']}, self.target['valuesRepository'], self.target['valuesRevision'])
-        guard(disabled, self.target, lambda *args: self.fail('Disabled guard must not read'))
+        original = self.public; self.public = {'privateSources': {'enabled': False}}
+        guard(disabled, self.target, self.read)
+        self.public = original
         for change in ({'private_revision': 'd' * 40}, {'revision': 'main'}, {'registry': None}):
             with self.subTest(change=change), self.assertRaises(RuntimeError):
                 self.check(self.evidence | change)
+
+    def test_forged_disabled_evidence_cannot_bypass_current_public_enabled_intent(self):
+        from private_activation import preflight
+        disabled = prepare({'repository': self.public['repository']}, self.target['valuesRepository'], self.target['valuesRevision'])
+        with self.assertRaisesRegex(RuntimeError, 'protected public intent'):
+            guard(disabled, self.target, self.read)
+        with self.assertRaisesRegex(RuntimeError, 'protected public intent'):
+            preflight(disabled, self.target, self.read)
+        self.public = {'privateSources': {'enabled': False, 'acceptanceCommitment': self.evidence['acceptanceCommitment']}}
+        def public_only(kind, name):
+            self.assertEqual((kind, name), ('application.argoproj.io', 'cloudlab-public-root'))
+            return self.read(kind, name)
+        self.assertFalse(guard(disabled, self.target, public_only)['required'])
+        self.assertIsNone(preflight(disabled, self.target, public_only))
 
     def test_ready_conditions_do_not_substitute_for_expected_spec_owner_or_named_webhooks(self):
         original = copy.deepcopy(self.objects['validatingpolicy.policies.kyverno.io', POLICIES[0]])
@@ -163,8 +188,8 @@ class PrivateActivationTests(unittest.TestCase):
                     'assert m.private_server_probe is a.server_probe; '
                     'e=a.prepare({"repository":"https://github.com/example/platform.git"},'
                     '"https://github.com/example/private.git","b"*40); '
-                    'assert not a.guard(e,{"valuesRepository":"https://github.com/example/private.git",'
-                    '"valuesRevision":"b"*40},lambda *args:None)["required"]; assert p.PEM_TEMPLATE')
+                    'assert not a.validate(e,{"valuesRepository":"https://github.com/example/private.git",'
+                    '"valuesRevision":"b"*40})["required"]; assert p.PEM_TEMPLATE')
                 result = subprocess.run([sys.executable, '-S', '-c', code], cwd=directory,
                     env=dict(os.environ, PYTHONPATH=directory), capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)

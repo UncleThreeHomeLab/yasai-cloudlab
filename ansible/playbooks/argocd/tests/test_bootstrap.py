@@ -99,6 +99,7 @@ class BootstrapTests(unittest.TestCase):
             objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'] = copy.deepcopy(state['patchedSource'])
             (base / 'identity-values-binding.json').write_text(json.dumps(state))
             with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda *key: objects.get(key)), \
+                    patch('playbooks.data.files.native.published_source', return_value=({'privateSources': {'enabled': False}}, 'a' * 40)), \
                     patch.object(source_transition, 'pause') as pause, patch.object(bootstrap, 'kube') as write:
                 self.assertTrue(bootstrap.resume_identity_binding())
                 pause.assert_called_once()

@@ -145,9 +145,8 @@ def run(payload):
         catalog = get('application.argoproj.io', APP) or {}
         evidence = {'repository': payload['public_repository'], 'revision': payload['platform_revision'],
                     'private_repository': repository}
-        if payload.get('acceptanceCommitment'):
-            evidence.update({key: payload[key] for key in ('acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')})
-            prepared_contract(evidence, get)
+        evidence.update({key: payload.get(key) for key in ('acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')})
+        prepared_contract(evidence, get)
         if (catalog.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or catalog.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != TRACKING
                 or catalog.get('metadata', {}).get('finalizers') or not sources_match(catalog, evidence)

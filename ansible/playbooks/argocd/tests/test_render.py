@@ -242,14 +242,15 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(any('*' in x for x in project['sourceRepos']))
 
     def test_private_catalog_requires_boolean_enablement_binding_pin_and_prerequisites(self):
-        values = {'privateSources': {'enabled': True, 'acceptanceCommitment': ''}}
+        values = {'privateSources': {'enabled': True}}
         self.assertFalse(any(obj['metadata']['name'] == 'cloudlab-private-sources' for obj in self.root_with(values)))
         for enabled in ('false', 'true', 0, None):
             with self.subTest(enabled=enabled): self.root_with({'privateSources': {'enabled': enabled}}, success=False)
         values['identity'] = {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
                                                       'valuesRevision': 'b' * 40}}
         values['privateSources']['revision'] = 'c' * 40
-        app = next(obj for obj in self.root_with(values) if obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-private-sources')
+        parent = next(obj for obj in self.root_with(values) if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-private-sources')
+        app = {'spec': parent['spec']['template']['spec'], 'metadata': parent['spec']['template']['metadata']}
         self.assertEqual(app['spec']['sources'][0]['targetRevision'], 'c' * 40)
         self.assertEqual(app['spec']['sources'][0]['helm']['valueFiles'], ['$values/platform/sources.yaml'])
         self.assertNotIn('ignoreMissingValueFiles', app['spec']['sources'][0]['helm'])

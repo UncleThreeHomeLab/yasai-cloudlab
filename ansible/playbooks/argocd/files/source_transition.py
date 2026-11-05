@@ -145,6 +145,7 @@ def capture_public_revision(payload):
 
 def check_activation(state, root, read, *, data_held=False):
     data_binding_fence(state['target'])
+    validate_private(state.get('privateActivation'), state['target'], root)
     evidence = state.get('serviceActivation')
     if evidence is None:
         raise RuntimeError('Pending service activation inputs unavailable; retry identity binding at its recorded private revision')
@@ -152,7 +153,7 @@ def check_activation(state, root, read, *, data_held=False):
     evidence = state.get('privateActivation')
     if evidence is None:
         raise RuntimeError('Pending private activation inputs unavailable; retry identity binding at its recorded private revision')
-    state['privateActivation'] = private_guard(evidence, state['target'], read, root, probe=private_server_probe)
+    state['privateActivation'] = private_guard(evidence, state['target'], read, root, probe=private_server_probe, binding=state)
     state['accessActivation'] = access_guard(state.get('accessActivation'), state['target'], read, root)
     state['dataActivation'] = data_guard(state.get('dataActivation'), state['target'], read, root,
         patched=binding_source(state, root) == 'patched', held=data_held, binding=state)
@@ -160,6 +161,7 @@ def check_activation(state, root, read, *, data_held=False):
 
 def safe_identity_resume(state, read, *, data_held=False):
     data_binding_fence(state['target'])
+    validate_private(state.get('privateActivation'), state['target'])
     objects = {key: read(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', ROOT_APP), ('controller_uid', 'statefulset', CONTROLLER),
         ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
@@ -179,8 +181,10 @@ def safe_identity_resume(state, read, *, data_held=False):
     if project['spec'].get('sourceRepos') != [root.get('spec', {}).get('source', {}).get('repoURL')]:
         raise RuntimeError('Identity handoff project source changed; controller remains paused')
     from playbooks.data.files.handoff import active
-    if binding_source(state, root) == 'patched' or active():
+    if binding_source(state, root) == 'patched' or active() or state['privateActivation']['required']:
         check_activation(state, root, read, data_held=data_held)
+    else:
+        private_guard(state['privateActivation'], state['target'], read, root, probe=private_server_probe)
     return True
 
 
@@ -195,6 +199,7 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     data_binding_fence(target)
     if checkpoint['target'] != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
+    validate_private(checkpoint.get('privateActivation'), target)
     for key, kind, name in (('root_uid', 'application.argoproj.io', ROOT_APP),
                            ('controller_uid', 'statefulset', CONTROLLER),
                            ('project_uid', 'appproject.argoproj.io', 'cloudlab-root')):
@@ -259,6 +264,7 @@ def pending_identity_checkpoint(target):
     if (state.get('phase') not in ('prepared', 'paused', 'source-updated', 'resumed')
             or state.get('target') != target):
         raise RuntimeError('Identity recovery requires its exact pending private binding')
+    validate_private(state.get('privateActivation'), target)
     for key, kind, name in (('root_uid', 'application.argoproj.io', ROOT_APP),
                            ('controller_uid', 'statefulset', CONTROLLER),
                            ('project_uid', 'appproject.argoproj.io', 'cloudlab-root')):
@@ -270,6 +276,57 @@ def pending_identity_checkpoint(target):
 
 def pending_identity_target(target):
     return pending_identity_checkpoint(target)['target']['valuesRevision']
+
+
+def pending_private_target(binding, evidence, root):
+    """Authorize only the durable, paused first identity binding's original source."""
+    from playbooks.data.files.native import quiet
+    if not isinstance(binding, dict):
+        raise RuntimeError('Unbound private sources require their durable pending identity operation')
+    target = {'valuesRepository': evidence['private_repository'], 'valuesRevision': evidence['private_revision']}
+    recorded = pending_identity_checkpoint(target)
+    fields = ('phase', 'target', 'publicRevision', 'originalSource', 'patchedSource', 'root_uid', 'controller_uid', 'project_uid')
+    projection = ('required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry',
+        'policies', 'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')
+    if (any(key not in recorded or recorded[key] != binding.get(key) for key in fields)
+            or not isinstance(recorded['publicRevision'], str) or not re.fullmatch('[a-f0-9]{40}', recorded['publicRevision'])
+            or not isinstance(binding.get('privateActivation'), dict)
+            or any(recorded['privateActivation'].get(key) != evidence.get(key)
+                or recorded['privateActivation'].get(key) != binding['privateActivation'].get(key) for key in projection)):
+        raise RuntimeError('Unbound private source operation differs from its durable approval')
+    current = get('application.argoproj.io', ROOT_APP)
+    controller = get('statefulset', CONTROLLER)
+    project = get('appproject.argoproj.io', 'cloudlab-root')
+    if any(not obj or obj.get('metadata', {}).get('uid') != recorded[key] or obj['metadata'].get('deletionTimestamp')
+            for key, obj in (('root_uid', current), ('controller_uid', controller), ('project_uid', project))):
+        raise RuntimeError('Pending first private source resource identity changed')
+    source = (current or {}).get('spec', {}).get('source')
+    identity = (source or {}).get('helm', {}).get('valuesObject', {}).get('identity', {})
+    if (not quiet(current) or current.get('spec') != root.get('spec') or current['metadata'].get('uid') != root.get('metadata', {}).get('uid')
+            or current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers')
+            or source != recorded['originalSource'] or not isinstance(identity, dict) or 'argo' in identity
+            or controller.get('spec', {}).get('replicas') != 0
+            or current.get('spec', {}).get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
+            or project['spec'].get('sourceRepos') != [evidence['repository']]):
+        raise RuntimeError('Unbound private source requires its unchanged original Root and paused controller')
+    rules = identity_project_rules(project)
+    if {'group': 'argoproj.io', 'kind': 'ApplicationSet'} not in rules:
+        raise RuntimeError('First native private source requires its bounded ApplicationSet project grant')
+    patched = json.loads(json.dumps(source))
+    patched.setdefault('helm', {}).setdefault('valuesObject', {}).setdefault('identity', {}).update(enabled=True, argo=recorded['target'])
+    if patched != recorded['patchedSource']:
+        raise RuntimeError('Unbound private source proposed changes exceed the exact identity binding')
+    pods = json.loads(kube('get', 'pods', '-n', 'argocd', '-o', 'json')).get('items')
+    if not isinstance(pods, list) or len(pods) > 10000 or any(any(
+            (owner.get('kind') == 'StatefulSet' and owner.get('name') == CONTROLLER)
+            or owner.get('uid') == recorded['controller_uid'] for owner in pod.get('metadata', {}).get('ownerReferences', [])) for pod in pods):
+        raise RuntimeError('Unbound private source controller pods have not quiesced')
+    if any(get(kind, name) for kind, name in (
+            ('application.argoproj.io', 'cloudlab-private-sources'), ('applicationset.argoproj.io', 'cloudlab-private-sources'),
+            ('appproject.argoproj.io', 'cloudlab-private-sources'), ('externalsecret.external-secrets.io', 'cloudlab-private-sources-source'),
+            ('secret', 'cloudlab-private-sources-source'))):
+        raise RuntimeError('First private source binding refuses existing catalog or reader controls')
+    return dict(recorded['target'])
 
 
 def bind_identity(payload, target):
@@ -293,6 +350,13 @@ def bind_identity_locked(payload, target):
     data_binding_fence(target)
     path = BASE / 'identity-values-binding.json'
     checkpoint = json.loads(path.read_text()) if path.exists() else None
+    if checkpoint and checkpoint.get('phase') != 'accepted' and checkpoint.get('target') != target:
+        raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
+    try:
+        from .private_activation import preflight
+    except ImportError:
+        from private_activation import preflight
+    preflight(payload.get('argo', {}).get('privateActivation'), target, get, get('application.argoproj.io', ROOT_APP))
     access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
     if checkpoint and checkpoint.get('phase') != 'accepted':
         hydrate_binding(path, checkpoint, payload, target, data_held=True)

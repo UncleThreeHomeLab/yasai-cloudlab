@@ -32,7 +32,10 @@ def native_argo(values):
     from playbooks.argocd.files.private_activation import prepare as prepare_private
     from playbooks.argocd.files.access_activation import prepare as prepare_access
     from playbooks.argocd.files.data_activation import prepare as prepare_data
-    from playbooks.argocd.files.private_sources import registry, accepted_source
+    from playbooks.argocd.files.private_sources import registry, accepted_source, registry_enabled, acceptance_commitment
+    public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
+    private_enabled = registry_enabled(public)
+    if private_enabled: acceptance_commitment(public)
     from playbooks.services.files.inputs import validate_catalog
     from playbooks.access.files.contract import host_rules
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
@@ -61,15 +64,15 @@ def native_argo(values):
         revision = recovery_revision or current_revision
         contract = argo_values(client, values, revision, 'https://login.' + zone + '/realms/platform',
                                origins[0], origins[1:])
-        public = yaml.safe_load((ROOT / 'gitops/roots/public/values.yaml').read_text())
         catalog = None
         if public.get('services', {}).get('enabled', False):
             from playbooks.argocd.files.service_activation import catalog_path
             selected_path = catalog_path(public['services'].get('catalogPath', catalog_path()))
             from playbooks.data.files.native import private_file
             catalog = validate_catalog(private_file(client, values['PRIVATE_CONFIG_REPOSITORY'], revision, selected_path), public=public)
-        acceptance = accepted_source(client, values['PRIVATE_CONFIG_REPOSITORY'], current_revision, public)
-        private_registry = registry(client, values, public, acceptance['acceptedRevision'] if acceptance else revision, acceptance=acceptance)
+        acceptance = accepted_source(client, values['PRIVATE_CONFIG_REPOSITORY'], current_revision, public) if private_enabled else None
+        private_registry = (registry(client, values, public, acceptance['acceptedRevision'], acceptance=acceptance)
+                            if private_enabled else None)
         result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
                 'configuration': contract['helm'], 'client': contract['client'],
                 'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),

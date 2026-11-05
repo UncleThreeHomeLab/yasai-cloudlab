@@ -12,8 +12,8 @@ ACCEPTANCE_VERSION = 'cloudlab-private-source-acceptance/v1'
 
 def acceptance_commitment(public):
     value = public.get('privateSources', {}).get('acceptanceCommitment', '')
-    if not isinstance(value, str) or (value and not re.fullmatch('[a-f0-9]{64}', value)):
-        raise ValueError('Private source acceptance commitment is invalid')
+    if not isinstance(value, str) or not re.fullmatch('[a-f0-9]{64}', value):
+        raise ValueError('Enabled private sources require a reviewed acceptance commitment')
     return value
 
 
@@ -31,12 +31,11 @@ def validate_acceptance(receipt, repository, expected):
 
 def accepted_source(client, repository, head, public):
     """Authenticate one private receipt; never replace approval with a live child SHA."""
+    if not registry_enabled(public): return None
     import yaml
     from playbooks.keycloak.files.private_source import decode_contents
     from playbooks.argocd.files.github_setup import repository as repository_name
     expected = acceptance_commitment(public)
-    if not expected:
-        return None
     class ReceiptLoader(yaml.SafeLoader):
         def compose_node(self, parent, index):
             if self.check_event(yaml.AliasEvent): raise ValueError('Private source acceptance refused')
@@ -110,16 +109,15 @@ def validate_registry(value):
 
 
 def registry(client, values, public, revision, *, acceptance=None):
-    """Read the required registry at the exact identity revision, never mutable main."""
+    """Read the complete registry only at its independently approved artifact revision."""
     if not registry_enabled(public):
         return None
     expected = acceptance_commitment(public)
-    if expected and (not acceptance or acceptance.get('acceptanceCommitment') != expected or acceptance.get('acceptedRevision') != revision):
+    if not isinstance(acceptance, dict) or acceptance.get('acceptanceCommitment') != expected or acceptance.get('acceptedRevision') != revision:
         raise ValueError('Private source registry requires its accepted immutable revision')
-    if expected:
-        validate_acceptance(acceptance.get('acceptanceReceipt'), values['PRIVATE_CONFIG_REPOSITORY'], expected)
-        if acceptance['acceptanceReceipt']['revision'] != revision:
-            raise ValueError('Private source registry requires its accepted immutable revision')
+    validate_acceptance(acceptance.get('acceptanceReceipt'), values['PRIVATE_CONFIG_REPOSITORY'], expected)
+    if acceptance['acceptanceReceipt']['revision'] != revision:
+        raise ValueError('Private source registry requires its accepted immutable revision')
     if json.loads(values.get('PRIVATE_GITOPS_SOURCES') or '[]') != [] or values.get('PRIVATE_GITOPS_REMOVE'):
         raise ValueError('Legacy private source inputs are retired; migrate their owned registrations explicitly')
     if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
@@ -149,7 +147,8 @@ def policy_specs(names):
 
 
 def verification_payload(values, public):
-    """Resolve one authenticated Git revision and its complete native declarations."""
+    """Authenticate the receipt head and render only its approved immutable catalog."""
+    if registry_enabled(public): acceptance_commitment(public)
     from playbooks.argocd.files.github_app import configuration_revision
     import subprocess
     import yaml
@@ -159,8 +158,9 @@ def verification_payload(values, public):
     if not repository:
         raise ValueError('Private verification requires its designated repository')
     def read(client, revision):
-        acceptance = accepted_source(client, repository, revision, public)
-        value = registry(client, values, public, acceptance['acceptedRevision'] if acceptance else revision, acceptance=acceptance)
+        enabled = registry_enabled(public)
+        acceptance = accepted_source(client, repository, revision, public) if enabled else None
+        value = registry(client, values, public, acceptance['acceptedRevision'], acceptance=acceptance) if enabled else None
         objects = []
         symbolic_revisions = {}
         if value is not None:
@@ -186,7 +186,7 @@ def verification_payload(values, public):
                 'objects': objects, 'public_repository': public['repository'],
                 'symbolic_revisions': symbolic_revisions,
                 'platform_revision': public.get('privateSources', {}).get('revision')}
-        if acceptance:
+        if enabled:
             result.update(acceptance, applicationSet=acceptance_spec(public, repository, revision))
         return result
     return configuration_revision(values, read=read)

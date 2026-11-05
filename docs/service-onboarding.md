@@ -78,15 +78,14 @@ Argo origins advance only after that identity revision is approved; changing mai
 alone does not authorize new administrative origins. Controllers reconcile these
 shared inputs; service onboarding does not apply a gateway playbook.
 
-`privateSources.acceptanceCommitment` selects native ApplicationSet catalog
-ownership once `identity.argo` is bound. The reviewed public SHA-256 commitment
+Native ApplicationSet catalog ownership requires `privateSources.acceptanceCommitment`
+once `identity.argo` is bound. The reviewed public SHA-256 commitment
 binds one private receipt at `platform/acceptance/private-sources.yaml` to an
 immutable catalog revision. Its exact fields are `version`
 (`cloudlab-private-source-acceptance/v1`), `consumer` (`private-sources`), `revision`
 (40 lowercase hex characters), and a fresh cryptographically random `nonce`
 (64 lowercase hex characters). Keep the receipt, source address and revision private.
-An empty commitment retains the legacy Application during upgrade. The legacy
-catalog Application, native AppSet and generated child declare
+The native AppSet and generated child declare
 `Prune=false,Delete=false`; the native owner also declares create-update retention.
 Verification refuses missing or mismatched receipts. The commitment hashes UTF-8 fields separated by
 LF: version, consumer, designated private URL, `platform/sources.yaml`, revision,

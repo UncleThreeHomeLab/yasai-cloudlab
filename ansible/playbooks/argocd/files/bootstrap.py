@@ -1,5 +1,6 @@
 """Bounded Argo seed, then a one-way handoff to the public GitOps root."""
 import fcntl
+import copy
 import json
 import os
 from pathlib import Path
@@ -149,8 +150,29 @@ def _resume_identity_binding():
         raise
     if source_state == 'original':
         if state.get('target'):
+            try:
+                from .private_activation import preflight
+            except ImportError:
+                from private_activation import preflight
+            preflight(state.get('privateActivation'), state['target'], get, root)
+            expected_root = copy.deepcopy(root['spec'])
+            expected_project = copy.deepcopy(project['spec'])
+            expected_controller = copy.deepcopy(controller['spec'])
+            expected_controller['replicas'] = 0
+            if controller['spec']['replicas'] == 1:
+                pause()
+            current = get('application.argoproj.io', 'cloudlab-public-root')
+            latest = get('appproject.argoproj.io', 'cloudlab-root')
+            stopped = get('statefulset', 'argocd-application-controller')
+            if (not current or current.get('metadata', {}).get('uid') != state['root_uid']
+                    or current['metadata'].get('deletionTimestamp') or current.get('spec') != expected_root
+                    or not latest or latest.get('metadata', {}).get('uid') != state['project_uid']
+                    or latest['metadata'].get('deletionTimestamp') or latest.get('spec') != expected_project
+                    or not stopped or stopped.get('metadata', {}).get('uid') != state['controller_uid']
+                    or stopped['metadata'].get('deletionTimestamp') or stopped.get('spec') != expected_controller):
+                raise RuntimeError('Original identity handoff changed while stopping its controller')
             safe_identity_resume(state, get, data_held=True)
-        if controller['spec']['replicas'] == 0:
+        if state.get('target') or controller['spec']['replicas'] == 0:
             kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
             return True
         return False

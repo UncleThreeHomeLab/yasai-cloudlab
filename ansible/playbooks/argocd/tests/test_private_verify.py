@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'verification/integ
 from private_verify import healthy, configuration_healthy, credential_owner, controller_items, run
 from private_activation import APP, OWNER, TRACKING
 from controller_stability import fingerprint
+from fixtures import source_approval
 
 
 class PrivateControllerStabilityTests(unittest.TestCase):
@@ -163,17 +164,33 @@ class PrivateConvergenceTests(unittest.TestCase):
         payload = {'configuration_repository': 'https://github.com/example/private.git',
             'configuration_revision': 'b' * 40, 'catalog_enabled': True, 'sources': [], 'objects': [],
             'public_repository': 'https://github.com/example/platform.git', 'platform_revision': 'a' * 40}
+        public = {'repository': payload['public_repository'], 'privateSources': {'enabled': True, 'revision': 'a' * 40},
+            'admission': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}}
+        approval = source_approval(public, payload['configuration_repository'])
+        from private_sources import acceptance_spec
+        spec = acceptance_spec(public, payload['configuration_repository'], payload['configuration_revision'])
+        payload.update(approval, applicationSet=spec)
+        parent = {'metadata': {'uid': 'parent', 'labels': {'cloudlab.io/owner': OWNER},
+            'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + APP}}, 'spec': spec}
+        root = {'metadata': {'uid': 'root'}, 'spec': {'project': 'cloudlab-root', 'source': {
+            'repoURL': public['repository'], 'targetRevision': 'main', 'path': 'gitops/roots/public',
+            'helm': {'valuesObject': {'identity': {'argo': {'valuesRepository': payload['configuration_repository'],
+                'valuesRevision': payload['configuration_revision']}}}}}}}
+        chart = Path(__file__).resolve().parents[4] / 'gitops/roots/public'
+        files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
         app = {'metadata': {'name': APP, 'labels': {'cloudlab.io/owner': OWNER},
             'annotations': {'argocd.argoproj.io/tracking-id': TRACKING}},
             'spec': {'project': APP, 'sources': [
                 {'repoURL': payload['public_repository'], 'targetRevision': 'a' * 40,
                  'path': 'platform/delivery/private-sources', 'helm': {'valueFiles': ['$values/platform/sources.yaml']}},
-                {'repoURL': payload['configuration_repository'], 'targetRevision': 'main', 'ref': 'values'}],
+                {'repoURL': payload['configuration_repository'], 'targetRevision': approval['acceptedRevision'], 'ref': 'values'}],
                 'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
                 'syncPolicy': {'automated': {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': True},
                     'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PruneLast=true']}},
-            'status': {'sync': {'status': 'Synced', 'revisions': ['a' * 40, 'b' * 40]},
+            'status': {'sync': {'status': 'Synced', 'revisions': ['a' * 40, approval['acceptedRevision']]},
                        'health': {'status': 'Healthy'}}}
+        app['metadata']['ownerReferences'] = [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+            'name': APP, 'uid': 'parent', 'controller': True, 'blockOwnerDeletion': True}]
         project = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'AppProject',
             'metadata': {'name': 'cloudlab-private-example', 'labels': {'cloudlab.io/owner': 'private-gitops'}},
             'spec': {'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-private-example'}]}}
@@ -189,10 +206,15 @@ class PrivateConvergenceTests(unittest.TestCase):
                 APP + ':argoproj.io/AppProject:argocd/cloudlab-private-example'}
             if bad == 'catalog': changed['metadata']['annotations'] = {}
             if bad == 'project': actual_project['spec']['destinations'][0]['namespace'] = 'argocd'
-            with patch('private_verify.get', return_value=changed), patch('private_verify.kube', side_effect=request), \
+            def read(kind, name):
+                if name == 'cloudlab-public-root': return root
+                return parent if kind == 'applicationset.argoproj.io' else changed
+            with patch('private_verify.get', side_effect=read), patch('private_verify.kube', side_effect=request), \
+                    patch('playbooks.data.files.native.published_source', return_value=(public, 'e' * 40)), \
+                    patch('playbooks.data.files.native.source_snapshot.chart_files', return_value=files), \
                     patch('private_verify.credential_owner'), patch('private_verify.foundation_sample', return_value=()), \
                     patch('private_verify.wait', side_effect=lambda check, description: self.assertTrue(check())), \
-                    patch('private_verify.fingerprint', return_value=()), patch('private_verify.time.monotonic', side_effect=[0, 61, 62]):
+                    patch('private_verify.fingerprint', return_value=()), patch('private_verify.time.monotonic', side_effect=[0, 0, 61, 62]):
                 if bad != 'none':
                     with self.assertRaisesRegex(RuntimeError, 'ownership or source|native declaration'): run(payload)
                 else:

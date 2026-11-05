@@ -14,13 +14,18 @@ from playbooks.keycloak.files.integrations import argo
 
 
 class ArgoInputTests(unittest.TestCase):
-    def run_inputs(self, recovery=None, security=None, private=False, access="absent", catalog_path=None, raw_catalog=None):
+    def run_inputs(self, recovery=None, security=None, private=False, access="absent", catalog_path=None, raw_catalog=None, receipt_state=None):
         public = {'repository': 'https://github.com/example/platform.git',
                   'services': {'enabled': True, 'revision': 'c' * 40},
                   'access': {'enabled': True, 'configuration': {'enabled': False, 'revision': 'e' * 40}}}
         if private:
             public.update(privateSources={'enabled': True, 'revision': 'd' * 40},
                           admission={'enabled': True}, externalSecrets={'enabled': True, 'reconcile': True})
+            receipt = {'version': 'cloudlab-private-source-acceptance/v1', 'consumer': 'private-sources',
+                'revision': 'c' * 40, 'nonce': '1' * 64}
+            public['privateSources']['acceptanceCommitment'] = hashlib.sha256(('\n'.join([
+                receipt['version'], receipt['consumer'], 'https://github.com/example/private.git',
+                'platform/sources.yaml', receipt['revision'], receipt['nonce'], ''])).encode()).hexdigest()
         if catalog_path:
             public['services']['catalogPath'] = catalog_path
         values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
@@ -45,7 +50,12 @@ class ArgoInputTests(unittest.TestCase):
                 document = {'administrator': 'admin@example.invalid'} if access == 'present' else {'administrator': False}
             elif '/contents/' + (catalog_path or 'services/catalog.json') + '?ref=' in path:
                 document = catalog if raw_catalog is None else raw_catalog
+            elif '/contents/platform/acceptance/private-sources.yaml?ref=' in path:
+                self.assertTrue(path.endswith('a' * 40)); document = copy.deepcopy(receipt)
+                if receipt_state == 'missing': return None
+                if receipt_state == 'invalid': document['nonce'] = '2' * 64
             elif '/contents/platform/sources.yaml?ref=' in path:
+                self.assertTrue(path.endswith('c' * 40))
                 document = {'sources': []}
             elif '/contents/identity/argo-values.yaml?ref=' in path:
                 document = contract['helm']
@@ -129,16 +139,17 @@ class ArgoInputTests(unittest.TestCase):
                 with self.assertRaises(ValueError): inputs.native_argo({'KEYCLOAK_ARGO_RECOVERY_REVISION': revision})
                 read.assert_not_called()
 
-    def test_private_registry_uses_same_immutable_revision_in_normal_and_recovery_inputs(self):
+    def test_private_registry_uses_approved_artifact_separate_from_identity_and_receipt_head(self):
         for recovery in (None, 'b' * 40):
             with self.subTest(recovery=recovery):
                 result, client = self.run_inputs(recovery, private=True)
                 revision = recovery or 'a' * 40
                 self.assertEqual(result['privateActivation']['private_revision'], revision)
+                self.assertEqual(result['privateActivation']['acceptedRevision'], 'c' * 40)
                 self.assertEqual(result['privateActivation']['registry'], {'sources': []})
                 paths = [call.args[1] for call in client.request.call_args_list]
                 self.assertEqual([path for path in paths if '/contents/platform/sources.yaml' in path],
-                                 ['repos/example/private/contents/platform/sources.yaml?ref=' + revision])
+                                 ['repos/example/private/contents/platform/sources.yaml?ref=' + 'c' * 40])
 
     def test_access_candidate_is_read_even_disabled_at_exact_proposed_sha(self):
         for recovery in (None, 'b' * 40):
@@ -150,6 +161,13 @@ class ArgoInputTests(unittest.TestCase):
                 self.assertTrue(calls[0].args[1].endswith(expected))
                 self.assertEqual(result['accessActivation']['private_revision'], expected)
                 self.assertEqual(result['accessActivation']['administratorHash'] is None, access == 'absent')
+
+    def test_rejected_private_receipt_revokes_reader_without_identity_revision_fallback(self):
+        for state in ('missing', 'invalid'):
+            with self.subTest(receipt=state), self.assertRaisesRegex(ValueError, '^Private source acceptance refused$'):
+                self.run_inputs('b' * 40, private=True, receipt_state=state)
+            self.last_client.opener.open.assert_called_once()
+            self.assertFalse(any('/contents/platform/sources.yaml' in call.args[1] for call in self.last_client.request.call_args_list))
 
     def test_invalid_or_unavailable_access_candidate_still_revokes_the_token(self):
         for access in ('invalid', 'error'):

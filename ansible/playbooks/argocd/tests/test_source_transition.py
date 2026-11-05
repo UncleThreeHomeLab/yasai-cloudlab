@@ -92,6 +92,7 @@ class SourceTransitionTests(unittest.TestCase):
                 writes.append(args)
                 if args[0] == 'patch': raise RuntimeError('synthetic patch failure')
             with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda kind, name: objects.get((kind, name))), \
+                    patch('playbooks.data.files.native.published_source', return_value=({'privateSources': {'enabled': False}}, 'a' * 40)), \
                     patch.object(migration, 'resume_identity_binding', return_value=False), \
                     patch.object(migration, 'capture_public_revision', return_value='a' * 40), \
                     patch.object(migration, 'pause'), patch.object(migration, 'kube', side_effect=write):
