@@ -39,6 +39,8 @@ RESOURCES = {
     'Retained': ('configmap', 'retained-data', NAME, '/api/v1/namespaces/' + NAME + '/configmaps/'),
     'DefaultAccount': ('serviceaccount', 'default', NAME, '/api/v1/namespaces/' + NAME + '/serviceaccounts/'),
     'RootCA': ('configmap', 'kube-root-ca.crt', NAME, '/api/v1/namespaces/' + NAME + '/configmaps/'),
+    'IstioRoot': ('configmap', 'istio-ca-root-cert', NAME, '/api/v1/namespaces/' + NAME + '/configmaps/'),
+    'IstioCRL': ('configmap', 'istio-ca-crl', NAME, '/api/v1/namespaces/' + NAME + '/configmaps/'),
 }
 
 
@@ -304,6 +306,29 @@ def poll(check, *, timeout=240):
 def defaults(state):
     account, ca = read('DefaultAccount'), read('RootCA')
     if not account or not ca: return False
+    trust_uids = {}
+    for key, field in (('IstioRoot', 'root-cert.pem'), ('IstioCRL', 'ca-crl.pem')):
+        target = read(key)
+        reference = get('configmap', RESOURCES[key][1], 'argocd')
+        if not target or not reference: return False
+        for obj, namespace in ((target, NAME), (reference, 'argocd')):
+            meta = obj.get('metadata', {})
+            data = obj.get('data', {})
+            if (obj.get('apiVersion') != 'v1' or obj.get('kind') != 'ConfigMap'
+                    or set(obj) - {'apiVersion', 'kind', 'metadata', 'data'}
+                    or meta.get('name') != RESOURCES[key][1] or meta.get('namespace') != namespace
+                    or not isinstance(meta.get('uid'), str) or not meta['uid']
+                    or not isinstance(meta.get('resourceVersion'), str) or not meta['resourceVersion']
+                    or meta.get('labels') != {'istio.io/config': 'true'} or meta.get('annotations', {}) != {}
+                    or meta.get('ownerReferences', []) != [] or meta.get('finalizers', []) != [] or meta.get('deletionTimestamp')
+                    or not isinstance(data, dict) or set(data) != {field} or not isinstance(data[field], str)
+                    or (key == 'IstioRoot' and not data[field])):
+                raise ProofError('Native Istio trust copy or trusted reference profile changed')
+        uid = target['metadata']['uid']
+        if (target['data'] != reference['data'] or target['metadata']['labels'] != reference['metadata']['labels']
+                or (key in state['identities'] and state['identities'][key] != uid)):
+            raise ProofError('Native Istio trust copy differs or its captured identity changed')
+        trust_uids[key] = uid
     expected_ca = get('configmap', 'kube-root-ca.crt', 'argocd') or {}
     for key, obj, kind in (('DefaultAccount', account, 'ServiceAccount'), ('RootCA', ca, 'ConfigMap')):
         meta = obj.get('metadata', {})
@@ -322,6 +347,7 @@ def defaults(state):
                 or obj['data'] != expected_ca.get('data')):
             raise ProofError('Namespace root CA differs from its native public trust profile')
         state['identities'].setdefault(key, meta['uid'])
+    state['identities'].update(trust_uids)
     return True
 
 
@@ -333,7 +359,8 @@ def namespace_inventory(state):
             or any(not re.fullmatch(r'[a-z][a-z0-9.-]*', row) for row in resources)):
         raise ProofError('Namespaced API discovery is incomplete or exceeds its proof bound')
     allowed = {(kind, RESOURCES[key][1]): state['identities'].get(key) for key, kind in (
-        ('Marker', 'ConfigMap'), ('Retained', 'ConfigMap'), ('RootCA', 'ConfigMap'), ('DefaultAccount', 'ServiceAccount'))}
+        ('Marker', 'ConfigMap'), ('Retained', 'ConfigMap'), ('RootCA', 'ConfigMap'), ('DefaultAccount', 'ServiceAccount'),
+        ('IstioRoot', 'ConfigMap'), ('IstioCRL', 'ConfigMap'))}
     for resource in resources:
         if time.monotonic() >= deadline: raise ProofError('Namespace inspection exceeded its cleanup bound')
         result = json.loads(kube('get', resource, '-n', NAME, '-o', 'json', timeout=35))
@@ -576,7 +603,9 @@ def cleanup(config, state):
         if not obj: continue
         target(key, obj)
         uid = state['identities'][key]
-        if key == 'Namespace': namespace_inventory(state)
+        if key == 'Namespace':
+            if not defaults(state): raise ProofError('Namespace defaults became unavailable; cleanup retained')
+            namespace_inventory(state)
         _, name, _, path = RESOURCES[key]
         authority_guard(state)
         kube('delete', '--raw=' + path + name, '-f', '-', document={'apiVersion': 'v1', 'kind': 'DeleteOptions',

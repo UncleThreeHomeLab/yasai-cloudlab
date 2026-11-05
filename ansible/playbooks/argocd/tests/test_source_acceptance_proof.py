@@ -35,6 +35,9 @@ class SourceAcceptanceProofTests(unittest.TestCase):
             ('application.argoproj.io', 'cloudlab-public-root', 'argocd'): {'metadata': {'uid': 'root-authority'}},
             ('deployment', 'argocd-applicationset-controller', 'argocd'): {'metadata': {'uid': 'controller-authority'}}}
         self.writes = []; self.version = 0; self.repair = False
+        for name, data in (('istio-ca-root-cert', {'root-cert.pem': 'synthetic-root'}), ('istio-ca-crl', {'ca-crl.pem': ''})):
+            self.stored({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': name, 'namespace': 'argocd',
+                'labels': {'istio.io/config': 'true'}}, 'data': data})
         self.fail_list = False
         self.context_patch = patch.object(proof, 'context', side_effect=lambda config, state=None: (
             proof.config_guard(config, state) or self.public, self.root_files, self.fixture_files,
@@ -71,6 +74,10 @@ class SourceAcceptanceProofTests(unittest.TestCase):
                 self.objects['namespace', proof.NAME, None]['spec'] = {'finalizers': ['kubernetes']}
                 self.stored({'apiVersion': 'v1', 'kind': 'ServiceAccount', 'metadata': {'name': 'default', 'namespace': proof.NAME}})
                 self.stored({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'kube-root-ca.crt', 'namespace': proof.NAME}, 'data': {'ca.crt': 'public-root'}})
+                for name in ('istio-ca-root-cert', 'istio-ca-crl'):
+                    reference = copy.deepcopy(self.objects['configmap', name, 'argocd'])
+                    reference['metadata'].pop('uid'); reference['metadata']['namespace'] = proof.NAME
+                    self.stored(reference)
             return json.dumps(result)
         if args[0] == 'patch':
             resource = 'configmap' if args[1] == 'configmap' else 'applicationset.argoproj.io'
@@ -162,6 +169,64 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         self.objects['application.argoproj.io', proof.NAME, 'argocd']['spec']['sources'][1]['targetRevision'] = 'e' * 40
         desired = proof.declarations(self.config, state, self.public, self.root_files)
         with self.assertRaises(proof.ProofError): proof.child(self.config, state, desired, 'A', True)
+
+    def test_native_istio_trust_defaults_capture_both_and_preserve_trusted_references(self):
+        state = self.begin()
+        for key in ('IstioRoot', 'IstioCRL'):
+            self.assertEqual(state['identities'][key], proof.read(key)['metadata']['uid'])
+        self.assertEqual(proof.read('IstioCRL')['data'], {'ca-crl.pem': ''})
+        for namespace in ('argocd', proof.NAME):
+            self.objects['configmap', 'istio-ca-crl', namespace]['data'] = {'ca-crl.pem': 'synthetic-crl'}
+        self.assertTrue(proof.defaults(state))
+        references = {name: copy.deepcopy(self.objects['configmap', name, 'argocd']) for name in ('istio-ca-root-cert', 'istio-ca-crl')}
+        self.assertTrue(proof.cleanup(self.config, state)['cleanup_complete'])
+        for name, obj in references.items(): self.assertEqual(self.objects['configmap', name, 'argocd'], obj)
+
+    def test_native_istio_trust_mismatch_or_foreign_profile_blocks_all_cleanup_writes(self):
+        state = self.begin(); baseline = copy.deepcopy(self.objects)
+        for name, field in (('istio-ca-root-cert', 'root-cert.pem'), ('istio-ca-crl', 'ca-crl.pem')):
+            for namespace in (proof.NAME, 'argocd'):
+                for case in ('missing', 'type', 'data-type', 'data-mismatch', 'extra-data', 'label', 'label-type',
+                        'extra-label', 'annotation', 'owner', 'finalizer', 'deletion', 'binary', 'kind', 'api', 'name', 'namespace', 'uid', 'version'):
+                    self.objects = copy.deepcopy(baseline); candidate = copy.deepcopy(state); self.writes.clear()
+                    obj = self.objects['configmap', name, namespace]
+                    if case == 'missing': del self.objects['configmap', name, namespace]
+                    if case == 'type': obj['data'][field] = 1
+                    if case == 'data-type': obj['data'] = []
+                    if case == 'data-mismatch': obj['data'][field] = 'changed'
+                    if case == 'extra-data': obj['data']['extra'] = 'foreign'
+                    if case == 'label': obj['metadata']['labels']['istio.io/config'] = 'false'
+                    if case == 'label-type': obj['metadata']['labels']['istio.io/config'] = True
+                    if case == 'extra-label': obj['metadata']['labels']['foreign'] = 'true'
+                    if case == 'annotation': obj['metadata']['annotations'] = {'foreign': 'true'}
+                    if case == 'owner': obj['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+                    if case == 'finalizer': obj['metadata']['finalizers'] = ['foreign']
+                    if case == 'deletion': obj['metadata']['deletionTimestamp'] = 'now'
+                    if case == 'binary': obj['binaryData'] = {'foreign': 'eA=='}
+                    if case == 'kind': obj['kind'] = 'Secret'
+                    if case == 'api': obj['apiVersion'] = 'foreign/v1'
+                    if case == 'name': obj['metadata']['name'] = 'foreign'
+                    if case == 'namespace': obj['metadata']['namespace'] = 'foreign'
+                    if case == 'uid': obj['metadata']['uid'] = False
+                    if case == 'version': obj['metadata']['resourceVersion'] = False
+                    with self.subTest(name=name, namespace=namespace, case=case):
+                        with self.assertRaises(proof.ProofError): proof.cleanup(self.config, candidate)
+                        self.assertEqual(self.writes, [])
+        self.objects = copy.deepcopy(baseline); self.writes.clear()
+        self.objects['configmap', 'istio-ca-root-cert', proof.NAME]['metadata']['uid'] = 'replacement'
+        with self.assertRaises(proof.ProofError): proof.cleanup(self.config, copy.deepcopy(state))
+        self.assertEqual(self.writes, [])
+        self.objects = copy.deepcopy(baseline)
+        candidate = copy.deepcopy(state)
+        for key in ('IstioRoot', 'IstioCRL'): candidate['identities'].pop(key)
+        self.objects['configmap', 'istio-ca-crl', proof.NAME]['data']['ca-crl.pem'] = False
+        with self.assertRaises(proof.ProofError): proof.defaults(candidate)
+        self.assertFalse({'IstioRoot', 'IstioCRL'} & set(candidate['identities']))
+        self.objects = copy.deepcopy(baseline)
+        for namespace in (proof.NAME, 'argocd'):
+            self.objects['configmap', 'istio-ca-root-cert', namespace]['data']['root-cert.pem'] = ''
+        with self.assertRaises(proof.ProofError): proof.cleanup(self.config, copy.deepcopy(state))
+        self.assertEqual(self.writes, [])
 
     def test_receipt_rejection_requires_native_gate_error_not_unrelated_auth_or_network_failure(self):
         state = self.begin()
