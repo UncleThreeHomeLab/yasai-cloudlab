@@ -40,6 +40,39 @@ def document(raw, path):
 
 
 class ConsumerAcceptanceTests(unittest.TestCase):
+    def test_acceptance_spec_selects_fixed_consumer_targets_and_preserves_render_contract(self):
+        from private_sources import acceptance_spec
+        chart = ROOT / 'gitops/roots/public'
+        files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+        permissions, _ = fixture('permissions')
+        for consumer, public in (('private-sources', yaml.safe_load(files['values.yaml'])), ('permissions', permissions)):
+            before = copy.deepcopy(public)
+            spec = acceptance_spec(public, REPOSITORY, 'a' * 40, files=files, consumer=consumer)
+            self.assertEqual(spec['template']['metadata']['name'], 'cloudlab-' + consumer)
+            self.assertEqual(public, before)
+        public, _ = fixture('observability'); before = copy.deepcopy(public)
+        selected = {'kind': 'ApplicationSet', 'metadata': {'name': 'cloudlab-observability-gitops'}, 'spec': {'selected': True}}
+        unrelated = {'kind': 'ApplicationSet', 'metadata': {'name': 'cloudlab-observability'}, 'spec': {'selected': False}}
+        with patch('playbooks.data.files.native.render_objects', return_value=[unrelated, selected]) as render:
+            self.assertEqual(acceptance_spec(public, REPOSITORY, 'a' * 40, files=files, consumer='observability'), selected['spec'])
+            self.assertIs(render.call_args.args[0], files)
+            expected = copy.deepcopy(public)
+            expected['identity'].update(enabled=True, argo={'valuesRepository': REPOSITORY, 'valuesRevision': 'a' * 40})
+            self.assertEqual(render.call_args.args[1], [expected])
+            self.assertEqual(public, before)
+            for objects in ([], [selected, selected], [unrelated]):
+                render.return_value = objects
+                with self.assertRaisesRegex(ValueError, 'declaration is missing'):
+                    acceptance_spec(public, REPOSITORY, 'a' * 40, files=files, consumer='observability')
+            render.reset_mock()
+            with self.assertRaisesRegex(ValueError, 'declaration is unsupported'):
+                acceptance_spec(public, REPOSITORY, 'a' * 40, files=files, consumer='other')
+            render.assert_not_called()
+            render.side_effect = RuntimeError('synthetic renderer schema rejection')
+            with self.assertRaisesRegex(RuntimeError, 'renderer schema rejection'):
+                acceptance_spec(public, REPOSITORY, 'a' * 40, files=files, consumer='observability')
+            self.assertEqual(public, before)
+
     def gate(self, contract, params, *, repository=REPOSITORY, policy=None):
         policy = policy if policy is not None else (ROOT / 'gitops/roots/public/consumer-source-acceptance.tmpl').read_text()
         constants = {'VERSION': contract['version'], 'CONSUMER': contract['consumer'], 'PRIVATE_REPOSITORY': repository,
