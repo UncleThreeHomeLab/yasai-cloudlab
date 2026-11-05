@@ -1,4 +1,4 @@
-"""Atomic data Application adoption and UID receipts under the shared runtime lock."""
+"""Bounded initial data seed; accepted owners are observation-only."""
 import json
 from pathlib import Path
 import sys
@@ -52,6 +52,8 @@ def configure(payload):
             state['publicSource'] = coordinates
             return atomic(receipt, state)
         handoff.fence('initial configuration')
+        if handoff.probe(read=get) != 'initial':
+            raise RuntimeError('Initial data bootstrap cannot replay an accepted owner')
         for name, path in [('Longhorn', '/var/lib/cloudlab/longhorn/ownership.json'),
                            ('ESO', '/var/lib/cloudlab/external-secrets/ownership.json'),
                            ('backup', '/var/lib/cloudlab/longhorn/backup-ownership.json')]:
@@ -118,7 +120,6 @@ def configure(payload):
                 wait(database_ready, 'service database owner convergence', timeout=600)
         from playbooks.data.files.volumes import inventory
         inventory()
-        changed = atomic(BASE / 'desired.json', payload['values']) or changed
         # The next native stage reconciles through both configured private resolvers.
         return changed
 

@@ -35,12 +35,14 @@ class DeploymentTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, '-I', '-c',
                  'import sys; sys.path.insert(0, sys.argv[1]); '
-                 'from playbooks.data.files import control, configuration, backup, verify, rotation, public_ca, native; '
+                 'from playbooks.data.files import control, initial_bootstrap, retirement, backup, verify, rotation, public_ca, native; '
                  'from playbooks.keycloak.files import maintenance, recovery, isolated_restore; '
                  'assert control.ROOT == __import__("pathlib").Path(sys.argv[1]); '
-                 'assert callable(native.operation); assert "dotenv" not in sys.modules; assert callable(configuration.configure); assert callable(backup.freshness)', str(base)],
+                 'assert callable(native.operation); assert "dotenv" not in sys.modules; assert callable(initial_bootstrap.configure); assert callable(backup.freshness)', str(base)],
                 cwd=base, env=environment, capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((base / 'playbooks/data/files/configuration.py').exists())
+            self.assertFalse((base / 'application-data/desired.json').exists())
 
     def test_new_repair_dependency_precedes_its_active_timer_consumer(self):
         modules = next(task['loop'] for task in TASKS if task['name'] == 'Install application data automation from its owner')

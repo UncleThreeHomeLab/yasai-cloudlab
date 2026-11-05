@@ -66,6 +66,10 @@ class ServiceBindingTests(unittest.TestCase):
             stack.enter_context(patch.object(module, 'kube', side_effect=self.write))
         stack.enter_context(patch.object(migration, 'pause', side_effect=self.pause))
         stack.enter_context(patch.object(migration, 'wait_application'))
+        stack.enter_context(patch.object(migration, 'capture_public_revision', return_value=self.payload['revision']))
+        stack.enter_context(patch.object(data_native, 'published_source', side_effect=lambda *a, **k: (
+            {'repository': self.payload['repository'], 'data': {'enabled': True, 'configuration': dict(
+                self.payload['argo']['dataActivation'], enabled=True)}}, self.payload['revision'])))
         stack.enter_context(patch.object(migration, 'private_server_probe', side_effect=lambda document:
             private_probe(self.payload['argo']['privateActivation'], document)))
         return stack
@@ -245,6 +249,7 @@ class ServiceBindingTests(unittest.TestCase):
                 migration.hydrate_binding(path, state, proposed, self.target)
                 after = json.loads(path.read_text())
                 expected = copy.deepcopy(before)
+                expected['publicRevision'] = self.payload['revision']
                 expected['privateActivation']['policies'] = proposed['argo']['privateActivation']['policies']
                 self.assertEqual(after, expected)
                 for change in ('registry', 'revision'):
@@ -302,7 +307,7 @@ class ServiceBindingTests(unittest.TestCase):
 
     def data_owner(self, base, *, native=False):
         import yaml
-        from playbooks.data.files.configuration import application
+        from playbooks.data.files.initial_bootstrap import application
         root = Path(__file__).resolve().parents[4]
         current = yaml.safe_load((root / 'platform/data/configuration/values.yaml').read_text())
         current['identity'] = {'enabled': True, 'database': 'keycloak', 'role': 'keycloak'}
@@ -444,6 +449,7 @@ class ServiceBindingTests(unittest.TestCase):
         captured = data_activation.guard(evidence, self.target, self.read,
             self.read('application.argoproj.io', migration.ROOT_APP))
         self.checkpoint['dataActivation'] = captured
+        self.checkpoint['publicRevision'] = self.payload['revision']
         self.assertEqual(data_handoff.state()['handoff']['phase'], 'armed')
         return self.pending(base)
 
@@ -491,7 +497,8 @@ class ServiceBindingTests(unittest.TestCase):
                 with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
                         patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
                         patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}), \
-                        patch.object(data_native, 'published_source', return_value=({}, self.payload['revision'])), \
+                        patch.object(data_native, 'published_source', side_effect=lambda *a, **k: ({'data': {'enabled': True,
+                            'configuration': dict(self.payload['argo']['dataActivation'], enabled=True)}}, self.payload['revision'])), \
                         patch.object(migration, 'record', wraps=migration.record) as record, \
                         patch.object(data_control, 'sql') as sql, patch.object(data_control, 's3') as s3:
                     self.armed_first_binding(base)
@@ -553,6 +560,93 @@ class ServiceBindingTests(unittest.TestCase):
                         self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
                     self.assertNotIn('settings_uid', data_handoff.state())
                     sql.assert_not_called(); s3.assert_not_called()
+
+    def test_capture_substantiates_public_revision_and_records_it_before_pause(self):
+        capture = migration.capture_public_revision
+        with patch.object(data_native, 'published_source', return_value=({}, self.payload['revision'])):
+            self.assertEqual(capture(self.payload), self.payload['revision'])
+            with self.assertRaisesRegex(RuntimeError, 'independently protected'):
+                capture(dict(self.payload, revision='f' * 40))
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            def pause():
+                checkpoint = json.loads((base / 'identity-values-binding.json').read_text())
+                self.assertEqual(checkpoint['publicRevision'], self.payload['revision'])
+                self.pause()
+            with self.contexts(base), patch.object(migration, 'pause', side_effect=pause):
+                self.assertTrue(migration.bind_identity(self.payload, self.target)['changed'])
+
+    def test_captured_original_running_source_survives_main_advance_only_with_exact_authority(self):
+        for original in (False, True):
+            for case in ('accepted', 'manual', 'prune', 'foreign-revision', 'foreign-source', 'missing-evidence', 'missing-quiet', 'scope-drift', 'source-failure'):
+                self.setUp()
+                with self.subTest(original_spec=original, case=case), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                            patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                            patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}), \
+                            patch.object(migration, 'record', wraps=migration.record) as record, patch.object(data_control, 'sql') as sql:
+                        state = self.armed_first_binding(base)
+                        root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                        if original: root['spec']['source'] = copy.deepcopy(state['originalSource'])
+                        operation = {'initiatedBy': {'automated': True}, 'sync': {'revision': state['publicRevision'], 'prune': False}}
+                        root['status'] = {'operationState': {'phase': 'Running', 'operation': operation,
+                            'syncResult': {'revision': state['publicRevision'], 'source': copy.deepcopy(state['originalSource'])}}}
+                        if case == 'manual': operation['initiatedBy'] = {'username': 'foreign'}
+                        if case == 'prune': operation['sync']['prune'] = True
+                        if case == 'foreign-revision': operation['sync']['revision'] = 'f' * 40
+                        if case == 'foreign-source': root['status']['operationState']['syncResult']['source']['path'] = 'foreign'
+                        if case in ('missing-evidence', 'missing-quiet'):
+                            state.pop('publicRevision'); (base / 'identity-values-binding.json').write_text(json.dumps(state))
+                        if case == 'missing-quiet': root['status'] = {}
+                        public = {'repository': self.payload['repository'], 'data': {'enabled': True,
+                            'configuration': dict(data_handoff.state()['handoff']['pins'], enabled=True)}}
+                        if case == 'scope-drift':
+                            root['status'] = {}  # Quiet Root still requires current protected scope.
+                            public['data']['configuration']['revision'] = 'f' * 40
+                        self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
+                        self.calls.clear(); record.reset_mock()
+                        with patch.object(data_native, 'published_source', side_effect=RuntimeError('source unavailable')
+                                if case == 'source-failure' else None, return_value=(public, 'e' * 40)):
+                            if case == 'accepted':
+                                self.assertTrue(bootstrap.resume_identity_binding())
+                                self.assertEqual(self.calls[-1][-1], '--replicas=1')
+                            else:
+                                with self.assertRaises(RuntimeError): bootstrap.resume_identity_binding()
+                                self.assertEqual(self.calls, []); record.assert_not_called()
+                        sql.assert_not_called(); self.assertNotIn('settings_uid', data_handoff.state())
+
+    def test_missing_public_checkpoint_hydrates_only_authenticated_matching_current_authority(self):
+        capture = migration.capture_public_revision
+        for case in ('matching', 'unprovable-history', 'invalid-record'):
+            self.setUp()
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                        patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                        patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}):
+                    state = self.armed_first_binding(base)
+                    state.pop('publicRevision')
+                    current = self.payload['revision'] if case == 'matching' else 'e' * 40
+                    payload = dict(self.payload, revision=current)
+                    if case == 'invalid-record': state['publicRevision'] = 'mutable-main'
+                    root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                    root['status'] = {'operationState': {'phase': 'Running',
+                        'operation': {'initiatedBy': {'automated': True}, 'sync': {'revision': self.payload['revision'], 'prune': False}},
+                        'syncResult': {'revision': self.payload['revision'], 'source': copy.deepcopy(state['originalSource'])}}}
+                    path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state))
+                    before = path.read_bytes()
+                    public = {'repository': self.payload['repository'], 'data': {'enabled': True,
+                        'configuration': dict(data_handoff.state()['handoff']['pins'], enabled=True)}}
+                    with patch.object(migration, 'capture_public_revision', side_effect=capture), \
+                            patch.object(data_native, 'published_source', return_value=(public, current)):
+                        if case == 'matching':
+                            migration.hydrate_binding(path, state, payload, self.target)
+                            self.assertEqual(json.loads(path.read_text())['publicRevision'], current)
+                        else:
+                            with self.assertRaises(RuntimeError): migration.hydrate_binding(path, state, payload, self.target)
+                            self.assertEqual(path.read_bytes(), before)
 
     def test_armed_target_fences_noop_hydrate_and_original_source_resume(self):
         with tempfile.TemporaryDirectory() as directory:

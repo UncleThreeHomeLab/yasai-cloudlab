@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from playbooks.data.files import configuration, control, native
+from playbooks.data.files import initial_bootstrap, control, native
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -61,31 +61,32 @@ class ConfigurationTests(unittest.TestCase):
             accepted = base / 'accepted.json'
             accepted.write_text('{"phase":"accepted"}')
             stack.enter_context(patch.object(control, 'BASE', base))
-            stack.enter_context(patch.object(configuration, 'BASE', base))
-            stack.enter_context(patch.object(configuration, 'Path', return_value=accepted))
-            stack.enter_context(patch.object(configuration, 'get', side_effect=get))
-            stack.enter_context(patch.object(configuration, 'kube', side_effect=kube))
-            stack.enter_context(patch.object(configuration, 'condition', return_value=True))
-            stack.enter_context(patch.object(configuration, 'application_ready', return_value=True))
-            stack.enter_context(patch.object(configuration, 'wait', side_effect=lambda predicate, *a, **k: predicate()))
-            stack.enter_context(patch.object(configuration, 'primary'))
+            stack.enter_context(patch.object(initial_bootstrap, 'BASE', base))
+            stack.enter_context(patch.object(initial_bootstrap, 'Path', return_value=accepted))
+            stack.enter_context(patch.object(initial_bootstrap, 'get', side_effect=get))
+            stack.enter_context(patch.object(initial_bootstrap, 'kube', side_effect=kube))
+            stack.enter_context(patch.object(initial_bootstrap, 'condition', return_value=True))
+            stack.enter_context(patch.object(initial_bootstrap, 'application_ready', return_value=True))
+            stack.enter_context(patch.object(initial_bootstrap, 'wait', side_effect=lambda predicate, *a, **k: predicate()))
+            stack.enter_context(patch.object(initial_bootstrap, 'primary'))
             stack.enter_context(patch('playbooks.data.files.volumes.inventory'))
             with self.assertRaisesRegex(RuntimeError, 'interrupted second apply'):
-                configuration.configure(payload)
+                initial_bootstrap.configure(payload)
             before = json.loads((base / 'ownership.json').read_text())
             self.assertEqual(before['applications'], {'cloudlab-data-configuration': 'uid-cloudlab-data-configuration'})
             self.assertFalse((base / 'desired.json').exists())
-            self.assertTrue(configuration.configure(payload))
+            self.assertTrue(initial_bootstrap.configure(payload))
             self.assertEqual(applied, ['cloudlab-data-configuration', 'cloudlab-seaweedfs'])
-            self.assertFalse(configuration.configure(payload))
+            self.assertFalse(initial_bootstrap.configure(payload))
+            self.assertFalse((base / 'desired.json').exists())
             after = json.loads((base / 'ownership.json').read_text())
             self.assertEqual(after['applications']['cloudlab-data-configuration'], before['applications']['cloudlab-data-configuration'])
 
     def test_active_runtime_operation_blocks_bootstrap_before_cluster_access(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(control, 'BASE', Path(directory)):
-            with control.locked(), patch.object(configuration, 'get') as get:
+            with control.locked(), patch.object(initial_bootstrap, 'get') as get:
                 with self.assertRaisesRegex(RuntimeError, 'owner lock'):
-                    configuration.configure({})
+                    initial_bootstrap.configure({})
                 get.assert_not_called()
 
     def test_bootstrap_holds_shared_lock_through_failures(self):
@@ -97,10 +98,10 @@ class ConfigurationTests(unittest.TestCase):
                 yield
             finally:
                 events.append('released')
-        with patch.object(configuration, 'locked', locked), patch.object(configuration, 'get', return_value=None), patch.object(configuration, 'Path') as path:
+        with patch.object(initial_bootstrap, 'locked', locked), patch.object(initial_bootstrap, 'get', return_value=None), patch.object(initial_bootstrap, 'Path') as path:
             path.return_value.read_text.side_effect = RuntimeError('interrupted')
             with self.assertRaisesRegex(RuntimeError, 'interrupted'):
-                configuration.configure({})
+                initial_bootstrap.configure({})
         self.assertEqual(events, ['locked', 'released'])
 
     def test_registered_native_receipt_cannot_reenter_legacy_writer(self):
@@ -113,11 +114,11 @@ class ConfigurationTests(unittest.TestCase):
                 if kind == 'certificate.cert-manager.io':
                     return {'spec': {'dnsNames': ['*.internal.example.test', 'login.example.test']}}
                 return {'metadata': {'labels': {'cloudlab.io/owner': control.OWNER}}, 'spec': {'source': {'helm': {'valuesObject': {}}}}}
-            with patch.object(control, 'BASE', base), patch.object(configuration, 'BASE', base), \
-                    patch.object(configuration, 'Path', return_value=accepted), patch.object(configuration, 'get', side_effect=read), \
-                    patch.object(configuration, 'condition', return_value=True), patch.object(configuration, 'wait'), \
-                    patch.object(configuration, 'kube') as write:
-                with self.assertRaisesRegex(RuntimeError, 'cannot downgrade'): configuration.configure(payload)
+            with patch.object(control, 'BASE', base), patch.object(initial_bootstrap, 'BASE', base), \
+                    patch.object(initial_bootstrap, 'Path', return_value=accepted), patch.object(initial_bootstrap, 'get', side_effect=read), \
+                    patch.object(initial_bootstrap, 'condition', return_value=True), patch.object(initial_bootstrap, 'wait'), \
+                    patch.object(initial_bootstrap, 'kube') as write:
+                with self.assertRaisesRegex(RuntimeError, 'cannot downgrade'): initial_bootstrap.configure(payload)
                 write.assert_not_called()
 
     def test_recognized_native_configuration_is_read_only(self):
@@ -130,12 +131,12 @@ class ConfigurationTests(unittest.TestCase):
                 if kind == 'certificate.cert-manager.io':
                     return {'spec': {'dnsNames': ['*.internal.example.test', 'login.example.test']}}
                 return {'metadata': {'labels': {'cloudlab.io/owner': 'data-platform'}}, 'spec': {'sources': [{}]}}
-            with patch.object(control, 'BASE', base), patch.object(configuration, 'BASE', base), \
-                    patch.object(configuration, 'Path', return_value=accepted), patch.object(configuration, 'get', side_effect=read), \
-                    patch.object(configuration, 'condition', return_value=True), patch.object(configuration, 'wait'), \
+            with patch.object(control, 'BASE', base), patch.object(initial_bootstrap, 'BASE', base), \
+                    patch.object(initial_bootstrap, 'Path', return_value=accepted), patch.object(initial_bootstrap, 'get', side_effect=read), \
+                    patch.object(initial_bootstrap, 'condition', return_value=True), patch.object(initial_bootstrap, 'wait'), \
                     patch('playbooks.data.files.native.operation') as observe, \
-                    patch.object(configuration, 'atomic') as receipt, patch.object(configuration, 'kube') as write:
-                self.assertFalse(configuration.configure(payload))
-                observe.assert_called_once_with(read=configuration.get)
+                    patch.object(initial_bootstrap, 'atomic') as receipt, patch.object(initial_bootstrap, 'kube') as write:
+                self.assertFalse(initial_bootstrap.configure(payload))
+                observe.assert_called_once_with(read=initial_bootstrap.get)
                 write.assert_not_called(); receipt.assert_not_called()
                 self.assertFalse((base / 'desired.json').exists())

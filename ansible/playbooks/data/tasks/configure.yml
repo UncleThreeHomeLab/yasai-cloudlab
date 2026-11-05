@@ -1,7 +1,7 @@
 ---
-- name: Reconcile the bounded data Applications
+- name: Observe accepted data ownership or complete bounded initial bootstrap
   ansible.builtin.command:
-    argv: [python3, /opt/cloudlab/playbooks/data/files/configuration.py]
+    argv: [python3, /opt/cloudlab/playbooks/data/files/initial_bootstrap.py]
     stdin: '{{ data_payload.stdout }}'
   no_log: true
   register: data_configured

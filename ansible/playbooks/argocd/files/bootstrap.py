@@ -148,6 +148,8 @@ def _resume_identity_binding():
             pause()
         raise
     if source_state == 'original':
+        if state.get('target'):
+            safe_identity_resume(state, get, data_held=True)
         if controller['spec']['replicas'] == 0:
             kube('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')
             return True

@@ -5,6 +5,12 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
+    - name: Retire the native-attested legacy data writer and raw cache
+      ansible.builtin.command: python3 /opt/cloudlab/playbooks/data/files/retirement.py
+      register: data_retired
+      changed_when: (data_retired.stdout | from_json).changed
+      no_log: true
+      when: data_enabled | bool
     - name: Remove only replaced data runtime modules
       ansible.builtin.file:
         path: '/opt/cloudlab/automation/data/{{ item }}'

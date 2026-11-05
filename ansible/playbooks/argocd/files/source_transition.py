@@ -134,6 +134,15 @@ def binding_source(state, root):
     raise RuntimeError('Identity handoff source is ambiguous; controller remains paused')
 
 
+def capture_public_revision(payload):
+    from playbooks.data.files.native import published_source
+    _, revision = published_source({'publicSource': {'repository': payload['repository'], 'branch': payload['branch']}},
+        deadline=time.monotonic() + 120)
+    if revision != payload['revision']:
+        raise RuntimeError('Pending binding public revision differs from independently protected main')
+    return revision
+
+
 def check_activation(state, root, read, *, data_held=False):
     data_binding_fence(state['target'])
     evidence = state.get('serviceActivation')
@@ -146,7 +155,7 @@ def check_activation(state, root, read, *, data_held=False):
     state['privateActivation'] = private_guard(evidence, state['target'], read, root, probe=private_server_probe)
     state['accessActivation'] = access_guard(state.get('accessActivation'), state['target'], read, root)
     state['dataActivation'] = data_guard(state.get('dataActivation'), state['target'], read, root,
-        patched=binding_source(state, root) == 'patched', held=data_held)
+        patched=binding_source(state, root) == 'patched', held=data_held, binding=state)
 
 
 def safe_identity_resume(state, read, *, data_held=False):
@@ -169,7 +178,8 @@ def safe_identity_resume(state, read, *, data_held=False):
     identity_project_rules(project)
     if project['spec'].get('sourceRepos') != [root.get('spec', {}).get('source', {}).get('repoURL')]:
         raise RuntimeError('Identity handoff project source changed; controller remains paused')
-    if binding_source(state, root) == 'patched':
+    from playbooks.data.files.handoff import active
+    if binding_source(state, root) == 'patched' or active():
         check_activation(state, root, read, data_held=data_held)
     return True
 
@@ -203,9 +213,17 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
             raise RuntimeError('Data activation retry cannot change its immutable projection')
         if recorded_authority is not None:
             supplied_data['authority'] = recorded_authority
+    if 'publicRevision' in checkpoint and (not isinstance(checkpoint['publicRevision'], str)
+            or not re.fullmatch('[a-f0-9]{40}', checkpoint['publicRevision'])):
+        raise RuntimeError('Pending binding captured public revision is invalid')
+    public_revision = checkpoint.get('publicRevision') or capture_public_revision(payload)
     current_data = data_guard(supplied_data, target, get, current_root,
-        patched=binding_source(checkpoint, current_root) == 'patched', held=data_held)
+        patched=binding_source(checkpoint, current_root) == 'patched', held=data_held,
+        binding=dict(checkpoint, publicRevision=public_revision))
     changed = False
+    if 'publicRevision' not in checkpoint:
+        checkpoint['publicRevision'] = public_revision
+        changed = True
     if 'dataActivation' not in checkpoint:
         checkpoint['dataActivation'] = current_data
         changed = True
@@ -295,6 +313,7 @@ def bind_identity_locked(payload, target):
     if checkpoint and any(checkpoint[key] != value for key, value in identities.items()):
         raise RuntimeError('Native identity binding resource identity changed')
     access_evidence = access_guard(access_evidence, target, get, root)
+    public_revision = capture_public_revision(payload)
     data_evidence = data_guard(payload.get('argo', {}).get('dataActivation'), target, get, root, held=True)
     if values.get('identity', {}).get('argo') == target and checkpoint and checkpoint['phase'] in ('source-updated', 'resumed', 'accepted'):
         wait_application(ROOT_APP, payload['revision'])
@@ -308,7 +327,7 @@ def bind_identity_locked(payload, target):
     values.setdefault('identity', {}).update(enabled=True, argo=target)
     patched = copy.deepcopy(original)
     patched.setdefault('helm', {})['valuesObject'] = values
-    checkpoint = dict(identities, target=target, phase='prepared', originalSource=original,
+    checkpoint = dict(identities, target=target, phase='prepared', publicRevision=public_revision, originalSource=original,
                       patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence, accessActivation=access_evidence, dataActivation=data_evidence)
     record(path, checkpoint)
     try:

@@ -85,7 +85,8 @@
   loop:
     - handoff.py
     - native.py
-    - configuration.py
+    - initial_bootstrap.py
+    - retirement.py
     - public_ca.py
     - control.py
     - requests.py
