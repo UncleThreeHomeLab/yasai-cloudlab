@@ -241,8 +241,9 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
         raise RuntimeError('Access activation retry cannot replace its captured authority')
     current = validate_private(payload.get('argo', {}).get('privateActivation'), target)
     previous = checkpoint['privateActivation']
-    if any(current[key] != previous[key] for key in
-           ('required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry')):
+    if any(current.get(key) != previous.get(key) for key in
+           ('required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry',
+            'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')):
         raise RuntimeError('Private activation retry cannot change its recorded registry or sources')
     if current['policies'] != previous['policies']:
         previous['policies'] = current['policies']

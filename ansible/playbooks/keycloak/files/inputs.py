@@ -32,7 +32,7 @@ def native_argo(values):
     from playbooks.argocd.files.private_activation import prepare as prepare_private
     from playbooks.argocd.files.access_activation import prepare as prepare_access
     from playbooks.argocd.files.data_activation import prepare as prepare_data
-    from playbooks.argocd.files.private_sources import registry
+    from playbooks.argocd.files.private_sources import registry, accepted_source
     from playbooks.services.files.inputs import validate_catalog
     from playbooks.access.files.contract import host_rules
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = values.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
@@ -68,11 +68,13 @@ def native_argo(values):
             selected_path = catalog_path(public['services'].get('catalogPath', catalog_path()))
             from playbooks.data.files.native import private_file
             catalog = validate_catalog(private_file(client, values['PRIVATE_CONFIG_REPOSITORY'], revision, selected_path), public=public)
+        acceptance = accepted_source(client, values['PRIVATE_CONFIG_REPOSITORY'], current_revision, public)
+        private_registry = registry(client, values, public, acceptance['acceptedRevision'] if acceptance else revision, acceptance=acceptance)
         result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
                 'configuration': contract['helm'], 'client': contract['client'],
                 'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),
                 'privateActivation': prepare_private(public, values['PRIVATE_CONFIG_REPOSITORY'], revision,
-                                                     registry(client, values, public, revision)),
+                                                     private_registry, acceptance=acceptance),
                 'accessActivation': prepare_access(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, client),
                 'dataActivation': prepare_data(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, client, catalog),
                 'recovery': recovery_revision is not None}

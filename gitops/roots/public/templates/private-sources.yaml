@@ -1,6 +1,13 @@
 {{- if not (kindIs "bool" .Values.privateSources.enabled) }}
 {{- fail "privateSources.enabled must be a YAML boolean" }}
 {{- end }}
+{{- $acceptance := .Values.privateSources.acceptanceCommitment }}
+{{- if and (hasKey .Values.privateSources "acceptanceCommitment") (not (kindIs "string" $acceptance)) }}
+{{- fail "Private source acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
+{{- if and $acceptance (not (regexMatch "^[a-f0-9]{64}$" $acceptance)) }}
+{{- fail "Private source acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
 {{- if and .Values.privateSources.enabled (hasKey .Values.identity "argo") }}
 {{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" (.Values.privateSources.revision | default ""))) }}
 {{- fail "Private source catalog requires admission, External Secrets and its reviewed immutable platform revision" }}
@@ -48,22 +55,43 @@ spec:
   dataFrom: [{extract: {key: github-argocd}}]
 ---
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: {{ if $acceptance }}ApplicationSet{{ else }}Application{{ end }}
 metadata:
   name: cloudlab-private-sources
   namespace: argocd
   labels: {cloudlab.io/owner: private-source-platform}
+  {{- if $acceptance }}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+  {{- end }}
 spec:
-  project: cloudlab-private-sources
-  sources:
-    - repoURL: {{ .Values.repository | quote }}
-      targetRevision: {{ .Values.privateSources.revision | quote }}
-      path: platform/delivery/private-sources
-      helm:
-        valueFiles: ['$values/platform/sources.yaml']
-    - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: main, ref: values}
-  destination: {server: 'https://kubernetes.default.svc', namespace: argocd}
-  syncPolicy:
-    automated: {enabled: true, prune: true, selfHeal: true, allowEmpty: true}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true, PruneLast=true]
+  {{- if $acceptance }}
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - git:
+        repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+        revision: main
+        files: [{path: platform/acceptance/private-sources.yaml}]
+  syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
+  template:
+    metadata:
+      name: cloudlab-private-sources
+      labels: {cloudlab.io/owner: private-source-platform}
+      annotations:
+        argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-private-sources
+    spec:
+  {{- end }}
+{{- $spec := dict "project" "cloudlab-private-sources" "sources" (list
+  (dict "repoURL" .Values.repository "targetRevision" .Values.privateSources.revision "path" "platform/delivery/private-sources" "helm" (dict "valueFiles" (list "$values/platform/sources.yaml")))
+  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" "main" "ref" "values"))
+  "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
+  "syncPolicy" (dict "automated" (dict "enabled" true "prune" true "selfHeal" true "allowEmpty" true)
+    "syncOptions" (list "FailOnSharedResource=true" "DisableClientSideApplyMigration=true" "PruneLast=true")) }}
+{{- if $acceptance }}
+{{- $gate := .Files.Get "private-source-acceptance.tmpl" | replace "@@PRIVATE_REPOSITORY@@" (.Values.identity.argo.valuesRepository | toJson) | replace "@@COMMITMENT@@" ($acceptance | toJson) | trim }}
+{{- $_ := set (index $spec.sources 1) "targetRevision" $gate }}
+{{ toYaml $spec | indent 6 }}
+{{- else }}
+{{ toYaml $spec | indent 2 }}
+{{- end }}
 {{- end }}
