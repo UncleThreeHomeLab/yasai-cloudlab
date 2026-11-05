@@ -1,0 +1,58 @@
+x-runner: &runner
+  image: cloudlab-notification-fixture:local
+  build:
+    context: ../../../runner
+    additional_contexts:
+      ci-source: ../../../../platform/delivery/ci
+  entrypoint: [python, -m, playbooks.observability.tests.notifications_proof]
+  working_dir: /workspace
+  environment:
+    PYTHONPATH: /workspace/ansible:/workspace
+    PYTHONDONTWRITEBYTECODE: '1'
+  volumes: ['../../../..:/workspace:ro', 'fixture:/fixture']
+  mem_limit: 256m
+  cpus: 0.5
+services:
+  prepare:
+    <<: *runner
+    command: [prepare]
+    network_mode: none
+    volumes: ['../../../..:/workspace:ro', 'fixture:/fixture', 'state:/alertmanager-state']
+  receiver:
+    <<: *runner
+    user: '65534:65534'
+    entrypoint: [python, -m, playbooks.observability.tests.notification_fixture]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    networks:
+      fixture:
+        aliases: [smtp.fixture.invalid, incident-receiver.cloudlab-app-incident-receiver.svc]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  alertmanager:
+    image: quay.io/prometheus/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    command: [--config.file=/fixture/alertmanager.yaml, --storage.path=/alertmanager, --cluster.listen-address=]
+    depends_on: {prepare: {condition: service_completed_successfully}}
+    volumes: ['fixture:/fixture:ro', 'fixture:/etc/alertmanager:ro', 'state:/alertmanager']
+    networks: [fixture]
+    read_only: true
+    mem_limit: 128m
+    cpus: 0.2
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 15s
+  proof:
+    <<: *runner
+    user: '65534:65534'
+    command: [verify]
+    networks: [fixture]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+networks:
+  fixture:
+    internal: true
+    ipam:
+      config: [{subnet: '${NOTIFICATION_PROOF_SUBNET:-10.245.234.0/24}'}]
+volumes:
+  fixture:
+  state:

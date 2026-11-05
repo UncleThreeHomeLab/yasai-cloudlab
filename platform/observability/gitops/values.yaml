@@ -5,3 +5,14 @@ nativeSource:
   valuesRevision: ''
 catalog: null
 observabilityInputs: {}
+platformNotifications:
+  enabled: false
+  fallbackReceiver: ''
+  receivers: []
+  subscriptions: []
+  groupWaitSeconds: 10
+  groupIntervalSeconds: 60
+  repeatIntervalSeconds: 14400
+alertmanagerState:
+  storageClass: cloudlab-telemetry
+  sizeGiB: 1

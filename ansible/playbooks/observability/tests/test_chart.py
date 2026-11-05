@@ -128,7 +128,8 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(json.loads(storage['parameters']['recurringJobSelector']),
                          [{'name': 'telemetry-disposable', 'isGroup': True}])
         quota = next(obj for obj in objects if obj['kind'] == 'ResourceQuota')['spec']['hard']
-        self.assertEqual(quota['requests.storage'], '70Gi')
+        self.assertEqual(quota['requests.storage'], '71Gi')
+        self.assertEqual(quota['persistentvolumeclaims'], '5')
         self.assertEqual(quota['limits.cpu'], '3000m')
         self.assertFalse(any(obj['kind'] in ('Secret', 'Job') for obj in objects))
         secrets = [obj for obj in objects if obj['kind'] == 'ExternalSecret']

@@ -15,6 +15,46 @@ def native_source_inputs():
             'apiPeers': ['192.0.2.10/32', '192.0.2.11/32'], 'monitoringEnabled': True}}
 
 
+def notification_inputs():
+    value = native_source_inputs()
+    value['catalog'].append({'approval': {'name': 'incident-receiver',
+        'namespace': 'cloudlab-app-incident-receiver', 'chartPath': 'charts/service'},
+        'definition': {'name': 'incident-receiver', 'ports': [{'name': 'http', 'port': 9443}]},
+        'publication': 'published'})
+    secret = 'alertmanager-notification-fixture'
+    webhook = lambda path: {'target': {'service': 'incident-receiver', 'port': 'http', 'path': path},
+        'authentication': {'mode': 'bearer', 'secretRef': {'name': secret, 'key': 'token'}},
+        'caSecretRef': {'name': secret, 'key': 'ca.crt'}}
+    value['platformNotifications'] = {'enabled': True, 'fallbackReceiver': 'operator-email',
+        'groupWaitSeconds': 0, 'groupIntervalSeconds': 1, 'repeatIntervalSeconds': 3600,
+        'receivers': [
+            {'name': 'operator-email', 'email': {'host': 'smtp.fixture.invalid', 'port': 2525,
+                'from': 'alerts@fixture.invalid', 'to': 'operator@fixture.invalid',
+                'username': 'fixture', 'passwordSecretRef': {'name': secret, 'key': 'password'},
+                'caSecretRef': {'name': secret, 'key': 'ca.crt'}}},
+            {'name': 'primary', 'webhook': webhook('/alerts/primary')},
+            {'name': 'secondary', 'webhook': webhook('/alerts/secondary')},
+            {'name': 'failing', 'webhook': webhook('/alerts/failing')},
+            {'name': 'redirect307', 'webhook': webhook('/redirect307')},
+            {'name': 'redirect308', 'webhook': webhook('/redirect308')}],
+        'subscriptions': [{'service': 'prices', 'severities': ['critical'],
+            'receivers': ['operator-email', 'primary', 'secondary', 'failing', 'redirect307', 'redirect308']}]}
+    return value
+
+
+def notification_application(inputs):
+    from pathlib import Path
+    import subprocess
+    import yaml
+    root = Path(__file__).resolve().parents[4]
+    result = subprocess.run(['helm', 'template', 'fixture', str(root / 'platform/observability/gitops'),
+        '-n', 'argocd', '-f', '-'], input=yaml.safe_dump(inputs), capture_output=True, text=True, timeout=90)
+    if result.returncode:
+        raise ValueError('Notification inputs rejected')
+    return next(obj for obj in yaml.safe_load_all(result.stdout)
+                if obj and obj['metadata']['name'] == 'cloudlab-prometheus')
+
+
 def service_bindings():
     return [{'name': 'example-notes', 'namespace': 'fixture', 'workloads': [
         {'name': 'notes-api', 'kind': 'Deployment'}, {'name': 'notes-web', 'kind': 'Rollout'}]},

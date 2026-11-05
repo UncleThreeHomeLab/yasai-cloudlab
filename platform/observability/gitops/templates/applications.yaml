@@ -15,6 +15,7 @@
 {{- $issuer := printf "https://%s/realms/platform" $inputs.loginHost }}
 {{- $protocol := printf "%s/protocol/openid-connect" $issuer }}
 {{- $grafana := printf "https://%s" $inputs.grafanaHost }}
+{{- $notifications := include "observability.notifications" . | fromYaml }}
 {{- range $component := list "configuration" "prometheus" "loki" "tempo" "alloy" "kiali" }}
 {{- $configuration := eq $component "configuration" }}
 {{- $name := ternary "cloudlab-observability" (printf "cloudlab-%s" $component) $configuration }}
@@ -27,6 +28,9 @@ metadata:
   labels: {cloudlab.io/owner: observability-platform}
   annotations:
     cloudlab.io/service-catalog-revision: {{ $source.valuesRevision | quote }}
+    {{- if eq $component "prometheus" }}
+    cloudlab.io/notification-delivery: {{ ternary "candidate" "unconfigured" $.Values.platformNotifications.enabled | quote }}
+    {{- end }}
 spec:
   project: cloudlab-observability
   source: null
@@ -47,6 +51,22 @@ spec:
         valuesObject:
           serviceCatalogRevision: {{ $source.valuesRevision | quote }}
           kube-prometheus-stack:
+            alertmanager:
+              config:
+{{ toYaml $notifications.config | indent 16 }}
+              alertmanagerSpec:
+                secrets: {{ $notifications.secrets | toJson }}
+                persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Retain}
+                storage:
+                  emptyDir: null
+                  volumeClaimTemplate:
+                    metadata:
+                      annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+                    spec:
+                      storageClassName: {{ $.Values.alertmanagerState.storageClass }}
+                      accessModes: [ReadWriteOnce]
+                      resources:
+                        requests: {storage: {{ printf "%dGi" (int $.Values.alertmanagerState.sizeGiB) | quote }}}
             grafana:
               grafana.ini:
                 server: {root_url: {{ $grafana | quote }}}

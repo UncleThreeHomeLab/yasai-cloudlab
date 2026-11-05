@@ -66,6 +66,20 @@
     "input_key": "observabilityInputs",
     "trust": "Platform-reviewed values; merged Helm schema does not establish per-file tenant isolation",
     "activation": "Parent remains skip-reconcile with automatic sync disabled until guarded writer handoff and identity DNS qualification",
-    "notifications": "Unconfigured; isolated fixture delivery only; no vault-item provisioning"
+    "notifications": "platformNotifications; disabled defaults; candidate transport requires qualified connections and existing dedicated Secret delivery before activation"
+  },
+  "notification_delivery": {
+    "input_key": "platformNotifications",
+    "owner": "Native monitoring chart renders Alertmanager configuration from platform-reviewed private values",
+    "transports": [
+      "TLS SMTP",
+      "HTTPS bearer webhook",
+      "mesh-authenticated HTTP webhook after qualified connection enforcement"
+    ],
+    "webhook_targets": "Nonretired charts/service catalog entries without composition; approved named TCP port and bounded path only; redirects disabled",
+    "credentials": "Existing cloudlab-observability alertmanager-notification-* Kubernetes Secrets; fixed derived paths; no inline values or vault provisioning",
+    "state": "Native 1Gi retained telemetry claim; legacy emptyDir unchanged; existing state preservation or verified-empty gate required before replacement",
+    "activation_requirements": "Qualified network enforcement, credential readiness, existing state preservation and Kubernetes storage lifecycle; transport fixtures alone are insufficient",
+    "fixture": "ansible/playbooks/observability/tests/compose.notifications-proof.yaml; no host ports or production destinations"
   }
 }
