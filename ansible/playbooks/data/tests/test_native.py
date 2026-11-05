@@ -148,8 +148,20 @@ class NativeDataTests(unittest.TestCase):
         self.assertEqual(config['spec']['sources'][0]['helm']['valuesObject'], {'sharedInputs': True, 'maintenance': False, 'hibernated': False})
         self.assertEqual(seaweed['spec']['source']['targetRevision'], 'c' * 40)
         rules = root['spec']['ignoreDifferences']
-        self.assertEqual([(r['name'], r['namespace'], r['kind'], r['group']) for r in rules], [('cloudlab-data-configuration', 'argocd', 'Application', 'argoproj.io'), ('cloudlab-seaweedfs', 'argocd', 'Application', 'argoproj.io')])
-        self.assertEqual(rules[0]['jsonPointers'], ['/spec/sources/0/helm/valuesObject/maintenance', '/spec/sources/0/helm/valuesObject/hibernated'])
+        self.assertEqual([(r['name'], r['namespace'], r['kind'], r['group']) for r in rules], [('cloudlab-public-root', 'argocd', 'Application', 'argoproj.io'), ('cloudlab-seaweedfs', 'argocd', 'Application', 'argoproj.io')])
+        self.assertEqual(rules[0]['jsonPointers'], ['/spec/source/helm/valuesObject/data/configuration/maintenance', '/spec/source/helm/valuesObject/data/configuration/hibernated'])
+        self.assertNotIn('data', root['spec']['source']['helm']['valuesObject'])
+        changed = self.root_values()
+        changed['identity']['argo']['valuesRevision'] = 'e' * 40
+        changed['data']['configuration'].update(maintenance=True, hibernated=True)
+        advanced = {o['metadata']['name']: o for o in self.render('gitops/roots/public', changed) if o['kind'] == 'Application'}
+        self.assertEqual(advanced['cloudlab-public-root']['spec']['source']['helm']['valuesObject']['data'],
+            {'configuration': {'maintenance': True, 'hibernated': True}})
+        self.assertEqual(advanced['cloudlab-data-configuration']['spec']['sources'][1]['targetRevision'], 'e' * 40)
+        self.assertEqual(advanced['cloudlab-data-configuration']['spec']['sources'][0]['helm']['valuesObject'],
+            {'sharedInputs': True, 'maintenance': True, 'hibernated': True})
+        changed['data']['configuration']['maintenance'] = 'true'
+        self.render('gitops/roots/public', changed, valid=False)
         self.assertEqual(rules[1]['jsonPointers'], ['/spec/source/helm/valuesObject/seaweedfs/' + name + '/replicas' for name in ('master', 'volume', 'filer', 's3')])
         self.assertIn('RespectIgnoreDifferences=true', root['spec']['syncPolicy']['syncOptions'])
         self.assertNotIn('RespectIgnoreDifferences=true', apps['cloudlab-argocd']['spec']['syncPolicy']['syncOptions'])

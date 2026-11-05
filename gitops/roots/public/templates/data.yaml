@@ -1,4 +1,11 @@
 {{- $configuration := .Values.data.configuration }}
+{{- $flags := dict "maintenance" false "hibernated" false }}
+{{- range $key, $_ := $flags }}
+{{- if hasKey $configuration $key }}
+{{- if not (kindIs "bool" (index $configuration $key)) }}{{ fail "Data operational flags require YAML booleans" }}{{ end }}
+{{- $_ := set $flags $key (index $configuration $key) }}
+{{- end }}
+{{- end }}
 {{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) }}
 {{- fail "Data configuration requires a YAML boolean enabled setting" }}
 {{- end }}
@@ -143,7 +150,7 @@ spec:
       helm:
         releaseName: cloudlab-data-configuration
         valueFiles: ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/services/catalog.json']
-        valuesObject: {sharedInputs: true, maintenance: false, hibernated: false}
+        valuesObject: {{ merge (dict "sharedInputs" true) $flags | toJson }}
     - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: {{ .Values.identity.argo.valuesRevision | quote }}, ref: values}
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-data}
   syncPolicy:

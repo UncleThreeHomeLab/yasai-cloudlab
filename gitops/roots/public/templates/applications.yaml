@@ -44,6 +44,12 @@ spec:
       valuesObject:
         identity:
 {{ toYaml $.Values.identity | indent 10 }}
+        {{- $flags := pick $.Values.data.configuration "maintenance" "hibernated" }}
+        {{- if $flags }}
+        data:
+          configuration:
+{{ toYaml $flags | indent 12 }}
+        {{- end }}
       {{- end }}
   {{- end }}
   destination:
@@ -54,8 +60,8 @@ spec:
     - group: argoproj.io
       kind: Application
       namespace: argocd
-      name: cloudlab-data-configuration
-      jsonPointers: [/spec/sources/0/helm/valuesObject/maintenance, /spec/sources/0/helm/valuesObject/hibernated]
+      name: cloudlab-public-root
+      jsonPointers: [/spec/source/helm/valuesObject/data/configuration/maintenance, /spec/source/helm/valuesObject/data/configuration/hibernated]
     - group: argoproj.io
       kind: Application
       namespace: argocd

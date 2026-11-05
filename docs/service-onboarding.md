@@ -782,8 +782,11 @@ Private paths are relative to the `PRIVATE_CONFIG_REPOSITORY` checkout
 
 Argo CD owns the shared data Applications from the pinned public charts and approved
 private binding. Native settings require authenticated sources and the registered
-settings ConfigMap; repair continues under the data owner lock. Initial bootstrap
-does not replay accepted workloads or generate a desired-value cache. Routine private
+settings ConfigMap; repair continues under the data owner lock.
+Maintenance and hibernation use two scoped Root inputs; Root alone converges the
+data Application's complete source array. Seaweed replica operations remain scoped
+to its single source. Operational overrides must agree before source-owner migration.
+Initial bootstrap does not replay accepted workloads or generate a desired-value cache. Routine private
 catalog request changes and `services.catalogPath` support still require their
 scoped platform implementation; do not substitute a service playbook.
 
