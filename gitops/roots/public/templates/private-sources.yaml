@@ -60,9 +60,7 @@ metadata:
   name: cloudlab-private-sources
   namespace: argocd
   labels: {cloudlab.io/owner: private-source-platform}
-  {{- if $acceptance }}
   annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
-  {{- end }}
 spec:
   {{- if $acceptance }}
   goTemplate: true
@@ -83,6 +81,7 @@ spec:
       name: cloudlab-private-sources
       labels: {cloudlab.io/owner: private-source-platform}
       annotations:
+        argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
         argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-private-sources
     spec:
   {{- end }}

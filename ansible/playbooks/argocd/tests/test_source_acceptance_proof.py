@@ -106,8 +106,7 @@ class SourceAcceptanceProofTests(unittest.TestCase):
             return '{}'
         raise AssertionError('Unexpected proof command')
 
-    def begin(self):
-        state = proof.create(self.config)['state']
+    def credentials(self, state):
         external = self.objects['externalsecret.external-secrets.io', proof.NAME + '-source', 'argocd']
         external['metadata']['finalizers'] = [proof.native.ESO_FINALIZER]
         external['status'] = {'conditions': [{'type': 'Ready', 'status': 'True'}]}
@@ -120,6 +119,16 @@ class SourceAcceptanceProofTests(unittest.TestCase):
             'ownerReferences': [{'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'name': proof.NAME + '-source',
                 'uid': state['identities']['ExternalSecret'], 'controller': True, 'blockOwnerDeletion': True}]},
             'data': {key: base64.b64encode(value.encode()).decode() for key, value in data.items()}})
+    def begin(self):
+        state = proof.create(self.config)['state']
+        self.credentials(state)
+        def healthy(check, **kwargs):
+            self.converge(state)
+            self.assertTrue(check())
+        with patch.object(proof, 'poll', side_effect=healthy):
+            result = proof.seed(self.config, state)
+        self.assertTrue(result['seed_healthy'], result)
+        state = proof.adopt(self.config, result['state'])['state']
         self.converge(state)
         return proof.observe(self.config, state)['state']
 
@@ -129,8 +138,9 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         existing = self.objects.get(('application.argoproj.io', proof.NAME, 'argocd'))
         metadata = copy.deepcopy(metadata)
         if existing: metadata['uid'] = existing['metadata']['uid']
-        metadata['ownerReferences'] = [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': proof.NAME,
-            'uid': state['identities']['ApplicationSet'], 'controller': True, 'blockOwnerDeletion': True}]
+        if 'ApplicationSet' in state['identities']:
+            metadata['ownerReferences'] = [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': proof.NAME,
+                'uid': state['identities']['ApplicationSet'], 'controller': True, 'blockOwnerDeletion': True}]
         self.stored({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application', 'metadata': metadata,
             'spec': proof.child_spec(self.config, state, desired, state['approval'], state['markerEnabled']),
             'status': {'sync': {'status': 'Synced', 'revisions': [self.config['publicRevision'], self.config['receipt' + state['approval']]['revision']]},
@@ -144,7 +154,8 @@ class SourceAcceptanceProofTests(unittest.TestCase):
             row['metadata'].setdefault('annotations', {})['argocd.argoproj.io/tracking-id'] = proof.NAME + ':/ConfigMap:' + proof.NAME + '/' + row['metadata']['name']
             self.stored(row)
         if not state['markerEnabled']: self.objects.pop(('configmap', 'approval-marker', proof.NAME), None)
-        self.objects['applicationset.argoproj.io', proof.NAME, 'argocd']['status'] = {'conditions': [{'type': 'ParametersGenerated', 'status': 'True'}, {'type': 'ErrorOccurred', 'status': 'False'}]}
+        if 'ApplicationSet' in state['identities']:
+            self.objects['applicationset.argoproj.io', proof.NAME, 'argocd']['status'] = {'conditions': [{'type': 'ParametersGenerated', 'status': 'True'}, {'type': 'ErrorOccurred', 'status': 'False'}]}
 
     def test_fixed_fixture_b_updates_and_marker_removal_preserve_captured_sentinel(self):
         state = self.begin(); before = state['identities'].copy()
@@ -157,6 +168,137 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         self.assertEqual(proof.read('Retained')['metadata']['uid'], before['Retained'])
         self.assertTrue(proof.cleanup(self.config, state)['cleanup_complete'])
         self.assertIsNone(proof.read('Namespace'))
+
+    def test_ownerless_seed_is_healthy_before_parent_and_same_uid_adoption_is_required(self):
+        self.assertNotIn(proof.TRACKING_OWNER, (proof.NAME, 'cloudlab-public-root'))
+        self.objects['application.argoproj.io', proof.TRACKING_OWNER, 'argocd'] = {'metadata': {'uid': 'foreign-tracking-owner'}}
+        with self.assertRaisesRegex(proof.ProofError, 'synthetic tracking owner'): proof.create(self.config)
+        self.assertEqual(self.writes, [])
+        del self.objects['application.argoproj.io', proof.TRACKING_OWNER, 'argocd']
+        state = proof.create(self.config)['state']; self.credentials(state)
+        self.assertEqual(state['adoptionPhase'], 'seed-intent')
+        self.assertIsNone(proof.read('ApplicationSet')); self.assertIsNone(proof.read('Application'))
+        with self.assertRaises(proof.ProofError): proof.adopt(self.config, state)
+        def healthy(check, **kwargs):
+            self.assertIsNone(proof.read('ApplicationSet'))
+            self.converge(state)
+            self.assertFalse(proof.read('Application')['metadata'].get('ownerReferences'))
+            self.assertEqual(proof.read('Application')['metadata']['annotations']['argocd.argoproj.io/tracking-id'],
+                proof.TRACKING_OWNER + ':argoproj.io/Application:argocd/' + proof.NAME)
+            self.assertTrue(check())
+        with patch.object(proof, 'poll', side_effect=healthy): result = proof.seed(self.config, state)
+        self.assertTrue(result['seed_healthy'], result)
+        before = state['identities'].copy()
+        self.assertTrue({'Application', 'Marker', 'Retained'} <= set(before))
+        for key in ('IstioRoot', 'IstioCRL'):
+            incomplete = copy.deepcopy(state); incomplete['identities'].pop(key)
+            self.writes.clear()
+            with self.assertRaisesRegex(proof.ProofError, 'previously observed seed identity'):
+                proof.adopt(self.config, incomplete)
+            self.assertEqual(self.writes, [])
+        state = proof.adopt(self.config, state)['state']
+        desired = proof.declarations(self.config, state, self.public, self.root_files)
+        self.assertFalse(proof.child(self.config, state, desired, 'A', True))
+        self.converge(state)
+        state = proof.observe(self.config, state)['state']
+        self.assertEqual(state['adoptionPhase'], 'adopted')
+        self.assertEqual({key: state['identities'][key] for key in before}, before)
+        for key in ('Application', 'Marker', 'Retained', 'IstioRoot', 'IstioCRL'):
+            incomplete = copy.deepcopy(state); incomplete['identities'].pop(key)
+            with self.assertRaisesRegex(proof.ProofError, 'previously observed seed identity'):
+                proof.observe(self.config, incomplete)
+        original = copy.deepcopy(self.objects)
+        for case in ('ownerless', 'replacement', 'foreign-owner', 'protection'):
+            self.objects = copy.deepcopy(original); self.writes.clear()
+            app = self.objects['application.argoproj.io', proof.NAME, 'argocd']
+            if case == 'ownerless': app['metadata'].pop('ownerReferences')
+            if case == 'replacement': app['metadata']['uid'] = 'replacement'
+            if case == 'foreign-owner': app['metadata']['ownerReferences'][0]['uid'] = 'foreign'
+            if case == 'protection': app['metadata']['annotations'].pop('argocd.argoproj.io/sync-options')
+            with self.subTest(case=case):
+                with self.assertRaises(proof.ProofError): proof.observe(self.config, copy.deepcopy(state))
+                with self.assertRaises(proof.ProofError): proof.cleanup(self.config, copy.deepcopy(state))
+                self.assertEqual(self.writes, [])
+
+    def test_seed_and_parent_lost_responses_recover_only_recorded_exact_attempt(self):
+        state = proof.create(self.config)['state']; self.credentials(state)
+        kube = self.kube
+        def lost_child(*args, document=None, **kwargs):
+            response = kube(*args, document=document, **kwargs)
+            if args[0] == 'create' and document['kind'] == 'Application': raise RuntimeError('lost response')
+            return response
+        with patch.object(proof, 'kube', side_effect=lost_child): result = proof.seed(self.config, state)
+        self.assertFalse(result['seed_healthy']); self.assertEqual(state['adoptionPhase'], 'seed-intent')
+        uid = proof.read('Application')['metadata']['uid']; self.writes.clear()
+        def healthy(check, **kwargs):
+            self.converge(state); self.assertTrue(check())
+        with patch.object(proof, 'poll', side_effect=healthy): result = proof.seed(self.config, state)
+        self.assertTrue(result['seed_healthy'], result); self.assertEqual(state['identities']['Application'], uid)
+        self.assertEqual(self.writes, [])
+        def lost_parent(*args, document=None, **kwargs):
+            response = kube(*args, document=document, **kwargs)
+            if args[0] == 'create' and document['kind'] == 'ApplicationSet': raise RuntimeError('lost response')
+            return response
+        with patch.object(proof, 'kube', side_effect=lost_parent), self.assertRaises(RuntimeError): proof.adopt(self.config, state)
+        self.assertNotIn('ApplicationSet', state['identities']); self.writes.clear()
+        state = proof.adopt(self.config, state)['state']
+        self.assertEqual(self.writes, []); self.converge(state)
+        self.assertTrue(proof.observe(self.config, state)['accepted'])
+
+    def test_seed_refuses_foreign_child_or_scope_without_creating_parent(self):
+        state = proof.create(self.config)['state']; self.credentials(state)
+        desired = proof.declarations(self.config, state, self.public, self.root_files)
+        app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
+            'metadata': desired['ApplicationSet']['spec']['template']['metadata'],
+            'spec': proof.child_spec(self.config, state, desired, 'A', True)}
+        baseline = copy.deepcopy(self.objects)
+        for case in ('attempt', 'spec', 'owner', 'annotation'):
+            self.objects = copy.deepcopy(baseline); obj = copy.deepcopy(app)
+            if case == 'attempt': obj['metadata']['labels']['cloudlab.io/proof-attempt'] = '9' * 32
+            if case == 'spec': obj['spec']['destination']['namespace'] = 'foreign'
+            if case == 'owner': obj['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+            if case == 'annotation': obj['metadata']['annotations']['foreign'] = 'true'
+            self.stored(obj); self.writes.clear()
+            with self.subTest(case=case):
+                result = proof.seed(self.config, copy.deepcopy(state))
+                self.assertFalse(result['seed_healthy']); self.assertEqual(self.writes, [])
+                self.assertIsNone(proof.read('ApplicationSet'))
+
+    def test_pending_ownerless_adoption_cleanup_after_parent_create_or_lost_response(self):
+        state = proof.create(self.config)['state']; self.credentials(state)
+        def healthy(check, **kwargs):
+            self.converge(state); self.assertTrue(check())
+        with patch.object(proof, 'poll', side_effect=healthy):
+            self.assertTrue(proof.seed(self.config, state)['seed_healthy'])
+        baseline, seed_state = copy.deepcopy(self.objects), copy.deepcopy(state)
+        for lost_response in (False, True):
+            self.objects = copy.deepcopy(baseline); state = copy.deepcopy(seed_state)
+            if lost_response:
+                kube = self.kube
+                def lost(*args, document=None, **kwargs):
+                    response = kube(*args, document=document, **kwargs)
+                    if args[0] == 'create' and document['kind'] == 'ApplicationSet': raise RuntimeError('lost response')
+                    return response
+                with patch.object(proof, 'kube', side_effect=lost), self.assertRaises(RuntimeError):
+                    proof.adopt(self.config, state)
+                self.assertNotIn('ApplicationSet', state['identities'])
+                self.writes.clear()
+                with self.assertRaises(proof.ProofError): proof.cleanup(self.config, state)
+                self.assertEqual(self.writes, [])
+            state = proof.adopt(self.config, state)['state']
+            self.assertEqual(state['adoptionPhase'], 'adopting'); self.assertIsNone(state['acceptedApproval'])
+            self.assertEqual(proof.read('Application')['metadata'].get('ownerReferences', []), [])
+            self.assertEqual(proof.read('Application')['metadata']['uid'], seed_state['identities']['Application'])
+            self.writes.clear()
+            app = self.objects['application.argoproj.io', proof.NAME, 'argocd']
+            app['metadata']['ownerReferences'] = [{'uid': 'foreign'}]
+            with self.assertRaises(proof.ProofError): proof.cleanup(self.config, state)
+            self.assertEqual(self.writes, [])
+            app['metadata'].pop('ownerReferences')
+            with self.subTest(lost_parent_response=lost_response):
+                self.assertTrue(proof.cleanup(self.config, state)['cleanup_complete'])
+                self.assertIsNone(proof.read('Namespace'))
+                self.assertTrue(all(args[0] == 'delete' for args, _ in self.writes))
 
     def test_source_error_observation_requires_exact_retained_child_and_visible_error(self):
         state = self.begin(); uid = state['identities']['Application']
