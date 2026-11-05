@@ -1,3 +1,4 @@
+import base64
 import copy
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ import source_transition as migration
 from fixtures import binding_fixture, private_policies, private_probe, access_evidence, access_authority
 import access_activation
 import data_activation
-from playbooks.data.files import control as data_control
+from playbooks.data.files import control as data_control, native as data_native, handoff as data_handoff
 
 
 class ServiceBindingTests(unittest.TestCase):
@@ -58,6 +59,7 @@ class ServiceBindingTests(unittest.TestCase):
         import contextlib
         stack = contextlib.ExitStack()
         stack.enter_context(patch.object(data_control, 'BASE', base))
+        stack.enter_context(patch.object(data_native, 'receipt', side_effect=lambda path, **kwargs: json.loads(path.read_text()) if path.exists() else {}))
         for module in (migration, bootstrap):
             stack.enter_context(patch.object(module, 'BASE', base))
             stack.enter_context(patch.object(module, 'get', side_effect=self.read))
@@ -419,6 +421,157 @@ class ServiceBindingTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'lost its durable'): migration.hydrate_binding(
                     base / 'identity-values-binding.json', state, self.payload, self.target)
                 sql.assert_not_called()
+
+    def armed_first_binding(self, base):
+        current = self.data_owner(base)
+        evidence = self.payload['argo']['dataActivation']
+        evidence.update(required=True, settings=current)
+        owner = json.loads((base / 'ownership.json').read_text())
+        owner['publicSource'] = {'repository': self.payload['repository'], 'branch': 'main'}
+        self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['destination'] = {
+            'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
+        (base / 'ownership.json').write_text(json.dumps(owner))
+        for name in (data_native.APP, data_native.SEAWEED):
+            obj = self.objects['application.argoproj.io', name]
+            obj['status'] = {'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}
+            project = {'metadata': {'uid': name + '-project', 'annotations': {'argocd.argoproj.io/tracking-id':
+                data_native.TRACKING + 'AppProject:argocd/' + name}},
+                'spec': data_native.project_spec(name, self.payload, self.target)}
+            if name == data_native.APP:
+                project['spec']['sourceRepos'] = [self.payload['repository']]
+                project['spec']['namespaceResourceWhitelist'].remove({'group': '', 'kind': 'ConfigMap'})
+            self.objects['appproject.argoproj.io', name] = project
+        captured = data_activation.guard(evidence, self.target, self.read,
+            self.read('application.argoproj.io', migration.ROOT_APP))
+        self.checkpoint['dataActivation'] = captured
+        self.assertEqual(data_handoff.state()['handoff']['phase'], 'armed')
+        return self.pending(base)
+
+    def test_bootstrap_resume_allows_only_armed_partial_native_rollout_without_registering(self):
+        for both in (False, True):
+            self.setUp()
+            with self.subTest(both_native=both), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                        patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                        patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}), \
+                        patch.object(data_control, 'sql') as sql, patch.object(data_control, 'grants') as grants:
+                    state = self.armed_first_binding(base)
+                    journal = data_handoff.state()['handoff']
+                    public = {'repository': self.payload['repository'], 'data': {'configuration': journal['pins']}}
+                    for name in (data_native.APP, data_native.SEAWEED) if both else (data_native.APP,):
+                        obj = self.objects['application.argoproj.io', name]
+                        obj['spec'].update(data_native.application_sources(name, public, self.target,
+                            {'maintenance': False, 'hibernated': False}, {c: 1 for c in data_native.COMPONENTS}))
+                        if name == data_native.APP:
+                            obj['spec'].pop('source')  # API omission is equivalent to explicit null.
+                        obj['metadata']['labels']['cloudlab.io/owner'] = 'data-platform'
+                        obj['metadata']['annotations'] = {'argocd.argoproj.io/tracking-id':
+                            data_native.TRACKING + 'Application:argocd/' + name}
+                    self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+                    self.assertTrue(bootstrap.resume_identity_binding())
+                    self.assertEqual(self.calls[-1][-1], '--replicas=1')
+                    self.assertNotIn('settings_uid', data_handoff.state())
+                    sql.assert_not_called(); grants.assert_not_called()
+                    obj = self.objects['application.argoproj.io', data_native.APP]
+                    obj['spec']['sources'][0]['path'] = 'foreign'
+                    with self.assertRaisesRegex(RuntimeError, 'armed rollout'):
+                        bootstrap.resume_identity_binding()
+
+    def test_paused_armed_resume_rejects_foreign_readers_projects_and_root_without_writes(self):
+        cases = ('absent', 'not-ready', 'valid', 'root-running', 'root-queued', 'foreign-eso', 'eso-finalizer',
+                 'secret-finalizer', 'owner', 'url', 'project', 'fields', 'competitor', 'broadened-project',
+                 'foreign-project', 'root-tracking', 'root-scope', 'queued-empty', 'running-empty',
+                 'queued-manual', 'running-manual', 'queued-prune', 'running-prune', 'queued-selective',
+                 'running-selective', 'queued-foreign', 'running-foreign', 'both-foreign', 'running-source')
+        for case in cases:
+            self.setUp()
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                        patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                        patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}), \
+                        patch.object(data_native, 'published_source', return_value=({}, self.payload['revision'])), \
+                        patch.object(migration, 'record', wraps=migration.record) as record, \
+                        patch.object(data_control, 'sql') as sql, patch.object(data_control, 's3') as s3:
+                    self.armed_first_binding(base)
+                    name = data_native.APP + '-source'
+                    external = {'metadata': {'uid': 'reader', 'finalizers': [data_native.ESO_FINALIZER], 'annotations': {'argocd.argoproj.io/tracking-id':
+                        'cloudlab-public-root:external-secrets.io/ExternalSecret:argocd/' + name}},
+                        'spec': data_native.reader_spec(self.target['valuesRepository'], name, data_native.APP)}
+                    secret = {'metadata': {'uid': 'credential', 'labels': {'argocd.argoproj.io/secret-type': 'repository'},
+                        'ownerReferences': [{'uid': 'reader', 'name': name, 'kind': 'ExternalSecret',
+                            'apiVersion': 'external-secrets.io/v1', 'controller': True}]},
+                        'data': {key: base64.b64encode(value.encode()).decode() for key, value in {
+                            'type': 'git', 'url': self.target['valuesRepository'], 'project': data_native.APP,
+                            'githubAppID': '1', 'githubAppInstallationID': '2', 'githubAppPrivateKey': 'synthetic'}.items()}}
+                    if case != 'absent':
+                        self.objects['externalsecret.external-secrets.io', name] = external
+                    if case not in ('absent', 'not-ready'):
+                        self.objects['secret', name] = secret
+                        self.objects['secrets', None] = {'items': [secret]}
+                    if case == 'foreign-eso': external['spec']['secretStoreRef']['name'] = 'foreign'
+                    if case == 'eso-finalizer': external['metadata']['finalizers'].append('foreign')
+                    if case == 'secret-finalizer': secret['metadata']['finalizers'] = [data_native.ESO_FINALIZER]
+                    if case == 'owner': secret['metadata']['ownerReferences'][0]['uid'] = 'foreign'
+                    if case in ('url', 'project'): secret['data'][case] = base64.b64encode(b'foreign').decode()
+                    if case == 'fields': secret['data']['password'] = base64.b64encode(b'foreign').decode()
+                    if case == 'competitor':
+                        duplicate = copy.deepcopy(secret); duplicate['metadata']['uid'] = 'other'
+                        self.objects['secrets', None]['items'].append(duplicate)
+                    project = self.objects['appproject.argoproj.io', data_native.APP]
+                    if case == 'broadened-project': project['spec']['sourceRepos'].append('*')
+                    if case == 'foreign-project': project['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+                    root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                    if case == 'root-tracking': root['metadata']['annotations'] = {'argocd.argoproj.io/tracking-id': 'foreign'}
+                    if case == 'root-scope': root['spec']['destination']['namespace'] = 'foreign'
+                    operation = {'initiatedBy': {'automated': True}, 'sync': {'revision': self.payload['revision'], 'prune': False}}
+                    if case.startswith('queued-') or case == 'root-queued':
+                        root['operation'] = copy.deepcopy(operation)
+                    if case.startswith('running-') or case in ('root-running', 'both-foreign'):
+                        root['status'] = {'operationState': {'phase': 'Running', 'operation': copy.deepcopy(operation),
+                            'syncResult': {'revision': self.payload['revision'], 'source': copy.deepcopy(root['spec']['source'])}}}
+                    if case == 'both-foreign':
+                        root['operation'] = copy.deepcopy(operation)
+                        root['status']['operationState']['operation']['sync']['revision'] = 'f' * 40
+                    if case.startswith(('queued-', 'running-')):
+                        selected = root['operation'] if case.startswith('queued-') else root['status']['operationState']['operation']
+                        if case.endswith('-empty'): selected.clear()
+                        if case.endswith('-manual'): selected['initiatedBy'] = {'username': 'foreign'}
+                        if case.endswith('-prune'): selected['sync']['prune'] = True
+                        if case.endswith('-selective'): selected['sync']['resources'] = [{'kind': 'Secret', 'name': 'foreign'}]
+                        if case.endswith('-foreign'): selected['sync']['revision'] = 'f' * 40
+                        if case == 'running-source': root['status']['operationState']['syncResult']['source']['path'] = 'foreign'
+                    self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
+                    self.calls.clear()
+                    if case in ('absent', 'not-ready', 'valid', 'root-running', 'root-queued'):
+                        self.assertTrue(bootstrap.resume_identity_binding())
+                    else:
+                        with self.assertRaises(RuntimeError): bootstrap.resume_identity_binding()
+                        self.assertEqual(self.calls, [])
+                        record.assert_not_called()
+                        self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
+                    self.assertNotIn('settings_uid', data_handoff.state())
+                    sql.assert_not_called(); s3.assert_not_called()
+
+    def test_armed_target_fences_noop_hydrate_and_original_source_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                    patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
+                    patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}):
+                state = self.armed_first_binding(base)
+                foreign = dict(self.target, valuesRevision='f' * 40)
+                self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+                for action in (lambda: migration.bind_identity_locked(self.payload, foreign),
+                               lambda: migration.hydrate_binding(base / 'identity-values-binding.json', state, self.payload, foreign),
+                               lambda: migration.safe_identity_resume(dict(state, target=foreign), self.read)):
+                    with self.assertRaisesRegex(RuntimeError, 'different private binding'):
+                        action()
+                state['target'] = foreign
+                (base / 'identity-values-binding.json').write_text(json.dumps(state))
+                with self.assertRaisesRegex(RuntimeError, 'different private binding'):
+                    bootstrap.resume_identity_binding()
 
     def test_binding_cannot_downgrade_registered_native_data_before_any_effect(self):
         with tempfile.TemporaryDirectory() as directory:

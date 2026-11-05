@@ -19,6 +19,15 @@
       register: identity_public_source
       changed_when: false
       no_log: true
+    - name: Require the explicitly approved private binding before host effects
+      ansible.builtin.assert:
+        that:
+          - keycloak_argo_expected_target is mapping
+          - (identity_public_source.stdout | from_json).argo.target == keycloak_argo_expected_target
+        fail_msg: Authenticated identity source differs from the exact approved target.
+        quiet: true
+      no_log: true
+      when: keycloak_argo_expected_target is defined
     - name: Install independent identity runtime
       ansible.builtin.import_tasks: tasks/runtime.yml
     - name: Converge the explicit identity phase

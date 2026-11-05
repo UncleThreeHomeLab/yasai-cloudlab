@@ -64,6 +64,8 @@ def run(action):
     elif action == 'restore-offsite':
         require_window(reserve=3600)
     with control.locked():
+        from playbooks.data.files.handoff import fence
+        fence('backup or restore')
         if action == 'cleanup-fixtures':
             from playbooks.data.files.rotation import cleanup_sql
             restore.cleanup()

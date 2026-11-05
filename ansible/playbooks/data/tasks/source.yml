@@ -1,0 +1,20 @@
+---
+- name: Inspect accepted data ownership without resolving legacy values
+  ansible.builtin.command:
+    argv: [python3, /opt/cloudlab/playbooks/data/files/handoff.py, probe]
+  changed_when: false
+  no_log: true
+  register: data_owner_probe
+- name: Resolve initial data identities only for bounded initial or partial setup
+  ansible.builtin.command: python /workspace/ansible/playbooks/data/files/inputs.py
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  register: data_initial_payload
+  when: (data_owner_probe.stdout | from_json).mode == 'initial'
+- name: Use initial values or published observation metadata for the selected owner
+  ansible.builtin.set_fact:
+    data_payload:
+      stdout: '{{ data_initial_payload.stdout if (data_owner_probe.stdout | from_json).mode == "initial" else data_public_payload.stdout }}'
+  no_log: true

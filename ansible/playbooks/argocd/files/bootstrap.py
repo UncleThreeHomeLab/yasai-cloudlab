@@ -127,9 +127,10 @@ def _resume_identity_binding():
     if state.get('phase') not in ('prepared', 'paused', 'source-updated', 'resumed'):
         raise RuntimeError('Unknown identity root handoff checkpoint')
     try:
-        from .source_transition import pause, binding_source, check_activation, safe_identity_resume, record
+        from .source_transition import pause, binding_source, check_activation, safe_identity_resume, record, data_binding_fence
     except ImportError:
-        from source_transition import pause, binding_source, check_activation, safe_identity_resume, record
+        from source_transition import pause, binding_source, check_activation, safe_identity_resume, record, data_binding_fence
+    data_binding_fence(state.get('target'))
     objects = {key: get(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', 'cloudlab-public-root'),
         ('controller_uid', 'statefulset', 'argocd-application-controller'),

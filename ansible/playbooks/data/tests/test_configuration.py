@@ -8,10 +8,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from playbooks.data.files import configuration, control
+from playbooks.data.files import configuration, control, native
 
 
 class ConfigurationTests(unittest.TestCase):
+    def setUp(self):
+        receipt = patch.object(native, 'receipt', side_effect=lambda path, **kwargs: json.loads(path.read_text()) if path.exists() else {})
+        receipt.start()
+        self.addCleanup(receipt.stop)
     def test_identical_receipt_keeps_inode_and_reports_no_change(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'receipt.json'
@@ -27,7 +31,7 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_interrupted_second_application_preserves_first_uid_and_resumes(self):
-        payload = {'repository': 'https://example.test/lab.git', 'branch': 'main', 'revision': 'a' * 40,
+        payload = {'repository': 'https://github.com/example/lab.git', 'branch': 'main', 'revision': 'a' * 40,
                    'values': {'s3Host': 's3.internal.example.test', 'database': 'notes',
                               'applicationRole': 'notes_app', 'migrationRole': 'notes_migration',
                               'backupRole': 'backup', 'bucket': 'notes'}}
@@ -93,7 +97,7 @@ class ConfigurationTests(unittest.TestCase):
                 yield
             finally:
                 events.append('released')
-        with patch.object(configuration, 'locked', locked), patch.object(configuration, 'Path') as path:
+        with patch.object(configuration, 'locked', locked), patch.object(configuration, 'get', return_value=None), patch.object(configuration, 'Path') as path:
             path.return_value.read_text.side_effect = RuntimeError('interrupted')
             with self.assertRaisesRegex(RuntimeError, 'interrupted'):
                 configuration.configure({})

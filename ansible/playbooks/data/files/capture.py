@@ -45,6 +45,8 @@ def verify(manifest):
 
 
 def capture(source=None):
+    from playbooks.data.files.handoff import fence
+    fence('capture')
     source = control.operation() if source is None else source
     started = time.time()
     checkpoint = control.BASE / 'pending-volume.json'

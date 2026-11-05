@@ -32,7 +32,7 @@
     src: '/workspace/ansible/playbooks/data/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
     mode: '0600'
-  loop: [native.py, control.py, s3.py, requests.py]
+  loop: [handoff.py, native.py, control.py, s3.py, requests.py, volumes.py]
 - name: Install identity runtime from its owning module
   ansible.builtin.copy:
     src: /workspace/ansible/playbooks/keycloak/files/{{ item }}
