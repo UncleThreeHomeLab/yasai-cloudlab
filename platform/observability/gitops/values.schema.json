@@ -82,6 +82,35 @@
               "name": {
                 "type": "string",
                 "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "ports": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "port"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,14}$",
+                      "maxLength": 15
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "protocol": {
+                      "enum": [
+                        "TCP",
+                        "UDP"
+                      ]
+                    }
+                  }
+                }
               }
             }
           },
@@ -144,6 +173,327 @@
           "type": "boolean"
         }
       }
+    },
+    "platformNotifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "fallbackReceiver": {
+          "type": "string",
+          "maxLength": 31,
+          "pattern": "^$|^[a-z][a-z0-9-]{0,30}$"
+        },
+        "receivers": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$",
+                "maxLength": 31
+              },
+              "email": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "host": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+([.-][a-z0-9]+)*$",
+                    "maxLength": 253
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "from": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9]+([.-][A-Za-z0-9]+)*$",
+                    "maxLength": 254
+                  },
+                  "to": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9]+([.-][A-Za-z0-9]+)*$",
+                    "maxLength": 254
+                  },
+                  "username": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9@._+-]+$",
+                    "maxLength": 254
+                  },
+                  "passwordSecretRef": {
+                    "$ref": "#/$defs/notificationSecret"
+                  },
+                  "caSecretRef": {
+                    "$ref": "#/$defs/notificationSecret"
+                  }
+                },
+                "required": [
+                  "host",
+                  "port",
+                  "from",
+                  "to"
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "required": [
+                        "username"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "passwordSecretRef"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "passwordSecretRef"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "username"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "webhook": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "target": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "service": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]{0,30}$",
+                        "maxLength": 31
+                      },
+                      "port": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]{0,14}$",
+                        "maxLength": 15
+                      },
+                      "path": {
+                        "type": "string",
+                        "pattern": "^/([A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*)?$",
+                        "maxLength": 256
+                      }
+                    },
+                    "required": [
+                      "service",
+                      "port",
+                      "path"
+                    ]
+                  },
+                  "authentication": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          "bearer",
+                          "mesh"
+                        ]
+                      },
+                      "secretRef": {
+                        "$ref": "#/$defs/notificationSecret"
+                      }
+                    },
+                    "required": [
+                      "mode"
+                    ],
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "mode": {
+                              "const": "bearer"
+                            }
+                          }
+                        },
+                        "then": {
+                          "required": [
+                            "secretRef"
+                          ]
+                        },
+                        "else": {
+                          "not": {
+                            "required": [
+                              "secretRef"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "caSecretRef": {
+                    "$ref": "#/$defs/notificationSecret"
+                  }
+                },
+                "required": [
+                  "target",
+                  "authentication"
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "authentication": {
+                          "properties": {
+                            "mode": {
+                              "const": "mesh"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "then": {
+                      "not": {
+                        "required": [
+                          "caSecretRef"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "email"
+                ]
+              },
+              {
+                "required": [
+                  "webhook"
+                ]
+              }
+            ]
+          }
+        },
+        "subscriptions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "service": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$",
+                "maxLength": 31
+              },
+              "severities": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "info",
+                    "warning",
+                    "critical"
+                  ]
+                }
+              },
+              "receivers": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,30}$",
+                  "maxLength": 31
+                }
+              }
+            },
+            "required": [
+              "service",
+              "severities",
+              "receivers"
+            ]
+          }
+        },
+        "groupWaitSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "groupIntervalSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "repeatIntervalSeconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "enabled",
+        "fallbackReceiver",
+        "receivers",
+        "subscriptions",
+        "groupWaitSeconds",
+        "groupIntervalSeconds",
+        "repeatIntervalSeconds"
+      ]
+    },
+    "alertmanagerState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "storageClass": {
+          "const": "cloudlab-telemetry"
+        },
+        "sizeGiB": {
+          "const": 1
+        }
+      },
+      "required": [
+        "storageClass",
+        "sizeGiB"
+      ]
+    }
+  },
+  "$defs": {
+    "notificationSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^alertmanager-notification-[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+          "maxLength": 63
+        }
+      },
+      "required": [
+        "name",
+        "key"
+      ]
     }
   }
 }

@@ -48,6 +48,6 @@ spec:
     requests.memory: 3Gi
     limits.memory: {{ printf "%dMi" ($policy.memory_limit_mib | int) | quote }}
     requests.storage: {{ printf "%dGi" ($policy.storage_limit_gib | int) | quote }}
-    persistentvolumeclaims: '4'
+    persistentvolumeclaims: '5'
     pods: '16'
 {{- end }}
