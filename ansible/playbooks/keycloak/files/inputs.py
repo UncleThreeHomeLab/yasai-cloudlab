@@ -107,6 +107,10 @@ def payload():
     result = {key: result[key] for key in ('repository', 'branch', 'revision')} | {
         'private_repository': private, 'private_branch': 'main',
         'telemetry_enabled': bool(public.get('observability', {}).get('enabled', False))}
+    result['identity_application_enabled'] = public.get('identity', {}).get('application', {}).get('enabled', False)
+    if result['identity_application_enabled']:
+        from playbooks.keycloak.files.ownership import INSTALLATION_REVISION
+        result['installation_revision'] = INSTALLATION_REVISION
     from playbooks.access.files.inputs import observation
     result['access_observation'] = observation(public, private)
     if os.environ.get('LAB_IDENTITY_PHASE') == 'argo':

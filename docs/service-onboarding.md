@@ -78,6 +78,21 @@ Argo origins advance only after that identity revision is approved; changing mai
 alone does not authorize new administrative origins. Controllers reconcile these
 shared inputs; service onboarding does not apply a gateway playbook.
 
+The optional `identity.application.enabled` owner is disabled by default. Its
+native ApplicationSet reads the exact approved identity revision's
+`identity/keycloak-values.yaml`: installationRevision, loginHost, adminHost,
+database, databaseRole, databaseHost, databasePort, databaseCA,
+trustedProxyAddresses and retiredEmergencyItem. The installation revision is
+fixed to `526891f62eb9b9a50a0ffaf6ef020269d09e7746`; other pins are refused.
+The existing retained task's `keycloak_native_handoff=true` prepares the accepted
+idle installation before activation. Preparation requires a separate equality
+check of the approved private file and current installation; the host handoff
+does not fetch that file. Routine setup observes that owner; maintenance and
+recovery retain their four scoped operational fields. Native
+proxy inputs support canonical private IPv4 Pod ranges of /24 or narrower.
+Realm configuration remains a separate owner. Chart promotion requires a
+separately reviewed platform change.
+
 Native ApplicationSet catalog ownership requires `privateSources.acceptanceCommitment`
 once `identity.argo` is bound. The reviewed public SHA-256 commitment
 binds one private receipt at `platform/acceptance/private-sources.yaml` to an
@@ -110,8 +125,8 @@ Its receipt fields are `version`, `consumer`, ordered `paths`, `revision` and
 `platform/observability.yaml`; permissions binds `platform/permissions.yaml`.
 `read_consumer` authenticates current protected public approval and reads the
 complete bundle at one accepted commit. Owners still validate their document
-profiles. Native retention, repair, advancement and removal remain unqualified
-for these consumer receipts.
+profiles. Production integration and consumer-specific domain validation remain
+required before activation.
 
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service

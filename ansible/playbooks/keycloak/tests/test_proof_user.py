@@ -164,6 +164,30 @@ class ProofUserTests(unittest.TestCase):
                             bootstrap.run({'revision': 'c' * 40}, 'scoped', retained_only=True)
                         write.assert_not_called()
                         self.assertEqual(json.loads(state.read_text())['phase'] if state.exists() else None, phase)
+
+    def test_retained_native_owner_is_observed_without_replaying_legacy_application_source(self):
+        from playbooks.keycloak.files.ownership import INSTALLATION_REVISION
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}, 'ownerReferences': [{'uid': 'native-parent'}]},
+                'spec': {'source': {'targetRevision': INSTALLATION_REVISION, 'helm': {'valuesObject': {}}}}}
+            (root / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': INSTALLATION_REVISION,
+                'private_uids': {}, 'native': {'phase': 'accepted'}}))
+            (root / 'retirement.json').write_text(json.dumps({'phase': 'accepted', 'nonce': 'a' * 32,
+                'application_uid': 'owned', 'keycloak_uid': 'server'}))
+            desired = copy.deepcopy(current); desired['spec']['source']['targetRevision'] = 'main'
+            payload = {'revision': 'e' * 40, 'installation_revision': INSTALLATION_REVISION, 'identity_application_enabled': True}
+            def resource(kind, *args, **kwargs):
+                if kind == 'jobs': return {'items': []}
+                return {'metadata': {'uid': 'server'}} if kind.startswith('keycloak.') else current
+            with patch.object(bootstrap, 'BASE', root), patch.object(bootstrap, 'application', return_value=desired), \
+                    patch.object(bootstrap, 'prerequisites') as prerequisites, patch.object(bootstrap, 'private_resources', return_value=[]), \
+                    patch.object(bootstrap, 'private_inputs'), patch.object(bootstrap, 'accepted_application', return_value=INSTALLATION_REVISION) as accepted, \
+                    patch.object(bootstrap, 'get', side_effect=resource), patch.object(bootstrap, 'wait'), patch.object(bootstrap, 'kube') as write:
+                self.assertFalse(bootstrap.run(payload, 'scoped', retained_only=True)['changed'])
+                prerequisites.assert_called_once_with(payload)
+                accepted.assert_called_once_with(current, base=root, revision=INSTALLATION_REVISION, register=True)
+                write.assert_not_called()
     def test_resume_after_partial_creation_records_identity_and_removes_null_operation(self):
         self.resume_creation()
 

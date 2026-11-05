@@ -79,10 +79,13 @@ def run(payload):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         receipt = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
-        if (receipt.get('phase') != 'scoped' or receipt.get('revision') != payload['revision']
+        from playbooks.keycloak.files.ownership import accepted_application, installation_revision
+        identity_revision = installation_revision(payload['revision'], base=BASE)
+        accepted_application(app, revision=identity_revision, base=BASE)
+        if (receipt.get('phase') != 'scoped' or receipt.get('revision') != identity_revision
                 or app.get('metadata', {}).get('uid') != receipt.get('uid')
                 or app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
-                or not reconciled(payload['revision'], receipt['uid'])
+                or not reconciled(identity_revision, receipt['uid'])
                 or not condition(get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE), 'Ready')):
             raise RuntimeError('Live health requires the current converged scoped identity owner')
         values = app['spec']['source']['helm']['valuesObject']
@@ -90,7 +93,7 @@ def run(payload):
             raise RuntimeError('Live health cannot run during another identity operation')
         private_inputs(dict(payload, values=values))
         result = protocols(values, credentials())
-        if not reconciled(payload['revision'], receipt['uid']):
+        if not reconciled(identity_revision, receipt['uid']):
             raise RuntimeError('Identity source changed during live health verification')
         return dict(result, changed=False, real_browser_enrollment_proven=False,
                     integrated_sessions_proven=False, independent_repair_preserved=True)

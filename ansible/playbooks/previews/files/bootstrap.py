@@ -10,6 +10,7 @@ from playbooks.istio.files.kube import kube, get, wait, contains, condition
 from playbooks.argocd.files.source_transition import accepted_identity_binding
 from playbooks.argocd.files.private_sources import PEM_TEMPLATE
 from playbooks.keycloak.files.maintenance import accepted_scoped_identity
+from playbooks.keycloak.files.ownership import installation_revision
 from playbooks.previews.files.contract import OWNER, approval, obsolete, runtime_catalog
 from playbooks.previews.files.admission import native
 
@@ -22,7 +23,7 @@ def prerequisites(payload):
         raise ValueError('Preview bootstrap requires its complete published payload')
     target = accepted_identity_binding(repository=payload['repository'], branch=payload['branch'],
         revision=payload['revision'], private_repository=payload['privateRepository'])
-    if not target or accepted_scoped_identity(revision=payload['revision']) != {'identity_ready': True}:
+    if not target or accepted_scoped_identity(revision=installation_revision(payload['revision'])) != {'identity_ready': True}:
         raise RuntimeError('Accepted native identity prerequisites are unavailable')
     expected = {
         'sourceRepos': [payload['repository'], target['valuesRepository']],

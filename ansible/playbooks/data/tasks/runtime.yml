@@ -106,4 +106,4 @@
     src: '/workspace/ansible/playbooks/keycloak/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/keycloak/files/{{ item }}'
     mode: '0600'
-  loop: [maintenance.py, recovery.py, configuration.py, isolated_restore.py, tokens.py]
+  loop: [maintenance.py, ownership.py, recovery.py, configuration.py, isolated_restore.py, tokens.py]

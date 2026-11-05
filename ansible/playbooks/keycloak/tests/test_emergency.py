@@ -7,12 +7,111 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
-from playbooks.keycloak.files import emergency, lease, maintenance, bootstrap
+from playbooks.keycloak.files import emergency, lease, maintenance, bootstrap, ownership
 from playbooks.keycloak.files.configuration import prepare_retirement, private_request
 from playbooks.keycloak.files.chart import render
 
 
 class EmergencyTests(unittest.TestCase):
+    def test_native_handoff_freezes_main_with_historical_receipts_and_refuses_changed_chart(self):
+        document = {'installationRevision': ownership.INSTALLATION_REVISION, 'loginHost': 'login.example.invalid',
+            'adminHost': 'identity-admin.internal.example.invalid', 'database': 'keycloak', 'databaseRole': 'keycloak',
+            'databaseHost': 'cloudlab-postgres-rw.cloudlab-data.svc.cluster.local', 'databasePort': 5432, 'databaseCA': 'fixture-ca',
+            'trustedProxyAddresses': ['10.42.0.0/24'], 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32}
+        spec = ownership.installation_values(document); spec['source']['targetRevision'] = 'main'
+        app = {'metadata': {'uid': 'app', 'resourceVersion': '1', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}}, 'spec': spec}
+        public = {'identity': {'application': {'enabled': False}}, 'observability': {'enabled': False}}
+        project = {'metadata': {'uid': 'project', 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/cloudlab-identity'}},
+            'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY]}}
+        desired = {'AppProject': {'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY, 'https://github.com/example/private.git']}}}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            state = {'phase': 'scoped', 'uid': 'app', 'revision': 'e' * 40}
+            retired = {'phase': 'accepted', 'nonce': 'a' * 32, 'application_uid': 'app', 'keycloak_uid': 'server', 'revision': 'd' * 40}
+            for name, data in (('ownership', state), ('retirement', retired)): (base / (name + '.json')).write_text(json.dumps(data))
+            retirement_bytes = (base / 'retirement.json').read_bytes()
+            def freeze(*args, **kwargs):
+                captured = json.loads((base / 'ownership.json').read_text())
+                self.assertEqual(captured['native']['phase'], 'prepared')
+                patches = json.loads(args[-1])
+                self.assertEqual(patches[:2], [{'op': 'test', 'path': '/metadata/uid', 'value': 'app'},
+                    {'op': 'test', 'path': '/metadata/resourceVersion', 'value': '1'}])
+                self.assertEqual(patches[2], {'op': 'test', 'path': '/spec', 'value': app['spec']})
+                self.assertEqual(patches[-1]['value'], ownership.INSTALLATION_REVISION)
+                app['spec']['source']['targetRevision'] = ownership.INSTALLATION_REVISION
+            from playbooks.data.files import native
+            with patch.object(ownership, 'installation_context', return_value=(public, 'c' * 40, {}, {}, desired,
+                    {'metadata': {'uid': 'root'}}, project, 999)), \
+                    patch.object(ownership, 'get', side_effect=lambda kind, *args: {'metadata': {'uid': 'server'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}} if kind.startswith('keycloak.') else None), \
+                    patch.object(ownership, 'application_ready', return_value=True), patch.object(native, 'matches_revision', return_value=True), \
+                    patch.object(native, 'receipt', side_effect=lambda path: json.loads(path.read_text())), \
+                    patch.object(native.source_snapshot, 'chart_files', return_value={'Chart.yaml': b'unchanged'}) as charts, \
+                    patch.object(bootstrap, 'writer_idle', return_value=True), patch('playbooks.istio.files.kube.kube', side_effect=freeze) as write:
+                self.assertTrue(ownership.prepare_native({}, app, state, retired, base=base))
+                self.assertFalse(ownership.prepare_native({}, app, state, retired, base=base))
+                self.assertEqual(write.call_count, 1)
+                self.assertEqual((base / 'retirement.json').read_bytes(), retirement_bytes)
+                app['spec']['source']['targetRevision'] = 'main'; state.pop('native'); state['revision'] = 'e' * 40
+                (base / 'ownership.json').write_text(json.dumps(state)); before = (base / 'ownership.json').read_bytes()
+                charts.side_effect = [{'Chart.yaml': b'old'}, {'Chart.yaml': b'changed'}]
+                with self.assertRaisesRegex(RuntimeError, 'cannot upgrade code'):
+                    ownership.prepare_native({}, app, state, retired, base=base)
+                self.assertEqual(write.call_count, 1); self.assertEqual((base / 'ownership.json').read_bytes(), before)
+                app['spec']['source']['targetRevision'] = ownership.INSTALLATION_REVISION
+                with self.assertRaisesRegex(RuntimeError, 'recorded initial main'):
+                    ownership.prepare_native({}, app, state, retired, base=base)
+                app['spec']['source']['targetRevision'] = 'b' * 40
+                with self.assertRaisesRegex(RuntimeError, 'accepted idle scoped'):
+                    ownership.prepare_native({}, app, state, retired, base=base)
+                self.assertEqual(write.call_count, 1); self.assertEqual((base / 'ownership.json').read_bytes(), before)
+
+    def test_native_owner_exact_parent_pin_and_four_operational_fields(self):
+        document = {'installationRevision': ownership.INSTALLATION_REVISION, 'loginHost': 'login.example.invalid',
+            'adminHost': 'identity-admin.internal.example.invalid', 'database': 'keycloak', 'databaseRole': 'keycloak',
+            'databaseHost': 'cloudlab-postgres-rw.cloudlab-data.svc.cluster.local', 'databasePort': 5432, 'databaseCA': 'fixture-ca',
+            'trustedProxyAddresses': ['10.42.0.0/24'], 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32}
+        app = {'metadata': {'uid': 'app', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}, 'ownerReferences': [
+            {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': bootstrap.APP, 'uid': 'parent', 'controller': True, 'blockOwnerDeletion': True}]},
+            'spec': ownership.installation_values(document)}
+        project = {'metadata': {'uid': 'project', 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/cloudlab-identity'}},
+            'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY, 'https://github.com/example/private.git']}}
+        parent = {'metadata': {'uid': 'parent', 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/cloudlab-identity'}},
+            'spec': {'fixed': 'native-contract'}, 'status': {'conditions': [{'type': 'ParametersGenerated', 'status': 'True'}]}}
+        desired = {'ApplicationSet': copy.deepcopy(parent), 'AppProject': copy.deepcopy(project)}
+        public = {'identity': {'application': {'enabled': True}}, 'observability': {'enabled': False}}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            captured = {'phase': 'prepared', 'root_uid': 'root', 'project_uid': 'project', 'application_uid': 'app', 'keycloak_uid': 'server',
+                'original_revision': 'main', 'values': copy.deepcopy(app['spec']['source']['helm']['valuesObject'])}
+            state = {'phase': 'scoped', 'uid': 'app', 'revision': ownership.INSTALLATION_REVISION, 'native': captured}
+            (base / 'ownership.json').write_text(json.dumps(state))
+            (base / 'retirement.json').write_text(json.dumps({'phase': 'accepted', 'application_uid': 'app', 'keycloak_uid': 'server'}))
+            from playbooks.data.files import native
+            def read(kind, *args):
+                if kind.startswith('keycloak.'): return {'metadata': {'uid': 'server'}}
+                if kind.startswith('applicationset.'): return parent
+                return {'metadata': {'uid': 'reader' if kind.startswith('externalsecret.') else 'secret'}}
+            with patch.object(ownership, 'installation_context', return_value=(public, 'c' * 40, {'valuesRepository': 'https://github.com/example/private.git'}, {}, desired,
+                    {'metadata': {'uid': 'root'}}, project, 999)) as context, patch.object(ownership, 'get', side_effect=read), \
+                    patch.object(native, 'receipt', side_effect=lambda path: json.loads(path.read_text())), \
+                    patch.object(native, 'source_credentials') as credentials, patch.object(ownership, 'application_ready', return_value=True):
+                with self.assertRaisesRegex(RuntimeError, 'retained owner before operations'):
+                    ownership.accepted_application(app, revision=ownership.INSTALLATION_REVISION, base=base)
+                self.assertEqual(ownership.accepted_application(app, revision=ownership.INSTALLATION_REVISION, base=base, register=True), ownership.INSTALLATION_REVISION)
+                self.assertEqual(json.loads((base / 'ownership.json').read_text())['native']['phase'], 'accepted')
+                before = (base / 'ownership.json').read_bytes()
+                values = app['spec']['source']['helm']['valuesObject']
+                values.update(maintenance=True, operation={'action': 'prepare-proof-user'}, bootstrapAdminEnabled=True, retiredEmergencyItem='keycloak-emergency-' + 'b' * 32)
+                self.assertEqual(ownership.accepted_application(app, base=base), ownership.INSTALLATION_REVISION)
+                context.reset_mock(); credentials.reset_mock()
+                with patch.object(emergency, 'BASE', base), self.assertRaisesRegex(RuntimeError, 'requested pin changed'):
+                    emergency.phase_sync_patches(app, 'b' * 40)
+                context.assert_not_called(); credentials.assert_not_called()
+                app['metadata']['ownerReferences'][0]['uid'] = 'foreign'
+                with self.assertRaisesRegex(RuntimeError, 'controller ownership changed'):
+                    ownership.accepted_application(app, base=base)
+                self.assertEqual((base / 'ownership.json').read_bytes(), before)
+
     def test_accepted_retirement_restores_only_its_exact_source_pin(self):
         revision = 'a' * 40
         retirement = {'phase': 'accepted', 'revision': revision, 'application_uid': 'owned'}

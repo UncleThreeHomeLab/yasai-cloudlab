@@ -16,7 +16,7 @@
       - python3
       - /opt/cloudlab/playbooks/keycloak/files/bootstrap.py
       - '{{ keycloak_phase }}'
-    stdin: '{{ (identity_public_source.stdout | from_json) | combine({''values'': identity_private_inputs.stdout
+    stdin: '{{ (identity_public_source.stdout | from_json) | combine({''native_handoff'': keycloak_native_handoff | default(false) | bool, ''values'': identity_private_inputs.stdout
       | from_json}) | to_json }}'
   register: identity_result
   changed_when: identity_result.rc == 0 and (identity_result.stdout | from_json).changed
