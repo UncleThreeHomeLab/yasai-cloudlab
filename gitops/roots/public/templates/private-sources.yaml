@@ -68,10 +68,15 @@ spec:
   goTemplate: true
   goTemplateOptions: ['missingkey=error']
   generators:
-    - git:
-        repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
-        revision: main
-        files: [{path: platform/acceptance/private-sources.yaml}]
+    - merge:
+        mergeKeys: [consumer]
+        generators:
+          - list:
+              elements: [{consumer: private-sources}]
+          - git:
+              repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              files: [{path: platform/acceptance/private-sources.yaml}]
   syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
   template:
     metadata:

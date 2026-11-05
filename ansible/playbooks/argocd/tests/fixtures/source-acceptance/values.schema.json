@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["acceptedRevision", "proofAttempt", "markerEnabled", "sources"],
+  "properties": {
+    "acceptedRevision": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "proofAttempt": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "markerEnabled": {"type": "boolean"},
+    "sources": {
+      "type": "array", "maxItems": 20,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "repository", "revision", "path"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,29}$"},
+          "repository": {"type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+[.]git$"},
+          "revision": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.-]*$"},
+          "path": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.-]*$"}
+        }
+      }
+    }
+  }
+}

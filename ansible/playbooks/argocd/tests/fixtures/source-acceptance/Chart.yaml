@@ -1,0 +1,4 @@
+apiVersion: v2
+name: source-acceptance-proof
+version: 1.0.0
+description: ConfigMap-only isolated native source acceptance qualification.

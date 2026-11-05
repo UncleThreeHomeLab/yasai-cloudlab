@@ -62,7 +62,8 @@ class PrivateAcceptanceTests(unittest.TestCase):
         invalid = [dict(RECEIPT, revision='e' * 40), dict(RECEIPT, nonce='e' * 64), dict(RECEIPT, version='other'),
             dict(RECEIPT, consumer='data'), dict(RECEIPT, revision='main'), dict(RECEIPT, nonce=True),
             dict(RECEIPT, nonce={'nonce': 'd' * 64}), dict(RECEIPT, extra='foreign'),
-            dict(RECEIPT, revision='{{ fail "untrusted-template" }}'), {k: v for k, v in RECEIPT.items() if k != 'nonce'}]
+            dict(RECEIPT, revision='{{ fail "untrusted-template" }}'), {k: v for k, v in RECEIPT.items() if k != 'nonce'},
+            {'consumer': 'private-sources'}]
         for value in invalid:
             with self.subTest(value=value):
                 result = self.template(value)
@@ -80,8 +81,9 @@ class PrivateAcceptanceTests(unittest.TestCase):
     def test_native_parent_contract_fixes_scope_and_declares_retention(self):
         spec = self.spec
         self.assertTrue(spec['goTemplate']); self.assertEqual(spec['goTemplateOptions'], ['missingkey=error'])
-        self.assertEqual(spec['generators'], [{'git': {'repoURL': REPOSITORY, 'revision': 'main',
-            'files': [{'path': 'platform/acceptance/private-sources.yaml'}]}}])
+        self.assertEqual(spec['generators'], [{'merge': {'mergeKeys': ['consumer'], 'generators': [
+            {'list': {'elements': [{'consumer': 'private-sources'}]}}, {'git': {'repoURL': REPOSITORY, 'revision': 'main',
+            'files': [{'path': 'platform/acceptance/private-sources.yaml'}]}}]}}])
         self.assertEqual(spec['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
         child = spec['template']
         self.assertEqual(child['metadata']['name'], APP); self.assertEqual(child['spec']['project'], APP)
@@ -151,7 +153,7 @@ class PrivateAcceptanceTests(unittest.TestCase):
             with self.subTest(change=change):
                 altered = copy.deepcopy(objects)
                 if change == 'uid': altered['application.argoproj.io', APP]['metadata']['ownerReferences'][0]['uid'] = 'foreign'
-                if change == 'contract': altered['applicationset.argoproj.io', APP]['spec']['generators'][0]['git']['revision'] = 'foreign'
+                if change == 'contract': altered['applicationset.argoproj.io', APP]['spec']['generators'][0]['merge']['generators'][1]['git']['revision'] = 'foreign'
                 if change == 'revision': altered['application.argoproj.io', APP]['spec']['sources'][1]['targetRevision'] = target['valuesRevision']
                 if change == 'legacy-owner': altered['application.argoproj.io', APP]['metadata'].pop('ownerReferences')
                 self.assertFalse(catalog_owner(altered['application.argoproj.io', APP], checked, lambda kind, name: altered.get((kind, name)))
@@ -162,7 +164,7 @@ class PrivateAcceptanceTests(unittest.TestCase):
                 if change == 'forged-approval':
                     receipt = dict(RECEIPT, revision='a' * 40)
                     forged.update(acceptanceReceipt=receipt, acceptedRevision=receipt['revision'], acceptanceCommitment=commitment(receipt))
-                if change == 'forged-policy': forged['applicationSet']['generators'][0]['git']['files'] = [{'path': '*'}]
+                if change == 'forged-policy': forged['applicationSet']['generators'][0]['merge']['generators'][1]['git']['files'] = [{'path': '*'}]
                 if change == 'root-override': live['application.argoproj.io', 'cloudlab-public-root']['spec']['source']['helm']['valuesObject']['privateSources'] = {'acceptanceCommitment': 'a' * 64}
                 if change == 'nonce': forged['acceptanceReceipt']['nonce'] = 'a' * 64
                 with patch('playbooks.data.files.native.published_source', return_value=(public(), 'a' * 40)), \
