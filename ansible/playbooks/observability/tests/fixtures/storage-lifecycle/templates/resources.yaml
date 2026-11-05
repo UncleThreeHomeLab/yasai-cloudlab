@@ -1,0 +1,1207 @@
+{{- range $name, $_ := .Values -}}
+{{- if not (has $name (list "operationId" "phase")) }}{{ fail "Unsupported fixture input" }}{{ end -}}
+{{- end -}}
+{{- if or (not (kindIs "string" .Values.operationId)) (not (regexMatch "^[a-f0-9]{16}$" .Values.operationId)) }}{{ fail "Invalid fixture operationId" }}{{ end -}}
+{{- if or (not (kindIs "string" .Values.phase)) (not (has .Values.phase (list "running" "scaled-down" "removed"))) }}{{ fail "Invalid fixture phase" }}{{ end -}}
+{{- if ne .Release.Namespace (printf "obs-storage-%s" .Values.operationId) }}{{ fail "Fixture namespace must match operationId" }}{{ end -}}
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-sentinel",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "data": {
+    "purpose": "synthetic-storage-lifecycle"
+  }
+}
+
+{{ if ne .Values.phase "removed" }}
+---
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-loki",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "loki-7.3.0",
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/version": "3.6.11",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "automountServiceAccountToken": false
+}
+
+---
+{{ include "storage.config.loki" . }}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-loki-runtime",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "loki-7.3.0",
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/version": "3.6.11",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "data": {
+    "runtime-config.yaml": "{}\n"
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-loki-memberlist",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "loki-7.3.0",
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/version": "3.6.11",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    },
+    "annotations": null
+  },
+  "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "None",
+    "ports": [
+      {
+        "name": "tcp",
+        "port": 7946,
+        "targetPort": "http-memberlist",
+        "protocol": "TCP"
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/part-of": "memberlist"
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-loki-headless",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "loki-7.3.0",
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/version": "3.6.11",
+      "variant": "headless",
+      "prometheus.io/service-monitor": "false",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    },
+    "annotations": null
+  },
+  "spec": {
+    "clusterIP": "None",
+    "ports": [
+      {
+        "name": "http-metrics",
+        "port": 3100,
+        "targetPort": "http-metrics",
+        "protocol": "TCP"
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki"
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-loki",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "loki-7.3.0",
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/version": "3.6.11",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    },
+    "annotations": null
+  },
+  "spec": {
+    "type": "ClusterIP",
+    "ports": [
+      {
+        "name": "http-metrics",
+        "port": 3100,
+        "targetPort": "http-metrics",
+        "protocol": "TCP"
+      },
+      {
+        "name": "grpc",
+        "port": 9095,
+        "targetPort": "grpc",
+        "protocol": "TCP"
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/component": "single-binary"
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "StatefulSet",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-loki",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "loki-7.3.0",
+      "app.kubernetes.io/name": "loki",
+      "app.kubernetes.io/instance": "cloudlab-loki",
+      "app.kubernetes.io/version": "3.6.11",
+      "app.kubernetes.io/component": "single-binary",
+      "app.kubernetes.io/part-of": "memberlist",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "spec": {
+    "replicas": {{ ternary 1 0 (eq .Values.phase "running") }},
+    "podManagementPolicy": "Parallel",
+    "updateStrategy": {
+      "rollingUpdate": {
+        "partition": 0
+      }
+    },
+    "serviceName": "obs-storage-{{ .Values.operationId }}-loki-headless",
+    "revisionHistoryLimit": 10,
+    "persistentVolumeClaimRetentionPolicy": {
+      "whenDeleted": "Retain",
+      "whenScaled": "Retain"
+    },
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "loki",
+        "app.kubernetes.io/instance": "cloudlab-loki",
+        "app.kubernetes.io/component": "single-binary"
+      }
+    },
+    "template": {
+      "metadata": {
+        "annotations": {
+          "checksum/config": "{{ get (include "storage.config.loki" . | fromJson) "data" | toJson | sha256sum }}",
+          "storage/size": "1Gi",
+          "kubectl.kubernetes.io/default-container": "loki"
+        },
+        "labels": {
+          "app.kubernetes.io/name": "loki",
+          "app.kubernetes.io/instance": "cloudlab-loki",
+          "app.kubernetes.io/component": "single-binary",
+          "app.kubernetes.io/part-of": "memberlist",
+          "cloudlab.io/owner": "observability-lifecycle-proof",
+          "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "obs-storage-{{ .Values.operationId }}-loki",
+        "automountServiceAccountToken": false,
+        "enableServiceLinks": true,
+        "securityContext": {
+          "fsGroup": 10001,
+          "fsGroupChangePolicy": "OnRootMismatch",
+          "runAsGroup": 10001,
+          "runAsNonRoot": true,
+          "runAsUser": 10001
+        },
+        "terminationGracePeriodSeconds": 30,
+        "containers": [
+          {
+            "name": "loki",
+            "image": "docker.io/grafana/loki@sha256:2483b71b28b15dee230f85512cae2b20c4b5f6e98a6eabe686cbccfa5ea3ba4a",
+            "imagePullPolicy": "IfNotPresent",
+            "args": [
+              "-config.file=/etc/loki/config/config.yaml",
+              "-target=all"
+            ],
+            "ports": [
+              {
+                "name": "http-metrics",
+                "containerPort": 3100,
+                "protocol": "TCP"
+              },
+              {
+                "name": "grpc",
+                "containerPort": 9095,
+                "protocol": "TCP"
+              },
+              {
+                "name": "http-memberlist",
+                "containerPort": 7946,
+                "protocol": "TCP"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true
+            },
+            "readinessProbe": {
+              "failureThreshold": 3,
+              "httpGet": {
+                "path": "/ready",
+                "port": "http-metrics"
+              },
+              "initialDelaySeconds": 15,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 1
+            },
+            "volumeMounts": [
+              {
+                "name": "tmp",
+                "mountPath": "/tmp"
+              },
+              {
+                "name": "config",
+                "mountPath": "/etc/loki/config"
+              },
+              {
+                "name": "runtime-config",
+                "mountPath": "/etc/loki/runtime-config"
+              },
+              {
+                "name": "storage",
+                "mountPath": "/var/loki"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "cpu": "400m",
+                "memory": "768Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "256Mi"
+              }
+            }
+          }
+        ],
+        "affinity": {
+          "podAntiAffinity": {
+            "requiredDuringSchedulingIgnoredDuringExecution": [
+              {
+                "labelSelector": {
+                  "matchLabels": {
+                    "app.kubernetes.io/component": "single-binary",
+                    "app.kubernetes.io/instance": "cloudlab-loki",
+                    "app.kubernetes.io/name": "loki"
+                  }
+                },
+                "topologyKey": "kubernetes.io/hostname"
+              }
+            ]
+          }
+        },
+        "volumes": [
+          {
+            "name": "tmp",
+            "emptyDir": {}
+          },
+          {
+            "name": "config",
+            "configMap": {
+              "name": "obs-storage-{{ .Values.operationId }}-loki-config",
+              "items": [
+                {
+                  "key": "config.yaml",
+                  "path": "config.yaml"
+                }
+              ]
+            }
+          },
+          {
+            "name": "runtime-config",
+            "configMap": {
+              "name": "obs-storage-{{ .Values.operationId }}-loki-runtime"
+            }
+          }
+        ]
+      }
+    },
+    "volumeClaimTemplates": [
+      {
+        "apiVersion": "v1",
+        "kind": "PersistentVolumeClaim",
+        "metadata": {
+          "name": "storage",
+          "labels": {
+            "cloudlab.io/owner": "observability-lifecycle-proof",
+            "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+          }
+        },
+        "spec": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "cloudlab-telemetry",
+          "resources": {
+            "requests": {
+              "storage": "1Gi"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-tempo",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "tempo-3.1.0",
+      "app.kubernetes.io/name": "tempo",
+      "app.kubernetes.io/instance": "cloudlab-tempo",
+      "app.kubernetes.io/version": "3.1.0",
+      "app.kubernetes.io/managed-by": "Helm",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "automountServiceAccountToken": false
+}
+
+---
+{{ include "storage.config.tempo" . }}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-tempo-headless",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "tempo-3.1.0",
+      "app.kubernetes.io/name": "tempo",
+      "app.kubernetes.io/instance": "cloudlab-tempo",
+      "app.kubernetes.io/version": "3.1.0",
+      "app.kubernetes.io/managed-by": "Helm",
+      "prometheus.io/service-monitor": "false",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "None",
+    "publishNotReadyAddresses": true,
+    "ports": [
+      {
+        "name": "tempo-jaeger-thrift-compact",
+        "port": 6831,
+        "protocol": "UDP",
+        "targetPort": 6831
+      },
+      {
+        "name": "tempo-jaeger-thrift-binary",
+        "port": 6832,
+        "protocol": "UDP",
+        "targetPort": 6832
+      },
+      {
+        "name": "tempo-prom-metrics",
+        "appProtocol": "http",
+        "port": 3200,
+        "protocol": "TCP",
+        "targetPort": 3200
+      },
+      {
+        "name": "tempo-jaeger-thrift-http",
+        "appProtocol": "http",
+        "port": 14268,
+        "protocol": "TCP",
+        "targetPort": 14268
+      },
+      {
+        "name": "grpc-tempo-jaeger",
+        "appProtocol": "grpc",
+        "port": 14250,
+        "protocol": "TCP",
+        "targetPort": 14250
+      },
+      {
+        "name": "tempo-zipkin",
+        "appProtocol": "http",
+        "port": 9411,
+        "protocol": "TCP",
+        "targetPort": 9411
+      },
+      {
+        "name": "tempo-otlp-legacy",
+        "appProtocol": "grpc",
+        "port": 55680,
+        "protocol": "TCP",
+        "targetPort": 55680
+      },
+      {
+        "name": "tempo-otlp-http-legacy",
+        "appProtocol": "http",
+        "port": 55681,
+        "protocol": "TCP",
+        "targetPort": 55681
+      },
+      {
+        "name": "grpc-tempo-otlp",
+        "appProtocol": "grpc",
+        "port": 4317,
+        "protocol": "TCP",
+        "targetPort": 4317
+      },
+      {
+        "name": "tempo-otlp-http",
+        "appProtocol": "http",
+        "port": 4318,
+        "protocol": "TCP",
+        "targetPort": 4318
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "tempo",
+      "app.kubernetes.io/instance": "cloudlab-tempo"
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-tempo",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "tempo-3.1.0",
+      "app.kubernetes.io/name": "tempo",
+      "app.kubernetes.io/instance": "cloudlab-tempo",
+      "app.kubernetes.io/version": "3.1.0",
+      "app.kubernetes.io/managed-by": "Helm",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "spec": {
+    "type": "ClusterIP",
+    "ports": [
+      {
+        "name": "tempo-jaeger-thrift-compact",
+        "port": 6831,
+        "protocol": "UDP",
+        "targetPort": 6831
+      },
+      {
+        "name": "tempo-jaeger-thrift-binary",
+        "port": 6832,
+        "protocol": "UDP",
+        "targetPort": 6832
+      },
+      {
+        "name": "tempo-prom-metrics",
+        "appProtocol": "http",
+        "port": 3200,
+        "protocol": "TCP",
+        "targetPort": 3200
+      },
+      {
+        "name": "tempo-jaeger-thrift-http",
+        "appProtocol": "http",
+        "port": 14268,
+        "protocol": "TCP",
+        "targetPort": 14268
+      },
+      {
+        "name": "grpc-tempo-jaeger",
+        "appProtocol": "grpc",
+        "port": 14250,
+        "protocol": "TCP",
+        "targetPort": 14250
+      },
+      {
+        "name": "tempo-zipkin",
+        "appProtocol": "http",
+        "port": 9411,
+        "protocol": "TCP",
+        "targetPort": 9411
+      },
+      {
+        "name": "tempo-otlp-legacy",
+        "appProtocol": "grpc",
+        "port": 55680,
+        "protocol": "TCP",
+        "targetPort": 55680
+      },
+      {
+        "name": "tempo-otlp-http-legacy",
+        "appProtocol": "http",
+        "port": 55681,
+        "protocol": "TCP",
+        "targetPort": 55681
+      },
+      {
+        "name": "grpc-tempo-otlp",
+        "appProtocol": "grpc",
+        "port": 4317,
+        "protocol": "TCP",
+        "targetPort": 4317
+      },
+      {
+        "name": "tempo-otlp-http",
+        "appProtocol": "http",
+        "port": 4318,
+        "protocol": "TCP",
+        "targetPort": 4318
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "tempo",
+      "app.kubernetes.io/instance": "cloudlab-tempo"
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "StatefulSet",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-tempo",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "tempo-3.1.0",
+      "app.kubernetes.io/name": "tempo",
+      "app.kubernetes.io/instance": "cloudlab-tempo",
+      "app.kubernetes.io/version": "3.1.0",
+      "app.kubernetes.io/managed-by": "Helm",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "spec": {
+    "replicas": {{ ternary 1 0 (eq .Values.phase "running") }},
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "tempo",
+        "app.kubernetes.io/instance": "cloudlab-tempo"
+      }
+    },
+    "serviceName": "obs-storage-{{ .Values.operationId }}-tempo-headless",
+    "template": {
+      "metadata": {
+        "labels": {
+          "app.kubernetes.io/name": "tempo",
+          "app.kubernetes.io/instance": "cloudlab-tempo",
+          "cloudlab.io/owner": "observability-lifecycle-proof",
+          "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+        },
+        "annotations": {
+          "checksum/config": "{{ get (include "storage.config.tempo" . | fromJson) "data" | toJson | sha256sum }}"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "obs-storage-{{ .Values.operationId }}-tempo",
+        "automountServiceAccountToken": false,
+        "containers": [
+          {
+            "args": [
+              "-config.file=/conf/tempo.yaml"
+            ],
+            "image": "docker.io/grafana/tempo:3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd",
+            "imagePullPolicy": "IfNotPresent",
+            "name": "tempo",
+            "ports": [
+              {
+                "containerPort": 3200,
+                "name": "prom-metrics"
+              },
+              {
+                "containerPort": 6831,
+                "name": "jaeger-thrift-c",
+                "protocol": "UDP"
+              },
+              {
+                "containerPort": 6832,
+                "name": "jaeger-thrift-b",
+                "protocol": "UDP"
+              },
+              {
+                "containerPort": 14268,
+                "name": "jaeger-thrift-h"
+              },
+              {
+                "containerPort": 14250,
+                "name": "jaeger-grpc"
+              },
+              {
+                "containerPort": 9411,
+                "name": "zipkin"
+              },
+              {
+                "containerPort": 55680,
+                "name": "otlp-legacy"
+              },
+              {
+                "containerPort": 4317,
+                "name": "otlp-grpc"
+              },
+              {
+                "containerPort": 55681,
+                "name": "otlp-httplegacy"
+              },
+              {
+                "containerPort": 4318,
+                "name": "otlp-http"
+              }
+            ],
+            "livenessProbe": {
+              "failureThreshold": 3,
+              "httpGet": {
+                "path": "/ready",
+                "port": 3200
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 5
+            },
+            "readinessProbe": {
+              "failureThreshold": 3,
+              "httpGet": {
+                "path": "/ready",
+                "port": 3200
+              },
+              "initialDelaySeconds": 20,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 5
+            },
+            "resources": {
+              "limits": {
+                "cpu": "400m",
+                "memory": "768Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "256Mi"
+              }
+            },
+            "env": null,
+            "volumeMounts": [
+              {
+                "mountPath": "/conf",
+                "name": "tempo-conf"
+              },
+              {
+                "mountPath": "/var/tempo",
+                "name": "storage"
+              }
+            ]
+          }
+        ],
+        "securityContext": {
+          "fsGroup": 10001,
+          "runAsGroup": 10001,
+          "runAsNonRoot": true,
+          "runAsUser": 10001
+        },
+        "volumes": [
+          {
+            "configMap": {
+              "name": "obs-storage-{{ .Values.operationId }}-tempo-config"
+            },
+            "name": "tempo-conf"
+          }
+        ]
+      }
+    },
+    "updateStrategy": {
+      "type": "RollingUpdate"
+    },
+    "volumeClaimTemplates": [
+      {
+        "apiVersion": "v1",
+        "kind": "PersistentVolumeClaim",
+        "metadata": {
+          "name": "storage",
+          "annotations": null,
+          "labels": {
+            "cloudlab.io/owner": "observability-lifecycle-proof",
+            "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+          }
+        },
+        "spec": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "resources": {
+            "requests": {
+              "storage": "1Gi"
+            }
+          },
+          "storageClassName": "cloudlab-telemetry"
+        }
+      }
+    ]
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "automountServiceAccountToken": true,
+  "metadata": {
+    "labels": {
+      "helm.sh/chart": "grafana-13.5.1",
+      "app.kubernetes.io/name": "grafana",
+      "app.kubernetes.io/instance": "cloudlab-prometheus",
+      "app.kubernetes.io/version": "13.2.4",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    },
+    "name": "obs-storage-{{ .Values.operationId }}-grafana",
+    "namespace": "obs-storage-{{ .Values.operationId }}"
+  }
+}
+
+---
+{{ include "storage.config.grafana" . }}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-grafana-dashboards",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "data": {
+    "active-alerts.json": "{\n  \"uid\": \"active-alerts\",\n  \"title\": \"Active alerts\",\n  \"editable\": false,\n  \"schemaVersion\": 39,\n  \"tags\": [\n    \"platform\",\n    \"alerts\"\n  ],\n  \"refresh\": \"30s\",\n  \"time\": {\n    \"from\": \"now-1h\",\n    \"to\": \"now\"\n  },\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"type\": \"text\",\n      \"title\": \"Observed alerts\",\n      \"gridPos\": {\n        \"h\": 3,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 0\n      },\n      \"options\": {\n        \"mode\": \"markdown\",\n        \"content\": \"Pending and firing alerts observed by Prometheus. Empty rows mean no active observed alerts; they do not prove health or rule coverage. Missing HTTP series and low traffic require investigation. Workload readiness describes readiness only.\"\n      }\n    },\n    {\n      \"id\": 2,\n      \"title\": \"Pending and firing\",\n      \"type\": \"table\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"h\": 15,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 3\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"ALERTS{alertstate=~\\\"pending|firing\\\"}\",\n          \"instant\": true,\n          \"format\": \"table\"\n        }\n      ],\n      \"fieldConfig\": {\n        \"defaults\": {},\n        \"overrides\": []\n      }\n    }\n  ]\n}\n",
+    "nodes.json": "{\n  \"uid\": \"cloudlab-nodes\",\n  \"title\": \"Nodes\",\n  \"description\": \"Basic host capacity and performance. Disk space covers the root filesystem. Network traffic covers physical Ethernet interfaces.\",\n  \"schemaVersion\": 41,\n  \"version\": 2,\n  \"editable\": false,\n  \"tags\": [\n    \"cloudlab\"\n  ],\n  \"timezone\": \"browser\",\n  \"refresh\": \"30s\",\n  \"time\": {\n    \"from\": \"now-6h\",\n    \"to\": \"now\"\n  },\n  \"templating\": {\n    \"list\": [\n      {\n        \"name\": \"instance\",\n        \"label\": \"Node\",\n        \"type\": \"query\",\n        \"datasource\": {\n          \"type\": \"prometheus\",\n          \"uid\": \"metrics\"\n        },\n        \"query\": \"label_values(node_uname_info, instance)\",\n        \"refresh\": 1,\n        \"includeAll\": true,\n        \"allValue\": \".*\",\n        \"multi\": true,\n        \"sort\": 1,\n        \"current\": {\n          \"text\": \"All\",\n          \"value\": \"$__all\"\n        }\n      }\n    ]\n  },\n  \"links\": [\n    {\n      \"type\": \"link\",\n      \"title\": \"Releases\",\n      \"url\": \"/d/cloudlab-rollouts\",\n      \"keepTime\": true\n    },\n    {\n      \"type\": \"dashboards\",\n      \"tags\": [\n        \"cloudlab\"\n      ],\n      \"title\": \"CloudLab dashboards\",\n      \"asDropdown\": true,\n      \"includeVars\": true,\n      \"keepTime\": true\n    }\n  ],\n  \"panels\": [\n    {\n      \"id\": 2,\n      \"title\": \"CPU utilisation\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 0,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percentunit\",\n          \"noValue\": \"UNKNOWN\",\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"min\": 0,\n          \"max\": 1\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"1 - avg by (instance) (rate(node_cpu_seconds_total{instance=~\\\"$instance\\\",mode=\\\"idle\\\"}[$__rate_interval]))\",\n          \"legendFormat\": \"{{ "{{" }}instance}}\",\n          \"range\": true,\n          \"instant\": false\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": []\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 5,\n      \"title\": \"Memory usage\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 0,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percentunit\",\n          \"noValue\": \"UNKNOWN\",\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"min\": 0,\n          \"max\": 1\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"1 - node_memory_MemAvailable_bytes{instance=~\\\"$instance\\\"} / node_memory_MemTotal_bytes{instance=~\\\"$instance\\\"}\",\n          \"legendFormat\": \"{{ "{{" }}instance}}\",\n          \"range\": true,\n          \"instant\": false\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": []\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 8,\n      \"title\": \"Root filesystem space available\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 7,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percentunit\",\n          \"noValue\": \"UNKNOWN\",\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"min\": 0,\n          \"max\": 1\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"node_filesystem_avail_bytes{instance=~\\\"$instance\\\",mountpoint=\\\"/\\\"} / node_filesystem_size_bytes{instance=~\\\"$instance\\\",mountpoint=\\\"/\\\"}\",\n          \"legendFormat\": \"{{ "{{" }}instance}}\",\n          \"range\": true,\n          \"instant\": false\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": []\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 3,\n      \"title\": \"Load per CPU\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 7,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n          \"noValue\": \"UNKNOWN\",\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          }\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"node_load1{instance=~\\\"$instance\\\"} / on(instance) count by(instance) (node_cpu_seconds_total{instance=~\\\"$instance\\\",mode=\\\"idle\\\"})\",\n          \"legendFormat\": \"{{ "{{" }}instance}}\",\n          \"range\": true,\n          \"instant\": false\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": []\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 11,\n      \"title\": \"Disk mean I/O latency\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 14,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"s\",\n          \"noValue\": \"UNKNOWN\",\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          }\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"(sum by(instance) (rate(node_disk_read_time_seconds_total{instance=~\\\"$instance\\\",device=~\\\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\\\"}[$__rate_interval])) + sum by(instance) (rate(node_disk_write_time_seconds_total{instance=~\\\"$instance\\\",device=~\\\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\\\"}[$__rate_interval]))) / ((sum by(instance) (rate(node_disk_reads_completed_total{instance=~\\\"$instance\\\",device=~\\\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\\\"}[$__rate_interval])) + sum by(instance) (rate(node_disk_writes_completed_total{instance=~\\\"$instance\\\",device=~\\\"sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+\\\"}[$__rate_interval]))) > 0)\",\n          \"legendFormat\": \"{{ "{{" }}instance}}\",\n          \"range\": true,\n          \"instant\": false\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": []\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 12,\n      \"title\": \"Network receive / transmit\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 14,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"Bps\",\n          \"noValue\": \"UNKNOWN\",\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          }\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"rate(node_network_receive_bytes_total{instance=~\\\"$instance\\\",device=~\\\"eth.*|en.*\\\"}[$__rate_interval])\",\n          \"legendFormat\": \"{{ "{{" }}instance}} {{ "{{" }}device}} receive\",\n          \"range\": true,\n          \"instant\": false\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"rate(node_network_transmit_bytes_total{instance=~\\\"$instance\\\",device=~\\\"eth.*|en.*\\\"}[$__rate_interval])\",\n          \"legendFormat\": \"{{ "{{" }}instance}} {{ "{{" }}device}} transmit\",\n          \"range\": true\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": []\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    }\n  ]\n}\n",
+    "releases.json": "{\n  \"uid\": \"cloudlab-rollouts\",\n  \"title\": \"Releases\",\n  \"description\": \"Live stable/canary routing, measured requests and current revision information. UNKNOWN means missing telemetry. No traffic means valid counters recorded zero requests.\",\n  \"schemaVersion\": 41,\n  \"version\": 1,\n  \"editable\": false,\n  \"tags\": [\n    \"cloudlab\",\n    \"releases\"\n  ],\n  \"timezone\": \"browser\",\n  \"refresh\": \"10s\",\n  \"time\": {\n    \"from\": \"now-15m\",\n    \"to\": \"now\"\n  },\n  \"templating\": {\n    \"list\": [\n      {\n        \"name\": \"namespace\",\n        \"label\": \"Namespace\",\n        \"type\": \"query\",\n        \"datasource\": {\n          \"type\": \"prometheus\",\n          \"uid\": \"metrics\"\n        },\n        \"query\": \"label_values(cloudlab_rollout_info, namespace)\",\n        \"refresh\": 1,\n        \"multi\": false,\n        \"includeAll\": false,\n        \"sort\": 1,\n        \"current\": {\n          \"text\": \"cloudlab-app-notes\",\n          \"value\": \"cloudlab-app-notes\"\n        }\n      },\n      {\n        \"name\": \"rollout\",\n        \"label\": \"Service\",\n        \"type\": \"query\",\n        \"datasource\": {\n          \"type\": \"prometheus\",\n          \"uid\": \"metrics\"\n        },\n        \"query\": \"label_values(cloudlab_rollout_info{namespace=~\\\"$namespace\\\"}, rollout)\",\n        \"refresh\": 1,\n        \"multi\": false,\n        \"includeAll\": false,\n        \"sort\": 1,\n        \"current\": {\n          \"text\": \"notes-web\",\n          \"value\": \"notes-web\"\n        }\n      },\n      {\n        \"name\": \"traffic\",\n        \"label\": \"Traffic\",\n        \"type\": \"custom\",\n        \"query\": \"user,release\",\n        \"includeAll\": true,\n        \"allValue\": \"user|release\",\n        \"multi\": true,\n        \"current\": {\n          \"text\": \"All\",\n          \"value\": \"$__all\"\n        },\n        \"description\": \"User requests and identifiable synthetic release requests; health probes are excluded.\"\n      }\n    ]\n  },\n  \"links\": [\n    {\n      \"type\": \"link\",\n      \"title\": \"Nodes\",\n      \"url\": \"/d/cloudlab-nodes\",\n      \"keepTime\": true\n    }\n  ],\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"title\": \"State\",\n      \"type\": \"stat\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 0,\n        \"w\": 4,\n        \"h\": 5\n      },\n      \"description\": \"Healthy means no release is progressing. Degraded indicates an aborted or failed release.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 0,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ]\n        },\n        \"overrides\": [\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Healthy\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"green\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Progressing\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"yellow\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Paused\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"blue\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Degraded\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"red\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Error\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"red\"\n                }\n              }\n            ]\n          }\n        ]\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"cloudlab_rollout_phase{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 1\",\n          \"legendFormat\": \"{{ "{{" }}phase}}\",\n          \"instant\": true,\n          \"range\": false\n        }\n      ],\n      \"options\": {\n        \"textMode\": \"name\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"none\",\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n          ],\n          \"fields\": \"\",\n          \"values\": false\n        }\n      }\n    },\n    {\n      \"id\": 2,\n      \"title\": \"Configured traffic split\",\n      \"type\": \"bargauge\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 4,\n        \"y\": 0,\n        \"w\": 10,\n        \"h\": 5\n      },\n      \"description\": \"Live HTTPRoute backend weights. Stable 100% / Canary 0% means new requests go to stable.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percent\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 1,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ],\n          \"min\": 0,\n          \"max\": 100\n        },\n        \"overrides\": [\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Stable\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"green\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Canary\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"yellow\"\n                }\n              }\n            ]\n          }\n        ]\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"100 * sum(cloudlab_httproute_backend_weight{namespace=~\\\"$namespace\\\",route=\\\"$rollout\\\",backend=\\\"$rollout\\\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\\\"$namespace\\\",route=\\\"$rollout\\\"})\",\n          \"legendFormat\": \"Stable\",\n          \"instant\": true,\n          \"range\": false\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"100 * sum(cloudlab_httproute_backend_weight{namespace=~\\\"$namespace\\\",route=\\\"$rollout\\\",backend=\\\"$rollout-canary\\\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\\\"$namespace\\\",route=\\\"$rollout\\\"})\",\n          \"legendFormat\": \"Canary\",\n          \"instant\": true,\n          \"range\": false\n        }\n      ],\n      \"options\": {\n        \"orientation\": \"horizontal\",\n        \"displayMode\": \"basic\",\n        \"showUnfilled\": true,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n          ],\n          \"fields\": \"\",\n          \"values\": false\n        }\n      }\n    },\n    {\n      \"id\": 3,\n      \"title\": \"Observed traffic split \\u2014 last 2m\",\n      \"type\": \"bargauge\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 14,\n        \"y\": 0,\n        \"w\": 10,\n        \"h\": 5\n      },\n      \"description\": \"Measured request share, not configured weights. No traffic is different from missing telemetry. Probes are excluded. Uses the current stable/candidate revision identities; completed revisions are not counted as canary.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percent\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 1,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"value\",\n              \"options\": {\n                \"-1\": {\n                  \"text\": \"No traffic\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ],\n          \"min\": 0,\n          \"max\": 100\n        },\n        \"overrides\": [\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Stable\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"green\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Canary\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"yellow\"\n                }\n              }\n            ]\n          }\n        ]\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"((100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0))))) and on(namespace,rollout) (((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))) > 0)) or on(namespace,rollout) ((((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))) == 0) - 1)\",\n          \"legendFormat\": \"Stable\",\n          \"instant\": true,\n          \"range\": false\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"((100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0))))) and on(namespace,rollout) (((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))) > 0)) or on(namespace,rollout) ((((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))) == 0) - 1)\",\n          \"legendFormat\": \"Canary\",\n          \"instant\": true,\n          \"range\": false\n        }\n      ],\n      \"options\": {\n        \"orientation\": \"horizontal\",\n        \"displayMode\": \"basic\",\n        \"showUnfilled\": true,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n          ],\n          \"fields\": \"\",\n          \"values\": false\n        }\n      }\n    },\n    {\n      \"id\": 4,\n      \"title\": \"Requests \\u2014 last 2m\",\n      \"type\": \"stat\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 5,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"description\": \"Prometheus estimates request counts over two minutes. Canary is zero only when no separate candidate revision exists; missing active-revision data stays UNKNOWN.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 0,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ]\n        },\n        \"overrides\": [\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Stable\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"green\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Canary\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"yellow\"\n                }\n              }\n            ]\n          }\n        ]\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"(sum by(namespace,rollout) (cloudlab:rollout_requests:increase2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"}))\",\n          \"legendFormat\": \"Stable\",\n          \"instant\": true,\n          \"range\": false\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"(sum by(namespace,rollout) (cloudlab:rollout_requests:increase2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))\",\n          \"legendFormat\": \"Canary\",\n          \"instant\": true,\n          \"range\": false\n        }\n      ],\n      \"options\": {\n        \"textMode\": \"value_and_name\",\n        \"colorMode\": \"value\",\n        \"graphMode\": \"none\",\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n          ],\n          \"fields\": \"\",\n          \"values\": false\n        }\n      }\n    },\n    {\n      \"id\": 5,\n      \"title\": \"Requests per second\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 5,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"description\": \"Two-minute rates split by the live stable/canary revision mapping. Select user or synthetic release traffic above.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"reqps\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 2,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ]\n        },\n        \"overrides\": [\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Stable\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"green\"\n                }\n              }\n            ]\n          },\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Canary\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\": \"yellow\"\n                }\n              }\n            ]\n          }\n        ]\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"(sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"}))\",\n          \"legendFormat\": \"Stable\",\n          \"instant\": false,\n          \"range\": true\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"(sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))\",\n          \"legendFormat\": \"Canary\",\n          \"instant\": false,\n          \"range\": true\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": [\n            \"lastNotNull\"\n          ]\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 6,\n      \"title\": \"Canary share over time\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 12,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"description\": \"Configured percentage changes immediately after scraping; observed percentage averages requests over the previous two minutes.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percent\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 1,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"value\",\n              \"options\": {\n                \"-1\": {\n                  \"text\": \"No traffic\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ],\n          \"min\": 0,\n          \"max\": 100\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"100 * sum(cloudlab_httproute_backend_weight{namespace=~\\\"$namespace\\\",route=\\\"$rollout\\\",backend=\\\"$rollout-canary\\\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\\\"$namespace\\\",route=\\\"$rollout\\\"})\",\n          \"legendFormat\": \"Configured canary\",\n          \"instant\": false,\n          \"range\": true\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"((100 * (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0))) / on(namespace,rollout) ((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0))))) and on(namespace,rollout) (((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))) > 0)) or on(namespace,rollout) ((((sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"stable\\\",traffic=~\\\"$traffic\\\"})) + on(namespace,rollout) (sum by(namespace,rollout) (cloudlab:rollout_requests:rate2m{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\",role=\\\"canary\\\",traffic=~\\\"$traffic\\\"}) or on(namespace,rollout) (0 * (cloudlab:rollout_candidate:present{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"} == 0)))) == 0) - 1)\",\n          \"legendFormat\": \"Observed canary\",\n          \"instant\": false,\n          \"range\": true\n        }\n      ],\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\",\n          \"calcs\": [\n            \"last\"\n          ]\n        },\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        }\n      }\n    },\n    {\n      \"id\": 7,\n      \"title\": \"Stable and candidate revisions\",\n      \"type\": \"table\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 12,\n        \"w\": 12,\n        \"h\": 7\n      },\n      \"description\": \"A candidate row appears only when its pod revision differs from stable. It may remain after an abort while configured canary weight is zero.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 0,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ]\n        },\n        \"overrides\": []\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"cloudlab:rollout_revision:info{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"}\",\n          \"legendFormat\": \"\",\n          \"instant\": true,\n          \"range\": false,\n          \"format\": \"table\"\n        }\n      ],\n      \"transformations\": [\n        {\n          \"id\": \"filterFieldsByName\",\n          \"options\": {\n            \"include\": {\n              \"names\": [\n                \"role\",\n                \"revision\"\n              ]\n            }\n          }\n        },\n        {\n          \"id\": \"organize\",\n          \"options\": {\n            \"renameByName\": {\n              \"role\": \"Role\",\n              \"revision\": \"Pod revision\"\n            }\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 8,\n      \"title\": \"Replicas and metric freshness\",\n      \"type\": \"stat\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"metrics\"\n      },\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 19,\n        \"w\": 24,\n        \"h\": 4\n      },\n      \"description\": \"Ready pods can include both revisions during a rollout; the desired count is the steady-state target, not a target for each revision. Routing state is scraped every 30s; metric age over 90s is stale.\",\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n          \"noValue\": \"UNKNOWN\",\n          \"decimals\": 0,\n          \"color\": {\n            \"mode\": \"palette-classic\"\n          },\n          \"mappings\": [\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"null\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            },\n            {\n              \"type\": \"special\",\n              \"options\": {\n                \"match\": \"nan\",\n                \"result\": {\n                  \"text\": \"UNKNOWN\",\n                  \"color\": \"gray\"\n                }\n              }\n            }\n          ]\n        },\n        \"overrides\": [\n          {\n            \"matcher\": {\n              \"id\": \"byName\",\n              \"options\": \"Metric age\"\n            },\n            \"properties\": [\n              {\n                \"id\": \"unit\",\n                \"value\": \"s\"\n              },\n              {\n                \"id\": \"color\",\n                \"value\": {\n                  \"mode\": \"thresholds\"\n                }\n              },\n              {\n                \"id\": \"thresholds\",\n                \"value\": {\n                  \"mode\": \"absolute\",\n                  \"steps\": [\n                    {\n                      \"color\": \"green\",\n                      \"value\": null\n                    },\n                    {\n                      \"color\": \"red\",\n                      \"value\": 90\n                    }\n                  ]\n                }\n              }\n            ]\n          }\n        ]\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"cloudlab_rollout_replicas_available{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"}\",\n          \"legendFormat\": \"Ready pods\",\n          \"instant\": true,\n          \"range\": false\n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"cloudlab_rollout_replicas_desired{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"}\",\n          \"legendFormat\": \"Desired (steady state)\",\n          \"instant\": true,\n          \"range\": false\n        },\n        {\n          \"refId\": \"C\",\n          \"expr\": \"time() - max(timestamp(cloudlab_rollout_info{namespace=~\\\"$namespace\\\",rollout=~\\\"$rollout\\\"}))\",\n          \"legendFormat\": \"Metric age\",\n          \"instant\": true,\n          \"range\": false\n        }\n      ],\n      \"options\": {\n        \"textMode\": \"value_and_name\",\n        \"colorMode\": \"value\",\n        \"graphMode\": \"none\",\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n          ],\n          \"fields\": \"\",\n          \"values\": false\n        }\n      }\n    }\n  ]\n}\n"
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-grafana",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "grafana-13.5.1",
+      "app.kubernetes.io/name": "grafana",
+      "app.kubernetes.io/instance": "cloudlab-prometheus",
+      "app.kubernetes.io/version": "13.2.4",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "spec": {
+    "type": "ClusterIP",
+    "ports": [
+      {
+        "name": "http-web",
+        "port": 80,
+        "protocol": "TCP",
+        "targetPort": "grafana"
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "grafana",
+      "app.kubernetes.io/instance": "cloudlab-prometheus"
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "PersistentVolumeClaim",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-grafana",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "grafana-13.5.1",
+      "app.kubernetes.io/name": "grafana",
+      "app.kubernetes.io/instance": "cloudlab-prometheus",
+      "app.kubernetes.io/version": "13.2.4",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false"
+    },
+    "finalizers": [
+      "kubernetes.io/pvc-protection"
+    ]
+  },
+  "spec": {
+    "accessModes": [
+      "ReadWriteOnce"
+    ],
+    "resources": {
+      "requests": {
+        "storage": "1Gi"
+      }
+    },
+    "storageClassName": "cloudlab-telemetry"
+  }
+}
+
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-grafana",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "helm.sh/chart": "grafana-13.5.1",
+      "app.kubernetes.io/name": "grafana",
+      "app.kubernetes.io/instance": "cloudlab-prometheus",
+      "app.kubernetes.io/version": "13.2.4",
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "spec": {
+    "replicas": {{ ternary 1 0 (eq .Values.phase "running") }},
+    "revisionHistoryLimit": 10,
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "grafana",
+        "app.kubernetes.io/instance": "cloudlab-prometheus"
+      }
+    },
+    "strategy": {
+      "type": "Recreate"
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "helm.sh/chart": "grafana-13.5.1",
+          "app.kubernetes.io/name": "grafana",
+          "app.kubernetes.io/instance": "cloudlab-prometheus",
+          "app.kubernetes.io/version": "13.2.4",
+          "cloudlab.io/owner": "observability-lifecycle-proof",
+          "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+        },
+        "annotations": {
+          "checksum/config": "{{ get (include "storage.config.grafana" . | fromJson) "data" | toJson | sha256sum }}",
+          "checksum/sc-dashboard-provider-config": "e70bf6a851099d385178a76de9757bb0bef8299da6d8443602590e44f05fdf24",
+          "kubectl.kubernetes.io/default-container": "grafana"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "obs-storage-{{ .Values.operationId }}-grafana",
+        "automountServiceAccountToken": false,
+        "shareProcessNamespace": false,
+        "securityContext": {
+          "fsGroup": 472,
+          "runAsGroup": 472,
+          "runAsNonRoot": true,
+          "runAsUser": 472
+        },
+        "enableServiceLinks": true,
+        "containers": [
+          {
+            "name": "grafana",
+            "image": "docker.io/grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f",
+            "imagePullPolicy": "IfNotPresent",
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "tmp",
+                "mountPath": "/tmp"
+              },
+              {
+                "name": "config",
+                "mountPath": "/etc/grafana/grafana.ini",
+                "subPath": "grafana.ini"
+              },
+              {
+                "name": "storage",
+                "mountPath": "/var/lib/grafana"
+              },
+              {
+                "name": "search",
+                "mountPath": "/var/lib/grafana-search"
+              },
+              {
+                "name": "dashboards-cloudlab",
+                "mountPath": "/var/lib/grafana/dashboards/cloudlab"
+              },
+              {
+                "name": "config",
+                "mountPath": "/etc/grafana/provisioning/datasources/datasources.yaml",
+                "subPath": "datasources.yaml"
+              },
+              {
+                "name": "config",
+                "mountPath": "/etc/grafana/provisioning/dashboards/providers.yaml",
+                "subPath": "providers.yaml"
+              },
+              {
+                "name": "grafana-oidc",
+                "mountPath": "/etc/secrets/grafana-oidc",
+                "readOnly": true,
+                "subPath": null
+              },
+              {
+                "name": "grafana-emergency",
+                "mountPath": "/etc/secrets/grafana-emergency",
+                "readOnly": true,
+                "subPath": null
+              }
+            ],
+            "ports": [
+              {
+                "name": "grafana",
+                "containerPort": 3000,
+                "protocol": "TCP"
+              },
+              {
+                "name": "gossip-tcp",
+                "containerPort": 9094,
+                "protocol": "TCP"
+              },
+              {
+                "name": "gossip-udp",
+                "containerPort": 9094,
+                "protocol": "UDP"
+              },
+              {
+                "name": "profiling",
+                "containerPort": 6060,
+                "protocol": "TCP"
+              }
+            ],
+            "env": [
+              {
+                "name": "POD_IP",
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "status.podIP"
+                  }
+                }
+              },
+              {
+                "name": "GF_SECURITY_ADMIN_USER",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "obs-storage-{{ .Values.operationId }}-grafana-emergency",
+                    "key": "username"
+                  }
+                }
+              },
+              {
+                "name": "GF_SECURITY_ADMIN_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "obs-storage-{{ .Values.operationId }}-grafana-emergency",
+                    "key": "password"
+                  }
+                }
+              },
+              {
+                "name": "GF_PATHS_DATA",
+                "value": "/var/lib/grafana/"
+              },
+              {
+                "name": "GF_PATHS_LOGS",
+                "value": "/var/log/grafana"
+              },
+              {
+                "name": "GF_PATHS_PLUGINS",
+                "value": "/var/lib/grafana/plugins"
+              },
+              {
+                "name": "GF_PATHS_PROVISIONING",
+                "value": "/etc/grafana/provisioning"
+              },
+              {
+                "name": "GF_UNIFIED_STORAGE_INDEX_PATH",
+                "value": "/var/lib/grafana-search/bleve"
+              },
+              {
+                "name": "GOMEMLIMIT",
+                "value": "691MiB"
+              }
+            ],
+            "livenessProbe": {
+              "failureThreshold": 10,
+              "httpGet": {
+                "path": "/api/health",
+                "port": "grafana"
+              },
+              "initialDelaySeconds": 60,
+              "timeoutSeconds": 30
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/api/health",
+                "port": "grafana"
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "250m",
+                "memory": "768Mi"
+              },
+              "requests": {
+                "cpu": "20m",
+                "memory": "512Mi"
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "tmp",
+            "emptyDir": {}
+          },
+          {
+            "name": "config",
+            "configMap": {
+              "name": "obs-storage-{{ .Values.operationId }}-grafana-config"
+            }
+          },
+          {
+            "name": "dashboards-cloudlab",
+            "configMap": {
+              "name": "obs-storage-{{ .Values.operationId }}-grafana-dashboards"
+            }
+          },
+          {
+            "name": "storage",
+            "persistentVolumeClaim": {
+              "claimName": "obs-storage-{{ .Values.operationId }}-grafana"
+            }
+          },
+          {
+            "name": "search",
+            "emptyDir": {}
+          },
+          {
+            "name": "grafana-oidc",
+            "secret": {
+              "secretName": "obs-storage-{{ .Values.operationId }}-grafana-oidc",
+              "defaultMode": null
+            }
+          },
+          {
+            "name": "grafana-emergency",
+            "secret": {
+              "secretName": "obs-storage-{{ .Values.operationId }}-grafana-emergency",
+              "defaultMode": null
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Secret",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-grafana-emergency",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "type": "Opaque",
+  "stringData": {
+    "username": "fixture-only",
+    "password": "fixture-only-password",
+    "secret_key": "fixture-only-signing-key"
+  }
+}
+
+---
+{
+  "apiVersion": "v1",
+  "kind": "Secret",
+  "metadata": {
+    "name": "obs-storage-{{ .Values.operationId }}-grafana-oidc",
+    "namespace": "obs-storage-{{ .Values.operationId }}",
+    "labels": {
+      "cloudlab.io/owner": "observability-lifecycle-proof",
+      "cloudlab.io/storage-proof": "{{ .Values.operationId }}"
+    }
+  },
+  "type": "Opaque",
+  "stringData": {
+    "client_secret": "fixture-only-client-secret"
+  }
+}
+{{ end }}

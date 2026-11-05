@@ -11,6 +11,51 @@ ROOT = Path(__file__).resolve().parents[4]
 BASE = ROOT / 'platform/observability'
 
 
+def loki_declarative(raw):
+    """Correct the native governing Service without changing legacy chart output."""
+    output, seen = io.BytesIO(), set()
+    target_name = 'loki/templates/single-binary/service-headless.yaml'
+    source_hash = '720dffcd657bcca2c71f3debd41c88ca802868b12f87c04b6a305a719e8532f9'
+    require_target = False
+    if len(raw) > 8 * 1024 * 1024:
+        raise ValueError('Loki chart exceeds bound')
+    with gzip.GzipFile(fileobj=io.BytesIO(raw), mode='rb') as compressed:
+        expanded = compressed.read(16 * 1024 * 1024 + 1)
+    if len(expanded) > 16 * 1024 * 1024:
+        raise ValueError('Expanded Loki chart exceeds bound')
+    with tarfile.open(fileobj=io.BytesIO(expanded), mode='r:') as source:
+        with gzip.GzipFile(fileobj=output, mode='wb', filename='', mtime=0) as zipped:
+            with tarfile.open(fileobj=zipped, mode='w') as target:
+                for original in source:
+                    if (not original.isfile() or original.pax_headers or original.name.startswith('/') or
+                            '\\' in original.name or {'', '.', '..'} & set(original.name.split('/')) or
+                            original.name in seen or original.size > 4 * 1024 * 1024):
+                        raise ValueError('Unexpected Loki chart member')
+                    seen.add(original.name)
+                    data = source.extractfile(original).read()
+                    if original.name == target_name:
+                        if hashlib.sha256(data).hexdigest() != source_hash:
+                            raise ValueError('Pinned Loki headless Service template changed')
+                        guard = b'''{{- $cloudlabNative := false -}}
+{{- if hasKey .Values "cloudlabNativeLifecycle" -}}
+{{- if not (kindIs "bool" .Values.cloudlabNativeLifecycle) }}{{ fail "cloudlabNativeLifecycle must be a boolean" }}{{ end -}}
+{{- $cloudlabNative = .Values.cloudlabNativeLifecycle -}}
+{{- end -}}
+'''
+                        marker = b'{{ include "loki.name" . }}-headless'
+                        if data.count(marker) != 1:
+                            raise ValueError('Pinned Loki headless Service name changed')
+                        data = guard + data.replace(marker,
+                            b'{{ if $cloudlabNative }}{{ include "loki.singleBinaryFullname" . }}{{ else }}{{ include "loki.name" . }}{{ end }}-headless')
+                        require_target = True
+                    member = tarfile.TarInfo(original.name)
+                    member.mode, member.size = 0o644, len(data)
+                    target.addfile(member, io.BytesIO(data))
+    if not require_target:
+        raise ValueError('Pinned Loki headless Service template missing')
+    return output.getvalue()
+
+
 def retained(raw):
     output = io.BytesIO()
     count = 0
@@ -147,7 +192,7 @@ def build():
     for name in ('prometheus', 'loki', 'tempo', 'alloy', 'kiali'):
         path = BASE / name
         lock = json.loads((path / 'artifact.lock.json').read_text())
-        patchers = {'prometheus': retained, 'kiali': kiali_declarative, 'tempo': tempo_protocols}
+        patchers = {'prometheus': retained, 'kiali': kiali_declarative, 'tempo': tempo_protocols, 'loki': loki_declarative}
         if name in patchers:
             raw = (path / 'upstream.tgz').read_bytes()
             if hashlib.sha256(raw).hexdigest() != lock['upstream_sha256']:
