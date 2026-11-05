@@ -60,6 +60,36 @@ class ChannelTests(unittest.TestCase):
             channel.close_input();self.assertEqual(channel.read_frame(),b'result')
             with self.assertRaises(RuntimeError):channel.finish()
 
+    def test_raw_output_preserves_byte_bound_exit_and_owned_cleanup(self):
+        with self.child("import sys;sys.stdin.read();sys.stdout.write('raw\\noutput')") as channel:
+            self.assertEqual(channel.read_output(), b'raw\noutput')
+            self.assertTrue(channel.finished)
+            self.assertEqual(channel.buffer, b'')
+        for code in ("import os;os.write(1,b'x'*1000)", "import os;os.write(2,b'x'*1000)",
+                     "import sys;sys.stdout.write('result');sys.exit(2)", "import time;time.sleep(30)"):
+            channel = self.child(code, timeout=.15, frame_limit=64, output_limit=64)
+            with self.subTest(code=code), self.assertRaises(RuntimeError):
+                with channel: channel.read_output()
+            self.assertIsNotNone(channel.process.returncode)
+            with self.assertRaises(ChildProcessError): os.waitpid(channel.process.pid, os.WNOHANG)
+
+    def test_raw_success_allows_bounded_warning_but_framed_protocol_remains_strict(self):
+        with self.child("import sys;sys.stdout.write('result');sys.stderr.write('deprecated warning')") as channel:
+            self.assertEqual(channel.read_output(), b'result')
+            self.assertGreater(channel.stderr_bytes, 0)
+            self.assertTrue(channel.finished)
+        with self.child("import sys;print('frame');sys.stderr.write('warning')") as channel:
+            self.assertEqual(channel.read_frame(), b'frame')
+            with self.assertRaises(RuntimeError): channel.finish()
+        with self.child("import sys;sys.stdout.write('result');sys.stderr.write('warning');sys.exit(2)") as channel:
+            with self.assertRaises(RuntimeError): channel.read_output()
+
+    def test_blocked_write_is_bounded_and_reaped(self):
+        channel = self.child('import time;time.sleep(30)', timeout=.15, frame_limit=1024*1024, output_limit=1024*1024)
+        with self.assertRaises(RuntimeError):
+            with channel: channel.write_frame(b'x' * 1024 * 1024)
+        self.assertIsNotNone(channel.process.returncode)
+
     def test_timeout_terminates_owned_descendant_group_and_reaps_root_only(self):
         code="import subprocess,sys,time;child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']);print(child.pid,flush=True);time.sleep(30)"
         with self.child(code,timeout=.3) as channel:

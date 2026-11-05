@@ -68,7 +68,7 @@ def _render(arguments, payload, *, timeout=90):
                 stream.close()
 
 
-def resources(definition, approval, platform_repository, platform_revision, *, chart_root=None, public=None):
+def resources(definition, approval, platform_repository, platform_revision, *, chart_root=None, public=None, publication='ready'):
     """Render an explicit owner chart; the default is for local package checks."""
     if public is not None:
         from playbooks.services.files.owner import chart, configuration
@@ -77,7 +77,8 @@ def resources(definition, approval, platform_repository, platform_revision, *, c
             raise ValueError('Service rendering differs from its declared public owner')
         if chart_root is None:
             with chart(public) as selected_chart:
-                return resources(definition, approval, platform_repository, platform_revision, chart_root=selected_chart)
+                return resources(definition, approval, platform_repository, platform_revision, chart_root=selected_chart,
+                                 publication=publication)
     definition = validate(definition)
     required = {'name', 'repository', 'revision', 'valuesPath', 'namespace', 'secretReferences', 'configMaps'}
     # Native selected schema owns optional/required approval fields. Keep the
@@ -122,7 +123,7 @@ def resources(definition, approval, platform_repository, platform_revision, *, c
     output = _render(['helm', 'template', 'services', str(chart_root or ROOT / 'platform/delivery/services'),
                              '-n', 'argocd', '-f', '-'], json.dumps({
                                  'repository': platform_repository, 'revision': platform_revision,
-                                 'catalog': [{'definition': definition, 'approval': approval}],
+                                 'catalog': [{'definition': definition, 'approval': approval, 'publication': publication}],
                                  'dataApprovals': {r['credentialReference']: {'service': name, 'kind': kind, 'name': r['name'],
                                      'item': ('cnpg' if kind == 'database' else 's3') + '-' + name + '-production'}
                                      for kind, r in definition['data'].items()}}))
