@@ -207,7 +207,7 @@ class ObservationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'identity or ownership'): source.settings()
 
     def test_legacy_historical_settings_and_timer_never_fetch_missing_profile(self):
-        from playbooks.data.files.configuration import application
+        from playbooks.data.files.initial_bootstrap import application
         self.fixture['state'].pop('settings_uid')
         for name in (native.APP, native.SEAWEED):
             obj = self.objects['application.argoproj.io', name, 'argocd']
@@ -225,7 +225,7 @@ class ObservationTests(unittest.TestCase):
         self.api.request.assert_not_called(); self.client.request.assert_not_called()
 
     def test_legacy_owner_and_registered_native_downgrade_never_fall_back(self):
-        from playbooks.data.files.configuration import application
+        from playbooks.data.files.initial_bootstrap import application
         for name in (native.APP, native.SEAWEED):
             original = self.objects['application.argoproj.io', name, 'argocd']
             obj = application({'repository': self.fixture['public']['repository'], 'branch': 'main'},
@@ -239,7 +239,7 @@ class ObservationTests(unittest.TestCase):
         self.head.assert_not_called(); self.api.request.assert_not_called()
 
     def test_recorded_legacy_cold_resume_allows_only_own_sync_after_main_advanced(self):
-        from playbooks.data.files.configuration import application
+        from playbooks.data.files.initial_bootstrap import application
         from playbooks.data.files import volumes
         self.fixture['state'].pop('settings_uid')
         for name in (native.APP, native.SEAWEED):
@@ -288,7 +288,7 @@ class ObservationTests(unittest.TestCase):
         self.head.assert_not_called(); self.client.request.assert_not_called()
 
     def test_legacy_readiness_requires_new_spec_comparison_but_allows_main_advance(self):
-        from playbooks.data.files.configuration import application
+        from playbooks.data.files.initial_bootstrap import application
         expected = application({'repository': self.fixture['public']['repository'], 'branch': 'main'},
             'data-configuration', self.fixture['expected'])
         expected['metadata']['uid'] = 'legacy-owner'

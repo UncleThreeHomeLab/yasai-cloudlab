@@ -101,7 +101,7 @@ def exclusion(*, held=False):
             yield
 
 
-def guard(evidence, target, read, root=None, *, patched=False, held=False):
+def guard(evidence, target, read, root=None, *, patched=False, held=False, binding=None):
     evidence = validate(evidence, target, root)
     from playbooks.data.files import control
     from playbooks.data.files.native import native_application, quiet, quiet_operation, legacy_guard
@@ -109,9 +109,9 @@ def guard(evidence, target, read, root=None, *, patched=False, held=False):
         binding_fence(target)
         app = read('application.argoproj.io', APP)
         seaweed = read('application.argoproj.io', SEAWEED)
-        if patched and evidence.get('authority'):
+        if patched or binding is not None:
             from playbooks.data.files.handoff import transition_guard
-            if transition_guard(evidence, target, root, read):
+            if transition_guard(evidence, target, root, read, binding=binding):
                 return evidence
         native = native_application(app) or native_application(seaweed)
         if native and not evidence['required']:

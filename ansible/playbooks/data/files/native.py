@@ -49,18 +49,24 @@ def project_spec(name, public, target):
         'namespaceResourceWhitelist': [{'group': group, 'kind': kind} for group, kind in kinds]}
 
 
-def receipt(path, *, missing=False):
+def authority_path(path, *, missing=False):
     for current in (*reversed(path.parents), path):
         try:
             info = current.lstat()
         except FileNotFoundError:
             if missing:
-                return {}
+                return None
             raise
         if (info.st_uid != 0 or stat.S_ISLNK(info.st_mode)
                 or (current == path and (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600))
                 or (current != path and (not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022))):
             raise RuntimeError('Data authority receipt has unsafe ownership or permissions')
+    return info
+
+
+def receipt(path, *, missing=False):
+    if authority_path(path, missing=missing) is None:
+        return {}
     return json.loads(path.read_text())
 
 

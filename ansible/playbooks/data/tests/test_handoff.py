@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 import yaml
 from fixtures import native_observation
-from playbooks.data.files import backup, capture, configuration, control, handoff, native, restore, volumes
+from playbooks.data.files import backup, capture, initial_bootstrap, control, handoff, native, restore, volumes
 
 
 class HandoffTests(unittest.TestCase):
@@ -24,11 +24,11 @@ class HandoffTests(unittest.TestCase):
         directory = self.stack.enter_context(tempfile.TemporaryDirectory())
         self.base = Path(directory)
         self.stack.enter_context(patch.object(control, 'BASE', self.base))
-        self.stack.enter_context(patch.object(configuration, 'BASE', self.base))
+        self.stack.enter_context(patch.object(initial_bootstrap, 'BASE', self.base))
         self.read = lambda kind, name=None, namespace=None: self.objects.get((kind, name, namespace))
         self.stack.enter_context(patch.object(native, 'get', side_effect=self.read))
         self.stack.enter_context(patch.object(control, 'get', side_effect=self.read))
-        self.stack.enter_context(patch.object(configuration, 'get', side_effect=self.read))
+        self.stack.enter_context(patch.object(initial_bootstrap, 'get', side_effect=self.read))
         self.stack.enter_context(patch.object(native, 'receipt', side_effect=lambda path, **kwargs:
             self.fixture['binding'] if path == native.BINDING else json.loads(path.read_text()) if path.exists() else {}))
         self.head = self.stack.enter_context(patch.object(native, 'published_source', side_effect=lambda *a, **k:
@@ -41,7 +41,7 @@ class HandoffTests(unittest.TestCase):
         owner = self.fixture['state']; owner.pop('settings_uid')
         control.atomic(self.base / 'ownership.json', owner)
         for name in (native.APP, native.SEAWEED):
-            obj = configuration.application({'repository': self.fixture['public']['repository'], 'branch': 'main'},
+            obj = initial_bootstrap.application({'repository': self.fixture['public']['repository'], 'branch': 'main'},
                 'data-configuration' if name == native.APP else 'seaweedfs', self.fixture['expected'] if name == native.APP else None)
             obj['metadata']['uid'] = owner['applications'][name]
             obj['status'] = {'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}
@@ -288,13 +288,13 @@ class HandoffTests(unittest.TestCase):
         self.assertIs(native.operation(), False)
         app = self.objects['application.argoproj.io', native.APP, 'argocd']
         with self.assertRaisesRegex(RuntimeError, 'desired-scope'):
-            configuration.configure({'repository': self.fixture['public']['repository'], 'branch': 'main',
+            initial_bootstrap.configure({'repository': self.fixture['public']['repository'], 'branch': 'main',
                 'values': dict(self.fixture['expected'], bucket='foreign')})
         app['spec']['source']['helm']['valuesObject']['bucket'] = 'foreign'
         with self.assertRaisesRegex(RuntimeError, 'scope or operation'):
             native.operation()
-        with patch.object(configuration, 'Path') as legacy_inputs, patch.object(configuration, 'kube') as write:
-            with self.assertRaises(RuntimeError): configuration.configure({})
+        with patch.object(initial_bootstrap, 'Path') as legacy_inputs, patch.object(initial_bootstrap, 'kube') as write:
+            with self.assertRaises(RuntimeError): initial_bootstrap.configure({})
             legacy_inputs.assert_not_called(); write.assert_not_called()
 
     def test_task_publication_and_probe_precede_legacy_resolution(self):
@@ -328,21 +328,21 @@ class HandoffTests(unittest.TestCase):
         owner = handoff.state(); owner.pop('publicSource')
         control.atomic(self.base / 'ownership.json', owner)
         payload = {'repository': self.fixture['public']['repository'], 'branch': 'main'}
-        with patch.object(configuration, 'kube') as kube, patch.object(control, 'sql') as sql, \
+        with patch.object(initial_bootstrap, 'kube') as kube, patch.object(control, 'sql') as sql, \
                 patch.object(control, 's3') as s3:
-            self.assertTrue(configuration.configure(payload))
+            self.assertTrue(initial_bootstrap.configure(payload))
             before = (self.base / 'ownership.json').stat().st_mtime_ns
-            self.assertFalse(configuration.configure(payload))
+            self.assertFalse(initial_bootstrap.configure(payload))
             self.assertEqual(before, (self.base / 'ownership.json').stat().st_mtime_ns)
             self.assertEqual(handoff.state()['publicSource'], payload)
             self.assertFalse((self.base / 'desired.json').exists())
             for changed in (dict(payload, branch='foreign'), dict(payload, repository='https://github.com/example/foreign.git')):
                 with self.assertRaisesRegex(RuntimeError, 'Published metadata'):
-                    configuration.configure(changed)
+                    initial_bootstrap.configure(changed)
             owner = handoff.state(); owner['publicSource'] = dict(payload, branch='foreign')
             control.atomic(self.base / 'ownership.json', owner)
             with self.assertRaisesRegex(RuntimeError, 'source changed'):
-                configuration.configure(payload)
+                initial_bootstrap.configure(payload)
             kube.assert_not_called(); sql.assert_not_called(); s3.assert_not_called()
 
     def test_public_metadata_never_resolves_legacy_fields_even_on_publication_failure(self):

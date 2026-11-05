@@ -725,6 +725,13 @@ Private paths are relative to the `PRIVATE_CONFIG_REPOSITORY` checkout
 
 ### 6.2 Declare dependencies — Agent, then User
 
+Argo CD owns the shared data Applications from the pinned public charts and approved
+private binding. Native settings require authenticated sources and the registered
+settings ConfigMap; repair continues under the data owner lock. Initial bootstrap
+does not replay accepted workloads or generate a desired-value cache. Routine private
+catalog request changes and `services.catalogPath` support still require their
+scoped platform implementation; do not substitute a service playbook.
+
 For application SQL schemas, export reviewed, repeatable SQL from the application
 source and record its SHA-256. After scoped database provisioning, run
 `docker compose run -T --rm --entrypoint python lab -m playbooks.data.files.schema --service example-app --sql-file /workspace/.infra-private/onboarding/schema.sql --sha256 REVIEWED_SQL_SHA256`.

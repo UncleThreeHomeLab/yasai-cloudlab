@@ -223,7 +223,7 @@ def prepare_binding(evidence, target, root, read):
     capture(owner, target, {key: evidence[key] for key in ('revision', 'seaweedfsRevision')}, evidence['settings'], owners)
 
 
-def transition_guard(evidence, target, root, read):
+def transition_guard(evidence, target, root, read, *, binding=None):
     """Permit only the captured first-binding rollout to resume its controller."""
     owner = state(); value = active(owner)
     if not value or owner.get('settings_uid'):
@@ -236,6 +236,11 @@ def transition_guard(evidence, target, root, read):
         raise RuntimeError('Pending data transition differs from its armed authority')
     quiescent()
     public = {'repository': owner['publicSource']['repository'], 'data': {'configuration': value['pins']}}
+    published, _ = native.published_source(owner, deadline=time.monotonic() + 120)
+    config = published.get('data', {}).get('configuration', {})
+    if (published.get('data', {}).get('enabled') is not True or config.get('enabled') is not True
+            or {key: config.get(key) for key in value['pins']} != value['pins']):
+        raise RuntimeError('Pending data resume differs from the current protected public scope')
     meta = root.get('metadata', {}); spec = root.get('spec', {})
     if (meta.get('deletionTimestamp') or meta.get('ownerReferences') or meta.get('finalizers')
             or str(meta.get('annotations', {}).get('argocd.argoproj.io/skip-reconcile', '')).lower() == 'true'
@@ -263,13 +268,21 @@ def transition_guard(evidence, target, root, read):
                 or ('syncStrategy' in sync and sync['syncStrategy'] != {'hook': {}})
                 or ('retry' in operation and operation['retry'] != spec.get('syncPolicy', {}).get('retry'))):
             raise RuntimeError('Pending data Root operation is outside its automated reconciliation')
+    revision = (binding or {}).get('publicRevision')
+    if (not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision)
+            or binding.get('target') != target or spec['source'] not in (binding.get('originalSource'), binding.get('patchedSource'))
+            or any(binding.get(key) != value['owners'][key] for key in ('root_uid', 'project_uid', 'controller_uid'))
+            or any((read(kind, name) or {}).get('metadata', {}).get('uid') != binding[key]
+                for key, kind, name in (('project_uid', 'appproject.argoproj.io', 'cloudlab-root'),
+                    ('controller_uid', 'statefulset', 'argocd-application-controller')))):
+        raise RuntimeError('Pending Root resume has no matching captured public authority')
     if operations:
-        _, revision = native.published_source(owner, deadline=time.monotonic() + 120)
         for operation in operations:
             candidate = copy.deepcopy(root); candidate['operation'] = operation
             if not native.quiet_operation(candidate, [revision]):
-                raise RuntimeError('Pending data Root operation differs from protected public main')
-        if running.get('phase') == 'Running' and (running.get('syncResult', {}).get('source') != spec['source']
+                raise RuntimeError('Pending data Root operation differs from captured protected public authority')
+        if running.get('phase') == 'Running' and (running.get('syncResult', {}).get('source') not in
+                (binding.get('originalSource'), binding.get('patchedSource'))
                 or running.get('syncResult', {}).get('revision') != revision):
             raise RuntimeError('Pending data Root running source differs from its approved operation')
     elif not native.quiet(root):
@@ -356,9 +369,10 @@ def reconcile_source():
     return control.operation()
 
 
-def probe():
+def probe(*, read=None):
+    read = read or native.get
     owner = state()
-    apps = {name: native.get('application.argoproj.io', name, 'argocd') for name in (native.APP, native.SEAWEED)}
+    apps = {name: read('application.argoproj.io', name, 'argocd') for name in (native.APP, native.SEAWEED)}
     recorded = owner.get('applications', {})
     if set(recorded) == set(apps):
         if any(not apps[name] or apps[name]['metadata'].get('uid') != recorded[name] for name in apps):
@@ -366,7 +380,7 @@ def probe():
         if active(owner) and any(native.native_application(obj) for obj in apps.values()):
             # Classification cannot register or expose settings during convergence.
             return 'observe'
-        native.operation()
+        native.operation(read=read)
         return 'observe'
     if owner.get('settings_uid') or journal(owner):
         raise RuntimeError('Data bootstrap cannot replace an accepted native owner')
