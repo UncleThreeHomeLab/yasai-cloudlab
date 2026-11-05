@@ -62,9 +62,11 @@ def download(source, name, size, deadline, *, read=read_url):
     return read(url, deadline, size)
 
 
-def chart_files(source, *, fetch=request, read_file=download, deadline=None, require_schema=True):
+def chart_files(source, *, fetch=request, read_file=download, deadline=None, require_schema=True, comparison_defaults="values.yaml"):
     if type(require_schema) is not bool:
         raise ValueError('Git owner schema requirement must be a boolean')
+    if comparison_defaults not in ("values.yaml", "values.json"):
+        raise ValueError("Git owner comparison defaults must be an approved filename")
     chart_path = source["path"].rstrip("/") + "/"
     repo = repository(source['repository'])
     revision = source['revision']
@@ -106,7 +108,7 @@ def chart_files(source, *, fetch=request, read_file=download, deadline=None, req
                 type(entry.get('size')) is not int or not 0 <= entry['size'] <= MAX_FILE or relative in selected):
             raise ValueError('Git owner contains an unsupported chart file')
         selected[relative] = entry
-    required = {'Chart.yaml', 'values.schema.json' if require_schema else 'values.yaml'}
+    required = {'Chart.yaml', 'values.schema.json' if require_schema else comparison_defaults}
     if (not required <= set(selected) or len(selected) > 128 or
             sum(entry['size'] for entry in selected.values()) > MAX_CHART):
         raise ValueError('Git owner chart is missing or exceeds its bound')

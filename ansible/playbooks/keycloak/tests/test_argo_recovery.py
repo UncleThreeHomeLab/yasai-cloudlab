@@ -102,7 +102,7 @@ class ArgoRecoveryTests(unittest.TestCase):
                         'content': base64.b64encode(raw).decode(), 'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()}
                 client.request.side_effect = request
                 def read(kind, name, *args): return copy.deepcopy(objects.get((kind, name)))
-                for module in (runtime, ownership):
+                for module in (runtime, ownership, source_transition):
                     stack.enter_context(patch.object(module, 'get', side_effect=read))
                 stack.enter_context(patch.object(runtime, 'BASE', base))
                 stack.enter_context(patch.object(native, 'BINDING', base / 'identity-values-binding.json'))

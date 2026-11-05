@@ -28,10 +28,20 @@ def oidc_discovery(login_host):
 
 
 def run(payload):
+    from playbooks.harbor.files import native
+    if native.receipt():
+        with native.operation(): return installation(payload)
+    return installation(payload)
+
+
+def installation(payload):
+    from playbooks.harbor.files import native
+    installation_revision = native.REVISION
     for name in recovery.APPS:
         app = recovery.application(name)
         if (app['spec']['source']['repoURL'] != payload['repository'] or
-                not application_ready(name, payload['revision'])):
+                app['spec']['source'].get('targetRevision') != installation_revision or
+                not application_ready(name, installation_revision)):
             raise RuntimeError('Harbor Applications must converge at the published revision')
     volumes = recovery.sources()
     claims = get('pvc', namespace=recovery.NAMESPACE)['items']

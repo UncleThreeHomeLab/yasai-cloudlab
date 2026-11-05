@@ -1,4 +1,6 @@
 ---
+- name: Install the shared pending Root validator and recovery closure from its owner
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/runtime.yml
 - name: Install identity protocol and recovery parsers
   ansible.builtin.apt:
     name:

@@ -34,6 +34,7 @@ ARTIFACTS = ROOT / 'platform/harbor'
 def atomic(path, value):
     temporary = path.with_suffix('.tmp')
     with temporary.open('w') as stream:
+        os.fchmod(stream.fileno(), 0o600)
         json.dump(value, stream, sort_keys=True)
         stream.flush()
         os.fsync(stream.fileno())
@@ -46,7 +47,9 @@ def locked():
     BASE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with Path('/run/lock/cloudlab-harbor.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
+        from playbooks.harbor.files.native import operation
+        with operation():
+            yield
 
 
 def secret(name, namespace=NAMESPACE):
@@ -109,6 +112,8 @@ def application(name):
             app['spec'].get('project') != 'cloudlab-harbor' or
             app['spec']['destination'] != {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE}):
         raise RuntimeError('Cannot suspend or resume a foreign Harbor Application')
+    from playbooks.harbor.files.native import guard
+    guard(name, app)
     return app
 
 
@@ -116,9 +121,32 @@ def patch_values(name, values, expected_uid):
     app = application(name)
     if app['metadata']['uid'] != expected_uid:
         raise RuntimeError('Harbor Application changed during coordinated maintenance')
+    from playbooks.harbor.files import native
+    authenticated = native.guard(name, app, write=True)
+    actual = app['spec']['source']['helm']['valuesObject']
+    if authenticated:
+        snapshot, _ = authenticated
+        native.normalize(name, values, snapshot['profile'], snapshot['charts'])
+    before, after = copy.deepcopy(actual), copy.deepcopy(values)
+    operations = []
+    for path in native.paths(name):
+        old, new = before, after
+        for key in path[:-1]:
+            old, new = old[key], new[key]
+        flag = new.pop(path[-1], False if name == APPS[1] else 1)
+        old.pop(path[-1], None)
+        if (name == APPS[1] and type(flag) is not bool) or (name == APPS[0] and (type(flag) is not int or flag not in (0, 1))):
+            raise RuntimeError('Harbor recovery operational value refused')
+        operations.append({'op': 'add', 'path': '/spec/source/helm/valuesObject/' + '/'.join(path), 'value': flag})
+    if authenticated:
+        snapshot, _ = authenticated
+        # Historical receipts may contain full defaults; only eight fields are replayed.
+        native.normalize(name, actual, snapshot['profile'], snapshot['charts'])
+    elif not native.same(before, after):
+        raise RuntimeError('Harbor recovery cannot replay nonoperational installation fields')
     patch = [{'op': 'test', 'path': '/metadata/uid', 'value': expected_uid},
              {'op': 'test', 'path': '/metadata/resourceVersion', 'value': app['metadata']['resourceVersion']},
-             {'op': 'replace', 'path': '/spec/source/helm/valuesObject', 'value': values}]
+             {'op': 'test', 'path': '/spec', 'value': copy.deepcopy(app['spec'])}, *operations]
     kube('patch', 'application.argoproj.io', name, '-n', 'argocd', '--type=json',
          '--field-manager=' + OWNER, '-p', json.dumps(patch))
 
