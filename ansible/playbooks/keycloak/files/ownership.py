@@ -140,8 +140,11 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
     refreshed = [(get(kind, name, namespace) or {}) for kind, name, namespace in (
         ('application.argoproj.io', APP, 'argocd'), ('application.argoproj.io', 'cloudlab-public-root', 'argocd'),
         ('appproject.argoproj.io', APP, 'argocd'), ('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE))]
-    for old, new in zip(before, refreshed):
-        fields = ('uid', 'name', 'namespace', 'generation', 'labels', 'annotations', 'ownerReferences', 'finalizers', 'deletionTimestamp')
+    for index, (old, new) in enumerate(zip(before, refreshed)):
+        fields = ('uid', 'name', 'namespace', 'labels', 'annotations', 'ownerReferences', 'finalizers', 'deletionTimestamp')
+        # Application operations can change generation without changing their spec.
+        if index >= 2:
+            fields += ('generation',)
         if (json.dumps(new.get('spec'), sort_keys=True) != json.dumps(old.get('spec'), sort_keys=True)
                 or any(new.get('metadata', {}).get(key) != old.get('metadata', {}).get(key) for key in fields)):
             raise RuntimeError('Identity handoff scope changed while waiting for its writer')

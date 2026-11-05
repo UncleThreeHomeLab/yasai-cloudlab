@@ -19,14 +19,14 @@ class EmergencyTests(unittest.TestCase):
             'databaseHost': 'cloudlab-postgres-rw.cloudlab-data.svc.cluster.local', 'databasePort': 5432, 'databaseCA': 'fixture-ca',
             'trustedProxyAddresses': ['10.42.0.0/24'], 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32}
         spec = ownership.installation_values(document); spec['source']['targetRevision'] = 'main'
-        app = {'metadata': {'uid': 'app', 'resourceVersion': '1', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}}, 'spec': spec}
+        app = {'metadata': {'uid': 'app', 'resourceVersion': '1', 'generation': 1, 'labels': {'cloudlab.io/owner': bootstrap.OWNER}}, 'spec': spec}
         public = {'identity': {'application': {'enabled': False}}, 'observability': {'enabled': False}}
-        project = {'metadata': {'uid': 'project', 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/cloudlab-identity'}},
+        project = {'metadata': {'uid': 'project', 'generation': 1, 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/cloudlab-identity'}},
             'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY]}}
         desired = {'AppProject': {'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY, 'https://github.com/example/private.git']}}}
-        root = {'metadata': {'uid': 'root'}, 'spec': {'approved': 'root-source'}}
+        root = {'metadata': {'uid': 'root', 'generation': 1}, 'spec': {'approved': 'root-source'}}
         target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
-        server = {'metadata': {'uid': 'server'}, 'spec': {'instances': 1}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        server = {'metadata': {'uid': 'server', 'generation': 1}, 'spec': {'instances': 1}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             state = {'phase': 'scoped', 'uid': 'app', 'revision': 'e' * 40}
@@ -51,7 +51,10 @@ class EmergencyTests(unittest.TestCase):
                 self.assertEqual(kwargs['timeout'], 300)
                 idle.return_value = False; self.assertFalse(check())
                 app['metadata']['resourceVersion'] = str(int(app['metadata']['resourceVersion']) + 1)
+                for obj in (app, root): obj['metadata']['generation'] += 1
                 if change == 'spec': app['spec']['source']['helm']['valuesObject']['maintenance'] = 0
+                if change == 'project-generation': project['metadata']['generation'] += 1
+                if change == 'server-generation': server['metadata']['generation'] += 1
                 clock.return_value = 1000
                 idle.return_value = True; self.assertTrue(check())
             def published(*args, **kwargs):
@@ -72,6 +75,7 @@ class EmergencyTests(unittest.TestCase):
                     patch.object(bootstrap, 'writer_idle', idle), patch('playbooks.istio.files.kube.wait', side_effect=late_wait), \
                     patch('playbooks.istio.files.kube.kube', side_effect=freeze) as write:
                 self.assertTrue(ownership.prepare_native({}, app, state, retired, base=base))
+                self.assertEqual([obj['metadata']['generation'] for obj in (app, root)], [2, 2])
                 self.assertFalse(ownership.prepare_native({}, app, state, retired, base=base))
                 self.assertEqual(write.call_count, 1)
                 self.assertEqual((base / 'retirement.json').read_bytes(), retirement_bytes)
@@ -99,6 +103,14 @@ class EmergencyTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'authority or private binding changed'):
                     ownership.prepare_native({}, app, state, retired, base=base)
                 self.assertEqual(write.call_count, 1); self.assertEqual((base / 'ownership.json').read_bytes(), before)
+                for change, obj in (('project-generation', project), ('server-generation', server)):
+                    with self.subTest(change=change):
+                        generation = obj['metadata']['generation']
+                        with self.assertRaisesRegex(RuntimeError, 'scope changed while waiting'):
+                            ownership.prepare_native({}, app, state, retired, base=base)
+                        self.assertEqual(write.call_count, 1)
+                        self.assertEqual((base / 'ownership.json').read_bytes(), before)
+                        obj['metadata']['generation'] = generation
 
     def test_native_owner_exact_parent_pin_and_four_operational_fields(self):
         document = {'installationRevision': ownership.INSTALLATION_REVISION, 'loginHost': 'login.example.invalid',
