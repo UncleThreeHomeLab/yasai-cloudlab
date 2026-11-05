@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import yaml
 from jinja2 import Template
@@ -40,8 +40,8 @@ def document(raw, path):
 
 
 class ConsumerAcceptanceTests(unittest.TestCase):
-    def gate(self, contract, params, *, repository=REPOSITORY):
-        policy = (ROOT / 'gitops/roots/public/consumer-source-acceptance.tmpl').read_text()
+    def gate(self, contract, params, *, repository=REPOSITORY, policy=None):
+        policy = policy if policy is not None else (ROOT / 'gitops/roots/public/consumer-source-acceptance.tmpl').read_text()
         constants = {'VERSION': contract['version'], 'CONSUMER': contract['consumer'], 'PRIVATE_REPOSITORY': repository,
             'COMMITMENT': contract['acceptanceCommitment'], 'PATHS_LF': '\n'.join(contract['paths'])}
         for key, value in constants.items(): policy = policy.replace('@@' + key + '@@', json.dumps(value))
@@ -57,6 +57,44 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         return dict(copy.deepcopy(receipt), path={'path': 'platform/acceptance', 'basename': 'acceptance',
             'basenameNormalized': 'acceptance', 'filename': str(receipt['consumer']) + '.yaml',
             'filenameNormalized': str(receipt['consumer']) + '.yaml', 'segments': ['platform', 'acceptance']})
+
+    def test_production_permissions_parent_uses_the_qualified_exact_gate(self):
+        from private_sources import acceptance_spec
+        public, receipt = fixture('permissions')
+        spec = acceptance_spec(public, REPOSITORY, 'a' * 40, consumer='permissions')
+        gate = spec['template']['spec']['sources'][1]['targetRevision']
+        contract = consumer_contract(public, 'permissions')
+        result = self.gate(contract, self.params(receipt), policy=gate)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(yaml.safe_load(result.stdout)['data']['revision'], receipt['revision'])
+        for params in ({'consumer': 'permissions'}, self.params(dict(receipt, revision='c' * 40))):
+            self.assertNotEqual(self.gate(contract, params, policy=gate).returncode, 0)
+
+    def test_verification_captures_authenticated_permissions_snapshot_once_and_disabled_skips_it(self):
+        from private_sources import verification_payload, acceptance_spec
+        public, receipt = fixture('permissions')
+        chart = ROOT / 'gitops/roots/public'
+        files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+        public = yaml.safe_load(files['values.yaml']) | {'repository': public['repository'], 'permissions': public['permissions']}
+        files['values.yaml'] = yaml.safe_dump(public).encode()
+        evidence = {'publicRevision': 'c' * 40, 'acceptedRevision': receipt['revision'],
+            'acceptanceCommitment': public['permissions']['acceptanceCommitment'], 'acceptanceReceipt': receipt}
+        values = {'PRIVATE_CONFIG_REPOSITORY': REPOSITORY}
+        baseline = {'configuration_revision': 'a' * 40}
+        with patch('playbooks.argocd.files.github_app.configuration_revision', side_effect=lambda *args, **kwargs: baseline.copy()), \
+                patch('playbooks.services.files.source.read_consumer', return_value=evidence) as read, \
+                patch('playbooks.data.files.native.source_snapshot.chart_files', return_value=files) as snapshot:
+            result = verification_payload(values, public)
+            read.assert_called_once_with(values, 'permissions', public=public)
+            self.assertEqual(snapshot.call_args.args[0]['revision'], 'c' * 40)
+            self.assertEqual(result['permissions']['applicationSet'], acceptance_spec(public, REPOSITORY, 'a' * 40, files=files, consumer='permissions'))
+            read.return_value = dict(evidence, acceptedRevision='d' * 40)
+            with self.assertRaisesRegex(ValueError, 'differs from its receipt'):
+                verification_payload(values, public)
+            read.reset_mock(); snapshot.reset_mock()
+            public['permissions']['enabled'] = False
+            self.assertEqual(verification_payload(values, public), baseline)
+            read.assert_not_called(); snapshot.assert_not_called()
 
     def test_both_consumers_match_exact_native_effective_input_and_alternate_catalog_paths(self):
         for consumer, path in (('observability', 'services/catalog.json'), ('observability', 'services/catalog-selected.yaml'), ('permissions', 'services/catalog.json')):

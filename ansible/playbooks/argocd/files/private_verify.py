@@ -123,6 +123,88 @@ def controller_items(items):
     return result
 
 
+def permissions_declaration(evidence, repository):
+    """Authenticate current approval once; polling never reads credentials or Git."""
+    from playbooks.data.files import native
+    from playbooks.argocd.files.private_sources import consumer_contract, validate_consumer_acceptance, acceptance_spec
+    if not isinstance(evidence, dict) or not isinstance(evidence.get('contract'), dict):
+        raise RuntimeError('Permissions verification requires its authenticated contract')
+    deadline = time.monotonic() + 120
+    contract = evidence.get('contract', {})
+    public_repository = contract.get('context', {}).get('repository')
+    public, revision = native.published_source({'publicSource': {'repository': public_repository, 'branch': 'main'}}, deadline=deadline)
+    current = consumer_contract(public, 'permissions')
+    if (not current['enabled'] or current != contract or revision != evidence.get('publicRevision')
+            or evidence.get('acceptanceCommitment') != current['acceptanceCommitment']):
+        raise RuntimeError('Permissions approval differs from current protected public intent')
+    validate_consumer_acceptance(evidence.get('acceptanceReceipt'), repository, current)
+    if evidence.get('acceptedRevision') != evidence['acceptanceReceipt']['revision']:
+        raise RuntimeError('Permissions revision differs from its approved receipt')
+    files = native.source_snapshot.chart_files({'repository': public_repository, 'revision': revision,
+        'path': 'gitops/roots/public'}, deadline=deadline)
+    expected = acceptance_spec(public, repository, evidence['acceptedRevision'], files=files, consumer='permissions')
+    if expected != evidence.get('applicationSet'):
+        raise RuntimeError('Permissions parent differs from its authenticated native declaration')
+    return expected
+
+
+def permissions_healthy(evidence, repository, expected):
+    name = 'cloudlab-permissions'
+    parent = get('applicationset.argoproj.io', name) or {}
+    meta = parent.get('metadata', {})
+    conditions = parent.get('status', {}).get('conditions', [])
+    if (not isinstance(meta.get('uid'), str) or not meta['uid'] or meta.get('deletionTimestamp')
+            or meta.get('ownerReferences') or meta.get('finalizers')
+            or meta.get('labels', {}).get('cloudlab.io/owner') != 'permissions-platform'
+            or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + name
+            or parent.get('spec') != expected or not isinstance(conditions, list) or not conditions
+            or any(not isinstance(row, dict) or row.get('type') == 'ErrorOccurred' and row.get('status') == 'True'
+                or str(row.get('type', '')).endswith('Error')
+                or row.get('type') == 'ResourcesUpToDate' and row.get('status') != 'True' for row in conditions)
+            or not any(row.get('type') == 'ParametersGenerated' and row.get('status') == 'True' for row in conditions)):
+        return False
+    child = get('application.argoproj.io', name) or {}
+    child_meta = child.get('metadata', {})
+    desired = copy.deepcopy(expected['template']['spec'])
+    desired['sources'][1]['targetRevision'] = evidence['acceptedRevision']
+    owner = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': name,
+        'uid': meta['uid'], 'controller': True, 'blockOwnerDeletion': True}
+    if (not isinstance(child_meta.get('uid'), str) or not child_meta['uid']
+            or child_meta.get('deletionTimestamp') or child_meta.get('finalizers')
+            or child_meta.get('ownerReferences') != [owner]
+            or any(child_meta.get(field, {}).get(key) != value
+                for field in ('labels', 'annotations') for key, value in expected['template']['metadata'].get(field, {}).items())
+            or child.get('spec') != desired
+            or child.get('status', {}).get('sync', {}).get('comparedTo', {}).get('sources') != desired['sources']
+            or not application_healthy(child)):
+        return False
+    root = get('application.argoproj.io', 'cloudlab-public-root') or {}
+    source = root.get('spec', {}).get('source', {})
+    helm = source.get('helm', {})
+    if not isinstance(helm, dict) or set(helm) - {'releaseName', 'valuesObject'}: return False
+    overrides = helm.get('valuesObject', {})
+    if not isinstance(overrides, dict): return False
+    for key, desired in evidence['contract']['context'].items():
+        if key not in overrides: continue
+        actual = overrides[key]
+        if key == 'identity' and isinstance(actual, dict): actual = {field: value for field, value in actual.items() if field != 'argo'}
+        if isinstance(desired, dict):
+            if (not isinstance(actual, dict) or any(field not in desired or type(value) is not type(desired[field])
+                    or value != desired[field] for field, value in actual.items())): return False
+        elif type(actual) is not type(desired) or actual != desired: return False
+    binding = source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo', {})
+    return (root.get('metadata', {}).get('uid') and not root['metadata'].get('deletionTimestamp')
+        and not root['metadata'].get('ownerReferences') and not root['metadata'].get('finalizers')
+        and root.get('spec', {}).get('project') == 'cloudlab-root' and not root['spec'].get('sources')
+        and source.get('repoURL') == evidence['contract']['context']['repository']
+        and source.get('targetRevision') == 'main' and source.get('path') == 'gitops/roots/public'
+        and binding.get('valuesRepository') == repository
+        and isinstance(binding.get('valuesRevision'), str) and re.fullmatch('[a-f0-9]{40}', binding['valuesRevision']) is not None
+        and root.get('status', {}).get('sync', {}).get('revision') == evidence['publicRevision']
+        and application_healthy(root))
+
+
 def run(payload):
     repository = payload.get('configuration_repository')
     if not repository:
@@ -136,6 +218,13 @@ def run(payload):
     symbolic_revisions = payload.get('symbolic_revisions')
     if not revision:
         raise RuntimeError('Private verification requires an authenticated configuration revision')
+    permissions = payload.get('permissions')
+    if permissions is None and (any(app.get('metadata', {}).get('name') == 'cloudlab-permissions' for app in consumers)
+            or (get('applicationset.argoproj.io', 'cloudlab-permissions') or {}).get('metadata', {}).get('name') == 'cloudlab-permissions'):
+        raise RuntimeError('Active permissions require authenticated consumer approval evidence')
+    permission_spec = permissions_declaration(permissions, repository) if permissions is not None else None
+    if permission_spec is not None:
+        wait(lambda: permissions_healthy(permissions, repository, permission_spec), 'permissions approval convergence')
     secrets = json.loads(kube('get', 'secrets', '-n', 'argocd', '-o', 'json'))['items']
     externals = json.loads(kube('get', 'externalsecrets.external-secrets.io', '-n', 'argocd', '-o', 'json'))['items']
     for app in consumers:
@@ -186,6 +275,7 @@ def run(payload):
     while time.monotonic() - started < 60:
         time.sleep(10)
         if (controllers() != baseline
+                or permission_spec is not None and not permissions_healthy(permissions, repository, permission_spec)
                 or not all(configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions) for app in consumers)
                 or not all(child_healthy(entry) for entry in payload['sources'])):
             raise RuntimeError('Controllers or private convergence changed during stability observation')

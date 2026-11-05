@@ -2,9 +2,16 @@
 {{- if or (not (kindIs "map" $permissions)) (not (kindIs "bool" $permissions.enabled)) -}}
 {{- fail "Permissions require a YAML boolean enabled setting" -}}
 {{- end -}}
+{{- $acceptance := $permissions.acceptanceCommitment -}}
+{{- if or (not (kindIs "string" $acceptance)) (and $acceptance (not (regexMatch "^[a-f0-9]{64}$" $acceptance))) -}}
+{{- fail "Permissions acceptance commitment must be an empty string or SHA-256" -}}
+{{- end -}}
 {{- if $permissions.enabled -}}
 {{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" ($permissions.revision | default ""))) -}}
 {{- fail "Permissions require admission, External Secrets and an immutable public revision" -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-f0-9]{64}$" $acceptance) -}}
+{{- fail "Enabled permissions require a reviewed acceptance commitment" -}}
 {{- end -}}
 {{- if hasKey .Values.identity "argo" -}}
 {{- $private := .Values.identity.argo.valuesRepository -}}
@@ -49,27 +56,43 @@ spec:
   dataFrom: [{extract: {key: github-argocd}}]
 ---
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: ApplicationSet
 metadata:
   name: cloudlab-permissions
   namespace: {{ .Values.namespace }}
   labels: {cloudlab.io/owner: permissions-platform}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
 spec:
-  project: cloudlab-permissions
-  sources:
-    - repoURL: {{ .Values.repository | quote }}
-      targetRevision: {{ $permissions.revision | quote }}
-      path: platform/connectivity/permissions
-      helm:
-        releaseName: cloudlab-permissions
-        valueFiles: ['$values/platform/permissions.yaml']
-    - {repoURL: {{ $private | quote }}, targetRevision: main, ref: values}
-  destination: {server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace }}}
-  syncPolicy:
-    automated: {enabled: true, prune: true, selfHeal: true, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true, PrunePropagationPolicy=background]
-    retry:
-      limit: 5
-      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - merge:
+        mergeKeys: [consumer]
+        generators:
+          - list:
+              elements: [{consumer: permissions}]
+          - git:
+              repoURL: {{ $private | quote }}
+              revision: main
+              files: [{path: platform/acceptance/permissions.yaml}]
+  syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
+  template:
+    metadata:
+      name: cloudlab-permissions
+      labels: {cloudlab.io/owner: permissions-platform}
+      annotations:
+        argocd.argoproj.io/compare-options: IgnoreExtraneous
+        argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
+        argocd.argoproj.io/tracking-id: {{ printf "cloudlab-public-root:argoproj.io/Application:%s/cloudlab-permissions" .Values.namespace | quote }}
+    spec:
+{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("permissions" | toJson) | replace "@@PRIVATE_REPOSITORY@@" ($private | toJson) | replace "@@COMMITMENT@@" ($acceptance | toJson) | replace "@@PATHS_LF@@" ("platform/permissions.yaml" | toJson) | trim }}
+{{- $spec := dict "project" "cloudlab-permissions" "sources" (list
+  (dict "repoURL" .Values.repository "targetRevision" $permissions.revision "path" "platform/connectivity/permissions" "helm" (dict "releaseName" "cloudlab-permissions" "valueFiles" (list "$values/platform/permissions.yaml")))
+  (dict "repoURL" $private "targetRevision" $gate "ref" "values"))
+  "destination" (dict "server" "https://kubernetes.default.svc" "namespace" .Values.namespace)
+  "syncPolicy" (dict "automated" (dict "enabled" true "prune" true "selfHeal" true "allowEmpty" false)
+    "syncOptions" (list "FailOnSharedResource=true" "DisableClientSideApplyMigration=true" "PrunePropagationPolicy=background")
+    "retry" (dict "limit" 5 "backoff" (dict "duration" "5s" "factor" 2 "maxDuration" "1m"))) }}
+{{ toYaml $spec | indent 6 }}
 {{- end }}
 {{- end }}
