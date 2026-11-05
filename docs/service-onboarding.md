@@ -94,13 +94,14 @@ nonce, followed by a final LF.
 The native generator merges a fixed consumer row with the exact private receipt,
 so missing input reaches validation. The isolated
 [native qualification procedure](../verification/integration/private_source_acceptance.py)
-uses only `cloudlab-prices-source-proof`. Its guarded seed/adopt interface checks
+uses fixed `cloudlab-prices-source-proof`, `cloudlab-prices-observability-proof`
+and `cloudlab-prices-permissions-proof` scopes. Its guarded seed/adopt interface checks
 the same Application and resource UIDs across owner transfer; it does not
 authorize production adoption.
 
 The registry receipt above is operational. The separate
 `cloudlab-consumer-source-acceptance/v1` contract is an opt-in reader and unused
-native gate; observability and permissions controllers do not consume it yet.
+production native gate; observability and permissions controllers do not consume it yet.
 Receipts use `platform/acceptance/observability.yaml` or
 `platform/acceptance/permissions.yaml`, paired with
 `observability.configuration.acceptanceCommitment` or `permissions.acceptanceCommitment`.

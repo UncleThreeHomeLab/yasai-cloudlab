@@ -1,0 +1,22 @@
+{{- $namespace := printf "cloudlab-prices-%s-proof" .Values.consumer -}}
+{{- if ne .Release.Namespace $namespace }}{{ fail "Consumer proof namespace is fixed" }}{{ end -}}
+{{- if .Values.markerEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: approval-marker
+  namespace: {{ $namespace }}
+  labels: {cloudlab.io/owner: source-acceptance-proof, cloudlab.io/proof-attempt: {{ .Values.proofAttempt | quote }}}
+data:
+  revision: {{ .Values.acceptedRevision | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: retained-data
+  namespace: {{ $namespace }}
+  labels: {cloudlab.io/owner: source-acceptance-proof, cloudlab.io/proof-attempt: {{ .Values.proofAttempt | quote }}}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+data:
+  sentinel: retained-source-proof-v1
