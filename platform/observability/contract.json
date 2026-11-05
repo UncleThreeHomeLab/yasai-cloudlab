@@ -88,7 +88,11 @@
     ],
     "input_key": "observabilityInputs",
     "trust": "Platform-reviewed values; merged Helm schema does not establish per-file tenant isolation",
-    "activation": "Parent remains skip-reconcile with automatic sync disabled until guarded writer handoff and identity DNS qualification",
+    "sources": "Public configuration enabled/paused/revision; disabled and paused by default. One private main checkout supplies catalog and platform inputs; all six children use only the pinned public source.",
+    "provenance": "cloudlab.io/observability-input-digest hashes catalog, observabilityInputs, platformNotifications, serviceObservability and alertmanagerState. It is content provenance, not a Git revision. Actual private SHA requires successful parent sync.revisions with matching compared sources; legacy service catalog revision remains separate.",
+    "activation": "Enable automatic sync only after guarded writer handoff and identity DNS qualification; enabled/paused renders skip-reconcile true and automatic sync explicitly false.",
+    "legacy_guard": "Both legacy writers inspect the native parent and all six children before writes. Any protected retirement fence blocks writes. Handoff must hold main then history lock before fencing or adoption; history recovery takes only its own lock.",
+    "runtime_proof": "VM credentials only; run ansible-playbook -i inventory.yml playbooks/observability/tests/runtime-proof.yml through the existing Compose lab image from a clean reviewed checkout, twice. Installs retained server modules, probes authority read-only and checks worker absence; no full setup, vault, private publication or workload convergence.",
     "notifications": "platformNotifications; disabled defaults; candidate transport requires qualified connections and existing dedicated Secret delivery before activation"
   },
   "notification_delivery": {

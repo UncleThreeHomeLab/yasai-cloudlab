@@ -8,6 +8,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from playbooks.istio.files.kube import get, kube, contains, application_ready, wait, condition
+try:
+    from playbooks.observability.files import writer_guard
+except ModuleNotFoundError:
+    import writer_guard  # Installed beside this standalone VM module.
 
 NAMESPACE = 'cloudlab-observability'
 OWNER = 'observability-platform'
@@ -58,11 +62,20 @@ def history_patches(current):
 
 def compact_history():
     # Recovery can unblock the controller while the normal owner waits for sync.
-    with Path('/run/lock/cloudlab-observability-history.lock').open('a') as lock:
+    with Path(writer_guard.HISTORY_LOCK).open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        inspected = writer_guard.inspect(get)['cloudlab-prometheus']
+        if inspected is None:
+            raise RuntimeError('Telemetry history Application absent; retry after bootstrap')
         current = get('application.argoproj.io', 'cloudlab-prometheus', 'argocd')
+        writer_guard.check_child(current, 'cloudlab-prometheus', inspected['spec']['source']['repoURL'])
+        if current is None:
+            raise RuntimeError('Telemetry history Application absent; retry after bootstrap')
+        if current['metadata']['uid'] != inspected['metadata']['uid']:
+            raise RuntimeError('Telemetry history Application replaced; inspect ownership before retrying')
         patches = history_patches(current)
         if patches:
+            writer_guard.check_fence()
             kube('patch', 'application.argoproj.io', 'cloudlab-prometheus', '-n', 'argocd',
                  '--type=json', '-p', json.dumps(patches))
         return {'changed': bool(patches), 'controller_history_disabled': True}
@@ -72,18 +85,14 @@ def seed(payload, name):
     desired = application(payload, name)
     if len(json.dumps(desired['spec']['source']).encode()) > 320 * 1024:
         raise ValueError('Telemetry inline source exceeds its bounded controller update budget')
+    writer_guard.inspect(get, payload['repository'])
     current = get('application.argoproj.io', desired['metadata']['name'], 'argocd')
-    if current and (current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
-                    current['metadata'].get('ownerReferences') or current['metadata'].get('finalizers') or
-                    current['spec']['project'] != desired['spec']['project'] or
-                    current['spec']['destination'] != desired['spec']['destination'] or
-                    current['spec']['source']['repoURL'] != payload['repository'] or
-                    current['spec']['source']['path'] != desired['spec']['source']['path']):
-        raise RuntimeError('Telemetry Application ownership conflicts; adoption refused')
+    writer_guard.check_child(current, desired['metadata']['name'], payload['repository'])
     changed = not current or not contains(current, desired)
     if changed:
+        writer_guard.check_fence()
         if not current:
-            kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
+            kube('create', '--field-manager=' + OWNER, '-f', '-', document=desired)
         else:
             # Large historical objects can lose SSA metadata; update only our declared fields.
             patches = [{'op': 'test', 'path': '/metadata/uid', 'value': current['metadata']['uid']},
@@ -109,8 +118,9 @@ def run(payload):
     if set(payload) != {'repository', 'revision', 'configuration', 'components'} or set(payload['components']) != set(COMPONENTS):
         raise ValueError('Telemetry requires its complete committed configuration')
     payload = copy.deepcopy(payload)
-    with Path('/run/lock/cloudlab-observability.lock').open('a') as lock:
+    with Path(writer_guard.MAIN_LOCK).open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        writer_guard.inspect(get, payload['repository'])
         for kind, name in (('namespace', NAMESPACE), ('storageclass', 'cloudlab-telemetry')):
             current = get(kind, name)
             if current and current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
@@ -133,6 +143,14 @@ def run(payload):
 
 
 if __name__ == '__main__':
-    try: print(json.dumps(compact_history() if sys.argv[1:] == ['--compact-history'] else run(json.load(sys.stdin)), sort_keys=True))
+    try:
+        if sys.argv[1:] == ['--guard-probe']:
+            with Path(writer_guard.MAIN_LOCK).open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                writer_guard.inspect(get)
+            result = {'changed': False, 'legacy_writer_authorized': True}
+        else:
+            result = compact_history() if sys.argv[1:] == ['--compact-history'] else run(json.load(sys.stdin))
+        print(json.dumps(result, sort_keys=True))
     except Exception:
-        raise SystemExit('Telemetry bootstrap incomplete; credentials, volumes and existing controllers retained') from None
+        raise SystemExit('Telemetry authority or convergence check failed; inspect ownership and locks before retrying; existing state retained') from None

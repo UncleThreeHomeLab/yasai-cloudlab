@@ -1,0 +1,40 @@
+---
+- name: Qualify retained telemetry runtime packaging only
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Import the retained runtime installer
+      ansible.builtin.import_tasks: ../tasks/runtime.yml
+
+    - name: Check installed legacy writer authority without mutations
+      ansible.builtin.command:
+        argv: [python3, /opt/cloudlab/playbooks/observability/files/bootstrap.py, --guard-probe]
+      changed_when: false
+      no_log: true
+
+- name: Verify workers have no telemetry writer or retirement fence
+  hosts: k3s_agents
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Inspect worker telemetry paths without creating them
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+      loop:
+        - /opt/cloudlab/playbooks/observability
+        - /var/lib/cloudlab/observability
+        - /run/lock/cloudlab-observability.lock
+        - /run/lock/cloudlab-observability-history.lock
+      register: telemetry_worker_paths
+
+    - name: Require server-only telemetry ownership
+      ansible.builtin.assert:
+        that: not item.stat.exists
+        quiet: true
+      loop: '{{ telemetry_worker_paths.results }}'
+      loop_control:
+        label: '{{ item.item }}'

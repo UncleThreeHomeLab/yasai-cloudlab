@@ -48,8 +48,8 @@ observability:
   enabled: true
   configuration:
     enabled: false
+    paused: true
     revision: ''
-    valuesRevision: ''
 harbor:
   enabled: true
 admission:

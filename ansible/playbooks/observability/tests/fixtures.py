@@ -7,7 +7,7 @@ from playbooks.observability.files.uptimerobot import desired
 def native_source_inputs():
     return {'nativeSource': {
         'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
-        'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40},
+        'valuesRepository': 'https://github.com/example/private.git'},
         'catalog': [{'approval': {'name': 'prices', 'namespace': 'cloudlab-app-prices'},
                      'definition': {'name': 'prices'}, 'publication': 'published'}],
         'observabilityInputs': {'loginHost': 'login.example.invalid',
@@ -293,5 +293,5 @@ def helm(chart, values):
 
 
 def native_overrides(value):
-    return {obj['metadata']['name']: obj['spec']['sources'][0]['helm'].get('valuesObject', {})
+    return {obj['metadata']['name']: obj['spec']['source']['helm'].get('valuesObject', {})
             for obj in helm('platform/observability/gitops', value)}

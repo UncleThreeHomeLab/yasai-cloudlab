@@ -1,4 +1,4 @@
-{{- if .Values.observability.configuration.enabled }}
+{{- if and .Values.observability.configuration.enabled (hasKey .Values.identity "argo") }}
 {{- $configuration := .Values.observability.configuration }}
 {{- $catalogPath := .Values.services.catalogPath | default "services/catalog.json" }}
 {{- if or (not (kindIs "string" $catalogPath)) (gt (len $catalogPath) 128) (not (regexMatch "^services/catalog(-[a-z0-9]+(-[a-z0-9]+)*)?[.](json|yaml)$" $catalogPath)) }}
@@ -14,7 +14,7 @@ spec:
   destinations: [{server: 'https://kubernetes.default.svc', namespace: argocd}]
   clusterResourceWhitelist: []
   namespaceResourceWhitelist: [{group: argoproj.io, kind: Application}]
-{{- range $project := list "cloudlab-observability-gitops" "cloudlab-observability" }}
+{{- range $project := list "cloudlab-observability-gitops" }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -51,8 +51,7 @@ metadata:
   name: cloudlab-observability-gitops
   namespace: argocd
   labels: {cloudlab.io/owner: observability-platform}
-  # Preparation cannot compete with the retained writer. Handoff requires code review.
-  annotations: {argocd.argoproj.io/skip-reconcile: 'true'}
+  annotations: {argocd.argoproj.io/skip-reconcile: {{ $configuration.paused | quote }}}
 spec:
   project: cloudlab-observability-gitops
   sources:
@@ -67,12 +66,11 @@ spec:
             repository: {{ .Values.repository | quote }}
             revision: {{ $configuration.revision | quote }}
             valuesRepository: {{ .Values.identity.argo.valuesRepository | quote }}
-            valuesRevision: {{ $configuration.valuesRevision | quote }}
     - repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
-      targetRevision: {{ $configuration.valuesRevision | quote }}
+      targetRevision: main
       ref: values
   destination: {server: 'https://kubernetes.default.svc', namespace: argocd}
   syncPolicy:
-    automated: {enabled: false, prune: false, selfHeal: false, allowEmpty: false}
+    automated: {enabled: {{ not $configuration.paused }}, prune: false, selfHeal: {{ not $configuration.paused }}, allowEmpty: false}
     syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
 {{- end }}

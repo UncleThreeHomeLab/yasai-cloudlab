@@ -10,4 +10,4 @@
     src: '/workspace/ansible/playbooks/observability/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/observability/files/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, verify.py, dashboards.py]
+  loop: [bootstrap.py, verify.py, dashboards.py, writer_guard.py]

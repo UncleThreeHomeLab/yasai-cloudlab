@@ -13,8 +13,7 @@
       "required": [
         "repository",
         "revision",
-        "valuesRepository",
-        "valuesRevision"
+        "valuesRepository"
       ],
       "properties": {
         "repository": {
@@ -28,10 +27,6 @@
         "valuesRepository": {
           "type": "string",
           "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$"
-        },
-        "valuesRevision": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
         }
       }
     },

@@ -9,6 +9,9 @@ from playbooks.observability.files.bootstrap import application, seed, run, COMP
 
 
 class BootstrapTests(unittest.TestCase):
+    def reader(self, current):
+        return lambda kind, name, namespace=None: current if name == current['metadata']['name'] else None
+
     def test_owned_source_update_guards_identity_and_preserves_unrelated_fields(self):
         payload = self.payload()
         current = application(payload, 'prometheus')
@@ -16,7 +19,7 @@ class BootstrapTests(unittest.TestCase):
         current['spec']['unrelated'] = {'retain': True}
         payload['revision'] = 'b' * 40
         payload['components']['prometheus'] = {'large': 'x' * 150000}
-        with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
+        with patch('playbooks.observability.files.bootstrap.get', side_effect=self.reader(current)), \
                 patch('playbooks.observability.files.bootstrap.kube') as mutate, \
                 patch('playbooks.observability.files.bootstrap.wait'):
             self.assertTrue(seed(payload, 'prometheus'))
@@ -76,7 +79,7 @@ class BootstrapTests(unittest.TestCase):
             'sync': {'status': 'Synced', 'revision': payload['revision'],
                      'comparedTo': {'source': current['spec']['source']}}}
         def wait(predicate, *_args, **_kwargs): self.assertTrue(predicate())
-        with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
+        with patch('playbooks.observability.files.bootstrap.get', side_effect=self.reader(current)), \
                 patch('playbooks.observability.files.bootstrap.kube') as mutate, \
                 patch('playbooks.observability.files.bootstrap.wait', side_effect=wait):
             self.assertFalse(seed(payload, 'configuration'))
@@ -89,7 +92,7 @@ class BootstrapTests(unittest.TestCase):
     def test_existing_application_cannot_transfer_from_another_owner_or_source(self):
         payload = self.payload()
         current = application(payload, 'loki')
-        with patch('playbooks.observability.files.bootstrap.get', return_value=current), \
+        with patch('playbooks.observability.files.bootstrap.get', side_effect=self.reader(current)), \
                 patch('playbooks.observability.files.bootstrap.kube') as kube, \
                 patch('playbooks.observability.files.bootstrap.wait'):
             self.assertFalse(seed(payload, 'loki'))
@@ -99,7 +102,7 @@ class BootstrapTests(unittest.TestCase):
                 if change == 'namespace': other['spec']['destination']['namespace'] = 'argocd'
                 if change == 'repository': other['spec']['source']['repoURL'] = 'https://github.com/example/other.git'
                 if change == 'path': other['spec']['source']['path'] = 'other'
-                with patch('playbooks.observability.files.bootstrap.get', return_value=other):
+                with patch('playbooks.observability.files.bootstrap.get', side_effect=self.reader(other)):
                     with self.assertRaises(RuntimeError): seed(payload, 'loki')
             kube.assert_not_called()
 
@@ -109,7 +112,7 @@ class BootstrapTests(unittest.TestCase):
             def seed(payload, name):
                 observed.append((name, payload['configuration']['monitoringEnabled']))
                 return not apis
-            def get(kind, name):
+            def get(kind, name, namespace=None):
                 return {'api': True} if kind == 'crd' and apis else None
             with tempfile.TemporaryDirectory() as directory:
                 with patch('playbooks.observability.files.bootstrap.Path', side_effect=lambda _: Path(directory) / 'lock'), \

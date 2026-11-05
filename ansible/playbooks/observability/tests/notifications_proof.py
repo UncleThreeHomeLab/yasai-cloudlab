@@ -27,7 +27,7 @@ def render_config(inputs):
     from playbooks.observability.tests.fixtures import notification_application
     from playbooks.observability.files.chart import render
     app = notification_application(inputs)
-    overrides = app['spec']['sources'][0]['helm']['valuesObject']
+    overrides = app['spec']['source']['helm']['valuesObject']
     secret = next(obj for obj in render('prometheus', overrides)
                   if obj['kind'] == 'Secret' and obj['metadata']['name'] == 'alertmanager-cloudlab')
     raw = base64.b64decode(secret['data']['alertmanager.yaml'], validate=True)
