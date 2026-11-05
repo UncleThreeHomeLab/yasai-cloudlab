@@ -1,0 +1,8 @@
+api:
+  name: notes-api
+  ports:
+  - 8080
+web:
+  name: notes-web
+  ports:
+  - 8080

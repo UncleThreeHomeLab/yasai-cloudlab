@@ -43,6 +43,14 @@ def run(payload):
     from playbooks.services.files.catalog import converged
     if not converged(payload):
         raise RuntimeError('Direct Git catalog has not converged at both reviewed revisions')
+    from playbooks.services.files.transport import policy
+    expected = payload.get('authorization')
+    namespaces = {entry['approval']['namespace'] for entry in payload['values']['catalog']}
+    if (not isinstance(expected, dict) or set(expected) != namespaces or
+            len(json.dumps(expected).encode()) > 1048576):
+        raise RuntimeError('Selected catalog authorization evidence is incomplete')
+    for entry in payload['values']['catalog']:
+        policy(entry, expected[entry['approval']['namespace']])
     checked = 0
     composition_evidence = []
     for entry in payload['values']['catalog']:
@@ -56,7 +64,7 @@ def run(payload):
             unauthorized_destination(entry, payload)
             unauthorized_destination(entry, payload, unauthorized_source=True)
             from playbooks.services.files.transport import run as transport_proof
-            evidence = transport_proof(entry, payload['proof_image'])
+            evidence = transport_proof(entry, payload['proof_image'], expected[entry['approval']['namespace']])
             if entry['approval'].get('composition'):
                 composition_evidence.append(evidence)
         checked += 1
@@ -71,7 +79,8 @@ def run(payload):
         for entry in active:
             inspect({'definition': entry['definition'], 'approval': entry['approval'], 'action': 'backend'})
     return {'services_checked': checked, 'owner_convergence': True, 'unauthorized_destinations_denied': True,
-            'controller_stability': stability, 'composition_transport': composition_evidence, 'data_removal': False}
+            'controller_stability': stability, 'composition_transport': composition_evidence,
+            'other_additive_and_root_policies': 'not qualified', 'data_removal': False}
 
 
 if __name__ == '__main__':

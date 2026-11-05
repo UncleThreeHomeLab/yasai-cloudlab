@@ -15,14 +15,14 @@ METADATA_BYTES = 64 * 1024
 CONTENTS_BYTES = 2 * 1024 * 1024
 
 
-def read(values, *, include_revision=False):
+def read(values, *, include_revision=False, public=None):
     from playbooks.services.files.owner import configuration
     deadline = time.monotonic() + READ_SECONDS
     work_deadline = deadline - CLEANUP_SECONDS
     stage, failure, cleanup = 'configuration', None, 'not-issued'
     token, result = None, None
     try:
-        selected_path = configuration()['catalogPath']
+        selected_path = (configuration() if public is None else configuration(public))['catalogPath']
         stage = 'credentials'
         credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
         if time.monotonic() >= work_deadline:

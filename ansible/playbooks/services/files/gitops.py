@@ -128,3 +128,29 @@ def resources(definition, approval, platform_repository, platform_revision, *, c
                                      'item': ('cnpg' if kind == 'database' else 's3') + '-' + name + '-production'}
                                      for kind, r in definition['data'].items()}}))
     return [obj for obj in yaml.safe_load_all(output) if obj]
+
+
+def authorization_policies(value, public, chart_root):
+    """Project the selected native owner for verification, never for applying."""
+    import json
+    import yaml
+    from playbooks.services.files.owner import configuration
+    selected = configuration(public)
+    output = _render(['helm', 'template', 'services', str(chart_root), '-n', 'argocd', '-f', '-'],
+        json.dumps(dict(value, repository=selected['repository'], revision=selected['revision'],
+                        telemetry=public['observability']['enabled'])))
+    expected = {entry['approval']['namespace']: [] for entry in value['catalog']}
+    try:
+        for row in yaml.safe_load_all(output):
+            if not row or row.get('kind') != 'AuthorizationPolicy': continue
+            namespace = row.get('metadata', {}).get('namespace')
+            if namespace not in expected or row.get('apiVersion') != 'security.istio.io/v1':
+                raise ValueError('Native authorization projection has an unexpected coordinate')
+            expected[namespace].append({'apiVersion': row['apiVersion'], 'kind': row['kind'],
+                'metadata': {key: row['metadata'][key] for key in ('namespace', 'name')}, 'spec': row['spec']})
+    except (yaml.YAMLError, KeyError, TypeError, AttributeError):
+        raise ValueError('Native authorization projection is malformed; private diagnostics withheld') from None
+    if (any(not rows or len(rows) > 128 for rows in expected.values()) or
+            len(json.dumps(expected).encode()) > 1048576):
+        raise ValueError('Native authorization projection is incomplete or exceeds its bound')
+    return expected

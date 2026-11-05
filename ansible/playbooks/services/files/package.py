@@ -6,8 +6,16 @@ import json
 from pathlib import Path
 import tarfile
 import zipfile
+import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
+
+
+def notes_workloads():
+    values = yaml.safe_load((ROOT / 'apps/notes/values.yaml').read_text())
+    return yaml.safe_dump({name: {'name': values[name]['name'],
+        'ports': [port['port'] for port in values[name]['ports']]}
+        for name in ('web', 'api')}, sort_keys=True).encode()
 
 
 def monitoring_projections():
@@ -66,6 +74,7 @@ def build():
     schema_path.write_text(json.dumps(catalog_schema, indent=2) + '\n', newline='\n')
     for path, raw in monitoring_projections().items():
         path.write_bytes(raw)
+    (ROOT / 'platform/delivery/services/notes-workloads.yaml').write_bytes(notes_workloads())
     native_path = ROOT / 'platform/observability/gitops/values.schema.json'
     native = json.loads(native_path.read_text())
     definition = native['properties']['catalog']['items']['properties']['definition']['properties']
@@ -80,6 +89,8 @@ def build():
 
 
 def check():
+    if (ROOT / 'platform/delivery/services/notes-workloads.yaml').read_bytes() != notes_workloads():
+        raise ValueError('Notes workload ports differ from their authoritative source')
     base = ROOT / 'apps/notes'
     hashes = json.loads((base / 'artifact.lock.json').read_text())
     expected = artifacts()

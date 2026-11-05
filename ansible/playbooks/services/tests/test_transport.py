@@ -47,7 +47,7 @@ class TransportTests(unittest.TestCase):
                 patch('playbooks.services.files.transport.get', side_effect=get), \
                 patch('playbooks.services.files.transport.kube', side_effect=kube), \
                 patch('playbooks.services.files.transport.wait', side_effect=wait):
-            result = run(entry, 'pinned-fixture-image')
+            result = run(entry, 'pinned-fixture-image', [])
         self.assertTrue(result['cross_node_workload_identity'])
         self.assertEqual(probes, ['synthetic', 'default'])
         self.assertEqual(len(created), 2)
@@ -57,16 +57,20 @@ class TransportTests(unittest.TestCase):
 
     def test_workload_policy_rejects_extra_principals_or_an_author_owner(self):
         entry = {'definition': definition(), 'approval': approval()}
-        obj = {'metadata': {'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-services:owned'}},
+        obj = {'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicy',
+               'metadata': {'name': 'platform-workloads', 'namespace': entry['approval']['namespace'],
+                           'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-services:security.istio.io/AuthorizationPolicy:cloudlab-app-synthetic/platform-workloads'}},
                'spec': {'selector': {'matchLabels': {'cloudlab.io/owner': entry['definition']['owner']}}, 'action': 'ALLOW', 'rules': [{'from': [{'source': {
                    'principals': ['cluster.local/ns/cloudlab-app-synthetic/sa/synthetic']}}]}]}}
-        with patch('playbooks.services.files.transport.get', return_value=obj):
-            self.assertEqual(policy(entry), 'synthetic')
+        expected = [{'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicy',
+                     'metadata': {key: obj['metadata'][key] for key in ('name', 'namespace')}, 'spec': copy.deepcopy(obj['spec'])}]
+        with patch('playbooks.services.files.transport.get', return_value={'items': [obj]}):
+            self.assertEqual(policy(entry, expected), 'synthetic')
             obj['spec']['rules'][0]['from'][0]['source']['principals'].append('*')
-            with self.assertRaises(RuntimeError): policy(entry)
+            with self.assertRaises(RuntimeError): policy(entry, expected)
             obj['spec']['rules'][0]['from'][0]['source']['principals'].pop()
             obj['spec']['selector'] = {}
-            with self.assertRaises(RuntimeError): policy(entry)
+            with self.assertRaises(RuntimeError): policy(entry, expected)
             obj['spec']['selector'] = {'matchLabels': {'cloudlab.io/owner': entry['definition']['owner']}}
             obj['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'synthetic-synthetic:owned'
-            with self.assertRaises(RuntimeError): policy(entry)
+            with self.assertRaises(RuntimeError): policy(entry, expected)
