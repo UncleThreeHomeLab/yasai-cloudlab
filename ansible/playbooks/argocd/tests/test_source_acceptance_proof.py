@@ -527,13 +527,52 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         image = next(name + '@' + digest for name, digest in lock['images'].items() if name.startswith('quay.io/argoproj/argocd:'))
         controller = {'metadata': {'uid': 'controller', 'generation': 1}, 'spec': {'replicas': 1, 'template': {'spec': {'containers': [{'image': image,
             'args': ['--policy=create-update', '--enable-policy-override=false']}]}}}, 'status': {'availableReplicas': 1, 'observedGeneration': 1}}
+        revision, tree_sha = self.config['publicRevision'], 'e' * 40
+        prefix = 'repos/' + proof.native.repository(proof.PUBLIC) + '/git/'
+        commit_path, tree_path = prefix + 'commits/' + revision, prefix + 'trees/' + tree_sha + '?recursive=1'
+        commit = {'sha': revision, 'tree': {'sha': tree_sha}}
+        charts = {'gitops/roots/public': self.root_files, proof.CHART: self.fixture_files}
+        tree = {'sha': tree_sha, 'truncated': False, 'tree': [
+            {'path': path + '/' + name, 'type': 'blob', 'mode': '100644', 'size': len(data),
+                'sha': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+            for path, chart in charts.items() for name, data in chart.items()]}
+        real_chart_files = proof.native.source_snapshot.chart_files
+        def chart_snapshot(source, **kwargs):
+            return real_chart_files(source, read_file=lambda source, name, size, deadline: charts[source['path']][name], **kwargs)
+        def metadata_request(path, deadline):
+            if path == commit_path: return commit
+            if path == tree_path: return tree
+            self.assertEqual(path, 'repos/' + proof.native.repository(proof.PUBLIC) + '/contents/platform/delivery/argocd/artifact.lock.json?ref=' + revision)
+            return lock_file
         self.context_patch.stop()
-        with patch.object(proof.native, 'published_source', return_value=(self.public, self.config['publicRevision'])), \
-                patch.object(proof.native.source_snapshot, 'chart_files', side_effect=lambda source, **kwargs: artifacts if source['path'] == 'platform/delivery/argocd' else self.root_files if source['path'] == 'gitops/roots/public' else self.fixture_files), \
-                patch.object(proof.native.source_snapshot, 'request', return_value=lock_file) as request, \
+        with patch.object(proof.native, 'published_source', return_value=(self.public, revision)) as published, \
+                patch.object(proof.native.source_snapshot, 'chart_files', side_effect=chart_snapshot) as snapshots, \
+                patch.object(proof.native.source_snapshot, 'request', side_effect=metadata_request) as request, \
                 patch.object(proof, 'get', side_effect=lambda kind, *args: controller if kind == 'deployment' else root):
             proof.context(self.config)
-            self.assertTrue(request.call_args.args[0].endswith('artifact.lock.json?ref=' + self.config['publicRevision']))
+            self.assertEqual([call.args[0] for call in request.call_args_list], [commit_path, tree_path,
+                'repos/' + proof.native.repository(proof.PUBLIC) + '/contents/platform/delivery/argocd/artifact.lock.json?ref=' + revision])
+            self.assertEqual(snapshots.call_count, 2); self.assertEqual(published.call_count, 1)
+            self.assertEqual(snapshots.call_args_list[0].kwargs['deadline'], snapshots.call_args_list[1].kwargs['deadline'])
+            proof.context(self.config)
+            self.assertEqual([call.args[0] for call in request.call_args_list].count(commit_path), 2)
+            self.assertEqual([call.args[0] for call in request.call_args_list].count(tree_path), 2)
+            self.assertEqual(published.call_count, 2)
+            request.side_effect = ValueError('synthetic metadata unavailable')
+            with self.assertRaisesRegex(ValueError, 'metadata unavailable'): proof.create(self.config)
+            self.assertEqual(self.writes, [])
+            request.side_effect = metadata_request
+            proof.context(self.config)
+            self.assertEqual(published.call_count, 4)
+            tree['truncated'] = True
+            with self.assertRaisesRegex(ValueError, 'tree is incomplete'): proof.context(self.config)
+            tree['truncated'] = False
+            original = self.fixture_files['Chart.yaml']
+            self.fixture_files['Chart.yaml'] = original + b'\n'
+            try:
+                with self.assertRaisesRegex(ValueError, 'exact Git blob'): proof.context(self.config)
+            finally:
+                self.fixture_files['Chart.yaml'] = original
             lock_file['sha'] = '0' * 40
             with self.assertRaisesRegex(proof.ProofError, 'blob integrity'): proof.context(self.config)
             lock_file['sha'] = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
