@@ -15,14 +15,13 @@ METADATA_BYTES = 64 * 1024
 CONTENTS_BYTES = 2 * 1024 * 1024
 
 
-def read(values, *, include_revision=False, public=None):
-    from playbooks.services.files.owner import configuration
-    deadline = time.monotonic() + READ_SECONDS
+def _read(values, select, consume, *, deadline=None):
+    deadline = deadline if deadline is not None else time.monotonic() + READ_SECONDS
     work_deadline = deadline - CLEANUP_SECONDS
     stage, failure, cleanup = 'configuration', None, 'not-issued'
     token, result = None, None
     try:
-        selected_path = (configuration() if public is None else configuration(public))['catalogPath']
+        selected = select()
         stage = 'credentials'
         credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
         if time.monotonic() >= work_deadline:
@@ -43,11 +42,9 @@ def read(values, *, include_revision=False, public=None):
         client = GitHub(token, deadline=work_deadline, max_response=METADATA_BYTES)
         revision = client.request('GET', 'repos/' + repo + '/git/ref/heads/main')['object']['sha']
         client = GitHub(token, deadline=work_deadline, max_response=CONTENTS_BYTES)
-        value = client.request('GET', 'repos/' + repo + '/contents/' + selected_path + '?ref=' + revision)
-        catalog = yaml.safe_load(decode_contents(value))
+        result = consume(client, repo, revision, selected)
         if time.monotonic() >= work_deadline:
             raise RuntimeError('Read deadline expired')
-        result = (catalog, revision) if include_revision else catalog
         stage = 'complete'
     except Exception:
         failure = stage
@@ -69,6 +66,60 @@ def read(values, *, include_revision=False, public=None):
     if failure is not None:
         raise RuntimeError('Private catalog read failed at ' + failure + '; token cleanup: ' + cleanup) from None
     return result
+
+
+def read(values, *, include_revision=False, public=None):
+    from playbooks.services.files.owner import configuration
+    def select():
+        return (configuration() if public is None else configuration(public))['catalogPath']
+    def consume(client, repo, revision, selected):
+        value = client.request('GET', 'repos/' + repo + '/contents/' + selected + '?ref=' + revision)
+        catalog = yaml.safe_load(decode_contents(value))
+        return (catalog, revision) if include_revision else catalog
+    return _read(values, select, consume)
+
+
+def read_consumer(values, consumer, *, public=None):
+    """Authenticate public approval, then read its complete immutable private bundle."""
+    from playbooks.argocd.files.private_sources import consumer_contract, accepted_consumer
+    from playbooks.services.files.owner import configuration
+    from playbooks.data.files.native import published_source, PrivateLoader
+    import base64
+    import hashlib
+    deadline = time.monotonic() + READ_SECONDS
+    try:
+        coordinates = configuration()
+        current, public_revision = published_source({'publicSource': {'repository': coordinates['repository'], 'branch': 'main'}},
+            deadline=deadline - CLEANUP_SECONDS)
+        contract = consumer_contract(current, consumer)
+        if public is not None and json.dumps(consumer_contract(public, consumer), sort_keys=True) != json.dumps(contract, sort_keys=True):
+            raise ValueError('Consumer source context differs from current public authority')
+        result = {'consumer': consumer, 'publicRevision': public_revision, 'proposalRevision': None, 'acceptedRevision': None,
+            'acceptanceCommitment': contract['acceptanceCommitment'], 'acceptanceReceipt': None, 'inputs': {}}
+        if time.monotonic() >= deadline - CLEANUP_SECONDS: raise RuntimeError('Read deadline expired')
+        if not contract['enabled']: return result
+        repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
+        if repo.casefold() == repository(current['repository']).casefold(): raise ValueError('Private repository is required')
+        if time.monotonic() >= deadline - CLEANUP_SECONDS: raise RuntimeError('Read deadline expired')
+    except Exception:
+        raise RuntimeError('Private consumer read failed at configuration; token cleanup: not-issued') from None
+    def consume(client, selected_repo, head, _):
+        if selected_repo != repo: raise ValueError('Consumer source repository changed')
+        accepted = accepted_consumer(client, values['PRIVATE_CONFIG_REPOSITORY'], head, current, consumer)
+        documents = {}
+        for path in contract['paths']:
+            value = client.request('GET', 'repos/' + repo + '/contents/' + path + '?ref=' + accepted['acceptedRevision'])
+            if (not isinstance(value, dict) or value.get('type') != 'file' or value.get('path') != path
+                    or value.get('encoding') != 'base64' or type(value.get('size')) is not int or not 0 < value['size'] <= 1048576
+                    or not isinstance(value.get('content'), str) or len(value['content']) > CONTENTS_BYTES): raise ValueError('Invalid consumer file')
+            raw = base64.b64decode(value['content'].replace('\n', '').replace('\r', ''), validate=True)
+            if len(raw) != value['size'] or hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() != value.get('sha'):
+                raise ValueError('Consumer file integrity changed')
+            document = yaml.load(raw, Loader=PrivateLoader)
+            if not isinstance(document, dict): raise ValueError('Consumer input must be a complete document')
+            documents[path] = document
+        return dict(result, proposalRevision=head, inputs=documents, **accepted)
+    return _read(values, lambda: None, consume, deadline=deadline)
 
 
 def publish(value, *, expected=None):
