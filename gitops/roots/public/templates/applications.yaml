@@ -43,7 +43,7 @@ spec:
       {{- if and (eq $name "cloudlab-public-root") $oidc }}
       valuesObject:
         identity:
-{{ toYaml $.Values.identity | indent 10 }}
+{{ omit $.Values.identity "application" | toYaml | indent 10 }}
         {{- $flags := pick $.Values.data.configuration "maintenance" "hibernated" }}
         {{- if $flags }}
         data:

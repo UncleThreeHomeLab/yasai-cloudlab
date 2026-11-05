@@ -18,6 +18,28 @@ OWNER = ROOT / 'ansible/playbooks/keycloak'
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_root_self_forwarding_releases_stale_identity_flag_and_preserves_binding_and_data_flags(self):
+        root = ROOT / 'gitops/roots/public'
+        binding = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private-fixture.git', 'valuesRevision': 'a' * 40}
+        flags = {'maintenance': False, 'hibernated': False}
+        stale = {'identity': {'enabled': True, 'application': {'enabled': False}, 'argo': binding},
+            'data': {'configuration': flags}}
+        def render(overrides):
+            result = subprocess.run(['helm', 'template', 'cloudlab-public-root', str(root), '-f', '-'],
+                input=json.dumps(overrides), capture_output=True, text=True, timeout=30, check=True)
+            objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+            owner = next(obj for obj in objects if obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-public-root')
+            return objects, owner['spec']['source']['helm']['valuesObject']
+        first, forwarded = render(stale)
+        self.assertFalse(any(obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity' for obj in first))
+        self.assertEqual(forwarded['identity'], {'enabled': True, 'argo': binding})
+        self.assertEqual(forwarded['data']['configuration'], flags)
+        second, stable = render(forwarded)
+        parent = next(obj for obj in second if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity')
+        self.assertEqual(stable, forwarded)
+        self.assertEqual(parent['spec']['generators'][0]['merge']['generators'][1]['git']['revision'], binding['valuesRevision'])
+        self.assertEqual(parent['spec']['template']['spec']['source']['targetRevision'], '526891f62eb9b9a50a0ffaf6ef020269d09e7746')
+
     def test_native_installation_render_and_typed_private_patch_refuse_other_pins(self):
         from playbooks.keycloak.files import ownership
         root = ROOT / 'gitops/roots/public'

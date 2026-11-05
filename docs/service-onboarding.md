@@ -78,8 +78,10 @@ Argo origins advance only after that identity revision is approved; changing mai
 alone does not authorize new administrative origins. Controllers reconcile these
 shared inputs; service onboarding does not apply a gateway playbook.
 
-The optional `identity.application.enabled` owner is disabled by default. Its
-native ApplicationSet reads the exact approved identity revision's
+The `identity.application.enabled` native owner is enabled for the accepted
+installation. Initial enrollment requires a separately reviewed bootstrap
+profile. Root follows this public setting without retaining a private feature
+override. Its ApplicationSet reads the exact approved identity revision's
 `identity/keycloak-values.yaml`: installationRevision, loginHost, adminHost,
 database, databaseRole, databaseHost, databasePort, databaseCA,
 trustedProxyAddresses and retiredEmergencyItem. The installation revision is
