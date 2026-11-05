@@ -1,6 +1,7 @@
 """Observe controller convergence and exercise admission without creating workloads."""
 import copy
 import json
+from pathlib import Path
 import re
 import sys
 import time
@@ -9,6 +10,97 @@ import urllib.parse
 sys.path.insert(0, '/opt/cloudlab')
 
 from playbooks.istio.files.kube import application_ready, condition, get, kube, wait, condition_status_ready as policy_ready
+
+PERMISSIONS_GUARD_NAME = 'cloudlab-permissions-ownership'
+PERMISSIONS_CONTROLLER = 'system:serviceaccount:argocd:argocd-application-controller'
+PERMISSIONS_GUARD_MESSAGE = 'Permission catalog writes require the native Argo owner, exact tracking and an unchanged owned scope.'
+
+
+def permission_guard_desired(path=None):
+    import yaml
+    path = path or Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates/permissions.yaml'
+    return list(yaml.safe_load_all(Path(path).read_text()))
+
+
+def permission_tracking(kind, name, namespace='argocd'):
+    return 'cloudlab-permissions:rbac.authorization.k8s.io/' + kind + ':' + namespace + '/' + name
+
+
+def permission_guard_validate(documents, expected):
+    if not isinstance(expected, list) or len(expected) != 4 or len(documents) != 4:
+        raise RuntimeError('Permission guard requires both complete typed policies and bindings')
+    names = {PERMISSIONS_GUARD_NAME + '-roles': ['clusterroles'],
+             PERMISSIONS_GUARD_NAME + '-bindings': ['clusterrolebindings', 'rolebindings']}
+    required = {(name, kind) for name in names for kind in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')}
+    if {(row.get('metadata', {}).get('name'), row.get('kind')) for row in expected} != required:
+        raise RuntimeError('Permission guard requires its exact typed policies and bindings')
+    for actual, reference in zip(documents, expected, strict=True):
+        kind = reference['kind']
+        name = reference['metadata']['name']
+        if kind == 'ValidatingAdmissionPolicy':
+            constraints = {'matchPolicy': 'Exact', 'namespaceSelector': {}, 'objectSelector': {}, 'resourceRules': [{
+                'apiGroups': ['rbac.authorization.k8s.io'], 'apiVersions': ['v1'], 'operations': ['CREATE', 'UPDATE'],
+                'resources': names[name], 'scope': '*'}]}
+            if reference['spec'].get('failurePolicy') != 'Fail' or reference['spec'].get('matchConstraints') != constraints:
+                raise RuntimeError('Permission guard must retain its fail-closed exact RBAC scope')
+        elif reference.get('spec') != {'policyName': name, 'validationActions': ['Deny']}:
+            raise RuntimeError('Permission guard bindings must enforce their exact typed policies')
+        marker = 'cloudlab-workload-policy:admissionregistration.k8s.io/' + kind + ':cloudlab-policy/' + reference['metadata']['name']
+        if (not isinstance(actual, dict) or actual.get('apiVersion') != 'admissionregistration.k8s.io/v1' or
+                actual.get('kind') != kind or actual.get('metadata', {}).get('name') != reference['metadata']['name'] or
+                actual.get('spec') != reference['spec'] or
+                actual.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != marker):
+            raise RuntimeError('Permission guard differs from its exact native owner')
+        if kind == 'ValidatingAdmissionPolicy':
+            status = actual.get('status', {})
+            type_checking = status.get('typeChecking', {})
+            if (not actual['metadata'].get('generation') or
+                    status.get('observedGeneration') != actual['metadata']['generation'] or
+                    not isinstance(type_checking, dict) or type_checking.get('expressionWarnings') or
+                    any(condition.get('status') == 'False' for condition in status.get('conditions', []))):
+                raise RuntimeError('Permission guard type-checking is incomplete or has warnings')
+    return True
+
+
+def permission_candidate():
+    kind, name = 'ClusterRole', 'cloudlab-permissions-guard-proof-namespace'
+    return {'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': kind,
+            'metadata': {'name': name, 'labels': {'cloudlab.io/owner': 'permissions-platform',
+                'cloudlab.io/permission-profile': 'guard-proof', 'cloudlab.io/permission-scope': 'namespace'},
+                'annotations': {'argocd.argoproj.io/tracking-id': permission_tracking(kind, name)}},
+            'rules': [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['get']}]}
+
+
+def permission_guard_probes(dry_run):
+    """dry_run returns status and diagnostics from server dry-run only."""
+    good = permission_candidate()
+    status, _ = dry_run(good, PERMISSIONS_CONTROLLER)
+    if status:
+        raise RuntimeError('Native permission-owner dry-run was not admitted')
+    wrong_tracking = copy.deepcopy(good)
+    wrong_tracking['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+    foreign = {'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'ClusterRoleBinding',
+               'metadata': {'name': 'cloudlab-foreign-permission-proof'},
+               'roleRef': {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole', 'name': good['metadata']['name']},
+               'subjects': [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': 'fixture-user'}]}
+    binding = {'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'RoleBinding',
+               'metadata': copy.deepcopy(good['metadata']), 'roleRef': copy.deepcopy(foreign['roleRef']),
+               'subjects': copy.deepcopy(foreign['subjects'])}
+    binding['metadata'].update(name='cloudlab-permissions-guard-binding-proof', namespace='argocd')
+    binding['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = permission_tracking(
+        'RoleBinding', binding['metadata']['name'], 'argocd')
+    if dry_run(binding, PERMISSIONS_CONTROLLER)[0]:
+        raise RuntimeError('Native permission-owner namespace dry-run was not admitted')
+    wrong_binding = copy.deepcopy(binding)
+    wrong_binding['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+    for document, caller in ((good, None), (wrong_tracking, PERMISSIONS_CONTROLLER), (foreign, PERMISSIONS_CONTROLLER),
+                             (binding, None), (wrong_binding, PERMISSIONS_CONTROLLER)):
+        status, diagnostics = dry_run(document, caller)
+        guard_name = PERMISSIONS_GUARD_NAME + ('-roles' if document['kind'] == 'ClusterRole' else '-bindings')
+        if (not status or not re.search(r'(?<![\w.-])' + guard_name + r'(?![\w.-])', diagnostics) or
+                PERMISSIONS_GUARD_MESSAGE not in diagnostics):
+            raise RuntimeError('Permission violation was not denied by its exact native guard')
+    return True
 
 
 def probe(namespace):
@@ -212,7 +304,7 @@ def namespaces(workloads, enforce, catalog):
     return ephemeral_checked, composition_checked, restricted_checked
 
 
-def run(revision, actions, catalog=None):
+def run(revision, actions, catalog=None, guard_expected=None):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
     if actions not in (['Audit', 'Warn'], ['Deny']):
@@ -221,6 +313,20 @@ def run(revision, actions, catalog=None):
     names = ('cloudlab-kyverno', 'cloudlab-workload-policy')
     wait(lambda: all(application_ready(name, revision) for name in names),
          'admission GitOps convergence', timeout=600)
+    expected = guard_expected if guard_expected is not None else permission_guard_desired()
+    def permission_guard_ready():
+        documents = [get(reference['kind'], reference['metadata']['name']) for reference in expected]
+        try:
+            return permission_guard_validate(documents, expected)
+        except RuntimeError:
+            return False
+    wait(permission_guard_ready, 'native permission guard qualification', timeout=180)
+    def permission_dry_run(document, caller):
+        arguments = ['create', '--dry-run=server', '-f', '-', '-o', 'json']
+        if caller: arguments += ['--as=' + caller]
+        result = kube(*arguments, document=document, allow_failure=True)
+        return result.returncode, result.stderr
+    permission_guard_probes(permission_dry_run)
     for name, background, resources in (
             ('cloudlab-workload-contract', True, ['pods']),
             ('cloudlab-workload-ephemeral', False, ['pods/ephemeralcontainers'])):
@@ -264,6 +370,9 @@ def run(revision, actions, catalog=None):
 if __name__ == '__main__':
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ''
-        print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2]), json.loads(raw) if raw.strip() else []), sort_keys=True))
+        data = json.loads(raw) if raw.strip() else []
+        print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2]),
+            data['catalog'] if isinstance(data, dict) else data,
+            data.get('permissionsGuard') if isinstance(data, dict) else None), sort_keys=True))
     except Exception:
         raise SystemExit('Admission verification incomplete; existing workloads and policy mode retained') from None

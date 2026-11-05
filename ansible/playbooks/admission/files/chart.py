@@ -73,7 +73,13 @@ def check():
         crd = next(row for row in crds if row['metadata']['name'] == name + '.policies.kyverno.io')
         if not any(version['name'] == 'v1' and version['served'] for version in crd['spec']['versions']):
             raise ValueError('Native admission API does not serve the selected policy version')
-    policies = render(True)
+    documents = render(True)
+    policies = [row for row in documents if row['kind'] == 'ValidatingPolicy']
+    from playbooks.admission.files.verify import permission_guard_desired
+    native = [row for row in documents if row['kind'] != 'ValidatingPolicy']
+    if sorted(json.dumps(row, sort_keys=True) for row in native) != sorted(
+            json.dumps(row, sort_keys=True) for row in permission_guard_desired()):
+        raise ValueError('Native permissions guard differs from its exact declared policy and binding')
     actions = yaml.safe_load((BASE / 'policies/values.yaml').read_text())['validationActions']
     runner_actions = yaml.safe_load((BASE / 'policies/values.yaml').read_text())['runnerValidationActions']
     if (actions not in (['Audit', 'Warn'], ['Deny']) or runner_actions not in (['Audit', 'Warn'], ['Deny']) or

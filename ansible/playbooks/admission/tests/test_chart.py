@@ -20,7 +20,7 @@ class AdmissionTests(unittest.TestCase):
         for actions in (['Audit', 'Warn'], ['Deny']):
             with self.subTest(actions=actions):
                 self.assertTrue(all(row['spec']['validationActions'] == (['Deny'] if row['metadata']['name'] in ('cloudlab-composition-namespace', 'cloudlab-workload-namespace') or row['metadata']['name'].startswith('cloudlab-private-source-') else actions) for row in
-                                    render(True, {'validationActions': actions, 'runnerValidationActions': actions})))
+                                    render(True, {'validationActions': actions, 'runnerValidationActions': actions}) if row['kind'] == 'ValidatingPolicy'))
         for actions in ([], ['Warn'], ['Deny', 'Warn'], ['Audit'], ['Deny', 'Deny']):
             for key in ('validationActions', 'runnerValidationActions'):
                 with self.subTest(actions=actions, key=key), self.assertRaises(subprocess.CalledProcessError):

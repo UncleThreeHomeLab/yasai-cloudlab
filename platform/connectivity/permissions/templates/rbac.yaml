@@ -1,0 +1,80 @@
+{{- $document := .Files.Get "profiles.yaml" | fromYaml -}}
+{{- if or (not (kindIs "map" $document)) (ne (len $document) 1) (not (kindIs "map" $document.profiles)) (eq (len $document.profiles) 0) (gt (len $document.profiles) 32) -}}
+{{- fail "Public permissions profiles require one bounded profiles map" -}}
+{{- end -}}
+{{- $profiles := $document.profiles -}}
+{{- range $name, $profile := $profiles -}}
+{{- if or (not (regexMatch "^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$" $name)) (not (kindIs "map" $profile)) (ne (len $profile) 2) -}}
+{{- fail "Public permissions profile name or shape is invalid" -}}
+{{- end -}}
+{{- range $scope := list "namespace" "cluster" -}}
+{{- $key := printf "%sRules" $scope -}}
+{{- $rules := index $profile $key -}}
+{{- if or (not (kindIs "slice" $rules)) (gt (len $rules) 32) -}}{{ fail "Public profile rules must be bounded lists" }}{{- end -}}
+{{- range $rule := $rules -}}
+{{- if or (not (kindIs "map" $rule)) (not (hasKey $rule "verbs")) -}}{{ fail "Public profile rule shape is invalid" }}{{- end -}}
+{{- range $field, $value := $rule -}}
+{{- if or (not (has $field (list "apiGroups" "resources" "verbs" "resourceNames" "nonResourceURLs"))) (not (kindIs "slice" $value)) (eq (len $value) 0) (gt (len $value) 64) -}}
+{{- fail "Public profile rules use only bounded native resource-rule fields" -}}
+{{- end -}}
+{{- range $item := $value -}}
+{{- if or (not (kindIs "string" $item)) (gt (len $item) 253) (and (ne $field "apiGroups") (eq $item "")) (regexMatch "[[:space:]]" $item) -}}
+{{- fail "Public profile rule values must be bounded native strings" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $rule "nonResourceURLs" -}}
+{{- if or (ne $scope "cluster") (hasKey $rule "apiGroups") (hasKey $rule "resources") (hasKey $rule "resourceNames") -}}{{ fail "Non-resource rules are cluster-only and cannot mix resource fields" }}{{- end -}}
+{{- else -}}
+{{- if or (not (hasKey $rule "apiGroups")) (not (hasKey $rule "resources")) -}}{{ fail "Resource rules require apiGroups and resources" }}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $ids := dict -}}
+{{- range $assignment := .Values.permissions.assignments -}}
+{{- if hasKey $ids $assignment.id -}}{{ fail "Permission assignment IDs must be unique" }}{{- end -}}
+{{- $_ := set $ids $assignment.id true -}}
+{{- if not (hasKey $profiles $assignment.profile) -}}{{ fail "Permission assignment references an unknown public profile" }}{{- end -}}
+{{- $scope := ternary "cluster" "namespace" (hasKey $assignment.scope "cluster") -}}
+{{- if eq (len (index (index $profiles $assignment.profile) (printf "%sRules" $scope))) 0 -}}{{ fail "Permission assignment scope has no declared profile rules" }}{{- end -}}
+{{- end -}}
+{{- range $name, $profile := $profiles }}
+{{- range $scope := list "namespace" "cluster" }}
+{{- $rules := index $profile (printf "%sRules" $scope) }}
+{{- if $rules }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudlab-permissions-{{ $name }}-{{ $scope }}
+  labels: {cloudlab.io/owner: permissions-platform, cloudlab.io/permission-profile: {{ $name | quote }}, cloudlab.io/permission-scope: {{ $scope | quote }}}
+rules: {{ $rules | toJson }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $assignment := .Values.permissions.assignments }}
+{{- $cluster := hasKey $assignment.scope "cluster" }}
+{{- $scope := ternary "cluster" "namespace" $cluster }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ ternary "ClusterRoleBinding" "RoleBinding" $cluster }}
+metadata:
+  name: cloudlab-permissions-{{ $assignment.id }}
+  {{- if not $cluster }}
+  namespace: {{ $assignment.scope.namespace | quote }}
+  {{- end }}
+  labels: {cloudlab.io/owner: permissions-platform, cloudlab.io/permission-profile: {{ $assignment.profile | quote }}, cloudlab.io/permission-scope: {{ $scope | quote }}}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudlab-permissions-{{ $assignment.profile }}-{{ $scope }}
+subjects:
+  - kind: {{ $assignment.subject.kind }}
+    name: {{ $assignment.subject.name | quote }}
+    {{- if eq $assignment.subject.kind "ServiceAccount" }}
+    namespace: {{ $assignment.subject.namespace | quote }}
+    {{- else }}
+    apiGroup: rbac.authorization.k8s.io
+    {{- end }}
+{{- end }}
