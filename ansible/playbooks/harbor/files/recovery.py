@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -66,8 +67,9 @@ def fingerprints():
     return {name: hashlib.sha256(json.dumps(secret(name), sort_keys=True).encode()).hexdigest() for name in SECRETS}
 
 
-def installation():
-    revisions = {application(name)['spec']['source']['targetRevision'] for name in APPS}
+def installation(*, reader=None):
+    reader = application if reader is None else reader
+    revisions = {reader(name)['spec']['source']['targetRevision'] for name in APPS}
     if len(revisions) != 1:
         raise RuntimeError('Harbor recovery requires one converged installation revision')
     return {'revision': revisions.pop(),
@@ -272,6 +274,83 @@ def validate(manifest):
                 for value in source['images'])):
         raise ValueError('Harbor recovery requires immutable independently available bootstrap artifacts')
     return manifest
+
+
+def handoff_pending(*, expected=None):
+    """Under the host lock, inspect idle captured recovery; never advance it."""
+    from playbooks.harbor.files import native
+    for name in ('maintenance.json', 'restore-owned.json', 'retention-pending.json'):
+        if native.source.authority_path(BASE / name, missing=True) is not None:
+            raise RuntimeError('Finish active Harbor recovery before installation handoff')
+    proof = native.source.receipt(BASE / 'deployment-proof.json', missing=True)
+    if proof and proof.get('phase') != 'ready':
+        raise RuntimeError('Finish preparing or cleaning the Harbor Deployment proof before handoff')
+    path = BASE / 'pending-volume.json'
+    info = native.source.authority_path(path, missing=True)
+    witness = {'manifest': None}
+    if info is not None:
+        try:
+            def unique(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result: raise ValueError()
+                    result[key] = value
+                return result
+            def invalid_constant(value): raise ValueError()
+            if info.st_size > 1024 * 1024: raise ValueError()
+            with path.open('rb') as stream: raw = stream.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024: raise ValueError()
+            manifest = json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
+            validate(manifest)
+            if (type(manifest['format']) is not int or manifest.get('operation') != 'monthly'
+                    or manifest.get('phase') != 'snapshot' or manifest.get('captured') is not True
+                    or manifest['installation']['revision'] != native.REVISION):
+                raise ValueError()
+            for key in ('captured_at', 'capture_seconds'):
+                if (type(manifest.get(key)) not in (int, float) or not math.isfinite(manifest[key])
+                        or manifest[key] < 0 or key == 'captured_at' and manifest[key] == 0):
+                    raise ValueError()
+            apps = {name: get('application.argoproj.io', name, 'argocd') for name in APPS}
+            if not native.same(manifest['installation'], installation(reader=apps.__getitem__)):
+                raise ValueError()
+            application_uids = {}
+            for name, app in apps.items():
+                meta = app.get('metadata', {})
+                if not isinstance(meta.get('uid'), str) or not meta['uid'] or meta.get('deletionTimestamp'): raise ValueError()
+                application_uids[name] = meta['uid']
+                values = app['spec']['source']['helm']['valuesObject']
+                for path_parts in native.paths(name):
+                    cursor = values
+                    for key in path_parts[:-1]: cursor = cursor.get(key, {})
+                    flag = cursor.get(path_parts[-1], False if name == APPS[1] else 1)
+                    if (name == APPS[1] and (type(flag) is not bool or flag)) or (name == APPS[0] and (type(flag) is not int or flag != 1)):
+                        raise ValueError()
+            if not native.same(manifest['secrets'], fingerprints()): raise ValueError()
+            current = sources(); identities = {}; snapshots = {}
+            for component, recorded in manifest['volumes'].items():
+                keys = ('claim', 'claim_uid', 'volume', 'volume_uid', 'size')
+                identity = {key: current[component][key] for key in keys}
+                if not native.same(identity, {key: recorded[key] for key in keys}): raise ValueError()
+                identities[component] = identity
+                obj = get('snapshots.longhorn.io', recorded['snapshot'], 'longhorn-system') or {}
+                meta, spec, status = obj.get('metadata', {}), obj.get('spec', {}), obj.get('status', {})
+                if (not isinstance(meta.get('uid'), str) or not meta['uid'] or meta.get('deletionTimestamp')
+                        or meta.get('labels', {}).get('cloudlab.io/owner') != OWNER
+                        or spec.get('volume') != recorded['volume']
+                        or spec.get('labels', {}).get('cloudlab-generation') != manifest['generation']
+                        or status.get('readyToUse') is not True or status.get('markRemoved') or status.get('error')):
+                    raise ValueError()
+                snapshots[component] = {'spec': copy.deepcopy(spec), **{key: copy.deepcopy(meta.get(key))
+                    for key in ('uid', 'labels', 'annotations', 'ownerReferences', 'finalizers')}}
+            native.source.authority_path(path)
+            with path.open('rb') as stream: after = stream.read(1024 * 1024 + 1)
+            if after != raw: raise ValueError()
+            witness = {'manifest': hashlib.sha256(raw).hexdigest(), 'applications': application_uids, 'sources': identities, 'snapshots': snapshots}
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError, UnicodeDecodeError):
+            raise RuntimeError('Harbor pending handoff requires its unchanged valid captured monthly recovery') from None
+    if expected is not None and not native.same(witness, expected):
+        raise RuntimeError('Harbor pending recovery changed during installation handoff')
+    return witness
 
 
 def signature_record(value, inventory):
