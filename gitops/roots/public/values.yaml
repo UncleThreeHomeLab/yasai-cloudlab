@@ -59,11 +59,12 @@ admission:
   enabled: true
 permissions:
   # Bootstrap disabled; run lab verify to qualify the exact admission guard first.
-  # Keep verified guard bytes unchanged; enable a reviewed immutable pin with
+  # Keep verified guard bytes unchanged; enable a reviewed pin and commitment with
   # private active assignments: []. Verify sources/zero bindings before assignment.
   # Initial activation is staged, not an atomic cross-Application dependency.
   enabled: false
   revision: ''
+  acceptanceCommitment: ''
 ci:
   enabled: true
   poolEnabled: false

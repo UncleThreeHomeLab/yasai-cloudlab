@@ -19,7 +19,7 @@ class RenderTests(unittest.TestCase):
         self.root_with({'permissions': {'enabled': 'true'}}, success=False)
 
     def test_enabled_permissions_without_binding_omit_consumers_but_validate_prerequisites(self):
-        values = {'permissions': {'enabled': True, 'revision': 'a' * 40}}
+        values = {'permissions': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64}}
         self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
                              for row in self.root_with(values)))
         for pin in ('', 'main', 'a' * 39):
@@ -29,6 +29,9 @@ class RenderTests(unittest.TestCase):
                 ('externalSecrets', {'enabled': False}), ('externalSecrets', {'reconcile': False})):
             with self.subTest(field=field, configuration=configuration):
                 self.root_with(values | {field: configuration}, success=False)
+        for commitment in ('', '1' * 63, True):
+            with self.subTest(commitment=commitment):
+                self.root_with(values | {'permissions': values['permissions'] | {'acceptanceCommitment': commitment}}, success=False)
 
     def test_enabled_public_only_payload_retains_bootstrap_flag_without_permission_consumers(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -36,7 +39,7 @@ class RenderTests(unittest.TestCase):
             shutil.copytree(render.PUBLIC, public)
             values = yaml.safe_load((public / 'values.yaml').read_text())
             values['identity'].pop('argo', None)
-            values['permissions'] = {'enabled': True, 'revision': 'a' * 40}
+            values['permissions'] = {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64}
             (public / 'values.yaml').write_text(yaml.safe_dump(values))
             with patch.object(render, 'PUBLIC', public):
                 data = payload()
@@ -46,15 +49,28 @@ class RenderTests(unittest.TestCase):
             self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
                                  for row in data['roots']))
 
-    def test_permissions_use_reviewed_public_pin_private_main_and_rbac_only_project(self):
-        values = {'permissions': {'enabled': True, 'revision': 'a' * 40}, 'identity': {'argo': {
+    def test_permissions_use_accepted_immutable_source_and_rbac_only_project(self):
+        values = {'permissions': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64}, 'identity': {'argo': {
             'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}}}
         rows = self.root_with(values)
-        application = next(row for row in rows if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions')
-        self.assertEqual(application['spec']['sources'], [
+        parent = next(row for row in rows if row['kind'] == 'ApplicationSet' and row['metadata']['name'] == 'cloudlab-permissions')
+        self.assertFalse(any(row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions' for row in rows))
+        application = parent['spec']['template']
+        self.assertEqual(application['spec']['sources'][0],
             {'repoURL': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git', 'targetRevision': 'a' * 40,
-             'path': 'platform/connectivity/permissions', 'helm': {'releaseName': 'cloudlab-permissions', 'valueFiles': ['$values/platform/permissions.yaml']}},
-            {'repoURL': values['identity']['argo']['valuesRepository'], 'targetRevision': 'main', 'ref': 'values'}])
+             'path': 'platform/connectivity/permissions', 'helm': {'releaseName': 'cloudlab-permissions', 'valueFiles': ['$values/platform/permissions.yaml']}})
+        self.assertEqual(application['spec']['sources'][1]['repoURL'], values['identity']['argo']['valuesRepository'])
+        self.assertEqual(application['spec']['sources'][1]['ref'], 'values')
+        self.assertIn('Consumer source acceptance refused', application['spec']['sources'][1]['targetRevision'])
+        self.assertEqual(parent['spec']['generators'][0]['merge']['generators'], [
+            {'list': {'elements': [{'consumer': 'permissions'}]}}, {'git': {
+                'repoURL': values['identity']['argo']['valuesRepository'], 'revision': 'main',
+                'files': [{'path': 'platform/acceptance/permissions.yaml'}]}}])
+        self.assertEqual(parent['spec']['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
+        self.assertEqual(parent['spec']['goTemplateOptions'], ['missingkey=error'])
+        self.assertNotIn('finalizers', application['metadata'])
+        self.assertEqual(application['metadata']['annotations']['argocd.argoproj.io/tracking-id'],
+            'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-permissions')
         self.assertEqual(application['spec']['syncPolicy']['automated'], {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': False})
         self.assertIn('PrunePropagationPolicy=background', application['spec']['syncPolicy']['syncOptions'])
         project = next(row for row in rows if row['kind'] == 'AppProject' and row['metadata']['name'] == 'cloudlab-permissions')

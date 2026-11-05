@@ -115,8 +115,8 @@ the same Application and resource UIDs across owner transfer; it does not
 authorize production adoption.
 
 The registry receipt above is operational. The separate
-`cloudlab-consumer-source-acceptance/v1` contract is an opt-in reader and unused
-production native gate; observability and permissions controllers do not consume it yet.
+`cloudlab-consumer-source-acceptance/v1` binds permissions through its native
+ApplicationSet; observability controller integration remains pending.
 Receipts use `platform/acceptance/observability.yaml` or
 `platform/acceptance/permissions.yaml`, paired with
 `observability.configuration.acceptanceCommitment` or `permissions.acceptanceCommitment`.
@@ -125,8 +125,11 @@ Its receipt fields are `version`, `consumer`, ordered `paths`, `revision` and
 `platform/observability.yaml`; permissions binds `platform/permissions.yaml`.
 `read_consumer` authenticates current protected public approval and reads the
 complete bundle at one accepted commit. Owners still validate their document
-profiles. Production integration and consumer-specific domain validation remain
-required before activation.
+profiles. Permissions verification checks authenticated parent/child ownership,
+approved revisions and health. Validate the exact pinned permission chart and input
+before approval: approved invalid values retain live grants but previous-revision
+drift repair remains unqualified. Production activation stays gated on consumer
+domain validation and qualified repair behavior.
 
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service

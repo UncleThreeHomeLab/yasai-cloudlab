@@ -154,16 +154,18 @@ def accepted_source(client, repository, head, public):
         raise ValueError('Private source acceptance refused') from None
 
 
-def acceptance_spec(public, repository, revision, *, files=None):
+def acceptance_spec(public, repository, revision, *, files=None, consumer='private-sources'):
     """Capture the reviewed native contract directly from its owning Root chart."""
     from playbooks.data.files.native import render_objects
+    if consumer not in ('private-sources', 'permissions'):
+        raise ValueError('Private source acceptance declaration is unsupported')
     values = copy.deepcopy(public)
     values.setdefault('identity', {}).update(enabled=True, argo={'valuesRepository': repository, 'valuesRevision': revision})
     chart = Path(__file__).resolve().parents[4] / 'gitops/roots/public'
     if files is None:
         files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
     sets = [obj for obj in render_objects(files, [values]) if obj['kind'] == 'ApplicationSet'
-        and obj['metadata']['name'] == 'cloudlab-private-sources']
+        and obj['metadata']['name'] == 'cloudlab-' + consumer]
     if len(sets) != 1: raise ValueError('Private source acceptance declaration is missing')
     return sets[0]['spec']
 
@@ -286,7 +288,29 @@ def verification_payload(values, public):
         if enabled:
             result.update(acceptance, applicationSet=acceptance_spec(public, repository, revision))
         return result
-    return configuration_revision(values, read=read)
+    result = configuration_revision(values, read=read)
+    permissions = public.get('permissions', {})
+    if not isinstance(permissions, dict) or type(permissions.get('enabled', False)) is not bool:
+        raise ValueError('Permissions verification requires boolean enablement')
+    if permissions.get('enabled', False):
+        from playbooks.services.files.source import read_consumer
+        from playbooks.data.files import native
+        import time
+        evidence = read_consumer(values, 'permissions', public=public)
+        files = native.source_snapshot.chart_files({'repository': public['repository'],
+            'revision': evidence['publicRevision'], 'path': 'gitops/roots/public'}, deadline=time.monotonic() + 90)
+        approved = yaml.safe_load(files['values.yaml'])
+        contract = consumer_contract(approved, 'permissions')
+        if not contract['enabled'] or contract != consumer_contract(public, 'permissions'):
+            raise ValueError('Permissions verification differs from authenticated public intent')
+        validate_consumer_acceptance(evidence['acceptanceReceipt'], repository, contract)
+        if evidence['acceptedRevision'] != evidence['acceptanceReceipt']['revision']:
+            raise ValueError('Permissions verification revision differs from its receipt')
+        result['permissions'] = {key: evidence[key] for key in
+            ('publicRevision', 'acceptedRevision', 'acceptanceCommitment', 'acceptanceReceipt')}
+        result['permissions'].update(contract=contract, applicationSet=acceptance_spec(
+            approved, repository, result['configuration_revision'], files=files, consumer='permissions'))
+    return result
 
 
 if __name__ == '__main__':
