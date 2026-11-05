@@ -91,13 +91,13 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
     from playbooks.data.files import native
     from playbooks.data.files.control import atomic
     from playbooks.keycloak.files.bootstrap import writer_idle
-    from playbooks.istio.files.kube import kube
+    from playbooks.istio.files.kube import kube, wait
     if native.receipt(base / 'ownership.json') != state or native.receipt(base / 'retirement.json') != retirement:
         raise RuntimeError('Native identity handoff requires unchanged protected ownership receipts')
     if state.get('native', {}).get('phase') == 'accepted':
         accepted_application(current, revision=INSTALLATION_REVISION, base=base)
         return False
-    public, head, _, _, desired, root, project, deadline = installation_context(preparing=True)
+    public, head, target, _, desired, root, project, deadline = installation_context(preparing=True)
     source = current.get('spec', {}).get('source', {})
     values = source.get('helm', {}).get('valuesObject', {})
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
@@ -108,19 +108,13 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
             or current['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
             or values.get('maintenance') is not False or values.get('operation') or values.get('bootstrapAdminEnabled') is not False
             or values.get('retiredEmergencyItem') != 'keycloak-emergency-' + retirement['nonce']
-            or not condition(server, 'Ready') or not writer_idle()
+            or not condition(server, 'Ready')
             or source.get('targetRevision') not in ('main', INSTALLATION_REVISION)):
         raise RuntimeError('Native identity handoff requires its accepted idle scoped Application and server')
     recorded = state.get('native')
     if ((source['targetRevision'] == INSTALLATION_REVISION and recorded is None)
             or (recorded is not None and recorded.get('original_revision') != 'main')):
         raise RuntimeError('Only the recorded initial main source freeze may resume at the native pin')
-    for pattern in ('startup-recovery.json', 'proof-*.json', 'remove-*.json'):
-        for path in base.glob(pattern):
-            checkpoint = native.receipt(path)
-            if (checkpoint.get('phase') in ('prepared', 'created', 'stopping', 'starting')
-                    or (path.name.startswith('remove-') and checkpoint.get('complete') is not True)):
-                raise RuntimeError('Complete pending identity operations before native handoff')
     document = {key: values.get(key) for key in INSTALLATION_FIELDS}
     document.update(installationRevision=INSTALLATION_REVISION, retiredEmergencyItem=values.get('retiredEmergencyItem'))
     expected = installation_values(document, telemetry=public['observability']['enabled'])
@@ -141,6 +135,36 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
     if resolved != INSTALLATION_REVISION and pinned != native.source_snapshot.chart_files(
             {'repository': PUBLIC_REPOSITORY, 'revision': resolved, 'path': 'platform/identity/keycloak'}, deadline=deadline):
         raise RuntimeError('Identity installation chart changed; source freeze cannot upgrade code')
+    before = [copy.deepcopy(obj) for obj in (current, root, project, server)]
+    wait(writer_idle, 'identity native handoff writer completion and lease expiry', timeout=300)
+    refreshed = [(get(kind, name, namespace) or {}) for kind, name, namespace in (
+        ('application.argoproj.io', APP, 'argocd'), ('application.argoproj.io', 'cloudlab-public-root', 'argocd'),
+        ('appproject.argoproj.io', APP, 'argocd'), ('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE))]
+    for old, new in zip(before, refreshed):
+        fields = ('uid', 'name', 'namespace', 'generation', 'labels', 'annotations', 'ownerReferences', 'finalizers', 'deletionTimestamp')
+        if (json.dumps(new.get('spec'), sort_keys=True) != json.dumps(old.get('spec'), sort_keys=True)
+                or any(new.get('metadata', {}).get(key) != old.get('metadata', {}).get(key) for key in fields)):
+            raise RuntimeError('Identity handoff scope changed while waiting for its writer')
+    current, root, project, server = refreshed
+    coordinates = {'publicSource': {'repository': PUBLIC_REPOSITORY, 'branch': 'main'}}
+    fresh_public, fresh_head = native.published_source(coordinates, deadline=time.monotonic() + 120)
+    if fresh_head != head or fresh_public != public or native.root_guard(coordinates, fresh_public, fresh_head, root=root) != target:
+        raise RuntimeError('Identity handoff public authority or private binding changed during writer wait')
+    if (native.receipt(base / 'ownership.json') != state or native.receipt(base / 'retirement.json') != retirement
+            or not native.quiet(current) or not native.quiet(project) or not condition(server, 'Ready')
+            or not application_ready(APP, resolved) or not native.matches_revision(current, resolved)
+            or get('applicationset.argoproj.io', APP, 'argocd')
+            or get('externalsecret.external-secrets.io', 'cloudlab-identity-installation-source', 'argocd')
+            or get('secret', 'cloudlab-identity-installation-source', 'argocd')):
+        raise RuntimeError('Identity handoff prerequisites changed during writer wait')
+    for pattern in ('startup-recovery.json', 'proof-*.json', 'remove-*.json'):
+        for path in base.glob(pattern):
+            checkpoint = native.receipt(path)
+            if (checkpoint.get('phase') in ('prepared', 'created', 'stopping', 'starting')
+                    or (path.name.startswith('remove-') and checkpoint.get('complete') is not True)):
+                raise RuntimeError('Complete pending identity operations before native handoff')
+    if not writer_idle():
+        raise RuntimeError('Identity writer renewed before handoff; no source change made')
     captured = {'phase': 'prepared', 'root_uid': root['metadata']['uid'], 'project_uid': project['metadata']['uid'],
         'application_uid': state['uid'], 'keycloak_uid': server['metadata']['uid'], 'values': copy.deepcopy(values),
         'original_revision': state.get('native', {}).get('original_revision', source['targetRevision'])}
