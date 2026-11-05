@@ -93,6 +93,45 @@ class ServiceBindingTests(unittest.TestCase):
             self.assertEqual(set(state), {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid'})
             self.assertEqual(state['phase'], 'accepted')
 
+    def test_full_pending_retry_preserves_captured_data_authority_and_rejects_changed_projection(self):
+        fresh = copy.deepcopy(self.payload['argo']['dataActivation'])
+        fresh.pop('absence')
+        fresh.update(required=True, enabled=True, revision='d' * 40, seaweedfsRevision='e' * 40,
+            settings={'database': 'synthetic'})
+        self.payload['argo']['dataActivation'] = fresh
+        authority = {'baseline': {'database': 'synthetic'}, 'specs': {'data': 'captured'}, 'absent': []}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            def pending():
+                state = self.pending(base)
+                state.update(phase='resumed', publicRevision=self.payload['revision'])
+                state['dataActivation'] = dict(copy.deepcopy(fresh), authority=copy.deepcopy(authority))
+                (base / 'identity-values-binding.json').write_text(json.dumps(state))
+                self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+            def guarded(evidence, target, read, root, *, patched=False, binding=None, held=False):
+                if evidence.get('authority') != authority:
+                    raise RuntimeError('Pending retry lost its captured data authority')
+                self.assertTrue(patched); self.assertTrue(held)
+                self.assertEqual(binding['target'], target)
+                self.assertEqual(binding['dataActivation']['authority'], authority)
+                self.assertEqual(migration.binding_source(binding, root), 'patched')
+                return copy.deepcopy(evidence)
+            pending()
+            with self.contexts(base), patch.object(migration, 'data_guard', side_effect=guarded) as guard:
+                self.assertTrue(migration.bind_identity(self.payload, self.target)['changed'])
+                self.assertGreaterEqual(guard.call_count, 2)
+            accepted = json.loads((base / 'identity-values-binding.json').read_text())
+            self.assertEqual(accepted['phase'], 'accepted')
+            self.assertNotIn('dataActivation', accepted)
+            pending(); before = (base / 'identity-values-binding.json').read_bytes(); self.calls.clear()
+            self.payload['argo']['dataActivation']['settings'] = {'database': 'changed'}
+            with self.contexts(base), patch.object(migration, 'data_guard') as guard, \
+                    self.assertRaisesRegex(RuntimeError, 'cannot change its immutable projection'):
+                migration.bind_identity(self.payload, self.target)
+            guard.assert_not_called(); self.assertEqual(self.calls, [])
+            self.assertEqual((base / 'identity-values-binding.json').read_bytes(), before)
+
     def test_foreign_resource_refuses_before_patch_and_safely_resumes_original_root(self):
         self.objects['namespace', 'cloudlab-app-synthetic'] = {'metadata': {'uid': 'foreign'}}
         with tempfile.TemporaryDirectory() as directory:
