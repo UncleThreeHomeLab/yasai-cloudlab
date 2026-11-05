@@ -107,7 +107,9 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         data = {'type': 'git', 'url': self.config['privateRepository'], 'project': proof.NAME,
             'githubAppID': '1', 'githubAppInstallationID': '2', 'githubAppPrivateKey': 'synthetic'}
         self.stored({'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque', 'metadata': {'name': proof.NAME + '-source', 'namespace': 'argocd',
-            'labels': {'cloudlab.io/owner': proof.OWNER, 'cloudlab.io/proof-attempt': self.config['attempt'], 'argocd.argoproj.io/secret-type': 'repository'},
+            'labels': {'cloudlab.io/owner': proof.OWNER, 'cloudlab.io/proof-attempt': self.config['attempt'], 'argocd.argoproj.io/secret-type': 'repository',
+                'reconcile.external-secrets.io/managed': 'true',
+                'reconcile.external-secrets.io/created-by': hashlib.sha3_224(('argocd/' + proof.NAME + '-source').encode()).hexdigest()},
             'ownerReferences': [{'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret', 'name': proof.NAME + '-source',
                 'uid': state['identities']['ExternalSecret'], 'controller': True, 'blockOwnerDeletion': True}]},
             'data': {key: base64.b64encode(value.encode()).decode() for key, value in data.items()}})
@@ -222,6 +224,34 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         marker = proof.read('Marker'); marker['metadata']['uid'] = 'foreign'
         with self.assertRaises(proof.ProofError): proof.marker_patch(marker, {'revision': 'nonce'}, self.config, state, marker['data'])
         self.assertEqual(self.writes, [])
+
+    def test_native_eso_secret_labels_are_exact_metadata_not_an_ownership_substitute(self):
+        state = self.begin(); baseline = copy.deepcopy(self.objects); captured = copy.deepcopy(state)
+        for case in ('missing-managed', 'missing-created', 'false', 'managed-type', 'created-type', 'malformed-hash',
+                     'foreign-hash', 'unknown-label', 'non-secret', 'wrong-name', 'wrong-namespace', 'replaced-eso'):
+            self.objects = copy.deepcopy(baseline); state = copy.deepcopy(captured); self.writes.clear()
+            secret = self.objects['secret', proof.NAME + '-source', 'argocd']; labels = secret['metadata']['labels']
+            if case == 'missing-managed': labels.pop('reconcile.external-secrets.io/managed')
+            if case == 'missing-created': labels.pop('reconcile.external-secrets.io/created-by')
+            if case == 'false': labels['reconcile.external-secrets.io/managed'] = 'false'
+            if case == 'managed-type': labels['reconcile.external-secrets.io/managed'] = True
+            if case == 'created-type': labels['reconcile.external-secrets.io/created-by'] = 224
+            if case == 'malformed-hash': labels['reconcile.external-secrets.io/created-by'] = 'g' * 56
+            if case == 'foreign-hash': labels['reconcile.external-secrets.io/created-by'] = 'f' * 56
+            if case == 'unknown-label': labels['foreign'] = 'true'
+            if case == 'non-secret':
+                self.objects['configmap', 'retained-data', proof.NAME]['metadata']['labels'].update({
+                    key: labels[key] for key in ('reconcile.external-secrets.io/managed', 'reconcile.external-secrets.io/created-by')})
+            if case == 'wrong-name': secret['metadata']['name'] = 'foreign'
+            if case == 'wrong-namespace': secret['metadata']['namespace'] = proof.NAME
+            if case == 'replaced-eso': secret['metadata']['ownerReferences'][0]['uid'] = 'replacement'
+            with self.subTest(case=case):
+                with self.assertRaises(proof.ProofError): proof.observe(self.config, state)
+                with self.assertRaises(proof.ProofError): proof.cleanup(self.config, state)
+                self.assertEqual(self.writes, [])
+        self.objects = baseline
+        self.assertTrue(proof.observe(self.config, captured)['accepted'])
+        self.assertTrue(proof.cleanup(self.config, captured)['cleanup_complete'])
 
     def test_partial_creation_returns_scope_for_safe_cleanup_or_exact_attempt_resume(self):
         kube = self.kube

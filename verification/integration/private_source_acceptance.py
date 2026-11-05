@@ -179,11 +179,19 @@ def owned(obj, uid, config, *, owners=None):
             or meta.get('finalizers', []) not in ([], [native.ESO_FINALIZER])
             or labels.get('cloudlab.io/owner') != OWNER or labels.get('cloudlab.io/proof-attempt') != config['attempt']):
         raise ProofError('Proof resource identity or ownership changed')
-    if (set(labels) - {'cloudlab.io/owner', 'cloudlab.io/proof-attempt', 'kubernetes.io/metadata.name', 'argocd.argoproj.io/instance', 'argocd.argoproj.io/secret-type'}
+    eso_labels = {'reconcile.external-secrets.io/managed', 'reconcile.external-secrets.io/created-by'}
+    if (set(labels) - {'cloudlab.io/owner', 'cloudlab.io/proof-attempt', 'kubernetes.io/metadata.name', 'argocd.argoproj.io/instance', 'argocd.argoproj.io/secret-type'} - eso_labels
             or ('kubernetes.io/metadata.name' in labels and labels['kubernetes.io/metadata.name'] != NAME)
             or ('argocd.argoproj.io/instance' in labels and labels['argocd.argoproj.io/instance'] != NAME)
             or ('argocd.argoproj.io/secret-type' in labels and (obj.get('kind') != 'Secret' or labels['argocd.argoproj.io/secret-type'] != 'repository'))):
         raise ProofError('Proof resource has unexpected labels')
+    if obj.get('kind') == 'Secret':
+        if (meta.get('name') != NAME + '-source' or meta.get('namespace') != 'argocd'
+                or labels.get('reconcile.external-secrets.io/managed') != 'true'
+                or labels.get('reconcile.external-secrets.io/created-by') != hashlib.sha3_224(('argocd/' + NAME + '-source').encode()).hexdigest()):
+            raise ProofError('Proof Secret native ESO metadata differs from its fixed owner profile')
+    elif eso_labels & set(labels):
+        raise ProofError('Native ESO Secret labels are forbidden on other proof resources')
     if meta.get('finalizers') and obj.get('kind') != 'ExternalSecret':
         raise ProofError('Proof resource has unexpected finalizers')
 
