@@ -1,0 +1,22 @@
+{{- define "observability.routes" -}}
+{{- if .Values.enabled }}
+{{- $policy := .Files.Get "policy.json" | fromJson }}
+{{- range $entry := list (dict "name" "grafana" "host" .Values.grafanaHost "service" "cloudlab-grafana" "port" 80) (dict "name" "kiali" "host" .Values.kialiHost "service" "cloudlab-kiali" "port" 20001) }}
+{{- if has $entry.name ($.Values.routeNames | default (list "grafana" "kiali")) }}
+{{- if not (regexMatch "^[a-z0-9-]+[.]internal[.][a-z0-9.-]+$" $entry.host) }}{{ fail "Dashboards require exact private hosts" }}{{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $entry.name }}
+  namespace: {{ $policy.namespace }}
+spec:
+  parentRefs: [{group: gateway.networking.k8s.io, kind: Gateway, name: cloudlab, namespace: cloudlab-gateway-private, sectionName: https}]
+  hostnames: [{{ $entry.host | quote }}]
+  rules:
+    - matches: [{path: {type: PathPrefix, value: /}}]
+      backendRefs: [{group: '', kind: Service, name: {{ $entry.service }}, port: {{ $entry.port }}, weight: 1}]
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}

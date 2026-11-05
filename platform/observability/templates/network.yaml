@@ -38,6 +38,12 @@ spec:
         {{- end }}
     - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-public}}}]
       ports: [{protocol: TCP, port: 443}]
+    {{- if .Values.nativeLifecycle.enabled }}
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudlab-gateway-private}}
+          podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: cloudlab}}
+      ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 15008}]
+    {{- end }}
     - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: istio-system}}}]
       ports: [{protocol: TCP, port: 15014}]
     {{- range $peer := .Values.apiPeers }}

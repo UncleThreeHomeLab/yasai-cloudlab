@@ -1,0 +1,6 @@
+{{- with .Values.nativeLifecycle }}
+{{- if .enabled }}
+{{- $context := dict "Files" $.Files "Release" $.Release "Values" (merge (dict "enabled" true "routeNames" (list "kiali")) (deepCopy .)) }}
+{{ include "observability.routes" $context }}
+{{- end }}
+{{- end }}

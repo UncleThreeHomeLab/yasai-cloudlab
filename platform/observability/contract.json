@@ -112,12 +112,19 @@
   "service_observability": {
     "collection": "Ordinary non-rollout charts/service definition.monitoring: shared normalized routes and explicit independent metrics/logs switches; default disabled. Generic traces require qualified ambient attribution and remain unsupported.",
     "native_inputs": "Private platform/observability.yaml serviceObservability map: native rule groups and dashboard JSON keyed by current catalog service; platform-trusted PromQL checked with promtool, never templated. Stable svc- resource and dashboard identities. Severity uses info, warning or critical; default warning.",
-    "ownership": "Service catalog alone owns application namespace metrics isolation. Native configuration owns PodMonitor, collector egress and PrometheusRule; native Prometheus chart owns Grafana file provisioning. No separate inventory or operator apply.",
+    "ownership": "Service catalog alone owns application namespace metrics isolation. Native configuration owns collector egress; native Prometheus owns PodMonitor, PrometheusRule and Grafana file provisioning. No separate inventory or operator apply.",
     "producer": "Reviewed cloudlab-http compatible producer only; bounded metric family/dimension filters are not metadata, HELP, exemplar or producer-truth sanitizers. Exemplar storage disabled. Never export sensitive data.",
     "coverage": "Missing, filtered or stale HTTP evidence is unknown; scrape up alone is not HTTP coverage. Readiness is readiness only; low traffic is distinct. Active alerts empty means no active observed alerts, not healthy or complete rule coverage.",
     "limits": "Collection limits in policy.json. Native parent rejects aggregate JSON-encoded inline overrides above 192KiB, including notifications and adapters.",
     "activation": "Prepared path remains paused. Owners synchronize independently, not atomically. Helm cannot parse PromQL; native admission is disabled. Server reload tests do not prove operator whole-revision preservation. Kubernetes discovery, policy enforcement, source handoff and lifecycle qualification remain required.",
     "logs": "cloudlab-http-json-v1 accepts bounded request fields and fixed error codes; trace_id is optional. Catalog-derived identity and application-container selectors; raw bodies and supplied labels are discarded. Indexed service/kind and native canonical service_name only. Namespace Pod/log RBAC is catalog-owned and grants namespace-wide reads; selectors restrict collection.",
     "reload": "Native pinned Alloy directory watcher reloads the external ConfigMap automatically. Rejected subsequent configuration preserves the running last-valid configuration with load-failure metrics; invalid initial configuration prevents startup. No durable last-valid cache across restarts."
+  },
+  "native_lifecycle": {
+    "resource_owners": "Native configuration owns foundations, network, shared ESO and Alloy configuration. Prometheus owns monitoring APIs, monitors/rules and Grafana route; Kiali owns its backend and route. Legacy chart emission stays with configuration until guarded handoff.",
+    "readiness": "Exact opted-in native children require current source and destination comparison, Synced and Healthy without errors or active operations. Historical operations are not freshness evidence. Completed current OutOfSync is a Degraded retention/nonconvergence blocker; pending or stale evidence stays Progressing.",
+    "other_applications": "Application health propagation stays disabled for other Applications. Their resource badge in the parent is Healthy for ordering only; child Application health is unchanged.",
+    "retention": "Native child pruning removes ordinary configuration; Namespace, StorageClass, CRDs, shared ESO and persistent data retain protection. Loki claims use Retain/Retain, Tempo claim auto-deletion is disabled and Grafana PVC is non-prunable.",
+    "issuer": "Native OIDC uses canonical login DNS and the existing private gateway with exact namespace/pod egress; no host alias or DNS owner is added."
   }
 }

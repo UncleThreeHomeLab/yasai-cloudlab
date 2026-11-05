@@ -8,7 +8,7 @@ import subprocess
 import yaml
 
 from playbooks.argocd.files.render import images
-from playbooks.observability.files.package import retained, kiali_declarative, tempo_protocols, loki_declarative
+from playbooks.observability.files.package import retained, kiali_declarative, tempo_protocols, loki_declarative, projections
 from playbooks.observability.files.values import values
 from playbooks.observability.files.configuration import POLICY
 
@@ -39,6 +39,7 @@ def configuration(enabled=False):
 
 
 def check():
+    projections(check=True)
     pins = json.loads((BASE / 'images.lock.json').read_text())
     expected = {value.rsplit('@', 1)[1] for value in pins.values()}
     cpu, memory, requested_cpu, requested_memory, crds = 0, 0, 0, 0, 0

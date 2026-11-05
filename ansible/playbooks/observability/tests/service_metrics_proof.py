@@ -31,7 +31,7 @@ def prepare():
     subscription = value['platformNotifications']['subscriptions'][0]
     subscription.update(service='synthetic', severities=['warning'], receivers=['operator-email', 'primary'])
     overrides = native_overrides(value)
-    objects = helm('platform/observability', overrides['cloudlab-observability'])
+    objects = render('prometheus', overrides['cloudlab-prometheus'])
     spec = next(o['spec'] for o in objects if o['kind'] == 'PodMonitor' and o['metadata']['name'] == 'svc-synthetic')
     endpoint = spec['podMetricsEndpoints'][0]
     def relabel(rule):

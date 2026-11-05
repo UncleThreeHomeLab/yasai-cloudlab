@@ -107,7 +107,7 @@ class NativeSourcesTests(unittest.TestCase):
             self.assertEqual(spec['project'], 'cloudlab-observability')
             self.assertEqual(spec['destination']['namespace'], 'cloudlab-observability')
             self.assertEqual(spec['source']['targetRevision'], 'a' * 40)
-            self.assertFalse(spec['syncPolicy']['automated']['prune'])
+            self.assertTrue(spec['syncPolicy']['automated']['prune'])
             self.assertEqual(spec['source']['helm']['releaseName'], child['metadata']['name'])
         prometheus = next(o for o in children if o['metadata']['name'] == 'cloudlab-prometheus')
         self.assertEqual(prometheus['spec']['revisionHistoryLimit'], 0)
@@ -148,10 +148,11 @@ class NativeSourcesTests(unittest.TestCase):
         children = {o['metadata']['name']: o for o in self.parent()}
         config = children['cloudlab-observability']['spec']['source']['helm']['valuesObject']
         objects = self.helm('platform/observability', config, namespace='cloudlab-observability')
-        route = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'grafana')
-        self.assertEqual(route['spec']['hostnames'], ['grafana.internal.example.invalid'])
+        self.assertFalse(any(o['kind'] == 'HTTPRoute' for o in objects))
         overrides = children['cloudlab-prometheus']['spec']['source']['helm']['valuesObject']
         objects = render('prometheus', overrides)
+        route = next(o for o in objects if o['kind'] == 'HTTPRoute' and o['metadata']['name'] == 'grafana')
+        self.assertEqual(route['spec']['hostnames'], ['grafana.internal.example.invalid'])
         ini = next(o['data']['grafana.ini'] for o in objects if o['kind'] == 'ConfigMap' and 'grafana.ini' in o.get('data', {}))
         for text in ('role_attribute_strict = true', 'use_pkce = true', 'allow_assign_grafana_admin = false',
                      'https://login.example.invalid/realms/platform/protocol/openid-connect/token'):
