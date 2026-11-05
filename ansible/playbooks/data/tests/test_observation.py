@@ -185,16 +185,28 @@ class ObservationTests(unittest.TestCase):
 
     def test_recorded_patch_waits_for_new_settings_during_automated_sync(self):
         source = control.operation()
-        original = copy.deepcopy(self.objects['application.argoproj.io', native.APP, 'argocd'])
+        root = self.objects['application.argoproj.io', 'cloudlab-public-root', 'argocd']
+        original = copy.deepcopy(root)
         def apply(*args, **kwargs):
+            self.assertEqual(args[2], 'cloudlab-public-root')
             document = json.loads(args[-1])
             self.assertEqual([row['path'] for row in document[:3]], ['/metadata/uid', '/metadata/resourceVersion', '/spec'])
             self.assertEqual(document[2]['value'], original['spec'])
-            app = self.objects['application.argoproj.io', native.APP, 'argocd']
-            app['spec']['sources'][0]['helm']['valuesObject'] = document[-1]['value']
-            app['operation'] = {'initiatedBy': {'automated': True}, 'sync': {'revisions': ['a' * 40, 'b' * 40]}}
-            app['status']['operationState']['phase'] = 'Running'
+            self.assertEqual(document[-1]['path'], '/spec/source/helm/valuesObject')
+            self.assertEqual(document[-1]['value']['identity'], original['spec']['source']['helm']['valuesObject']['identity'])
+            root['spec']['source']['helm']['valuesObject'] = document[-1]['value']
+            root['operation'] = {'initiatedBy': {'automated': True}, 'sync': {'revision': 'd' * 40}}
+            root['status']['operationState']['phase'] = 'Running'
         def converge(predicate, *args, **kwargs):
+            if args[0] == 'data operational Root convergence':
+                self.assertFalse(predicate())
+                root.pop('operation'); root['status']['operationState']['phase'] = 'Succeeded'
+                root['status']['sync']['comparedTo']['source'] = copy.deepcopy(root['spec']['source'])
+                app = self.objects['application.argoproj.io', native.APP, 'argocd']
+                app['spec']['sources'][0]['helm']['valuesObject'].update(source.flags)
+                app['operation'] = {'initiatedBy': {'automated': True}, 'sync': {'revisions': ['a' * 40, 'b' * 40]}}
+                app['status']['operationState']['phase'] = 'Running'
+                self.assertTrue(predicate()); return
             self.assertIsNone(predicate())
             self.objects['configmap', native.SETTINGS, 'cloudlab-data']['data']['settings'] = json.dumps(source.expected)
             self.assertTrue(predicate())
@@ -205,6 +217,44 @@ class ObservationTests(unittest.TestCase):
         app = self.objects['application.argoproj.io', native.APP, 'argocd']
         app['operation']['initiatedBy'] = {'username': 'foreign'}
         with self.assertRaisesRegex(RuntimeError, 'identity or ownership'): source.settings()
+
+    def test_root_intent_recovery_and_foreign_root_refusal_do_not_patch_child(self):
+        source = control.operation()
+        root = self.objects['application.argoproj.io', 'cloudlab-public-root', 'argocd']
+        baseline = copy.deepcopy(root)
+        for field in ('uid', 'spec'):
+            if field == 'uid': root['metadata']['uid'] = 'foreign'
+            else: root['spec']['source']['helm']['valuesObject']['data'] = {'configuration': {'revision': 'e' * 40}}
+            with patch.object(native, 'kube') as write, self.assertRaises(RuntimeError): source.patch(native.APP, {'maintenance': True})
+            write.assert_not_called(); root.clear(); root.update(copy.deepcopy(baseline))
+        # A lost response leaves the Root flags themselves as durable intent.
+        def lost(*args, **kwargs):
+            self.assertEqual(args[2], 'cloudlab-public-root')
+            root['spec']['source']['helm']['valuesObject'] = json.loads(args[-1])[-1]['value']
+            raise RuntimeError('synthetic lost response')
+        with patch.object(native, 'kube', side_effect=lost), self.assertRaisesRegex(RuntimeError, 'lost response'):
+            source.patch(native.APP, {'maintenance': True})
+        root['status']['sync']['comparedTo']['source'] = copy.deepcopy(root['spec']['source'])
+        self.api.request.side_effect = [{'app_id': 1, 'repository_selection': 'selected',
+            'permissions': {'contents': 'read', 'metadata': 'read'}}, {'token': 'synthetic-token'}]
+        clock = Mock(return_value=100)
+        def converge(predicate, *args, **kwargs):
+            if args[0] == 'data operational Root convergence': clock.return_value = 800
+            if args[0] == 'data operational child convergence':
+                self.assertIsNone(predicate())
+                self.objects['application.argoproj.io', native.APP, 'argocd']['spec']['sources'][0]['helm']['valuesObject']['maintenance'] = True
+            if args[0] == 'data operational settings recovery':
+                self.assertIsNone(predicate())
+                settings = copy.deepcopy(self.fixture['expected']); settings['maintenance'] = True
+                self.objects['configmap', native.SETTINGS, 'cloudlab-data']['data']['settings'] = json.dumps(settings)
+            self.assertTrue(predicate())
+        with patch.object(native, 'GitHub', side_effect=[self.api, self.client]) as github, patch.object(native.time, 'monotonic', clock), \
+                patch.object(native, 'wait', side_effect=converge), \
+                patch.object(native, 'kube') as write:
+            recovered = control.operation(recovery=True)
+            self.assertTrue(recovered.settings()['maintenance'])
+            self.assertEqual(github.call_args_list[0].kwargs['deadline'], 920)
+            write.assert_not_called()
 
     def test_legacy_historical_settings_and_timer_never_fetch_missing_profile(self):
         from playbooks.data.files.initial_bootstrap import application

@@ -31,8 +31,8 @@ ESO_FINALIZER = 'externalsecrets.external-secrets.io/externalsecret-cleanup'
 
 
 def delegations():
-    return [{'group': 'argoproj.io', 'kind': 'Application', 'name': APP, 'namespace': 'argocd',
-             'jsonPointers': ['/spec/sources/0/helm/valuesObject/' + field for field in ('maintenance', 'hibernated')]},
+    return [{'group': 'argoproj.io', 'kind': 'Application', 'name': 'cloudlab-public-root', 'namespace': 'argocd',
+             'jsonPointers': ['/spec/source/helm/valuesObject/data/configuration/' + field for field in ('maintenance', 'hibernated')]},
             {'group': 'argoproj.io', 'kind': 'Application', 'name': SEAWEED, 'namespace': 'argocd',
              'jsonPointers': ['/spec/source/helm/valuesObject/seaweedfs/' + name + '/replicas' for name in COMPONENTS]}]
 
@@ -385,7 +385,36 @@ def published_source(state, *, deadline):
     return public, revision
 
 
-def root_guard(state, public, revision, *, recovery=False, preparation=False):
+def root_flags(root):
+    config = root.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {}).get('data', {}).get('configuration', {})
+    flags = {key: config.get(key, False) for key in ('maintenance', 'hibernated')}
+    if any(type(value) is not bool for value in flags.values()):
+        raise RuntimeError('Data Root operational flags require exact booleans')
+    return flags
+
+
+def wait_root(revision):
+    binding = receipt(BINDING)
+    root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+    if binding.get('phase') != 'accepted' or root.get('metadata', {}).get('uid') != binding.get('root_uid'):
+        raise RuntimeError('Data operational Root identity changed')
+    expected = copy.deepcopy(root.get('spec'))
+    root_flags(root)
+    def converged():
+        current = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+        if (current.get('metadata', {}).get('uid') != binding['root_uid'] or current.get('spec') != expected
+                or current['metadata'].get('deletionTimestamp')):
+            raise RuntimeError('Data operational Root intent changed while waiting')
+        if not quiet_operation(current, [revision]):
+            raise RuntimeError('Data operational Root has an unsupported reconciliation')
+        status = current.get('status', {})
+        return (quiet(current) and matches_revision(current, revision) and status.get('sync', {}).get('status') == 'Synced'
+            and status.get('sync', {}).get('comparedTo', {}).get('source') == expected['source']
+            and status.get('operationState', {}).get('phase') == 'Succeeded')
+    wait(converged, 'data operational Root convergence', timeout=600)
+
+
+def root_guard(state, public, revision, *, recovery=False, preparation=False, root=None):
     binding = receipt(BINDING)
     if (not isinstance(binding, dict) or binding.get('phase') != 'accepted'
             or set(binding) != {'phase', 'target', 'root_uid', 'project_uid', 'controller_uid'}):
@@ -394,7 +423,7 @@ def root_guard(state, public, revision, *, recovery=False, preparation=False):
     for key, kind, name in (('root_uid', 'application.argoproj.io', 'cloudlab-public-root'),
                            ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'),
                            ('controller_uid', 'statefulset', 'argocd-application-controller')):
-        obj = get(kind, name, 'argocd') or {}
+        obj = (root if key == 'root_uid' and root is not None else get(kind, name, 'argocd')) or {}
         if obj.get('metadata', {}).get('uid') != binding[key] or obj.get('metadata', {}).get('deletionTimestamp'):
             raise RuntimeError('Data accepted root, controller or project identity changed')
         objects[key] = obj
@@ -423,7 +452,11 @@ def root_guard(state, public, revision, *, recovery=False, preparation=False):
                 if isinstance(actual, dict) else type(actual) is type(expected) and actual == expected)
     approved = copy.deepcopy(public)
     approved['identity']['argo'] = binding['target']
-    if not compatible(overrides, approved) or overrides.get('identity', {}).get('argo') != binding['target']:
+    checked = copy.deepcopy(overrides)
+    flags = root_flags(root)
+    config = checked.get('data', {}).get('configuration', {})
+    for key in flags: config.pop(key, None)
+    if not compatible(checked, approved) or overrides.get('identity', {}).get('argo') != binding['target']:
         raise RuntimeError('Data public root override conflicts with committed settings or accepted binding')
     target = binding['target']
     repository(target.get('valuesRepository'))
@@ -479,8 +512,13 @@ def operation(*, recovery=False, read=None):
     snapshot = projection(state, recovery=recovery)
     if recovery and recorded_operation(state, app, seaweed):
         snapshot.pending.update((APP, SEAWEED))
-    snapshot.observe(initial=True, recovery=recovery)
-    snapshot.settings()
+    if recovery:
+        snapshot.pending.add(APP)
+        wait(lambda: snapshot.observe(initial=True, recovery=True), 'data operational child convergence', timeout=600)
+        wait(lambda: snapshot.settings(lag=True), 'data operational settings recovery', timeout=600)
+    else:
+        snapshot.observe(initial=True)
+        snapshot.settings()
     return snapshot
 
 
@@ -491,6 +529,9 @@ def projection(state, *, recovery=False, preparation=False):
     config = public.get('data', {}).get('configuration', {})
     if public.get('data', {}).get('enabled') is not True or (not preparation and config.get('enabled') is not True):
         raise RuntimeError('Native data consumer conflicts with its independently disabled owner')
+    if recovery:
+        wait_root(revision)
+        deadline = time.monotonic() + 120
     target = root_guard(state, public, revision, recovery=recovery, preparation=preparation)
     files = source_snapshot.chart_files({'repository': public['repository'], 'revision': config['revision'],
                                         'path': 'platform/data/configuration'}, deadline=deadline)
@@ -518,13 +559,15 @@ class Observation:
     def __init__(self, state, public, revision, target, expected):
         self.state, self.public, self.revision, self.target = state, public, revision, target
         self.expected = copy.deepcopy(expected)
-        self.flags = {'maintenance': False, 'hibernated': False}
+        self.flags = root_flags(get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {})
+        self.expected.update(self.flags)
         self.replicas = {name: 1 for name in COMPONENTS}
         self.previous_settings = None
         self.pending = set()
 
     def observe(self, *, initial=False, recovery=False):
         observed = {}
+        flag_lag = False
         config = self.public['data']['configuration']
         for name, pin in ((APP, config['revision']), (SEAWEED, config['seaweedfsRevision'])):
             obj = get('application.argoproj.io', name, 'argocd') or {}
@@ -546,9 +589,11 @@ class Observation:
                 if initial:
                     if set(values) != {'sharedInputs', 'maintenance', 'hibernated'} or values.get('sharedInputs') is not True or any(type(values.get(k)) is not bool for k in self.flags):
                         raise RuntimeError('Data operational settings are malformed')
-                    self.flags = {key: values[key] for key in self.flags}
-                    self.expected.update(self.flags)
-                expected_sources = application_sources(name, self.public, self.target, self.flags, self.replicas)
+                    flag_lag = {key: values[key] for key in self.flags} != self.flags
+                    if flag_lag and not recovery:
+                        raise RuntimeError('Data Root and child operational flags disagree; resume their owned operation')
+                selected_flags = {key: values[key] for key in self.flags} if flag_lag else self.flags
+                expected_sources = application_sources(name, self.public, self.target, selected_flags, self.replicas)
                 valid = spec.get('source') is None and spec.get('sources') == expected_sources['sources']
             else:
                 values = spec.get('source', {}).get('helm', {}).get('valuesObject', {})
@@ -567,7 +612,7 @@ class Observation:
             if initial and (not matches_revision(obj, pin) or (name not in self.pending and obj.get('status', {}).get('sync', {}).get('status') != 'Synced')
                     or (not recovery and obj.get('status', {}).get('health', {}).get('status') != 'Healthy')):
                 raise RuntimeError('Data native source has not converged')
-        return observed
+        return None if flag_lag else observed
 
     def settings(self, *, lag=False):
         source_credentials(self.target['valuesRepository'], APP + '-source', APP)
@@ -588,6 +633,9 @@ class Observation:
         if canonical(value) != canonical(self.expected):
             if lag and self.previous_settings is not None and canonical(value) == canonical(self.previous_settings):
                 return None
+            if (lag and isinstance(value, dict) and all(type(value.get(key)) is bool for key in self.flags)
+                    and canonical(dict(value, **self.flags)) == canonical(self.expected)):
+                return None
             raise RuntimeError('Data settings content differs from authenticated pinned Helm inputs')
         return copy.deepcopy(value)
 
@@ -596,18 +644,26 @@ class Observation:
         apps = self.observe()
         obj = apps[name]
         if name == APP and values and set(values) <= set(self.flags) and all(type(v) is bool for v in values.values()):
-            path = '/spec/sources/0/helm/valuesObject'
-            desired = dict(self.flags, **{'sharedInputs': True}) | values
+            obj = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+            if root_guard(self.state, self.public, self.revision, recovery=self.flags['hibernated'] or bool(self.pending), root=obj) != self.target:
+                raise RuntimeError('Data operational Root binding changed')
+            if root_flags(obj) != self.flags:
+                raise RuntimeError('Data operational Root flags changed before patch')
+            path = '/spec/source/helm/valuesObject'
+            desired = copy.deepcopy(obj['spec']['source']['helm']['valuesObject'])
+            desired.setdefault('data', {}).setdefault('configuration', {}).update(self.flags | values)
+            patch_name = 'cloudlab-public-root'
         elif name == SEAWEED and set(values) == {'seaweedfs'} and values['seaweedfs'] and set(values['seaweedfs']) <= set(COMPONENTS):
             selected = values['seaweedfs']
             if any(set(v) != {'replicas'} or type(v['replicas']) is not int or v['replicas'] not in (0, 1) for v in selected.values()):
                 raise RuntimeError('Data operation exceeds its replica delegation')
             path = '/spec/source/helm/valuesObject'
             desired = {'seaweedfs': {c: {'replicas': selected.get(c, {}).get('replicas', self.replicas[c])} for c in COMPONENTS}}
+            patch_name = name
         else:
             raise RuntimeError('Data operation exceeds its six delegated fields')
         record_operation(apps, name, values)
-        kube('patch', 'application.argoproj.io', name, '-n', 'argocd', '--type=json', '--field-manager=cloudlab-data-bootstrap',
+        kube('patch', 'application.argoproj.io', patch_name, '-n', 'argocd', '--type=json', '--field-manager=cloudlab-data-bootstrap',
             '-p', json.dumps([{'op': 'test', 'path': '/metadata/uid', 'value': obj['metadata']['uid']},
                 {'op': 'test', 'path': '/metadata/resourceVersion', 'value': obj['metadata']['resourceVersion']},
                 {'op': 'test', 'path': '/spec', 'value': obj['spec']}, {'op': 'replace', 'path': path, 'value': desired}]))
@@ -615,6 +671,8 @@ class Observation:
         if name == APP:
             self.previous_settings = copy.deepcopy(self.expected)
             self.flags.update(values); self.expected.update(values)
+            wait_root(self.revision)
+            root_guard(self.state, self.public, self.revision, recovery=self.flags['hibernated'] or bool(self.pending))
             wait(lambda: self.settings(lag=True), 'authenticated data operational settings convergence')
             self.previous_settings = None
         else:
