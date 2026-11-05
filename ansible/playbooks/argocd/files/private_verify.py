@@ -9,7 +9,7 @@ import sys
 import time
 
 from bootstrap import BASE, get, kube, matches_revision
-from private_activation import APP, OWNER, TRACKING, sources_match
+from private_activation import APP, OWNER, TRACKING, sources_match, catalog_owner, prepared_contract
 from controller_stability import fingerprint, sample as foundation_sample
 
 
@@ -145,10 +145,13 @@ def run(payload):
         catalog = get('application.argoproj.io', APP) or {}
         evidence = {'repository': payload['public_repository'], 'revision': payload['platform_revision'],
                     'private_repository': repository}
+        if payload.get('acceptanceCommitment'):
+            evidence.update({key: payload[key] for key in ('acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')})
+            prepared_contract(evidence, get)
         if (catalog.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or catalog.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != TRACKING
                 or catalog.get('metadata', {}).get('finalizers') or not sources_match(catalog, evidence)
-                or catalog.get('metadata', {}).get('ownerReferences') or catalog.get('metadata', {}).get('deletionTimestamp')
+                or not catalog_owner(catalog, evidence, get) or catalog.get('metadata', {}).get('deletionTimestamp')
                 or catalog.get('spec', {}).get('project') != APP
                 or catalog.get('spec', {}).get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
                 or catalog.get('spec', {}).get('syncPolicy', {}).get('automated') !=

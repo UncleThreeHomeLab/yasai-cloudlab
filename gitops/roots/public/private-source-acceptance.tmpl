@@ -1,0 +1,14 @@
+{{- range $key, $_ := . -}}
+{{- if not (has $key (list "version" "consumer" "revision" "nonce" "path")) -}}
+{{- fail "Private source acceptance refused" -}}
+{{- end -}}
+{{- end -}}
+{{- range $key := list "version" "consumer" "revision" "nonce" -}}
+{{- if not (kindIs "string" (index $ $key)) -}}{{- fail "Private source acceptance refused" -}}{{- end -}}
+{{- end -}}
+{{- if or (ne .version "cloudlab-private-source-acceptance/v1") (ne .consumer "private-sources") (not (regexMatch "^[a-f0-9]{40}$" .revision)) (not (regexMatch "^[a-f0-9]{64}$" .nonce)) -}}
+{{- fail "Private source acceptance refused" -}}
+{{- end -}}
+{{- $commitment := printf "%s\n%s\n%s\n%s\n%s\n%s\n" .version .consumer @@PRIVATE_REPOSITORY@@ "platform/sources.yaml" .revision .nonce | sha256sum -}}
+{{- if ne $commitment @@COMMITMENT@@ -}}{{- fail "Private source acceptance refused" -}}{{- end -}}
+{{- .revision -}}

@@ -1,7 +1,75 @@
 """Read and validate the private Git source registry; never log its values."""
 import json
+import copy
+import hashlib
+import hmac
 from pathlib import Path
 import re
+
+ACCEPTANCE_PATH = 'platform/acceptance/private-sources.yaml'
+ACCEPTANCE_VERSION = 'cloudlab-private-source-acceptance/v1'
+
+
+def acceptance_commitment(public):
+    value = public.get('privateSources', {}).get('acceptanceCommitment', '')
+    if not isinstance(value, str) or (value and not re.fullmatch('[a-f0-9]{64}', value)):
+        raise ValueError('Private source acceptance commitment is invalid')
+    return value
+
+
+def validate_acceptance(receipt, repository, expected):
+    if (not isinstance(receipt, dict) or set(receipt) != {'version', 'consumer', 'revision', 'nonce'}
+            or any(not isinstance(value, str) for value in receipt.values())
+            or receipt['version'] != ACCEPTANCE_VERSION or receipt['consumer'] != 'private-sources'
+            or not re.fullmatch('[a-f0-9]{40}', receipt['revision']) or not re.fullmatch('[a-f0-9]{64}', receipt['nonce'])
+            or not isinstance(expected, str) or not re.fullmatch('[a-f0-9]{64}', expected)):
+        raise ValueError('Private source acceptance refused')
+    preimage = '\n'.join([receipt['version'], receipt['consumer'], repository, 'platform/sources.yaml', receipt['revision'], receipt['nonce'], ''])
+    if not hmac.compare_digest(hashlib.sha256(preimage.encode()).hexdigest(), expected):
+        raise ValueError('Private source acceptance refused')
+
+
+def accepted_source(client, repository, head, public):
+    """Authenticate one private receipt; never replace approval with a live child SHA."""
+    import yaml
+    from playbooks.keycloak.files.private_source import decode_contents
+    from playbooks.argocd.files.github_setup import repository as repository_name
+    expected = acceptance_commitment(public)
+    if not expected:
+        return None
+    class ReceiptLoader(yaml.SafeLoader):
+        def compose_node(self, parent, index):
+            if self.check_event(yaml.AliasEvent): raise ValueError('Private source acceptance refused')
+            return super().compose_node(parent, index)
+        def construct_mapping(self, node, deep=False):
+            pairs = self.construct_pairs(node, deep=deep)
+            if any(not isinstance(key, str) for key, _ in pairs) or len(dict(pairs)) != len(pairs):
+                raise ValueError('Private source acceptance refused')
+            return dict(pairs)
+    try:
+        if not isinstance(head, str) or not re.fullmatch('[a-f0-9]{40}', head): raise ValueError()
+        document = client.request('GET', 'repos/' + repository_name(repository) + '/contents/' + ACCEPTANCE_PATH + '?ref=' + head)
+        if document.get('type') != 'file' or type(document.get('size')) is not int or not 0 < document['size'] <= 4096:
+            raise ValueError()
+        receipt = yaml.load(decode_contents(document), Loader=ReceiptLoader)
+        validate_acceptance(receipt, repository, expected)
+        return {'acceptanceCommitment': expected, 'acceptedRevision': receipt['revision'], 'acceptanceReceipt': receipt}
+    except Exception:
+        raise ValueError('Private source acceptance refused') from None
+
+
+def acceptance_spec(public, repository, revision, *, files=None):
+    """Capture the reviewed native contract directly from its owning Root chart."""
+    from playbooks.data.files.native import render_objects
+    values = copy.deepcopy(public)
+    values.setdefault('identity', {}).update(enabled=True, argo={'valuesRepository': repository, 'valuesRevision': revision})
+    chart = Path(__file__).resolve().parents[4] / 'gitops/roots/public'
+    if files is None:
+        files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+    sets = [obj for obj in render_objects(files, [values]) if obj['kind'] == 'ApplicationSet'
+        and obj['metadata']['name'] == 'cloudlab-private-sources']
+    if len(sets) != 1: raise ValueError('Private source acceptance declaration is missing')
+    return sets[0]['spec']
 
 
 PEM_TEMPLATE = r'''{{- $key := .PRIVATE_KEY | trim -}}
@@ -41,10 +109,17 @@ def validate_registry(value):
     return value
 
 
-def registry(client, values, public, revision):
+def registry(client, values, public, revision, *, acceptance=None):
     """Read the required registry at the exact identity revision, never mutable main."""
     if not registry_enabled(public):
         return None
+    expected = acceptance_commitment(public)
+    if expected and (not acceptance or acceptance.get('acceptanceCommitment') != expected or acceptance.get('acceptedRevision') != revision):
+        raise ValueError('Private source registry requires its accepted immutable revision')
+    if expected:
+        validate_acceptance(acceptance.get('acceptanceReceipt'), values['PRIVATE_CONFIG_REPOSITORY'], expected)
+        if acceptance['acceptanceReceipt']['revision'] != revision:
+            raise ValueError('Private source registry requires its accepted immutable revision')
     if json.loads(values.get('PRIVATE_GITOPS_SOURCES') or '[]') != [] or values.get('PRIVATE_GITOPS_REMOVE'):
         raise ValueError('Legacy private source inputs are retired; migrate their owned registrations explicitly')
     if not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
@@ -84,7 +159,8 @@ def verification_payload(values, public):
     if not repository:
         raise ValueError('Private verification requires its designated repository')
     def read(client, revision):
-        value = registry(client, values, public, revision)
+        acceptance = accepted_source(client, repository, revision, public)
+        value = registry(client, values, public, acceptance['acceptedRevision'] if acceptance else revision, acceptance=acceptance)
         objects = []
         symbolic_revisions = {}
         if value is not None:
@@ -105,11 +181,14 @@ def verification_payload(values, public):
             if result.returncode:
                 raise ValueError('Private verification declarations cannot be rendered')
             objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj]
-        return {'configuration_repository': repository, 'configuration_revision': revision,
+        result = {'configuration_repository': repository, 'configuration_revision': revision,
                 'catalog_enabled': registry_enabled(public), 'sources': value['sources'] if value else [],
                 'objects': objects, 'public_repository': public['repository'],
                 'symbolic_revisions': symbolic_revisions,
                 'platform_revision': public.get('privateSources', {}).get('revision')}
+        if acceptance:
+            result.update(acceptance, applicationSet=acceptance_spec(public, repository, revision))
+        return result
     return configuration_revision(values, read=read)
 
 

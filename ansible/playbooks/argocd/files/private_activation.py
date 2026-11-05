@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import uuid
+import time
 
 APP = 'cloudlab-private-sources'
 OWNER = 'private-source-platform'
@@ -12,28 +13,48 @@ TRACKING = 'cloudlab-public-root:argoproj.io/Application:argocd/' + APP
 POLICIES = ('cloudlab-private-source-ownership', 'cloudlab-private-source-credentials')
 
 
-def prepare(public, repository, revision, registry=None):
+def prepare(public, repository, revision, registry=None, *, acceptance=None):
     try:
-        from .private_sources import registry_enabled, policy_specs
+        from .private_sources import registry_enabled, policy_specs, acceptance_commitment, acceptance_spec
     except ImportError:
-        from private_sources import registry_enabled, policy_specs
+        from private_sources import registry_enabled, policy_specs, acceptance_commitment, acceptance_spec
     enabled = registry_enabled(public)
-    return validate({'required': enabled, 'repository': public['repository'],
+    evidence = {'required': enabled, 'repository': public['repository'],
                      'revision': public.get('privateSources', {}).get('revision'),
                      'private_repository': repository, 'private_revision': revision, 'registry': registry,
-                     'policies': policy_specs(POLICIES) if enabled else None},
-                    {'valuesRepository': repository, 'valuesRevision': revision})
+                     'policies': policy_specs(POLICIES) if enabled else None}
+    if acceptance_commitment(public):
+        if (not enabled or not isinstance(acceptance, dict)
+                or set(acceptance) != {'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt'}
+                or acceptance.get('acceptanceCommitment') != acceptance_commitment(public)):
+            raise RuntimeError('Private source acceptance requires its authenticated receipt')
+        evidence.update(acceptance, applicationSet=acceptance_spec(public, repository, revision))
+    return validate(evidence, {'valuesRepository': repository, 'valuesRevision': revision})
 
 
 def validate(evidence, target, root=None):
     fields = {'required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry', 'policies'}
-    if (not isinstance(evidence, dict) or not fields <= set(evidence) <= fields | {'existing', 'identities', 'policyIdentities'}
+    accepted = {'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet'}
+    if (not isinstance(evidence, dict) or not fields <= set(evidence) <= fields | {'existing', 'identities', 'policyIdentities'} | accepted
             or type(evidence['required']) is not bool or set(target) != {'valuesRepository', 'valuesRevision'}
             or evidence['private_repository'] != target['valuesRepository']
             or evidence['private_revision'] != target['valuesRevision']
             or not isinstance(evidence['private_revision'], str)
             or not re.fullmatch('[a-f0-9]{40}', evidence['private_revision'])):
         raise RuntimeError('Private activation inputs do not match the recorded source')
+    if accepted & set(evidence):
+        if (not accepted <= set(evidence) or not evidence['required']
+                or not isinstance(evidence['acceptanceCommitment'], str) or not re.fullmatch('[a-f0-9]{64}', evidence['acceptanceCommitment'])
+                or not isinstance(evidence['acceptedRevision'], str) or not re.fullmatch('[a-f0-9]{40}', evidence['acceptedRevision'])
+                or not isinstance(evidence['applicationSet'], dict)):
+            raise RuntimeError('Private source acceptance evidence is incomplete')
+        try:
+            from .private_sources import validate_acceptance
+        except ImportError:
+            from private_sources import validate_acceptance
+        validate_acceptance(evidence['acceptanceReceipt'], evidence['private_repository'], evidence['acceptanceCommitment'])
+        if evidence['acceptanceReceipt']['revision'] != evidence['acceptedRevision']:
+            raise RuntimeError('Private source acceptance revision differs from its approved receipt')
     pattern = r'https://github[.]com/([A-Za-z0-9][A-Za-z0-9-]*)/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git'
     public = re.fullmatch(pattern, evidence['repository'] or '')
     private = re.fullmatch(pattern, evidence['private_repository'] or '')
@@ -52,7 +73,8 @@ def validate(evidence, target, root=None):
                 or root.get('spec', {}).get('syncPolicy', {}).get('automated', {}).get('prune', False)
                 or root.get('metadata', {}).get('finalizers') or source.get('repoURL') != evidence['repository']
                 or any(key in overrides and overrides[key] != value for key, value in
-                       (('enabled', evidence['required']), ('revision', evidence['revision'])))):
+                       (('enabled', evidence['required']), ('revision', evidence['revision']),
+                        ('acceptanceCommitment', evidence.get('acceptanceCommitment', ''))))):
             raise RuntimeError('Private activation differs from the current public root')
     if evidence['required']:
         registry = evidence['registry']
@@ -81,6 +103,7 @@ def validate(evidence, target, root=None):
     elif evidence['registry'] is not None or evidence['policies'] is not None:
         raise RuntimeError('Disabled private activation cannot carry registry inputs')
     allowed = {'appproject.argoproj.io', 'externalsecret.external-secrets.io', 'secret'}
+    if evidence.get('acceptanceCommitment'): allowed.add('applicationset.argoproj.io')
     if evidence['required']:
         allowed |= {kind + '/cloudlab-private-' + row['name'] for row in evidence['registry']['sources']
                     for kind in ('namespace', 'appproject.argoproj.io', 'application.argoproj.io',
@@ -100,7 +123,61 @@ def sources_match(app, evidence):
     return app.get('spec', {}).get('sources') == [
         {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'],
          'path': 'platform/delivery/private-sources', 'helm': {'valueFiles': ['$values/platform/sources.yaml']}},
-        {'repoURL': evidence['private_repository'], 'targetRevision': 'main', 'ref': 'values'}]
+        {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'] if evidence.get('acceptanceCommitment') else 'main', 'ref': 'values'}]
+
+
+def catalog_parent(evidence, read):
+    parent = read('applicationset.argoproj.io', APP) or {}
+    meta = parent.get('metadata', {})
+    valid = (meta.get('uid') and not meta.get('deletionTimestamp') and not meta.get('ownerReferences') and not meta.get('finalizers')
+        and meta.get('labels', {}).get('cloudlab.io/owner') == OWNER
+        and meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') == 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + APP
+        and parent.get('spec') == evidence.get('applicationSet'))
+    return meta['uid'] if valid else None
+
+
+def prepared_contract(evidence, read, root=None):
+    """Bind private approval proof to independently authenticated current public intent."""
+    if not evidence.get('acceptanceCommitment'):
+        return
+    from playbooks.data.files import native
+    from playbooks.argocd.files.private_sources import acceptance_spec, validate_acceptance
+    validate_acceptance(evidence.get('acceptanceReceipt'), evidence['private_repository'], evidence['acceptanceCommitment'])
+    if evidence['acceptanceReceipt']['revision'] != evidence.get('acceptedRevision'):
+        raise RuntimeError('Private source acceptance revision differs from its approved receipt')
+    root = root or read('application.argoproj.io', 'cloudlab-public-root') or {}
+    source = root.get('spec', {}).get('source', {})
+    target = source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo', {})
+    if (not root.get('metadata', {}).get('uid') or root.get('metadata', {}).get('deletionTimestamp')
+            or root.get('metadata', {}).get('ownerReferences') or root.get('metadata', {}).get('finalizers')
+            or root.get('spec', {}).get('project') != 'cloudlab-root' or root.get('spec', {}).get('sources')
+            or source.get('repoURL') != evidence['repository'] or source.get('targetRevision') != 'main'
+            or source.get('path') != 'gitops/roots/public' or target.get('valuesRepository') != evidence['private_repository']
+            or not isinstance(target.get('valuesRevision'), str) or not re.fullmatch('[a-f0-9]{40}', target['valuesRevision'])):
+        raise RuntimeError('Private source acceptance requires the current designated Root binding')
+    deadline = time.monotonic() + 120
+    public, revision = native.published_source({'publicSource': {'repository': evidence['repository'], 'branch': 'main'}}, deadline=deadline)
+    settings = public.get('privateSources', {})
+    if (settings.get('enabled') is not True or settings.get('revision') != evidence['revision']
+            or settings.get('acceptanceCommitment') != evidence['acceptanceCommitment']):
+        raise RuntimeError('Private source acceptance differs from current protected public intent')
+    overrides = source.get('helm', {}).get('valuesObject', {}).get('privateSources', {})
+    if (not isinstance(overrides, dict) or any(key not in settings or type(value) is not type(settings[key])
+            or value != settings[key] for key, value in overrides.items())):
+        raise RuntimeError('Private source Root override conflicts with current protected public intent')
+    files = native.source_snapshot.chart_files({'repository': evidence['repository'], 'revision': revision, 'path': 'gitops/roots/public'}, deadline=deadline)
+    if acceptance_spec(public, evidence['private_repository'], target['valuesRevision'], files=files) != evidence.get('applicationSet'):
+        raise RuntimeError('Private source acceptance parent differs from the authenticated public declaration')
+
+
+def catalog_owner(app, evidence, read):
+    """Only the exact reviewed native parent may replace legacy no-owner metadata."""
+    owners = app.get('metadata', {}).get('ownerReferences', [])
+    if not evidence.get('acceptanceCommitment'):
+        return not owners
+    uid = catalog_parent(evidence, read)
+    return bool(uid and owners == [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+        'name': APP, 'uid': uid, 'controller': True, 'blockOwnerDeletion': True}])
 
 
 def server_probe(document):
@@ -183,12 +260,17 @@ def guard(evidence, target, read, root=None, probe=None):
     evidence = validate(evidence, target, root)
     if not evidence['required']:
         return evidence
+    prepared_contract(evidence, read, root)
     policies = _policies(evidence, read)
     _probe_controls(evidence, probe)
     if _policies(evidence, read) != policies:
         raise RuntimeError('Private source policies changed during admission controls; retry this activation')
     evidence['policyIdentities'] = {name: snapshot['uid'] for name, snapshot in policies.items()}
     identities = {}
+    if evidence.get('acceptanceCommitment') and read('applicationset.argoproj.io', APP):
+        uid = catalog_parent(evidence, read)
+        if not uid: raise RuntimeError('Private source acceptance parent differs from its reviewed declaration')
+        identities['applicationset.argoproj.io'] = uid
     for kind, title, group, name in (
             ('appproject.argoproj.io', 'AppProject', 'argoproj.io', APP),
             ('externalsecret.external-secrets.io', 'ExternalSecret', 'external-secrets.io', APP + '-source')):
@@ -246,7 +328,7 @@ def guard(evidence, target, read, root=None, probe=None):
         meta, spec, status = app['metadata'], app.get('spec', {}), app.get('status', {})
         if (meta.get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id') != TRACKING
-                or meta.get('finalizers') or meta.get('ownerReferences') or meta.get('deletionTimestamp')
+                or meta.get('finalizers') or not catalog_owner(app, evidence, read) or meta.get('deletionTimestamp')
                 or not sources_match(app, evidence) or spec.get('project') != APP
                 or spec.get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
                 or spec.get('syncPolicy', {}).get('automated') !=

@@ -78,6 +78,19 @@ Argo origins advance only after that identity revision is approved; changing mai
 alone does not authorize new administrative origins. Controllers reconcile these
 shared inputs; service onboarding does not apply a gateway playbook.
 
+`privateSources.acceptanceCommitment` defaults to empty, preserving the current
+catalog owner. The prepared approval interface binds one private receipt at
+`platform/acceptance/private-sources.yaml` to an immutable catalog revision through
+a reviewed public SHA-256 commitment. Its exact fields are `version`
+(`cloudlab-private-source-acceptance/v1`), `consumer` (`private-sources`), `revision`
+(40 lowercase hex characters), and a fresh cryptographically random `nonce`
+(64 lowercase hex characters). Keep the receipt, source address and revision private.
+Native controller adoption and missing-file readiness remain unqualified; keep
+production commitment empty. The prepared owner declares create-update retention;
+verification refuses missing or mismatched receipts. The commitment hashes UTF-8 fields separated by
+LF: version, consumer, designated private URL, `platform/sources.yaml`, revision,
+nonce, followed by a final LF.
+
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
 catalog and need no additional root. For an approved separate root:
