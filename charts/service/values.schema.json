@@ -469,15 +469,78 @@
       ]
     },
     "monitoring": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "const": false
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "const": false
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "metrics"
+          ],
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "profile",
+                "endpoints",
+                "routes"
+              ],
+              "properties": {
+                "profile": {
+                  "const": "cloudlab-http"
+                },
+                "endpoints": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "port",
+                      "path"
+                    ],
+                    "properties": {
+                      "port": {
+                        "const": "http-metrics"
+                      },
+                      "path": {
+                        "const": "/metrics"
+                      }
+                    }
+                  }
+                },
+                "routes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 96,
+                    "pattern": "^/([A-Za-z0-9_-]+|:[a-z][a-z0-9_]*)(/([A-Za-z0-9_-]+|:[a-z][a-z0-9_]*))*$|^/$"
+                  }
+                }
+              }
+            }
+          }
         }
-      },
-      "required": [
-        "enabled"
       ]
     },
     "rollouts": {

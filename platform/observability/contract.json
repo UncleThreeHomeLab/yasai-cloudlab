@@ -14,13 +14,25 @@
     "adoption": false,
     "provider_version": "4.49.0",
     "oss_version": "13.2.4",
-    "capabilities": {"service_account_import": true, "role_drift_repair": true, "viewer_write_denied": true, "token_import": false, "token_inventory_retrieval": false, "token_in_state": true, "expiry": true},
+    "capabilities": {
+      "service_account_import": true,
+      "role_drift_repair": true,
+      "viewer_write_denied": true,
+      "token_import": false,
+      "token_inventory_retrieval": false,
+      "token_in_state": true,
+      "expiry": true
+    },
     "machine_lifecycle_active": false,
     "custody": "Vault owns issued tokens; interrupted issuance fails closed and requires explicit rotation"
   },
   "human_access": {
     "issuer": "Keycloak platform realm",
-    "grafana_roles": {"/platform-admin": "Admin", "/developer": "Editor", "/viewer": "Viewer"},
+    "grafana_roles": {
+      "/platform-admin": "Admin",
+      "/developer": "Editor",
+      "/viewer": "Viewer"
+    },
     "unmapped": "Denied",
     "server_admin_from_sso": false,
     "paid_team_sync": false,
@@ -30,8 +42,14 @@
     "machine_access": "Separate expiring Viewer service-account token; never reuse human OIDC credentials"
   },
   "credentials": {
-    "grafana-emergency": ["username", "password", "secret_key"],
-    "kiali-signing-key": ["key"],
+    "grafana-emergency": [
+      "username",
+      "password",
+      "secret_key"
+    ],
+    "kiali-signing-key": [
+      "key"
+    ],
     "keycloak-client-secrets": "client_secrets JSON: platform.grafana and platform.kiali; retained identity owner"
   },
   "telemetry": {
@@ -43,14 +61,19 @@
   },
   "independent_monitoring": {
     "vault_item": "uptimerobot-management",
-    "fields": ["API_KEY"],
+    "fields": [
+      "API_KEY"
+    ],
     "credential_scope": "Account-wide Main API key; local management only, never sent to lab workloads",
     "contact": "One active Email contact matching the registered account email",
     "interval_seconds": 300,
     "timeout_seconds": 15,
     "api_requests_per_minute": 10,
     "owner_prefix": "cloudlab-owned:",
-    "monitors": ["notes-health", "notification-proof"],
+    "monitors": [
+      "notes-health",
+      "notification-proof"
+    ],
     "endpoint": "Uncached public /health checks web, API, SQL and S3; private services and human authentication need separate checks",
     "fixture": "Only /monitoring-proof/ready and /monitoring-proof/failed; never stop production to demonstrate an outage",
     "notification_delivery": "Provider status alone is insufficient; confirm failure and recovery emails before acceptance",
@@ -81,5 +104,14 @@
     "state": "Native 1Gi retained telemetry claim; legacy emptyDir unchanged; existing state preservation or verified-empty gate required before replacement",
     "activation_requirements": "Qualified network enforcement, credential readiness, existing state preservation and Kubernetes storage lifecycle; transport fixtures alone are insufficient",
     "fixture": "ansible/playbooks/observability/tests/compose.notifications-proof.yaml; no host ports or production destinations"
+  },
+  "service_observability": {
+    "collection": "Approved ordinary non-rollout charts/service definition.monitoring; one dedicated TCP http-metrics endpoint and up to eight reviewed normalized routes; default disabled. Notes and release profiles retain their owners.",
+    "native_inputs": "Private platform/observability.yaml serviceObservability map: native rule groups and dashboard JSON keyed by current catalog service; platform-trusted PromQL checked with promtool, never templated. Stable svc- resource and dashboard identities. Severity uses info, warning or critical; default warning.",
+    "ownership": "Service catalog alone owns application namespace metrics isolation. Native configuration owns PodMonitor, collector egress and PrometheusRule; native Prometheus chart owns Grafana file provisioning. No separate inventory or operator apply.",
+    "producer": "Reviewed cloudlab-http compatible producer only; bounded metric family/dimension filters are not metadata, HELP, exemplar or producer-truth sanitizers. Exemplar storage disabled. Never export sensitive data.",
+    "coverage": "Missing, filtered or stale HTTP evidence is unknown; scrape up alone is not HTTP coverage. Readiness is readiness only; low traffic is distinct. Active alerts empty means no active observed alerts, not healthy or complete rule coverage.",
+    "limits": "Collection limits in policy.json. Native parent rejects aggregate JSON-encoded inline overrides above 192KiB, including notifications and adapters.",
+    "activation": "Prepared path remains paused. Owners synchronize independently, not atomically. Helm cannot parse PromQL; native admission is disabled. Server reload tests do not prove operator whole-revision preservation. Kubernetes discovery, policy enforcement, source handoff and lifecycle qualification remain required."
   }
 }

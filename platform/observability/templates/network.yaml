@@ -13,6 +13,12 @@ spec:
         - ipBlock: {cidr: 'fd16:9254:7127:1337:ffff:ffff:ffff:ffff/128'}
   egress:
     - to: [{podSelector: {}}]
+    {{- range $name, $binding := .Values.serviceMetrics }}
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ $binding.namespace }}}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: {{ $name | quote }}, cloudlab.io/owner: {{ $binding.owner | quote }}}}
+      ports: [{protocol: TCP, port: {{ $binding.port }}}, {protocol: TCP, port: 15008}]
+    {{- end }}
     - to:
         - namespaceSelector: {matchLabels: {cloudlab.io/release-analysis: approved}}
       ports: [{protocol: TCP, port: 9091}, {protocol: TCP, port: 15008}]

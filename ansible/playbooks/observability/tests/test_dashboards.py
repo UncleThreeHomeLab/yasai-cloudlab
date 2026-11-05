@@ -146,13 +146,17 @@ class DashboardTests(unittest.TestCase):
                  (ROOT / 'platform/observability/prometheus/dashboards').glob('*.json')}
         self.assertEqual(config['data'], files)
         dashboards = [json.loads(raw) for raw in files.values()]
-        self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes', 'cloudlab-rollouts'})
+        self.assertEqual({d['uid'] for d in dashboards}, {'cloudlab-nodes', 'cloudlab-rollouts', 'active-alerts'})
         settings = values('prometheus')['grafana']
         sources = {d['uid'] for d in settings['datasources']['datasources.yaml']['datasources']}
         for dashboard in dashboards:
             self.assertFalse(dashboard['editable'])
             self.assertLessEqual(len(dashboard['panels']), 8)
             self.assertEqual(len({p['id'] for p in dashboard['panels']}), len(dashboard['panels']))
+            if dashboard['uid'] == 'active-alerts':
+                self.assertIn('ALERTS{', dashboard['panels'][1]['targets'][0]['expr'])
+                self.assertIn('do not prove health', dashboard['panels'][0]['options']['content'])
+                continue
             for panel in dashboard['panels']:
                 self.assertIn(panel['datasource']['uid'], sources)
                 self.assertTrue(panel['targets'])
@@ -179,7 +183,7 @@ class DashboardTests(unittest.TestCase):
     def test_shared_services_view_is_retired_while_per_service_boards_remain(self):
         self.assertFalse((ROOT / 'platform/observability/prometheus/dashboards/services.json').exists())
         files = inventory(service_bindings())
-        self.assertEqual(set(files), {'nodes.json', 'releases.json', 'service-overview.json', 'svc-example-notes.json', 'svc-example-worker.json'})
+        self.assertEqual(set(files), {'nodes.json', 'releases.json', 'active-alerts.json', 'service-overview.json', 'svc-example-notes.json', 'svc-example-worker.json'})
         self.assertNotIn('cloudlab-services', {json.loads(raw)['uid'] for raw in files.values()})
 
     def test_release_dashboard_distinguishes_configured_measured_idle_and_missing_data(self):

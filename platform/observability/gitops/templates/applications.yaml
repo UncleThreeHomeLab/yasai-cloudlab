@@ -16,6 +16,22 @@
 {{- $protocol := printf "%s/protocol/openid-connect" $issuer }}
 {{- $grafana := printf "https://%s" $inputs.grafanaHost }}
 {{- $notifications := include "observability.notifications" . | fromYaml }}
+{{- $services := include "observability.services" . | fromJson }}
+{{- $configurationValues := merge (dict "enabled" true "serviceMetrics" $services.bindings "serviceRules" $services.rules) (deepCopy $inputs) }}
+{{- $prometheusValues := dict "serviceCatalogRevision" $source.valuesRevision "serviceDashboards" $services.dashboards "serviceDashboardLinks" $services.links "kube-prometheus-stack" (dict
+  "alertmanager" (dict "config" $notifications.config "alertmanagerSpec" (dict
+    "secrets" $notifications.secrets
+    "persistentVolumeClaimRetentionPolicy" (dict "whenDeleted" "Retain" "whenScaled" "Retain")
+    "storage" (dict "emptyDir" nil "volumeClaimTemplate" (dict
+      "metadata" (dict "annotations" (dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false"))
+      "spec" (dict "storageClassName" $.Values.alertmanagerState.storageClass "accessModes" (list "ReadWriteOnce") "resources" (dict "requests" (dict "storage" (printf "%dGi" (int $.Values.alertmanagerState.sizeGiB)))))))))
+  "grafana" (dict "grafana.ini" (dict
+    "server" (dict "root_url" $grafana)
+    "auth" (dict "signout_redirect_url" (printf "%s/logout?post_logout_redirect_uri=%s" $protocol (urlquery (printf "%s/login" $grafana))))
+    "auth.generic_oauth" (dict "auth_url" (printf "%s/auth" $protocol) "token_url" (printf "%s/token" $protocol) "api_url" (printf "%s/userinfo" $protocol))))) }}
+{{- $kialiValues := dict "kiali-server" (dict "auth" (dict "openid" (dict "issuer_uri" $issuer)) "external_services" (dict "grafana" (dict "external_url" $grafana)) "server" (dict "web_fqdn" $inputs.kialiHost "web_port" "443" "web_schema" "https")) }}
+{{- $overrides := dict "configuration" $configurationValues "prometheus" $prometheusValues "kiali" $kialiValues }}
+{{- if gt (len (toJson $overrides)) 196608 }}{{ fail "Aggregate telemetry inline overrides exceed 192KiB" }}{{ end }}
 {{- range $component := list "configuration" "prometheus" "loki" "tempo" "alloy" "kiali" }}
 {{- $configuration := eq $component "configuration" }}
 {{- $name := ternary "cloudlab-observability" (printf "cloudlab-%s" $component) $configuration }}
@@ -43,47 +59,9 @@ spec:
         {{- if not $configuration }}
         valueFiles: [values.json]
         {{- end }}
-        {{- if $configuration }}
+        {{- if hasKey $overrides $component }}
         valuesObject:
-          enabled: true
-{{ toYaml $inputs | indent 10 }}
-        {{- else if eq $component "prometheus" }}
-        valuesObject:
-          serviceCatalogRevision: {{ $source.valuesRevision | quote }}
-          kube-prometheus-stack:
-            alertmanager:
-              config:
-{{ toYaml $notifications.config | indent 16 }}
-              alertmanagerSpec:
-                secrets: {{ $notifications.secrets | toJson }}
-                persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Retain}
-                storage:
-                  emptyDir: null
-                  volumeClaimTemplate:
-                    metadata:
-                      annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
-                    spec:
-                      storageClassName: {{ $.Values.alertmanagerState.storageClass }}
-                      accessModes: [ReadWriteOnce]
-                      resources:
-                        requests: {storage: {{ printf "%dGi" (int $.Values.alertmanagerState.sizeGiB) | quote }}}
-            grafana:
-              grafana.ini:
-                server: {root_url: {{ $grafana | quote }}}
-                auth:
-                  signout_redirect_url: {{ printf "%s/logout?post_logout_redirect_uri=%s" $protocol (urlquery (printf "%s/login" $grafana)) | quote }}
-                auth.generic_oauth:
-                  auth_url: {{ printf "%s/auth" $protocol | quote }}
-                  token_url: {{ printf "%s/token" $protocol | quote }}
-                  api_url: {{ printf "%s/userinfo" $protocol | quote }}
-        {{- else if eq $component "kiali" }}
-        valuesObject:
-          kiali-server:
-            auth:
-              openid: {issuer_uri: {{ $issuer | quote }}}
-            external_services:
-              grafana: {external_url: {{ $grafana | quote }}}
-            server: {web_fqdn: {{ $inputs.kialiHost | quote }}, web_port: '443', web_schema: https}
+{{ toYaml (get $overrides $component) | indent 10 }}
         {{- end }}
     - repoURL: {{ $source.valuesRepository | quote }}
       targetRevision: {{ $source.valuesRevision | quote }}

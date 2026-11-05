@@ -10,7 +10,13 @@ metadata:
 data:
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
   {{ base $path }}: |
+{{- if and (eq (base $path) "active-alerts.json") $.Values.serviceDashboardLinks }}
+{{- $board := $.Files.Get $path | fromJson }}
+{{- $_ := set $board "links" $.Values.serviceDashboardLinks }}
+{{ toPrettyJson $board | indent 4 }}
+{{- else }}
 {{ $.Files.Get $path | indent 4 }}
+{{- end }}
 {{- end }}
 {{- range $name, $raw := .Values.serviceDashboards | default dict }}
 {{- if or (not (regexMatch "^(svc-[a-z][a-z0-9-]{0,30}|service-overview)[.]json$" $name)) ($.Files.Get (printf "dashboards/%s" $name)) }}
