@@ -11,6 +11,23 @@ from playbooks.observability.files.chart import check, configuration, render
 
 
 class ChartTests(unittest.TestCase):
+    def test_alloy_external_configuration_has_pinned_native_watcher(self):
+        spec = next(o['spec']['template']['spec'] for o in render('alloy') if o['kind'] == 'Deployment')
+        containers = {c['name']: c for c in spec['containers']}
+        watcher = containers['config-reloader']
+        pin = json.loads((Path(__file__).resolve().parents[4] / 'platform/observability/images.lock.json').read_text())['reloader']
+        self.assertTrue(watcher['image'].endswith('@' + pin.split('@')[1]))
+        self.assertEqual(watcher['args'], ['--watched-dir=/etc/alloy', '--reload-url=http://localhost:12345/-/reload'])
+        self.assertEqual(watcher['resources'], {'requests': {'cpu': '5m', 'memory': '16Mi'}, 'limits': {'cpu': '25m', 'memory': '48Mi'}})
+        self.assertEqual(watcher['securityContext'], {'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True,
+            'runAsNonRoot': True, 'runAsUser': 65534, 'runAsGroup': 65534, 'capabilities': {'drop': ['ALL']},
+            'seccompProfile': {'type': 'RuntimeDefault'}})
+        self.assertEqual(next(v['configMap']['name'] for v in spec['volumes'] if v['name'] == 'config'), 'cloudlab-alloy')
+        for container in (containers['alloy'], watcher):
+            mount = next(m for m in container['volumeMounts'] if m['name'] == 'config')
+            self.assertEqual(mount['mountPath'], '/etc/alloy')
+            self.assertNotIn('subPath', mount)
+
     def test_tempo_protocol_patch_preserves_all_other_pinned_chart_content(self):
         base = Path(__file__).resolve().parents[4] / 'platform/observability/tempo'
         lock = json.loads((base / 'artifact.lock.json').read_text())

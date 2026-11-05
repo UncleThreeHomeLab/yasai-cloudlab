@@ -276,7 +276,7 @@ def query_rules(dashboards):
     result = []
     for dashboard in dashboards:
         expressions = [target['expr'] for panel in dashboard['panels']
-                       if panel['datasource']['uid'] == 'metrics' for target in panel['targets']]
+                       if panel.get('datasource', {}).get('uid') == 'metrics' for target in panel.get('targets', [])]
         expressions.extend(variable_queries(dashboard))
         for expression in expressions:
             result.append({'record': 'dashboard:query_' + str(len(result)), 'expr': substitute(expression, dashboard)})
@@ -284,7 +284,7 @@ def query_rules(dashboards):
 
 
 def variable_queries(dashboard):
-    return [variable['query'][len('query_result('):-1] for variable in dashboard['templating']['list']
+    return [variable['query'][len('query_result('):-1] for variable in dashboard.get('templating', {}).get('list', [])
             if variable.get('query', '').startswith('query_result(')]
 
 

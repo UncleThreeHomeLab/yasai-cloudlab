@@ -140,7 +140,7 @@ def wait(check, seconds=120):
     raise RuntimeError('Pinned telemetry fixture did not converge')
 
 
-def verify():
+def verify(alerts=True):
     wait(lambda: http('http://loki:3100/ready'))
     wait(lambda: http('http://tempo:3200/ready'))
     wait(lambda: http('http://alloy:12345/-/ready'))
@@ -181,7 +181,7 @@ def verify():
     http('http://alloy:1300/loki/api/v1/push', {'streams': [{'stream': {'service': 'notes-web',
          'secret': 'fixture-secret-do-not-export'}, 'values': [[now, line]]}]})
     query = urllib.parse.urlencode({'query': '{kind="request"}', 'limit': 10})
-    logs = wait(lambda: (lambda value: value if value.get('data', {}).get('result') else None)(
+    logs = wait(lambda: (lambda value: value if trace_id in json.dumps(value) else None)(
         json.loads(http('http://loki:3100/loki/api/v1/query_range?' + query))))
     if 'fixture-secret-do-not-export' in json.dumps(logs) or trace_id not in json.dumps(logs):
         raise RuntimeError('Pinned log correlation or redaction failed')
@@ -211,8 +211,9 @@ def verify():
                       'redacted_logs_to_loki': True, 'trace_log_correlation': True,
                       'configured_local_retention': True,
                       'audit_projection_and_metrics': True, 'b2_connections': 0}))
-    from playbooks.observability.tests.alert_fixture import verify as verify_alerts
-    print(json.dumps(verify_alerts()))
+    if alerts:
+        from playbooks.observability.tests.alert_fixture import verify as verify_alerts
+        print(json.dumps(verify_alerts()))
 
 
 if __name__ == '__main__':

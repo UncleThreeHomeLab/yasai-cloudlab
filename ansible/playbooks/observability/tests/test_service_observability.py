@@ -9,7 +9,7 @@ import unittest
 import jsonschema
 import yaml
 
-from playbooks.observability.tests.fixtures import monitored_service_inputs, native_source_inputs, helm, native_overrides
+from playbooks.observability.tests.fixtures import monitored_service_inputs, logged_service_inputs, native_source_inputs, helm, native_overrides
 from playbooks.observability.files.chart import render
 from playbooks.services.files import package
 
@@ -18,6 +18,85 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 class ServiceObservabilityTests(unittest.TestCase):
+    def test_independent_logs_contract_preserves_metrics_policy_and_scoped_reader(self):
+        value = logged_service_inputs()
+        definition = value['catalog'][0]['definition']
+        definition['exposure'] = {'class': 'public', 'hostname': 'fixture.example.invalid',
+            'access': 'public', 'port': 8080, 'path': '/'}
+        def catalog():
+            return helm('platform/delivery/services', {'repository': value['nativeSource']['repository'], 'catalog': value['catalog']})
+        objects = catalog()
+        policies = [o for o in objects if o['kind'] in ('NetworkPolicy', 'AuthorizationPolicy')]
+        role = next(o for o in objects if o['kind'] == 'Role' and o['metadata']['name'] == 'cloudlab-alloy-logs')
+        self.assertEqual(role['metadata']['namespace'], 'cloudlab-app-synthetic')
+        self.assertEqual(role['rules'], [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['get', 'list', 'watch']},
+                                       {'apiGroups': [''], 'resources': ['pods/log'], 'verbs': ['get']}])
+        binding = next(o for o in objects if o['kind'] == 'RoleBinding' and o['metadata']['name'] == role['metadata']['name'])
+        self.assertEqual(binding['subjects'], [{'kind': 'ServiceAccount', 'name': 'cloudlab-alloy', 'namespace': 'cloudlab-observability'}])
+        overrides = native_overrides(value)['cloudlab-observability']
+        self.assertEqual(overrides['serviceMetrics'], {})
+        self.assertEqual(set(overrides['serviceLogs']), {'synthetic'})
+        rendered = helm('platform/observability', overrides)
+        self.assertFalse(any(o['kind'] == 'PodMonitor' and o['metadata']['name'] == 'svc-synthetic' for o in rendered))
+        workload = next(o for o in helm('charts/service', definition) if o['kind'] == 'Deployment')
+        self.assertEqual(workload['spec']['template']['metadata']['labels']['cloudlab.io/log-profile'], 'cloudlab-http-json-v1')
+        definition['monitoring'] = {'enabled': False}
+        disabled = catalog()
+        self.assertEqual(policies, [o for o in disabled if o['kind'] in ('NetworkPolicy', 'AuthorizationPolicy')])
+        self.assertFalse(any(o['kind'] == 'Role' and o['metadata']['name'] == role['metadata']['name'] for o in disabled))
+
+    def test_signal_declarations_fail_closed_and_links_require_log_coverage(self):
+        for change in ('no-signal', 'disabled', 'trace', 'old-route', 'other', 'log-profile'):
+            value = logged_service_inputs()
+            monitor = value['catalog'][0]['definition']['monitoring']
+            if change == 'no-signal': monitor['logs'] = {'enabled': False}
+            if change == 'disabled': monitor['enabled'] = False
+            if change == 'trace': monitor['traces'] = {'enabled': True}
+            if change == 'old-route': monitor['metrics']['routes'] = monitor.pop('routes')
+            if change == 'other': monitor['routes'] = ['other']
+            if change == 'log-profile': monitor['logs']['profile'] = 'raw'
+            for chart in ('charts/service', 'platform/delivery/services', 'platform/observability/gitops'):
+                candidate = value if chart.endswith('gitops') else (value['catalog'][0]['definition'] if chart == 'charts/service' else {
+                    'repository': value['nativeSource']['repository'], 'catalog': value['catalog']})
+                with self.subTest(change=change, chart=chart), self.assertRaises(ValueError): helm(chart, candidate)
+        for logs in (False, True):
+            value = logged_service_inputs(metrics=True) if logs else monitored_service_inputs()
+            overrides = native_overrides(value)['cloudlab-observability']
+            self.assertEqual(bool(overrides['serviceMetrics']), True)
+            rule = overrides['serviceRules']['svc-synthetic-availability']['groups'][0]['rules'][0]
+            self.assertEqual('logs_url' in rule['annotations'], logs)
+            if logs:
+                self.assertIn('service%3D', rule['annotations']['logs_url'])
+                self.assertNotIn('namespace', rule['annotations']['logs_url'])
+
+    def test_generated_logs_keep_trusted_targets_and_enter_aggregate_budget(self):
+        value = logged_service_inputs()
+        overrides = native_overrides(value)['cloudlab-observability']
+        config = next(o['data']['config.alloy'] for o in helm('platform/observability', overrides)
+                      if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'cloudlab-alloy')
+        legacy = (ROOT / 'platform/observability/config.alloy').read_text()
+        self.assertTrue(config.startswith(legacy))
+        self.assertIn('app.kubernetes.io/name=synthetic,cloudlab.io/owner=', config)
+        self.assertIn('cloudlab.io/log-profile=cloudlab-http-json-v1,!cloudlab.io/release-analysis', config)
+        self.assertIn('regex = "application"', config)
+        self.assertIn('values = ["service", "kind"]', config)
+        self.assertIn('generic_oversize', config)
+        value['serviceObservability']['synthetic']['dashboard']['description'] = 'a' * 90000
+        for n in range(15):
+            entry = copy.deepcopy(value['catalog'][0])
+            name = 'service' + str(n)
+            entry['approval'].update(name=name, namespace='cloudlab-app-' + name)
+            entry['definition'].update(name=name, monitoring={'enabled': False})
+            value['catalog'].append(entry)
+        value['serviceObservability']['service0'] = {'dashboard': {
+            'uid': 'svc-service0', 'title': 'Service 0', 'editable': False, 'panels': [], 'description': 'b' * 90000}}
+        native_overrides(value)
+        for entry in value['catalog'][1:]:
+            entry['definition']['monitoring'] = {'enabled': True,
+                'routes': ['/r' + str(n) + 'x' * 93 for n in range(8)],
+                'logs': {'enabled': True, 'profile': 'cloudlab-http-json-v1'}}
+        with self.assertRaises(ValueError): native_overrides(value)
+
     def test_canonical_schema_and_independent_consumer_validation(self):
         package.check()
         schema = json.loads((ROOT / 'charts/service/values.schema.json').read_text())
@@ -32,10 +111,10 @@ class ServiceObservabilityTests(unittest.TestCase):
             metrics = monitoring['metrics']
             if change == 'unknown': monitoring['receiver'] = 'unexpected'
             if change == 'profile': metrics['profile'] = 'arbitrary'
-            if change == 'query-route': metrics['routes'] = ['/api/items?token=secret']
-            if change == 'duplicate-route': metrics['routes'] *= 2
+            if change == 'query-route': monitoring['routes'] = ['/api/items?token=secret']
+            if change == 'duplicate-route': monitoring['routes'] *= 2
             if change == 'endpoint': metrics['endpoints'] *= 2
-            if change == 'many-routes': metrics['routes'] = ['/route' + str(n) for n in range(9)]
+            if change == 'many-routes': monitoring['routes'] = ['/route' + str(n) for n in range(9)]
             with self.subTest(change=change):
                 for candidate, contract in ((row['catalog'][0]['definition'], schema), (row, native)):
                     with self.assertRaises(jsonschema.ValidationError): jsonschema.validate(candidate, contract)

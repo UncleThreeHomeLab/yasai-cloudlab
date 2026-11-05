@@ -17,7 +17,7 @@
 {{- $grafana := printf "https://%s" $inputs.grafanaHost }}
 {{- $notifications := include "observability.notifications" . | fromYaml }}
 {{- $services := include "observability.services" . | fromJson }}
-{{- $configurationValues := merge (dict "enabled" true "serviceMetrics" $services.bindings "serviceRules" $services.rules) (deepCopy $inputs) }}
+{{- $configurationValues := merge (dict "enabled" true "serviceMetrics" $services.bindings "serviceLogs" $services.logs "serviceRules" $services.rules) (deepCopy $inputs) }}
 {{- $prometheusValues := dict "serviceCatalogRevision" $source.valuesRevision "serviceDashboards" $services.dashboards "serviceDashboardLinks" $services.links "kube-prometheus-stack" (dict
   "alertmanager" (dict "config" $notifications.config "alertmanagerSpec" (dict
     "secrets" $notifications.secrets

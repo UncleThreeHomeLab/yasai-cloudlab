@@ -13,12 +13,15 @@
 {{- end -}}
 
 {{- define "observability.services" -}}
-{{- $bindings := dict -}}{{- $catalog := dict -}}{{- $rules := dict -}}{{- $dashboards := dict -}}{{- $links := list -}}
+{{- $bindings := dict -}}{{- $logBindings := dict -}}{{- $catalog := dict -}}{{- $rules := dict -}}{{- $dashboards := dict -}}{{- $links := list -}}
 {{- range .Values.catalog -}}
 {{- $_ := set $catalog .approval.name . -}}
 {{- $monitor := include "cloudlab.service.monitoring" . | fromJson -}}
-{{- if and $monitor.enabled (ne .publication "retired") -}}
-{{- $_ := set $bindings .approval.name (dict "namespace" .approval.namespace "port" $monitor.port "routes" $monitor.routes "owner" .definition.owner) -}}
+{{- if and $monitor.metrics.enabled (ne .publication "retired") -}}
+{{- $_ := set $bindings .approval.name (dict "namespace" .approval.namespace "port" $monitor.metrics.port "routes" $monitor.routes "owner" .definition.owner) -}}
+{{- end -}}
+{{- if and $monitor.logs.enabled (ne .publication "retired") -}}
+{{- $_ := set $logBindings .approval.name (dict "namespace" .approval.namespace "routes" $monitor.routes "owner" .definition.owner "profile" $monitor.logs.profile) -}}
 {{- end -}}
 {{- end -}}
 {{- range $name, $input := .Values.serviceObservability -}}
@@ -58,7 +61,9 @@
 {{- $dashboardUID := "active-alerts" -}}
 {{- if hasKey $input "dashboard" }}{{ $dashboardUID = printf "svc-%s" $name }}{{ end -}}
 {{- $_ := set $annotations "dashboard_url" (printf "https://%s/d/%s" $.Values.observabilityInputs.grafanaHost $dashboardUID) -}}
-{{- $_ := set $annotations "logs_url" (printf "https://%s/explore?left=%s" $.Values.observabilityInputs.grafanaHost (urlquery (toJson (dict "datasource" "logs" "queries" (list (dict "expr" (printf "{namespace=%q}" $entry.approval.namespace))))))) -}}
+{{- if hasKey $logBindings $name -}}
+{{- $_ := set $annotations "logs_url" (printf "https://%s/explore?left=%s" $.Values.observabilityInputs.grafanaHost (urlquery (toJson (dict "datasource" "logs" "queries" (list (dict "expr" (printf "{service=%q}" $name))))))) -}}
+{{- end -}}
 {{- $_ := set $row "annotations" $annotations -}}
 {{- end -}}
 {{- $nativeRules = append $nativeRules $row -}}
@@ -77,5 +82,5 @@
 {{- $links = append $links (dict "title" $name "type" "link" "url" (printf "/d/svc-%s" $name)) -}}
 {{- end -}}
 {{- end -}}
-{{- dict "bindings" $bindings "rules" $rules "dashboards" $dashboards "links" $links | toJson -}}
+{{- dict "bindings" $bindings "logs" $logBindings "rules" $rules "dashboards" $dashboards "links" $links | toJson -}}
 {{- end -}}
