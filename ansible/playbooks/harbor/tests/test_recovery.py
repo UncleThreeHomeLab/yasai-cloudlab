@@ -15,6 +15,77 @@ from playbooks.harbor.tests.fixtures import manifest
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_idle_monthly_handoff_preserves_evidence_and_refuses_mutation_without_effects(self):
+        from playbooks.harbor.files import native
+        value = manifest(); value.update(operation='monthly', phase='snapshot', captured=True, captured_at=1, capture_seconds=1)
+        value['installation']['revision'] = native.REVISION
+        document = {'installationRevision': native.REVISION, 'harborHost': 'harbor.internal.example.invalid',
+            'loginHost': 'login.example.invalid', 'gatewayIP': '10.43.0.100'}
+        apps = {name: {'metadata': {'uid': 'app-' + name}, 'spec': {'source': {'targetRevision': native.REVISION,
+            'helm': {'valuesObject': native.values(document, name)}}}} for name in recovery.APPS}
+        snapshots = {row['snapshot']: {'metadata': {'uid': 'snapshot-' + component, 'labels': recovery.LABEL},
+            'spec': {'volume': row['volume'], 'labels': {'cloudlab-generation': value['generation']}},
+            'status': {'readyToUse': True}} for component, row in value['volumes'].items()}
+        current = copy.deepcopy(value['volumes']); secrets = copy.deepcopy(value['secrets'])
+        def read(kind, name, *args):
+            if kind == 'application.argoproj.io': return copy.deepcopy(apps[name])
+            if kind == 'snapshots.longhorn.io': return copy.deepcopy(snapshots[name])
+            raise AssertionError('Unexpected pending handoff read')
+        with tempfile.TemporaryDirectory(dir='/var/lib') as directory, patch.object(recovery, 'BASE', Path(directory)), \
+                patch.object(native, 'BASE', Path(directory)), patch.object(recovery, 'get', side_effect=read), \
+                patch.object(recovery, 'sources', side_effect=lambda: copy.deepcopy(current)), \
+                patch.object(recovery, 'fingerprints', side_effect=lambda: copy.deepcopy(secrets)), \
+                patch.object(native, 'guard', side_effect=AssertionError('Lifecycle gate must not enter ordinary guard')) as guard, \
+                patch.object(recovery, 'atomic') as write, patch.object(recovery, 'kube') as mutations, \
+                patch.object(recovery, 'execute') as commands, patch.object(recovery, 'cleanup_snapshots') as cleanup:
+            path = Path(directory) / 'pending-volume.json'
+            raw = json.dumps(value, sort_keys=True).encode(); path.write_bytes(raw); path.chmod(0o600)
+            original_snapshots = copy.deepcopy(snapshots)
+            before = recovery.handoff_pending()
+            current['database']['actual_bytes'] += 100
+            self.assertEqual(recovery.handoff_pending(expected=before), before)
+            self.assertEqual(path.read_bytes(), raw); self.assertEqual(snapshots, original_snapshots)
+            for change in ('malformed', 'incomplete', 'operation', 'source', 'secret', 'snapshot', 'ready'):
+                candidate = copy.deepcopy(value)
+                if change == 'incomplete': candidate['captured'] = False
+                if change == 'operation': candidate['operation'] = 'check-local'
+                if change == 'source': current['database']['claim_uid'] = 'foreign'
+                if change == 'secret': secrets[recovery.SECRETS[0]] = 'e' * 64
+                if change == 'snapshot': snapshots[value['volumes']['database']['snapshot']]['spec']['volume'] = 'foreign'
+                if change == 'ready': snapshots[value['volumes']['database']['snapshot']]['status']['readyToUse'] = False
+                path.write_bytes(b'{invalid' if change == 'malformed' else json.dumps(candidate).encode())
+                with self.subTest(change=change), self.assertRaises(RuntimeError): recovery.handoff_pending()
+                current = copy.deepcopy(value['volumes']); secrets = copy.deepcopy(value['secrets']); snapshots = copy.deepcopy(original_snapshots)
+            path.write_bytes(raw + b'\n')
+            with self.assertRaisesRegex(RuntimeError, 'changed during'): recovery.handoff_pending(expected=before)
+            path.write_bytes(raw)
+            selected = value['volumes']['database']['snapshot']; snapshots[selected]['metadata']['uid'] = 'replaced'
+            with self.assertRaisesRegex(RuntimeError, 'changed during'): recovery.handoff_pending(expected=before)
+            snapshots = copy.deepcopy(original_snapshots)
+            state = {'phase': 'prepared', 'root_uid': 'root', 'project_uid': 'project', 'profile': document,
+                'authority': {'root_uid': 'root'}, 'revision': native.REVISION, 'repository': 'private',
+                'applications': {name: apps[name]['metadata']['uid'] for name in recovery.APPS}}
+            snapshot = {'enabled': False, 'root': {'metadata': {'uid': 'root'}}, 'profile': document,
+                'authority': state['authority'], 'targets': [{'valuesRepository': 'private'}]}
+            def child(unused, name, **kwargs):
+                return copy.deepcopy(apps[name]), native.values(document, name)
+            with patch.object(native, 'receipt', return_value=state), patch.object(native, 'context', return_value=snapshot) as context, \
+                    patch.object(native, 'get', return_value={'metadata': {'uid': 'project'}}), patch.object(native, 'child', side_effect=child) as children:
+                self.assertFalse(native.prepare())
+                self.assertEqual(children.call_count, 2)
+                def changed_child(unused, name, **kwargs):
+                    snapshots[selected]['metadata']['uid'] = 'changed-during-prepare'
+                    return child(unused, name, **kwargs)
+                children.side_effect = changed_child
+                with self.assertRaisesRegex(RuntimeError, 'changed during'): native.prepare()
+                snapshots = copy.deepcopy(original_snapshots); context.reset_mock()
+                with self.assertRaisesRegex(RuntimeError, 'Fresh Harbor intent refuses pending'): native.prepare(initial=True)
+                context.assert_not_called()
+            active = Path(directory) / 'maintenance.json'; active.write_text('{}'); active.chmod(0o600)
+            with self.assertRaisesRegex(RuntimeError, 'active Harbor recovery'): recovery.handoff_pending()
+            self.assertEqual(path.read_bytes(), raw); self.assertEqual(snapshots, original_snapshots)
+            guard.assert_not_called(); write.assert_not_called(); mutations.assert_not_called(); commands.assert_not_called(); cleanup.assert_not_called()
+
     def test_stopped_final_writer_can_return_no_pod_list(self):
         for value in (None, {}, {'items': []}):
             with patch.object(recovery, 'get', return_value=value):

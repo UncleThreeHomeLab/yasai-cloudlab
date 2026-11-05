@@ -297,11 +297,20 @@ def observe(snapshot, state, *, register=False):
 
 def prepare(*, initial=False):
     """Called only under the existing host lock, before public activation."""
-    from playbooks.harbor.files.recovery import atomic
+    from playbooks.harbor.files.recovery import atomic, handoff_pending
+    pending = handoff_pending()
+    if initial and pending['manifest'] is not None:
+        raise RuntimeError('Fresh Harbor intent refuses pending recovery')
     snapshot = context(preparing=True)
     existing = receipt()
     if existing:
-        if snapshot['enabled']: return observe(snapshot, existing, register=True)
+        if existing.get('phase') == 'initial' and pending['manifest'] is not None:
+            raise RuntimeError('Fresh Harbor intent refuses pending recovery')
+        if snapshot['enabled']:
+            handoff_pending(expected=pending)
+            changed = observe(snapshot, existing, register=True)
+            handoff_pending(expected=pending)
+            return changed
         if (existing.get('profile') != snapshot['profile'] or existing.get('root_uid') != snapshot['root']['metadata']['uid']
                 or existing.get('authority') != snapshot['authority'] or existing.get('repository') != snapshot['targets'][0]['valuesRepository']
                 or existing.get('revision') != REVISION or existing.get('phase') not in ('initial', 'prepared')
@@ -314,6 +323,7 @@ def prepare(*, initial=False):
                 app, normalized = child(snapshot, name, accepted=existing['applications'][name])
                 if app['metadata'].get('ownerReferences') or normalized != values(snapshot['profile'], name):
                     raise RuntimeError('Harbor prepared scope changed before activation')
+        handoff_pending(expected=pending)
         return False
     if snapshot['enabled']: raise RuntimeError('Harbor native activation requires its prior protected intent')
     from playbooks.harbor.files.configuration import client
@@ -338,12 +348,6 @@ def prepare(*, initial=False):
     if initial:
         safe_absence()
     else:
-        for name in ('maintenance.json', 'pending-volume.json', 'restore-owned.json', 'retention-pending.json'):
-            if source.authority_path(BASE / name, missing=True) is not None:
-                raise RuntimeError('Finish pending Harbor operations before native handoff')
-        proof = source.receipt(BASE / 'deployment-proof.json', missing=True)
-        if proof and proof.get('phase') != 'ready':
-            raise RuntimeError('Finish preparing or cleaning the Harbor Deployment proof before handoff')
         if any(get(kind, name, 'argocd') for kind, name in [('applicationset.argoproj.io', name) for name in APPS] +
                 [('externalsecret.external-secrets.io', READER), ('secret', READER)]):
             raise RuntimeError('Harbor preparation refuses premature native controls')
@@ -358,6 +362,7 @@ def prepare(*, initial=False):
             if old != new: raise RuntimeError('Harbor native handoff changes effective immutable chart resources')
             applications[name] = app['metadata']['uid']
             captured_apps[name] = copy.deepcopy(app)
+        handoff_pending(expected=pending)
     if source.root_guard({'publicSource': {'repository': PUBLIC, 'branch': 'main'}}, snapshot['public'], snapshot['head']) != snapshot['targets'][0]:
         raise RuntimeError('Harbor binding changed during native preparation')
     fresh_project = get('appproject.argoproj.io', APPS[0], 'argocd') or {}
@@ -370,6 +375,7 @@ def prepare(*, initial=False):
                 or after.get('metadata', {}).get('ownerReferences') or after.get('metadata', {}).get('deletionTimestamp')
                 or after.get('metadata', {}).get('finalizers') or not application_ready(name, REVISION)):
             raise RuntimeError('Harbor idle installation changed before protected intent')
+    handoff_pending(expected=pending)
     atomic(BASE / RECORD, {'version': 'cloudlab-harbor-native/v1', 'phase': 'initial' if initial else 'prepared',
         'root_uid': snapshot['root']['metadata']['uid'], 'authority': snapshot['authority'],
         'project_uid': project['metadata']['uid'], 'profile': snapshot['profile'],

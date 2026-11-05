@@ -105,6 +105,7 @@ retain data and credentials; coordinated recovery owns only maintenance and
 seven replica fields. Native activation requires protected initial intent or
 same-resource adoption through the existing Harbor owner. Registry API
 resources keep their separate native provider owner.
+Validated idle captured monthly recovery is preserved through same-resource handoff; its offsite window and cleanup owner remain unchanged.
 
 Native ApplicationSet catalog ownership requires `privateSources.acceptanceCommitment`
 once `identity.argo` is bound. The reviewed public SHA-256 commitment
