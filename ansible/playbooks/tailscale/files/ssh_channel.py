@@ -97,10 +97,10 @@ class Frames:
         except (BrokenPipeError, OSError):
             refused()
 
-    def require_eof(self):
+    def require_eof(self, *, allow_stderr=False):
         while not self.eof or not self.error_eof:
             self._poll()
-        if self.buffer or self.stderr_bytes: refused()
+        if self.buffer or (self.stderr_bytes and not allow_stderr): refused()
 
     def close(self):
         self.selector.close()
@@ -115,9 +115,19 @@ class PipeChannel(Frames):
     def close_input(self):
         if not self.writer.closed: self.writer.close()
 
-    def finish(self):
+    def read_output(self):
+        """Read raw stdout; bounded stderr warnings require a successful exit."""
         self.close_input()
-        self.require_eof()
+        while not self.eof or not self.error_eof:
+            self._poll()
+        output = bytes(self.buffer)
+        self.buffer.clear()
+        self.finish(allow_stderr=True)
+        return output
+
+    def finish(self, *, allow_stderr=False):
+        self.close_input()
+        self.require_eof(allow_stderr=allow_stderr)
         # Keep the leader unreaped until its owned group is closed, preventing PID reuse.
         while os.waitid(os.P_PID, self.process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is None:
             time.sleep(min(.01, self.remaining()))

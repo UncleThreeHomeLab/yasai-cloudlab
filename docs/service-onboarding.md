@@ -35,8 +35,8 @@ failure blocks validation without falling back to the checkout. Publishers updat
 only the selected catalog. Initial identity activation still requires an exact
 matching source; existing checkpoints without a path refer only to the default.
 
-Ordinary `charts/service` approvals require `egress`; `[]` renders namespace-wide
-egress isolation with no allow rules. Declare each required destination and port:
+With an egress-capable owner, ordinary `charts/service` approvals require `egress`;
+`[]` renders namespace-wide isolation with no allow rules. Declare each destination:
 
 ```yaml
 egress:
@@ -56,6 +56,21 @@ withdraw policies automatically while catalog pruning is disabled. Before changi
 the active owner/path, verify dependencies and actual CNI, mesh and dual-stack
 enforcement, including other policies that may add allows. Rendered policies alone
 do not establish isolation.
+
+Run the [egress verifier](../verification/integration/workload_egress.py) against
+the two existing nodes before advancing the active owner:
+
+```text
+docker compose run --rm --entrypoint python lab /workspace/verification/integration/workload_egress.py
+```
+
+It uses local VM bootstrap inputs and creates only receipt-owned test namespaces.
+After failure, append the reported `--cleanup RUN_ID`; keep the recovery volume
+until cleanup confirms absence. `--resume RUN_ID` finishes cleanup, then requires
+a fresh proof. Existing connections and unsupported destinations remain separate gates.
+Ambient DNS can answer Service names locally; test forwarded queries separately.
+For ambient peers, verify the HBONE transport allowance and use mesh authorization
+to restrict workload identity and inner ports.
 
 Shared gateways read `platform/certificates.yaml` from private Git main and
 `identity/argo-values.yaml` at the existing approved identity binding revision.
