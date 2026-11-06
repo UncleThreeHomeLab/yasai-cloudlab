@@ -1,0 +1,32 @@
+---
+- name: Require the declared independent DNS binary
+  ansible.builtin.command: /usr/local/bin/cloudlab-coredns -version
+  register: access_dns_version
+  changed_when: false
+
+- name: Require persistent private DNS at boot
+  ansible.builtin.systemd_service:
+    name: cloudlab-private-dns
+  register: access_dns_service_status
+  no_log: true
+
+- name: Require the enabled active resolver generation
+  ansible.builtin.assert:
+    that:
+      - access_dns_service_status.status.UnitFileState == 'enabled'
+      - access_dns_service_status.status.ActiveState == 'active'
+    fail_msg: Independent private DNS is not running; original resolver retained.
+    quiet: true
+
+- name: Check the active resolver generation without mutation
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/private-dns/dns_host.py, check]
+  register: access_dns_checked
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Require live authoritative answers and retained forwarding
+  ansible.builtin.assert:
+    that: access_dns_checked.rc == 0 and (access_dns_checked.stdout | from_json).dns_ready
+    fail_msg: Independent private DNS failed its live proof; run setup to upgrade pre-declaration resolvers, then inspect the retained generation.

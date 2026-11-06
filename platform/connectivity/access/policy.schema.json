@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Private tailnet and DNS declarations",
+  "$comment": "Private file platform/access/policy.yaml. Bounded intent only: the reconciler derives fixed-template grants and resolver records from it, never arbitrary policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tailnet",
+    "privateDNS"
+  ],
+  "properties": {
+    "tailnet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "administratorReference",
+        "splitDNS",
+        "accessTests"
+      ],
+      "properties": {
+        "profile": {
+          "const": "operator-private-access"
+        },
+        "administratorReference": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254,
+          "pattern": "^[^\\s@]+@[^\\s@]+$"
+        },
+        "splitDNS": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "zone",
+            "resolvers"
+          ],
+          "properties": {
+            "zone": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^internal\\.[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+            },
+            "resolvers": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 63,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+              }
+            }
+          }
+        },
+        "accessTests": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "identity",
+              "destination",
+              "expected"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 254
+              },
+              "destination": {
+                "enum": [
+                  "private-gateway",
+                  "dns"
+                ]
+              },
+              "expected": {
+                "enum": [
+                  "allow",
+                  "deny"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "privateDNS": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+          }
+        },
+        "platformNames": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+---
+- name: Verify independent private resolvers
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Check resolver installation and active generation
+      ansible.builtin.import_tasks: tasks/verify.yml
+      when: access_enabled | bool

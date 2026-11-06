@@ -74,40 +74,16 @@ services:
         target: /infra-work
     command: [setup]
 
-  infra:
-    profiles: [infra]
+  connectivity:
+    profiles: [connectivity]
     platform: linux/amd64
     build: *lab-build
-    entrypoint: [python, /opt/runner/run.py, infra]
-    working_dir: /workspace/ansible
+    entrypoint: [python, -m, playbooks.access.files.reconcile]
+    working_dir: /workspace
     volumes:
       - type: bind
-        source: ./ansible
-        target: /workspace/ansible
-        read_only: true
-      - type: bind
-        source: ./infra
-        target: /workspace/infra
-        read_only: true
-      - type: bind
-        source: ./charts/service
-        target: /workspace/charts/service
-        read_only: true
-      - type: bind
-        source: ./.git
-        target: /workspace/.git
-        read_only: true
-      - type: bind
-        source: ./.gitignore
-        target: /workspace/.gitignore
-        read_only: true
-      - type: bind
-        source: ./.gitattributes
-        target: /workspace/.gitattributes
-        read_only: true
-      - type: bind
-        source: ./compose.yaml
-        target: /workspace/compose.yaml
+        source: .
+        target: /workspace
         read_only: true
       - type: bind
         source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/cloudflare
@@ -116,7 +92,11 @@ services:
       - type: volume
         source: infra_work
         target: /infra-work
-    command: [check, cloudflare]
+      - type: volume
+        source: ssh_known_hosts
+        target: /state
+        read_only: true
+    command: [loop]
 
   infra-github:
     profiles: [infra]

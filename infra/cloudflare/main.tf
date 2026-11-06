@@ -3,10 +3,14 @@ locals {
     for ordered in sort([for policy_key, policy in app.policies : format("%020d:%s", policy.precedence, policy_key)]) :
     app.policies[split(":", ordered)[1]]
   ] }
+  application_auds = merge(
+    { for key, app in cloudflare_zero_trust_access_application.application : key => app.aud },
+    { for key, app in cloudflare_zero_trust_access_application.service_application : key => app.aud }
+  )
 }
 
 resource "cloudflare_zero_trust_access_application" "application" {
-  for_each                  = var.applications
+  for_each                  = { for key, app in var.applications : key => app if !startswith(key, "service_") }
   account_id                = var.account_id
   name                      = each.value.name
   domain                    = each.value.domain
@@ -29,6 +33,30 @@ resource "cloudflare_zero_trust_access_application" "application" {
   lifecycle { prevent_destroy = true }
 }
 
+resource "cloudflare_zero_trust_access_application" "service_application" {
+  for_each                  = { for key, app in var.applications : key => app if startswith(key, "service_") }
+  account_id                = var.account_id
+  name                      = each.value.name
+  domain                    = each.value.domain
+  type                      = "self_hosted"
+  session_duration          = each.value.session_duration
+  allowed_idps              = length(each.value.allowed_idps) == 0 ? null : each.value.allowed_idps
+  app_launcher_visible      = each.value.app_launcher_visible
+  auto_redirect_to_identity = each.value.auto_redirect_to_identity
+  enable_binding_cookie     = each.value.enable_binding_cookie
+  options_preflight_bypass  = each.value.options_preflight_bypass
+  policies = [for policy in local.ordered_policies[each.key] : {
+    id         = policy.id
+    name       = policy.name
+    decision   = policy.decision
+    include    = policy.include
+    exclude    = length(policy.exclude) == 0 ? null : policy.exclude
+    require    = length(policy.require) == 0 ? null : policy.require
+    precedence = policy.precedence
+  }]
+  # Retired service keys must destroy; base applications above keep prevent_destroy.
+}
+
 resource "cloudflare_zero_trust_tunnel_cloudflared_config" "routing" {
   account_id = var.account_id
   tunnel_id  = var.tunnel_id
@@ -46,7 +74,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "routing" {
         access = var.routes[key].application == null ? null : {
           required  = true
           team_name = var.team_name
-          aud_tag   = [cloudflare_zero_trust_access_application.application[var.routes[key].application].aud]
+          aud_tag   = [local.application_auds[var.routes[key].application]]
         }
       }
       }], [for key in sort(keys(var.service_exposures)) : {
@@ -61,7 +89,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "routing" {
         access = var.service_exposures[key].application == null ? null : {
           required  = true
           team_name = var.team_name
-          aud_tag   = [cloudflare_zero_trust_access_application.application[var.service_exposures[key].application].aud]
+          aud_tag   = [local.application_auds[var.service_exposures[key].application]]
         }
       }
     } if var.service_exposures[key].routed], [{ service = "http_status:404" }])
