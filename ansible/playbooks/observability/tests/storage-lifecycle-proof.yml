@@ -1,0 +1,140 @@
+---
+- name: Qualify only an explicitly named synthetic Argo storage lifecycle
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    storage_proof_cleanup: false
+    storage_proof_resume: false
+    storage_proof_recover_empty_namespace: false
+    storage_proof_recover_storage_cleanup: false
+    storage_proof_recovery: "{{ storage_proof_recover_empty_namespace or storage_proof_recover_storage_cleanup }}"
+    storage_proof_recovery_envelope: {}
+    storage_proof_directory: '/var/lib/cloudlab/proofs/observability-storage-{{ "recovery-" if storage_proof_recovery else "" }}{{ storage_proof_operation }}'
+    storage_proof_driver: /workspace/ansible/playbooks/observability/tests/storage_lifecycle_proof.py
+    storage_proof_sha: '{{ lookup("ansible.builtin.file", storage_proof_driver, rstrip=false) | hash("sha256") }}'
+  tasks:
+    - name: Require exact synthetic operation and host scope
+      ansible.builtin.assert:
+        that:
+          - storage_proof_operation is defined
+          - storage_proof_operation is string
+          - storage_proof_operation is match('^[a-f0-9]{16}$')
+          - storage_proof_cleanup is boolean
+          - storage_proof_resume is boolean
+          - storage_proof_recover_empty_namespace is boolean
+          - storage_proof_recover_storage_cleanup is boolean
+          - not (storage_proof_recover_empty_namespace and storage_proof_recover_storage_cleanup)
+          - storage_proof_recovery_envelope is mapping
+          - not (storage_proof_cleanup and (storage_proof_resume or storage_proof_recovery))
+          - not storage_proof_recovery or storage_proof_recovery_envelope.operation | default('') == storage_proof_operation
+          - storage_proof_directory == '/var/lib/cloudlab/proofs/observability-storage-' ~ ('recovery-' if storage_proof_recovery else '') ~ storage_proof_operation
+          - ansible_play_hosts_all == ['cloudlab']
+        quiet: true
+
+    - name: Prepare checksum-bound synthetic declarations locally
+      ansible.builtin.command:
+        argv:
+          - python
+          - -m
+          - playbooks.observability.tests.storage_lifecycle_proof
+          - --prepare
+          - --operation
+          - '{{ storage_proof_operation }}'
+      delegate_to: localhost
+      become: false
+      environment:
+        PYTHONPATH: /workspace/ansible:/workspace
+      changed_when: false
+      no_log: true
+      register: storage_proof_input
+      when: not storage_proof_cleanup and not storage_proof_resume and not storage_proof_recovery
+
+    - name: Prepare only the explicit cleanup recovery envelope
+      ansible.builtin.set_fact:
+        storage_proof_input:
+          stdout: '{{ storage_proof_recovery_envelope | to_json }}'
+      no_log: true
+      when: storage_proof_recovery and not storage_proof_resume
+
+    - name: Validate fresh protected host path before any copy
+      ansible.builtin.command:
+        argv:
+          - python3
+          - '-'
+          - --host-preflight
+          - --directory
+          - '{{ storage_proof_directory }}'
+          - --operation
+          - '{{ storage_proof_operation }}'
+          - --driver-hash
+          - '{{ storage_proof_sha }}'
+          - --host-mode
+          - '{{ "recovery-fresh" if storage_proof_recovery else "fresh" }}'
+          - --recovery-envelope
+          - '{{ storage_proof_recovery_envelope | to_json }}'
+        stdin: '{{ lookup("ansible.builtin.file", storage_proof_driver, rstrip=false) }}'
+        stdin_add_newline: false
+      changed_when: true
+      no_log: true
+      when: not storage_proof_cleanup and not storage_proof_resume
+
+    - name: Copy exact reviewed standalone test driver without a runtime installer
+      ansible.builtin.copy:
+        src: '{{ storage_proof_driver }}'
+        dest: '{{ storage_proof_directory }}/proof.py'
+        mode: '0600'
+        force: false
+      when: not storage_proof_cleanup and not storage_proof_resume
+
+    - name: Verify installed test driver identity
+      ansible.builtin.command:
+        argv:
+          - python3
+          - '{{ storage_proof_directory }}/proof.py'
+          - --host-preflight
+          - --directory
+          - '{{ storage_proof_directory }}'
+          - --operation
+          - '{{ storage_proof_operation }}'
+          - --driver-hash
+          - '{{ storage_proof_sha }}'
+          - --host-mode
+          - '{{ "recovery-installed" if storage_proof_recovery else "cleanup" }}'
+          - --recovery-envelope
+          - '{{ storage_proof_recovery_envelope | to_json }}'
+      changed_when: false
+      no_log: true
+
+    - name: Copy immutable prepared test inputs
+      ansible.builtin.copy:
+        content: '{{ storage_proof_input.stdout }}'
+        dest: '{{ storage_proof_directory }}/input.json'
+        mode: '0600'
+        force: false
+      no_log: true
+      when: not storage_proof_cleanup and not storage_proof_resume
+
+    - name: Run bounded synthetic lifecycle or its exact receipted cleanup
+      ansible.builtin.command:
+        argv:
+          - python3
+          - '{{ storage_proof_directory }}/proof.py'
+          - '{{ "--recover-storage-cleanup" if storage_proof_recover_storage_cleanup else "--recover-empty-namespace" if storage_proof_recover_empty_namespace else "--cleanup" if storage_proof_cleanup else "--run" }}'
+          - --directory
+          - '{{ storage_proof_directory }}/state'
+          - --input
+          - '{{ storage_proof_directory }}/input.json'
+          - --operation
+          - '{{ storage_proof_operation }}'
+          - --driver-hash
+          - '{{ storage_proof_sha }}'
+      async: '{{ 1800 if storage_proof_cleanup or storage_proof_recovery else 3600 }}'
+      poll: 5
+      no_log: true
+      register: storage_proof_result
+
+    - name: Report only closed synthetic qualification flags
+      ansible.builtin.debug:
+        msg: '{{ storage_proof_result.stdout | from_json }}'
