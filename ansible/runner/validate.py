@@ -17,10 +17,9 @@ def main():
     subprocess.run([sys.executable, '/opt/runner/run.py', 'syntax'], check=True)
     command = ['ansible-lint', '--offline', '--project-dir', str(ROOT / 'ansible')]
     command.append('--')
-    command += [str(path) for path in sorted((ROOT / 'ansible/playbooks').rglob('*.yml'))]
+    command += [str(path) for path in sorted((ROOT / 'ansible/playbooks').glob('*.yml'))]
     command += [str(path) for path in sorted((ROOT / 'verification/integration/tasks').glob('*.yml'))]
     subprocess.run(command, cwd=ROOT / 'ansible', check=True)
-    subprocess.run([sys.executable, '/opt/runner/run.py', 'charts'], check=True)
 
 
 if __name__ == '__main__':

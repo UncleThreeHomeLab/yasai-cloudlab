@@ -25,48 +25,12 @@ class RunnerTests(unittest.TestCase):
         dotenv.assert_not_called()
         playbook.assert_not_called()
 
-    def test_preview_commands_dispatch_to_the_component_without_vm_inputs(self):
-        with patch.object(sys, 'argv', ['run.py', 'preview', 'check']), \
-                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            with self.assertRaises(SystemExit) as result:
-                runner.main()
-        self.assertEqual(result.exception.code, 0)
-        self.assertEqual(run.call_args.args[0], [sys.executable, '-m', 'playbooks.previews.files.command', 'check'])
-
     def test_dotenv_preserves_literal_shell_and_secret_characters(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / '.env'
             secret = ' space # ${TOKEN} $(command) `literal` "quoted" \\ tail '
             path.write_text("VM_PASSWORD='" + secret + "'\n")
             self.assertEqual(runner.dotenv_values(path, interpolate=False)['VM_PASSWORD'], secret)
-
-    def test_controller_recovery_dispatch_does_not_read_vault_or_apply_hosts(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'gitops-controller-recover']), \
-                patch.object(runner, 'dotenv_values') as dotenv, \
-                patch.object(runner, 'playbook') as playbook, \
-                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            with self.assertRaises(SystemExit) as result: runner.main()
-        self.assertEqual(result.exception.code, 0)
-        dotenv.assert_not_called()
-        playbook.assert_not_called()
-        self.assertIn('playbooks.argocd.files.recover', run.call_args.args[0])
-    def test_observation_fixtures_dispatch_outside_runtime_and_preserve_failures(self):
-        for arguments, module, tail in (
-                (['baseline-prepare'], 'playbooks.observability.tests.baseline', ['prepare']),
-                (['baseline-cleanup'], 'playbooks.observability.tests.baseline', ['cleanup']),
-                (['external-check'], 'playbooks.observability.files.command', ['external-check']),
-                (['baseline-prepare', 'unexpected'], 'playbooks.observability.files.command', ['baseline-prepare', 'unexpected'])):
-            with self.subTest(arguments=arguments), \
-                    patch.object(runner.sys, 'argv', ['run.py', 'observe', *arguments]), \
-                    patch.object(runner, 'dotenv_values') as inputs, \
-                    patch.object(runner, 'playbook') as apply, \
-                    patch.object(runner.subprocess, 'run', return_value=Mock(returncode=3)) as command:
-                with self.assertRaises(SystemExit) as stopped:
-                    runner.main()
-                self.assertEqual(stopped.exception.code, 3)
-                self.assertEqual(command.call_args.args[0][1:], ['-m', module, *tail])
-                inputs.assert_not_called()
-                apply.assert_not_called()
 
     def test_real_ansible_workdir_imports_workspace_before_missing_input_gate(self):
         code = '''import importlib.util,sys
@@ -83,61 +47,6 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                                 env=dict(os.environ, PYTHONPATH=''), capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('input gate reached', result.stdout)
-
-    def test_infra_dispatch_preserves_native_exit_without_deployment_inputs(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'drift', 'github']), \
-                patch.object(runner, 'dotenv_values') as dotenv, \
-                patch.object(runner, 'playbook') as playbook, \
-                patch.object(runner.Path, 'read_text', side_effect=lambda: json.dumps({
-                    'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': 2})):
-            with self.assertRaises(SystemExit) as result:
-                runner.main()
-        self.assertEqual(result.exception.code, 2)
-        dotenv.assert_not_called()
-        playbook.assert_called_once_with('playbooks/infrastructure/drift.yml')
-        self.assertEqual(json.loads(runner.os.environ['LAB_INFRA_ARGUMENTS']), ['drift', 'github'])
-
-    def test_native_plan_failure_cannot_become_ansible_drift_exit(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'plan', 'github']), \
-                patch.object(runner, 'playbook', side_effect=SystemExit(2)), \
-                patch.object(runner.Path, 'read_text', side_effect=lambda: json.dumps({
-                    'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': 1})):
-            with self.assertRaises(SystemExit) as result:
-                runner.main()
-            self.assertEqual(result.exception.code, 1)
-
-    def test_missing_stale_or_malformed_native_status_cannot_report_drift(self):
-        cases = [FileNotFoundError(), '2', '{}', '{invalid',
-                 '{"invocation":"previous-invocation","exit":2}',
-                 lambda: json.dumps({'invocation': runner.os.environ['LAB_INFRA_INVOCATION'], 'exit': True})]
-        for case in cases:
-            def read():
-                if isinstance(case, Exception):
-                    raise case
-                return case() if callable(case) else case
-            with self.subTest(case=case), \
-                    patch.object(runner.sys, 'argv', ['run.py', 'infra', 'plan', 'github']), \
-                    patch.object(runner, 'playbook'), patch.object(runner.Path, 'read_text', side_effect=read):
-                with self.assertRaises(SystemExit) as result:
-                    runner.main()
-                self.assertEqual(result.exception.code, 1)
-
-    def test_infra_apply_requires_review_before_playbook(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'infra', 'apply', 'github']), \
-                patch.object(runner, 'playbook') as playbook, self.assertRaises(SystemExit):
-            runner.main()
-        playbook.assert_not_called()
-
-    def test_local_tests_need_no_credentials_dns_or_host_apply(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'test']), \
-                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
-                patch.object(runner.socket, 'gethostbyname', side_effect=AssertionError('Resolved host')), \
-                patch.object(runner, 'playbook') as playbook, \
-                patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
-            runner.main()
-        playbook.assert_not_called()
-        command.assert_called_once_with(
-            [runner.sys.executable, '/workspace/ansible/runner/test.py'], check=True)
 
     def test_test_runner_isolates_owners_and_reports_failures_after_all_groups(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -180,126 +89,20 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             self.assertEqual([call.args[0][-1] for call in command.call_args_list],
                              [str(root / name) for name in groups])
 
-    def test_nuke_refuses_before_reading_credentials(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'nuke']), \
-                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read secrets')), \
-                patch.object(runner, 'playbook') as playbook:
-            runner.main()
-        playbook.assert_called_once_with('playbooks/nuke.yml')
-
-
-    def test_identity_operations_select_named_local_playbooks(self):
-        import io
-        for command, filename in runner.IDENTITY_COMMANDS.items():
-            with self.subTest(command=command), patch.object(runner.sys, 'stdin', io.StringIO('{}')):
-                playbook = self.invoke(command)
-            playbook.assert_called_once_with('playbooks/keycloak/' + filename)
-
-    def test_identity_request_custody_is_private_and_temporary(self):
-        import io
-        observed = []
-        def inspect(name):
-            path = __import__('pathlib').Path(runner.os.environ['LAB_IDENTITY_REQUEST'])
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(path.read_text(), '{"literal":"${UNCHANGED}"}')
-            observed.append(path)
-        with patch.object(runner.sys, 'argv', ['run.py', 'identity-operation']), \
-                patch.object(runner.sys, 'stdin', io.StringIO('{"literal":"${UNCHANGED}"}')), \
-                patch.object(runner, 'playbook', side_effect=inspect):
-            runner.main()
-        self.assertFalse(observed[0].exists())
-        self.assertNotIn('LAB_IDENTITY_REQUEST', runner.os.environ)
-
     def setUp(self):
-        service_dns = patch('playbooks.services.files.inputs.private_dns_names', return_value=[])
-        service_dns.start()
-        self.addCleanup(service_dns.stop)
-        service_catalog = patch('playbooks.services.files.inputs.catalog', return_value={'catalog': []})
-        service_catalog.start()
-        self.addCleanup(service_catalog.stop)
         self.values = {
             'VM_HOST': 'server.example', 'VM_USER': 'root', 'VM_PASSWORD': 'literal${PASSWORD}',
             'VM2_HOST': 'worker.example', 'VM2_USER': 'root', 'VM2_PASSWORD': 'second-secret',
             'OP_SERVICE_ACCOUNT_TOKEN': 'literal${TOKEN}',
         }
 
-    def test_published_private_service_names_extend_existing_dns_inputs(self):
-        self.values['PRIVATE_ACCESS_HOSTS'] = '["cd", "notes"]'
-        with patch.dict(os.environ, {}, clear=True), \
-                patch('playbooks.services.files.inputs.private_dns_names', return_value=['notes', 'fixture']):
-            self.invoke('setup')
-            self.assertEqual(set(json.loads(os.environ['PRIVATE_ACCESS_HOSTS'])),
-                             {'cd', 'fixture', 'notes', 'identity-admin'})
-
-    def test_read_only_host_checks_need_no_private_catalog_or_identity_metadata(self):
+    def test_read_only_host_checks_need_no_extra_inputs(self):
         for action, expected in (
                 ('inspect', 'playbooks/inspect.yml'),
                 ('baseline', 'playbooks/baseline.yml'),
                 ('storage-check', 'playbooks/longhorn/check-host.yml')):
-            with self.subTest(action=action), \
-                    patch('playbooks.services.files.inputs.private_dns_names', side_effect=AssertionError('Read private Git')), \
-                    patch('playbooks.keycloak.files.access_inputs.runtime', side_effect=AssertionError('Read identity metadata')):
+            with self.subTest(action=action):
                 self.invoke(action).assert_called_once_with(expected)
-
-    def test_missing_required_private_catalog_stops_before_public_preflight(self):
-        with patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog missing')), \
-                patch('yaml.safe_load', return_value={'services': {'enabled': True}}), \
-                patch.object(runner.subprocess, 'run') as command:
-            with self.assertRaisesRegex(ValueError, 'Private catalog missing'): runner.gitops_preflight()
-            command.assert_not_called()
-
-    def test_foundation_actions_reach_only_their_playbooks_without_private_inputs(self):
-        expected = {
-            'eso-bootstrap': ['playbooks/secrets/010-bootstrap.yml'],
-            'eso-interruption-test': ['playbooks/secrets/010-bootstrap.yml', 'playbooks/secrets/010-bootstrap.yml'],
-            'eso-recover': ['playbooks/secrets/recover.yml'],
-            'longhorn-bootstrap': ['playbooks/longhorn/bootstrap.yml'],
-            'longhorn-interruption-test': ['playbooks/longhorn/bootstrap.yml', 'playbooks/longhorn/bootstrap.yml'],
-            'longhorn-recover': ['playbooks/longhorn/recover.yml'],
-            'longhorn-backup-bootstrap': ['playbooks/longhorn/030-backup-configuration.yml'],
-            'longhorn-backup-interruption-test': ['playbooks/longhorn/030-backup-configuration.yml', 'playbooks/longhorn/030-backup-configuration.yml'],
-            'longhorn-backup-recover': ['playbooks/longhorn/recover-backup.yml'],
-        }
-        self.assertEqual(set(expected), runner.FOUNDATION_ACTIONS)
-        for action, names in expected.items():
-            with self.subTest(action=action), \
-                    patch.object(runner.sys, 'argv', ['run.py', action]), \
-                    patch.object(runner, 'dotenv_values', return_value=self.values), \
-                    patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                    patch('playbooks.services.files.inputs.private_dns_names', side_effect=ValueError('Private source unavailable')) as dns, \
-                    patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog unavailable')) as catalog, \
-                    patch('playbooks.keycloak.files.access_inputs.runtime', side_effect=ValueError('Identity input unavailable')) as access, \
-                    patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command, \
-                    patch.object(runner, 'playbook') as playbook:
-                runner.main()
-                self.assertEqual([call.args[0] for call in playbook.call_args_list], names)
-                dns.assert_not_called()
-                catalog.assert_not_called()
-                access.assert_not_called()
-                command.assert_called_once_with(
-                    [sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'preflight'], check=False)
-
-    def test_setup_and_gitops_still_require_catalog_before_any_host_operation(self):
-        for action in ('setup', 'prove', 'gitops-bootstrap', 'gitops-verify', 'gitops-interruption-test'):
-            with self.subTest(action=action), \
-                    patch.object(runner.sys, 'argv', ['run.py', action]), \
-                    patch.object(runner, 'dotenv_values', return_value=self.values), \
-                    patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                    patch('playbooks.services.files.inputs.catalog', side_effect=ValueError('Private catalog unavailable')), \
-                    patch.object(runner.subprocess, 'run') as command, \
-                    patch.object(runner, 'playbook') as playbook:
-                with self.assertRaisesRegex(ValueError, 'Private catalog unavailable'):
-                    runner.main()
-                command.assert_not_called()
-                playbook.assert_not_called()
-
-    def test_foundation_actions_preserve_reader_and_vm_input_gates(self):
-        for action in runner.FOUNDATION_ACTIONS:
-            for field in ('OP_SERVICE_ACCOUNT_TOKEN', 'VM_PASSWORD', 'VM2_PASSWORD'):
-                with self.subTest(action=action, field=field), \
-                        patch.dict(self.values, {field: ''}):
-                    with self.assertRaisesRegex(SystemExit, field):
-                        self.invoke(action)
 
     def invoke(self, action='inspect'):
         with patch.object(runner.sys, 'argv', ['run.py', action]), \
@@ -320,42 +123,6 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             self.assertEqual(os.environ['VM_PORT'], '22')
             self.assertEqual(os.environ['VM2_PUBLIC_IP'], '192.0.2.2')
             playbook.assert_called_once_with('playbooks/inspect.yml')
-
-    def test_access_preflight_never_runs_playbooks_or_gitops_writes(self):
-        with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-            playbook = self.invoke('access-preflight')
-        playbook.assert_not_called()
-        self.assertEqual(run.call_args.args[0][-1], '/workspace/ansible/playbooks/access/files/preflight.py')
-
-    def test_ci_qualification_dispatch_preserves_native_exit_and_vm_input_gates(self):
-        for code in (0, 3):
-            with self.subTest(code=code), patch.dict(os.environ, {}, clear=True), \
-                    patch.object(runner.subprocess, 'run', return_value=Mock(returncode=code)) as run:
-                with self.assertRaises(SystemExit) as failure:
-                    self.invoke('ci-bootstrap-check')
-                self.assertEqual(failure.exception.code, code)
-                run.assert_called_once_with([sys.executable, '-m', 'playbooks.ci.files.qualification'],
-                                            cwd='/workspace/ansible', check=False)
-                self.assertEqual(os.environ['VM2_PASSWORD'], self.values['VM2_PASSWORD'])
-        for field in ('VM_PASSWORD', 'VM2_PASSWORD'):
-            with self.subTest(field=field), patch.dict(self.values, {field: ''}), \
-                    patch.object(runner.subprocess, 'run') as run:
-                with self.assertRaisesRegex(SystemExit, field):
-                    self.invoke('ci-bootstrap-check')
-                run.assert_not_called()
-
-    def test_access_preflight_preserves_blocker_exit_without_traceback(self):
-        with patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=2)):
-            with self.assertRaises(SystemExit) as failure:
-                self.invoke('access-preflight')
-        self.assertEqual(failure.exception.code, 2)
-
-    def test_access_actions_use_own_modules_without_host_playbooks(self):
-        for action, module in [('access-prepare-tags', 'prepare_tags.py'), ('access-external', 'external.py')]:
-            with self.subTest(action=action), patch.dict(os.environ, {}, clear=True), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as run:
-                playbook = self.invoke(action)
-                playbook.assert_not_called()
-                self.assertEqual(run.call_args.args[0][-1], '/workspace/ansible/playbooks/access/files/' + module)
 
     def test_missing_worker_password_fails_before_any_playbook(self):
         del self.values['VM2_PASSWORD']
@@ -387,63 +154,6 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                          ['playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml'])
         self.assertEqual(playbook.call_args_list[1].kwargs, {'unchanged': True})
 
-    def test_observability_proof_runs_preflight_then_scoped_repeat_and_verification(self):
-        operations = []
-        with patch.object(runner.sys, 'argv', ['run.py', 'observability-prove']), \
-                patch.object(runner, 'dotenv_values', return_value=self.values), \
-                patch('yaml.safe_load', return_value={'observability': {'enabled': True}}), \
-                patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                patch.object(runner, 'gitops_preflight', side_effect=lambda: operations.append(('preflight', {}))), \
-                patch.object(runner, 'playbook', side_effect=lambda name, **kwargs: operations.append((name, kwargs))):
-            runner.main()
-        self.assertEqual(operations, [
-            ('preflight', {}), ('playbooks/observability/setup.yml', {}),
-            ('playbooks/observability/setup.yml', {'unchanged': True}),
-            ('playbooks/observability/verify.yml', {}),
-        ])
-
-    def test_observability_proof_requires_enabled_owner_and_credentials_before_writes(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'observability-prove']), \
-                patch.object(runner, 'dotenv_values', return_value=self.values), \
-                patch('yaml.safe_load', return_value={'observability': {'enabled': True}}) as settings, \
-                patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                patch.object(runner, 'gitops_preflight') as preflight, \
-                patch.object(runner, 'playbook') as playbook:
-            for enabled in (False, None, 'false'):
-                with self.subTest(enabled=enabled):
-                    settings.return_value = {'observability': {'enabled': enabled}}
-                    with self.assertRaisesRegex(SystemExit, 'Observability must be enabled'):
-                        runner.main()
-            settings.return_value = {'observability': {'enabled': True}}
-            for field in ('OP_SERVICE_ACCOUNT_TOKEN', 'VM_PASSWORD', 'VM2_PASSWORD'):
-                with self.subTest(field=field), patch.dict(self.values, {field: ''}):
-                    with self.assertRaisesRegex(SystemExit, field):
-                        runner.main()
-            preflight.assert_not_called()
-            playbook.assert_not_called()
-
-    def test_observability_preflight_failure_stops_before_owner_mutation(self):
-        with patch.object(runner.sys, 'argv', ['run.py', 'observability-prove']), \
-                patch.object(runner, 'dotenv_values', return_value=self.values), \
-                patch('yaml.safe_load', return_value={'observability': {'enabled': True}}), \
-                patch.object(runner.socket, 'gethostbyname', side_effect=['192.0.2.1', '192.0.2.2']), \
-                patch.object(runner, 'gitops_preflight', side_effect=SystemExit('preflight rejected')), \
-                patch.object(runner, 'playbook') as playbook:
-            with self.assertRaisesRegex(SystemExit, 'preflight rejected'):
-                runner.main()
-            playbook.assert_not_called()
-
-    def test_observability_setup_keeps_both_node_checks_and_only_its_owner_stages(self):
-        import yaml
-        root = Path(__file__).resolve().parents[2] / 'playbooks'
-        setup = root / 'observability/setup.yml'
-        stages = yaml.safe_load(setup.read_text())
-        self.assertEqual([stage['ansible.builtin.import_playbook'] for stage in stages],
-                         ['../host/verify.yml', '../k3s/verify.yml', '010-bootstrap.yml', '020-converge.yml'])
-        for stage in stages[:2]:
-            plays = yaml.safe_load((setup.parent / stage['ansible.builtin.import_playbook']).read_text())
-            self.assertTrue(all(play['hosts'] == 'k3s_cluster' for play in plays))
-
     def test_setup_converges_then_verifies(self):
         playbook = self.invoke('setup')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],
@@ -457,60 +167,20 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                 runner.main()
         playbook.assert_not_called()
 
-    def test_unspecified_operations_preserve_failure_before_inputs_or_hosts(self):
-        for action in ('maintenance', 'upgrade', 'nuke', 'recovery'):
+    def test_unspecified_operations_are_rejected_before_inputs_or_hosts(self):
+        for action in ('maintenance', 'upgrade', 'nuke', 'recovery', 'backup', 'test',
+                       'service', 'preview', 'observe', 'infra', 'identity-operation',
+                       'data-bootstrap', 'recovery-initial', 'k3s-migrate',
+                       'gitops-bootstrap', 'eso-bootstrap', 'observability-prove',
+                       'publish-platform', 'access-preflight', 'mesh-check'):
             with self.subTest(action=action), \
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
                     patch.object(runner.socket, 'gethostbyname', side_effect=AssertionError('VM access')), \
-                    patch.object(runner, 'playbook', side_effect=SystemExit(2)) as playbook:
-                with self.assertRaises(SystemExit) as failure:
+                    patch.object(runner, 'playbook') as playbook:
+                with self.assertRaisesRegex(SystemExit, 'Unknown action'):
                     runner.main()
-                self.assertEqual(failure.exception.code, 2)
-            playbook.assert_called_once_with('playbooks/' + action + '.yml')
-
-    def test_scoped_data_actions_keep_common_vm_validation(self):
-        for action, expected in [('data-bootstrap', 'bootstrap'), ('data-check', 'check')]:
-            with self.subTest(action=action), patch.dict(os.environ, {}, clear=True):
-                playbook = self.invoke(action)
-                playbook.assert_called_once_with('playbooks/data/operate.yml')
-                self.assertEqual(os.environ['LAB_DATA_ACTION'], expected)
-                self.assertEqual(os.environ['VM2_PASSWORD'], self.values['VM2_PASSWORD'])
-
-    def test_coordinated_backup_refuses_off_window_before_credentials_or_hosts(self):
-        window = Mock()
-        window.require_window.side_effect = RuntimeError('B2 writes require day 1 UTC')
-        with patch.dict(runner.sys.modules, {'monthly_window': window}), \
-                patch.object(runner, 'dotenv_values', side_effect=AssertionError('Read credentials')), \
-                patch.object(runner, 'playbook') as playbook, \
-                patch.object(runner.sys, 'argv', ['run.py', 'backup']):
-            with self.assertRaisesRegex(RuntimeError, 'day 1 UTC'):
-                runner.main()
-        playbook.assert_not_called()
-
-    def test_initial_export_uses_host_playbook_and_does_not_enable_longhorn(self):
-        window = Mock()
-        with patch.dict(runner.sys.modules, {'write_window': window}), \
-                patch.object(runner.subprocess, 'run') as command:
-            playbook = self.invoke('recovery-initial')
-        window.authorize_initial.assert_called_once_with()
-        playbook.assert_called_once_with('playbooks/backup/monthly.yml')
-        command.assert_not_called()
-        self.assertEqual(os.environ['LAB_RECOVERY_ACTION'], 'initial')
-        self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
-        self.invoke('prove')
-        self.assertEqual(os.environ['LAB_RECOVERY_ACTION'], 'monthly')
-
-    def test_replacement_proof_is_explicit_and_keeps_longhorn_disabled(self):
-        window = Mock()
-        with patch.dict(runner.sys.modules, {'write_window': window}), \
-                patch.object(runner.subprocess, 'run') as command:
-            playbook = self.invoke('recovery-replacement-test')
-        window.authorize_replacement.assert_called_once_with()
-        playbook.assert_called_once_with('playbooks/backup/monthly.yml')
-        command.assert_not_called()
-        self.assertEqual(os.environ['LAB_RECOVERY_ACTION'], 'replacement-test')
-        self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
+            playbook.assert_not_called()
 
     def test_external_secrets_token_is_required_before_setup_and_verify(self):
         del self.values['OP_SERVICE_ACCOUNT_TOKEN']
@@ -545,13 +215,6 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
         self.assertGreaterEqual(playbook.call_count, 20)
         self.assertTrue(all(call.kwargs == {'syntax': True} for call in playbook.call_args_list))
 
-    def test_independent_retrieval_does_not_require_vm_credentials_or_playbooks(self):
-        self.values = {'OP_SERVICE_ACCOUNT_TOKEN': 'fixture-token'}
-        with patch.object(runner.subprocess, 'run') as command:
-            playbook = self.invoke('recovery-retrieve')
-        playbook.assert_not_called()
-        self.assertEqual(command.call_args.args[0][-2:], ['/workspace/ansible/playbooks/backup/files/runner.py', 'retrieve'])
-
     def test_zero_change_proof_requires_both_hosts_and_rejects_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             stats_path = Path(directory) / 'stats.json'
@@ -581,69 +244,8 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             self.assertEqual(os.environ['LAB_TAILSCALE_TARGET'], target)
             self.assertEqual(os.environ['LAB_TAILSCALE_ACTION'], operation)
 
-    def test_migration_retrieves_backup_and_accepts_only_after_full_proof(self):
-        self.values.update(TAILSCALE_HOSTS_ENABLED='1', K3S_BACKUP_ENABLED='1')
-        with patch.object(runner.subprocess, 'run') as command:
-            playbook = self.invoke('k3s-migrate')
-        self.assertEqual(command.call_count, 2)
-        self.assertEqual(command.call_args_list[0].args[0][-1], '/workspace/ansible/playbooks/tailscale/files/verify_access.py')
-        self.assertEqual(command.call_args.args[0][-1], 'retrieve')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                         ['playbooks/k3s/migrate.yml', 'playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml', 'playbooks/k3s/migrate.yml'])
-        self.assertEqual(playbook.call_args_list[2].kwargs, {'unchanged': True})
-
-    def test_migration_cannot_skip_host_access_or_recovery_gate(self):
-        with patch.object(runner.subprocess, 'run') as command:
-            with self.assertRaisesRegex(SystemExit, 'milestone 01'):
-                self.invoke('k3s-migrate')
-            command.assert_not_called()
-
-    def test_migration_requires_vault_before_any_transition(self):
-        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
-        with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
-            self.invoke('k3s-migrate')
-
-    def test_gitops_bootstrap_has_an_explicit_bounded_entrypoint(self):
-        playbook = self.invoke('gitops-bootstrap')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['playbooks/gitops.yml', 'playbooks/gitops.yml'])
-        self.assertEqual(os.environ['LAB_GITOPS_ACTION'], 'verify')
-
-    def test_eso_recovery_uses_its_explicit_suspended_writer_gate(self):
-        self.invoke('eso-recover').assert_called_once_with('playbooks/secrets/recover.yml')
-        self.invoke('eso-bootstrap').assert_called_once_with('playbooks/secrets/010-bootstrap.yml')
-        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
-        with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
-            self.invoke('eso-recover')
-
-    def test_gitops_interruption_proof_resumes_the_same_playbook(self):
-        playbook = self.invoke('gitops-interruption-test')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['playbooks/gitops.yml', 'playbooks/gitops.yml', 'playbooks/gitops.yml'])
-        self.assertEqual(os.environ['LAB_GITOPS_STOP_AFTER_SEED'], '0')
-
-    def test_storage_interruption_resumes_and_recovery_uses_the_writer_gate(self):
-        playbook = self.invoke('longhorn-interruption-test')
-        self.assertEqual([call.args[0] for call in playbook.call_args_list], ['playbooks/longhorn/bootstrap.yml', 'playbooks/longhorn/bootstrap.yml'])
-        self.assertEqual(os.environ['LAB_LONGHORN_STOP_AFTER_SEED'], '0')
-        self.invoke('longhorn-recover').assert_called_once_with('playbooks/longhorn/recover.yml')
-        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
-        with self.assertRaisesRegex(SystemExit, 'OP_SERVICE_ACCOUNT_TOKEN'):
-            self.invoke('longhorn-bootstrap')
-
-    def test_backup_handoff_has_separate_bounded_entrypoints(self):
-        self.invoke('longhorn-backup-bootstrap').assert_called_once_with('playbooks/longhorn/030-backup-configuration.yml')
-        self.invoke('longhorn-backup-recover').assert_called_once_with('playbooks/longhorn/recover-backup.yml')
-        interrupted = self.invoke('longhorn-backup-interruption-test')
-        self.assertEqual(interrupted.call_count, 2)
-        self.assertTrue(all(call.args == ('playbooks/longhorn/030-backup-configuration.yml',) for call in interrupted.call_args_list))
-        self.assertEqual(os.environ['LAB_BACKUP_STOP_AFTER_SEED'], '0')
-
-    def test_mesh_check_uses_existing_credentials_without_new_vault_requests(self):
-        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
-        self.invoke('mesh-check').assert_called_once_with('playbooks/istio/verify.yml')
-        self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '0')
-
     def test_unreadable_public_source_fails_before_any_host_operation(self):
-        for action in ('setup', 'prove', 'gitops-bootstrap', 'gitops-interruption-test', 'mesh-check', *runner.FOUNDATION_ACTIONS):
+        for action in ('setup', 'prove'):
             with self.subTest(action=action), \
                     patch.object(runner.sys, 'argv', ['run.py', action]), \
                     patch.object(runner, 'dotenv_values', return_value=self.values), \
@@ -654,14 +256,6 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     runner.main()
                 playbook.assert_not_called()
 
-
-    def test_retained_repository_content_and_access_commands_need_no_vm_credentials(self):
-        self.values = {}
-        for action, module in (('publish-platform', 'publish_snapshot.py'), ('github-app-check', 'github_app.py')):
-            with self.subTest(action=action), patch.object(runner.subprocess, 'run', return_value=Mock(returncode=0)) as command:
-                playbook = self.invoke(action)
-                playbook.assert_not_called()
-                self.assertEqual(command.call_args.args[0][-1], '/workspace/ansible/playbooks/argocd/files/' + module)
 
     def test_retired_repository_creator_has_no_runner_dispatch(self):
         with patch.object(runner.subprocess, 'run') as command:

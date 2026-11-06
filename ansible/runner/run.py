@@ -9,9 +9,6 @@ import sys
 
 from dotenv import dotenv_values
 
-CI_COMMANDS = {'ci-bootstrap-check': 'playbooks.ci.files.qualification'}
-
-
 def playbook(name, *, syntax=False, unchanged=False):
     stats_path = Path('/tmp/lab-stats.json')
     stats_path.unlink(missing_ok=True)
@@ -30,13 +27,7 @@ def playbook(name, *, syntax=False, unchanged=False):
         print('Repeat apply: zero changes.', flush=True)
 
 
-def gitops_preflight(*, require_catalog=True):
-    if require_catalog:
-        sys.path.insert(0, '/workspace')
-        from playbooks.services.files.inputs import catalog
-        import yaml
-        settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
-        catalog(required=settings.get('services', {}).get('enabled', False))
+def gitops_preflight():
     result = subprocess.run([sys.executable, '/workspace/ansible/playbooks/argocd/files/render.py', 'preflight'], check=False)
     if result.returncode:
         raise SystemExit('Public GitOps preflight failed before host mutation.')
@@ -46,9 +37,6 @@ def main():
     if '/workspace' not in sys.path:
         sys.path.insert(0, '/workspace')
     action = sys.argv[1] if len(sys.argv) == 2 else ''
-    ci_command = CI_COMMANDS.get(action)
-    if ci_command:
-        action = 'inspect'
     if action == 'validate':
         subprocess.run([sys.executable, '/workspace/ansible/runner/validate.py'], check=True)
         return
@@ -56,7 +44,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'storage-check', 'setup', 'verify', 'prove', 'observability-prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as setup, validate, verify, or prove.')
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     if action == 'monthly-proof':
@@ -90,25 +78,12 @@ def main():
     for name in ('CLOUDFLARE_ACCESS_HOSTS', 'PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
-    if action not in {'inspect', 'baseline', 'storage-check'}:
-        from playbooks.services.files.inputs import private_dns_names
-        service_names = private_dns_names()
-        if service_names:
-            os.environ['PRIVATE_ACCESS_HOSTS'] = json.dumps(sorted(set(
-                json.loads(os.environ['PRIVATE_ACCESS_HOSTS'] or '[]') + service_names)))
-        import yaml
-        public_settings = yaml.safe_load(Path('/workspace/gitops/roots/public/values.yaml').read_text())
-        if action == 'observability-prove' and public_settings.get('observability', {}).get('enabled') is not True:
-            raise SystemExit('Observability must be enabled before observability-prove.')
-        sys.path.insert(0, '/workspace')
-        from playbooks.keycloak.files.access_inputs import runtime
-        runtime(os.environ, public_settings)
     if action == 'tailnet-policy':
         for prefix in ('VM', 'VM2'):
             os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
         playbook('playbooks/tailscale/policy.yml')
         return
-    if action in {'setup', 'prove', 'observability-prove', 'verify'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
+    if action in {'setup', 'prove', 'verify'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
                      for suffix in ('_HOST', '_USER', '_PASSWORD'))
@@ -139,17 +114,9 @@ def main():
     if os.environ['VM_PUBLIC_IP'] == os.environ['VM2_PUBLIC_IP']:
         raise SystemExit('Both VM hosts resolve to the same IPv4 address.')
 
-    if ci_command:
-        raise SystemExit(subprocess.run([sys.executable, '-m', ci_command],
-                                       cwd='/workspace/ansible', check=False).returncode)
     if action in lifecycle:
         os.environ['LAB_TAILSCALE_TARGET'], os.environ['LAB_TAILSCALE_ACTION'] = lifecycle[action]
         playbook('playbooks/tailscale/lifecycle.yml')
-    elif action == 'observability-prove':
-        gitops_preflight()
-        playbook('playbooks/observability/setup.yml')
-        playbook('playbooks/observability/setup.yml', unchanged=True)
-        playbook('playbooks/observability/verify.yml')
     elif action == 'host-access':
         playbook('playbooks/tailscale/access.yml')
     elif action in {'inspect', 'verify'}:
