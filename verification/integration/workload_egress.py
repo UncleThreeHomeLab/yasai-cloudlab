@@ -4,6 +4,8 @@ Run through the existing Compose lab Python entrypoint. Receipts live under
 /recovery/workload-egress. --resume finishes interrupted cleanup; start a fresh
 run afterwards. --cleanup only cleans the exact recorded run and target.
 --application-ports runs only the candidate catalog authorization lifecycle.
+--external-ipv4 reads two off-cluster addresses and two HTTP ports from private JSON stdin.
+Each listener must return the public body cloudlab-external-egress-proof.
 """
 import argparse
 import base64
@@ -82,6 +84,9 @@ def safe_reason(error):
         'Intended ambient DNS capture cannot be established': 'dns-capture-unqualified',
         'Intended fixture resolver cannot be established': 'fixture-resolver-unqualified',
         'Known Service A local-resolution control failed; capture unqualified': 'local-resolution-control-failed',
+        'External positive control failed; proof unqualified': 'external-control-unqualified',
+        'External inventory is incomplete; proof unqualified': 'external-inventory-unqualified',
+        'External target overlaps cluster resources; proof unqualified': 'external-target-unqualified',
     }
     if isinstance(error, ProofFailure): return reasons.get(str(error), 'verification-condition-failed')
     if isinstance(error, NotReady): return 'fixture-not-ready'
@@ -1315,6 +1320,137 @@ def application_ports(rpc, receipt, image, nodes):
             'gateway_other_additive_root_udp_ipv6_external_existing_streams': 'not qualified'}
 
 
+def external_inputs(raw):
+    """Private addresses remain in memory, outside command arguments and receipts."""
+    if not isinstance(raw, str) or len(raw.encode()) > 4096: fail('Invalid external proof inputs')
+    try: value = json.loads(raw)
+    except (ValueError, TypeError): fail('Invalid external proof inputs')
+    if (not isinstance(value, dict) or set(value) != {'addresses', 'ports'} or
+            not isinstance(value['addresses'], list) or len(value['addresses']) != 2 or
+            not isinstance(value['ports'], list) or len(value['ports']) != 2 or
+            any(type(port) is not int or not 1 <= port <= 65535 for port in value['ports']) or
+            len(set(value['ports'])) != 2):
+        fail('Invalid external proof inputs')
+    for address in value['addresses']:
+        try: parsed = ipaddress.IPv4Address(address) if isinstance(address, str) else None
+        except ValueError: fail('Invalid external proof inputs')
+        if (parsed is None or str(parsed) != address or parsed.is_loopback or parsed.is_link_local or
+                parsed.is_multicast or parsed.is_unspecified or parsed.is_reserved):
+            fail('Invalid external proof inputs')
+    if len(set(value['addresses'])) != 2: fail('Invalid external proof inputs')
+    return value
+
+
+def external_inventory(rpc, targets):
+    """Fail closed on incomplete discovery; node and workload destinations are not external proof."""
+    addresses, networks = set(), []
+    for kind in ('nodes', 'pods', 'services'):
+        raw = rpc.call(['get', '--raw', '/api/v1/' + kind])
+        try: collection = json.loads(raw)
+        except (TypeError, ValueError): fail('External inventory is incomplete; proof unqualified')
+        if (not isinstance(collection, dict) or collection.get('apiVersion') != 'v1' or
+                collection.get('kind') != {'nodes': 'NodeList', 'pods': 'PodList', 'services': 'ServiceList'}[kind] or
+                not isinstance(collection.get('metadata'), dict) or not collection['metadata'].get('resourceVersion') or
+                collection['metadata'].get('continue') or collection['metadata'].get('remainingItemCount', 0) != 0 or
+                not isinstance(collection.get('items'), list) or len(collection['items']) > 4096):
+            fail('External inventory is incomplete; proof unqualified')
+        if kind == 'nodes' and len(collection['items']) != 2:
+            fail('External inventory is incomplete; proof unqualified')
+        try:
+            for row in collection['items']:
+                if not isinstance(row, dict) or not isinstance(row.get('spec'), dict): raise ValueError()
+                spec, status = row['spec'], row.get('status', {})
+                if kind == 'nodes':
+                    if not spec.get('podCIDRs') or not status.get('addresses'): raise ValueError()
+                    networks.extend(ipaddress.ip_network(cidr) for cidr in spec['podCIDRs'])
+                    node_addresses = [ipaddress.ip_address(a['address']) for a in status['addresses']
+                                      if a['type'] in ('InternalIP', 'ExternalIP')]
+                    if not node_addresses: raise ValueError()
+                    addresses.update(node_addresses)
+                elif kind == 'pods':
+                    addresses.update(ipaddress.ip_address(a['ip']) for a in status.get('podIPs', []))
+                    if status.get('podIP'): addresses.add(ipaddress.ip_address(status['podIP']))
+                else:
+                    addresses.update(ipaddress.ip_address(a) for a in
+                        spec.get('clusterIPs', []) + spec.get('externalIPs', []) if a != 'None')
+                    if spec.get('clusterIP') not in (None, '', 'None'):
+                        addresses.add(ipaddress.ip_address(spec['clusterIP']))
+                    addresses.update(ipaddress.ip_address(a['ip']) for a in
+                                     status.get('loadBalancer', {}).get('ingress', []) if a.get('ip'))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            fail('External inventory is incomplete; proof unqualified')
+    for address in map(ipaddress.IPv4Address, targets['addresses']):
+        if address in addresses or any(address in network for network in networks):
+            fail('External target overlaps cluster resources; proof unqualified')
+
+
+def external_egress(rpc, receipt, image, nodes, targets):
+    targets = external_inputs(json.dumps(targets))
+    rpc.stage = 'external-preflight'
+    external_inventory(rpc, targets)
+    rpc.stage = 'external-setup'
+    names = {}
+    for role in ('source', 'ambient'):
+        create_namespace(rpc, receipt, role)
+        ns = receipt.value['namespaces'][role]['profile']['metadata']['name']
+        names[role] = ns
+        name = 'allowed' if role == 'source' else 'control'
+        record(rpc, receipt, role, [fixtures.account(ns, 'allowed'),
+            placed_pod(ns, name, image, 'allowed', nodes[1]['hostname'], receipt.run)])
+        row = wait_ready(rpc, ns, name)
+        if (row['spec'].get('nodeName') != nodes[1]['name'] or row['spec'].get('hostNetwork', False) or
+                row['metadata'].get('annotations', {}).get('ambient.istio.io/redirection') != 'enabled'):
+            fail('External positive control failed; proof unqualified')
+        rpc.pod_ips[(ns, name)] = row['status']['podIP']
+    receipt.value['proof']['client'] = {'active': 'allowed',
+        'seen_ips': list(rpc.pod_ips.values()), 'retirements': []}
+    if len(set(rpc.pod_ips.values())) != 2:
+        fail('External positive control failed; proof unqualified')
+    receipt.save()
+    a, b = targets['addresses']
+    first, second = targets['ports']
+    def control(address, port):
+        try: healthy = http(rpc, names['ambient'], 'control', address, port, 'cloudlab-external-egress-proof')
+        except (ProofFailure, NotReady): fail('External positive control failed; proof unqualified')
+        if not healthy:
+            fail('External positive control failed; proof unqualified')
+    def attempt(address, port):
+        control(address, port)
+        result = http(rpc, names['source'], current_client(receipt), address, port, 'cloudlab-external-egress-proof')
+        control(address, port)
+        return result
+    def check(address, port, allowed):
+        expect_connection(lambda: attempt(address, port), allowed)
+    def install(stage, rules):
+        rpc.stage = stage
+        apply_policy(rpc, receipt, rules)
+        fresh_client(rpc, receipt, image, nodes[1])
+    def rule(address, port):
+        return {'ipBlock': {'cidr': address + '/32'}, 'ports': [{'port': port, 'protocol': 'TCP'}]}
+    rpc.stage = 'external-baselines'
+    for address in (a, b):
+        for port in (first, second): check(address, port, True)
+    install('external-empty', [])
+    for address in (a, b):
+        for port in (first, second): check(address, port, False)
+    install('external-allow', [rule(a, first)])
+    check(a, first, True)
+    for address, port in ((b, first), (a, second), (b, second)): check(address, port, False)
+    install('external-update', [rule(b, second)])
+    check(b, second, True)
+    for address, port in ((a, first), (a, second), (b, first)): check(address, port, False)
+    install('external-withdrawal', [])
+    for address in (a, b):
+        for port in (first, second): check(address, port, False)
+    install('external-restoration', [rule(a, first)])
+    check(a, first, True)
+    check(b, second, False)
+    if node_targets(rpc.get('nodes')['items']) != nodes: fail('Node identities changed during external proof')
+    if receipt.value['hashes'] != hashes(): fail('Proof source changed; use exact receipt cleanup')
+    return {'external_ipv4_tcp_lifecycle': 'passed', 'independent_controls': 'healthy-before-and-after-every-source-attempt',
+            'hostname_udp_ipv6_existing_streams': 'not qualified'}
+
+
 def execute(args, rpc, target, image, nodes):
     receipt = Receipt(args.receipts, args.resume or args.cleanup)
     stage = 'receipt'
@@ -1337,8 +1473,11 @@ def execute(args, rpc, target, image, nodes):
         stage = 'traffic'
         verification_error = cleanup_error = None
         try:
-            result = (application_ports if getattr(args, 'application_ports', False) else traffic)(
-                rpc, receipt, image, nodes)
+            if getattr(args, 'external_ipv4', False):
+                result = external_egress(rpc, receipt, image, nodes, args.external_targets)
+            else:
+                result = (application_ports if getattr(args, 'application_ports', False) else traffic)(
+                    rpc, receipt, image, nodes)
         except BaseException as error:
             verification_error = error
         try:
@@ -1351,7 +1490,9 @@ def execute(args, rpc, target, image, nodes):
                             'dns-withdrawal-tcp', 'dns-restoration-udp', 'dns-restoration-tcp', 'dns-preflight',
                             'additive-policy', 'retirement', 'ambient-transport', 'ambient-authorization',
                             'application-setup', 'application-baselines', 'application-authorization',
-                            'application-retirement', 'application-restoration'}
+                            'application-retirement', 'application-restoration', 'external-preflight',
+                            'external-setup', 'external-baselines', 'external-empty', 'external-allow',
+                            'external-update', 'external-withdrawal', 'external-restoration'}
             stage = rpc.stage if getattr(rpc, 'stage', None) in known_stages else 'traffic'
             raise RunFailure(receipt.run, stage,
                              safe_reason(verification_error) if verification_error is not None else 'passed',
@@ -1372,9 +1513,13 @@ def main():
     choice = parser.add_mutually_exclusive_group()
     choice.add_argument('--resume')
     choice.add_argument('--cleanup')
-    parser.add_argument('--application-ports', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--application-ports', action='store_true')
+    mode.add_argument('--external-ipv4', action='store_true')
     parser.add_argument('--receipts', default='/recovery/workload-egress')
     args = parser.parse_args()
+    if args.external_ipv4 and not (args.resume or args.cleanup):
+        args.external_targets = external_inputs(sys.stdin.read(4097))
     from dotenv import dotenv_values
     values = dotenv_values(ROOT / '.env', interpolate=False)
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'VM_PORT'):

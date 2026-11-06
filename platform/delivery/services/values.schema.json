@@ -557,8 +557,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "namespace",
-          "podSelector",
           "ports"
         ],
         "properties": {
@@ -626,8 +624,62 @@
                 }
               }
             }
+          },
+          "ipBlock": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cidr"
+            ],
+            "properties": {
+              "cidr": {
+                "type": "string",
+                "maxLength": 18
+              },
+              "except": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "maxLength": 18
+                }
+              }
+            }
           }
-        }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "namespace",
+              "podSelector"
+            ],
+            "not": {
+              "required": [
+                "ipBlock"
+              ]
+            }
+          },
+          {
+            "required": [
+              "ipBlock"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "namespace"
+                  ]
+                },
+                {
+                  "required": [
+                    "podSelector"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
       }
     },
     "service": {

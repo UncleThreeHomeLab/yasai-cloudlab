@@ -26,6 +26,113 @@ def namespace(row):
 
 
 class EgressProofTests(unittest.TestCase):
+    def test_external_private_inputs_are_bounded_canonical_ipv4_and_numeric_ports(self):
+        valid = {'addresses': ['192.0.2.10', '198.51.100.10'], 'ports': [8080, 8081]}
+        self.assertEqual(proof.external_inputs(json.dumps(valid)), valid)
+        cases = [None, '', '{}', ' ' * 4097]
+        cases += [json.dumps(dict(valid, addresses=addresses)) for addresses in
+                  (['::1', '192.0.2.10'], ['127.0.0.1', '192.0.2.10'], ['169.254.1.1', '192.0.2.10'],
+                   ['224.0.0.1', '192.0.2.10'], ['192.00.2.10', '198.51.100.10'], ['192.0.2.10'] * 2,
+                   ['example.invalid', '198.51.100.10'], [True, '198.51.100.10'])]
+        cases += [json.dumps(dict(valid, ports=ports)) for ports in ([8080, 8080], ['8080', 8081],
+                  [True, 8081], [0, 8081], [65536, 8081], [80.5, 8081], [], None)]
+        for raw in cases:
+            with self.subTest(raw=raw), self.assertRaises(proof.ProofFailure): proof.external_inputs(raw)
+
+    def test_external_inventory_rejects_cluster_targets_and_incomplete_discovery(self):
+        targets = {'addresses': ['192.0.2.10', '198.51.100.10'], 'ports': [8080, 8081]}
+        nodes = [{'spec': {'podCIDRs': ['10.42.0.0/24']}, 'status': {'addresses': [
+            {'type': 'InternalIP', 'address': '10.0.0.1'}]}}] * 2
+        def inventories():
+            return [{'apiVersion': 'v1', 'kind': kind, 'metadata': {'resourceVersion': '1'}, 'items': rows}
+                    for kind, rows in (('NodeList', nodes), ('PodList', []), ('ServiceList', []))]
+        rpc = Mock(spec=proof.RPC)
+        rpc.call.side_effect = [json.dumps(row) for row in inventories()]
+        proof.external_inventory(rpc, targets)
+        for address in ('10.42.0.8', '10.0.0.1'):
+            rpc.call.side_effect = [json.dumps(row) for row in inventories()]
+            with self.subTest(address=address), self.assertRaisesRegex(proof.ProofFailure, 'overlaps'):
+                proof.external_inventory(rpc, dict(targets, addresses=[address, '198.51.100.10']))
+        for change in ('missing', 'continued', 'service', 'pod'):
+            rows = inventories()
+            if change == 'missing': rows[0].pop('items')
+            if change == 'continued': rows[1]['metadata']['continue'] = 'next'
+            if change == 'service': rows[2]['items'] = [{'spec': {'clusterIPs': ['192.0.2.10']}}]
+            if change == 'pod': rows[1]['items'] = [{'spec': {}, 'status': {'podIP': '192.0.2.10'}}]
+            rpc.call.side_effect = [json.dumps(row) for row in rows]
+            with self.subTest(change=change), self.assertRaises(proof.ProofFailure):
+                proof.external_inventory(rpc, targets)
+
+    def test_external_lifecycle_checks_all_baselines_and_each_denial_with_independent_controls(self):
+        targets = {'addresses': ['192.0.2.10', '198.51.100.10'], 'ports': [8080, 8081]}
+        nodes = [{'hostname': 'one', 'name': 'one'}, {'hostname': 'two', 'name': 'two'}]
+        rpc = proof.RPC('host', 999999999)
+        state = {'rules': None, 'attempts': []}
+        def policy(rpc, receipt, rules, publication='ready', *, extra=False): state['rules'] = rules
+        def probe(rpc, namespace, pod, address, port, nonce):
+            self.assertEqual(nonce, 'cloudlab-external-egress-proof')
+            state['attempts'].append((rpc.stage, namespace, address, port))
+            if state.get('fail_control') and 'ambient' in namespace and rpc.stage == 'external-update': return False
+            if 'ambient' in namespace or state['rules'] is None: return True
+            return any(rule['ipBlock']['cidr'] == address + '/32' and
+                       rule['ports'][0]['port'] == port for rule in state['rules'])
+        row = {'spec': {'nodeName': 'two'}, 'metadata': {'annotations': {
+            'ambient.istio.io/redirection': 'enabled'}}, 'status': {'podIP': '10.42.0.10'}}
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = proof.Receipt(directory, RUN)
+            receipt.start('target')
+            try:
+                with patch.object(proof, 'external_inventory', autospec=True), \
+                        patch.object(proof, 'create_namespace', autospec=True), \
+                        patch.object(proof, 'record', autospec=True), \
+                        patch.object(proof, 'wait_ready', autospec=True, side_effect=[row,
+                            dict(row, status={'podIP': '10.42.0.11'})] * 2), \
+                        patch.object(proof, 'apply_policy', autospec=True, side_effect=policy), \
+                        patch.object(proof, 'fresh_client', autospec=True) as fresh, \
+                        patch.object(proof, 'http', autospec=True, side_effect=probe), \
+                        patch.object(proof, 'node_targets', autospec=True, return_value=nodes), \
+                        patch.object(rpc, 'get', autospec=True, return_value={'items': []}):
+                    result = proof.external_egress(rpc, receipt, 'image', nodes, targets)
+                    self.assertEqual(fresh.call_count, 5)
+                    successful = list(state['attempts'])
+                    state.update(rules=None, fail_control=True, attempts=[])
+                    with self.assertRaisesRegex(proof.ProofFailure, 'External positive control failed; proof unqualified'):
+                        proof.external_egress(rpc, receipt, 'image', nodes, targets)
+                    self.assertFalse(any('ambient' not in ns for stage, ns, a, p in state['attempts']
+                                         if stage == 'external-update'))
+                self.assertEqual(result['external_ipv4_tcp_lifecycle'], 'passed')
+                attempts = successful
+                self.assertEqual({(a, p) for stage, ns, a, p in attempts if stage == 'external-baselines'},
+                                 {(a, p) for a in targets['addresses'] for p in targets['ports']})
+                self.assertTrue(any(stage == 'external-allow' and a == targets['addresses'][1] and p == 8081
+                                    for stage, ns, a, p in attempts))
+                for index, (stage, ns, a, p) in enumerate(attempts):
+                    if 'ambient' not in ns:
+                        self.assertIn('ambient', attempts[index - 1][1])
+                        self.assertIn('ambient', attempts[index + 1][1])
+                        self.assertEqual(attempts[index - 1][2:], (a, p))
+                        self.assertEqual(attempts[index + 1][2:], (a, p))
+            finally: receipt.close()
+
+    def test_external_failure_preserves_precise_stage_and_always_attempts_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(receipts=directory, resume=None, cleanup=None, external_ipv4=True,
+                                   external_targets={'addresses': [], 'ports': []})
+            rpc = proof.RPC('host', 999999999)
+            def failed(rpc, receipt, image, nodes, targets):
+                rpc.stage = 'external-update'
+                proof.fail('External positive control failed; proof unqualified')
+            with patch.object(proof, 'external_egress', autospec=True, side_effect=failed), \
+                    patch.object(proof, 'traffic', autospec=True) as traffic, \
+                    patch.object(proof, 'cleanup', autospec=True) as cleanup:
+                with self.assertRaises(proof.RunFailure) as error:
+                    proof.execute(args, rpc, 'target', 'image', [])
+            self.assertEqual(error.exception.result['stage'], 'external-update')
+            self.assertEqual(error.exception.result['verification'], 'external-control-unqualified')
+            self.assertEqual(error.exception.result['cleanup'], 'complete')
+            cleanup.assert_called_once()
+            traffic.assert_not_called()
+
     def test_application_inventory_requires_a_successful_typed_empty_or_populated_collection(self):
         namespace = 'cloudlab-app-egress-' + RUN[:12]
         collection = {'apiVersion': 'security.istio.io/v1', 'kind': 'AuthorizationPolicyList',

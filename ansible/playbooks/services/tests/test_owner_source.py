@@ -1,5 +1,6 @@
 """Selected native owner validation and credential-free source boundaries."""
 import copy
+import json
 from contextlib import contextmanager
 import os
 from pathlib import Path
@@ -101,6 +102,36 @@ class OwnerSourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'owner unavailable'):
                 inputs.validate_catalog(catalog, public=self.public())
             render.assert_not_called()
+
+    def test_actual_selected_chart_validates_external_peers_without_checkout_fallback(self):
+        candidate = owner_files()
+        historical = copy.deepcopy(candidate)
+        schema = json.loads(historical['values.schema.json'])
+        rule = schema['definitions']['egress']['items']
+        rule.pop('oneOf')
+        rule['required'] = ['namespace', 'podSelector', 'ports']
+        rule['properties'].pop('ipBlock')
+        historical['values.schema.json'] = json.dumps(schema).encode()
+        catalog = {'catalog': [{'definition': definition(), 'approval': dict(approval(), egress=[{
+            'ipBlock': {'cidr': '192.0.2.0/24', 'except': ['192.0.2.128/25']},
+            'ports': [{'port': 443, 'protocol': 'TCP'}]}]), 'publication': 'ready'}], 'dataApprovals': {}}
+        acquire = owner.chart
+        @contextmanager
+        def selected(public):
+            files = candidate if public['services']['revision'] == 'c' * 40 else historical
+            api, raw, _ = owner_api(files, revision=public['services']['revision'])
+            with acquire(public, fetch=api, read_file=raw) as chart:
+                yield chart
+        with patch.object(owner, 'chart', side_effect=selected):
+            self.assertEqual(inputs.validate_catalog(catalog, public=self.public('c' * 40)), catalog)
+            with self.assertRaisesRegex(ValueError, 'catalog failed'):
+                inputs.validate_catalog(catalog, public=self.public())
+            for publication in ('ready', 'retired'):
+                invalid = copy.deepcopy(catalog)
+                invalid['catalog'][0]['publication'] = publication
+                invalid['catalog'][0]['approval']['egress'][0]['ipBlock']['except'] = ['198.51.100.0/24']
+                with self.subTest(publication=publication), self.assertRaisesRegex(ValueError, 'catalog failed'):
+                    inputs.validate_catalog(invalid, public=self.public('c' * 40))
 
     def test_source_response_bytes_deadline_and_redirects_are_bounded(self):
         response = MagicMock()
