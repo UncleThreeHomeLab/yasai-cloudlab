@@ -13,19 +13,23 @@ def approval():
             'valuesPath': 'apps/synthetic.yaml', 'secretReferences': [], 'configMaps': [], 'egress': []}
 
 
-def data_secret_values(namespace='cloudlab-app-synthetic'):
+def data_secret_values(namespace='cloudlab-app-synthetic', *, data=None, data_approvals=None):
     """Direct native-owner input preserves arbitrary approved vault item bindings."""
     value, allowed = definition(), approval()
     allowed['namespace'] = namespace
     allowed['name'] = namespace.removeprefix('cloudlab-app-')
     value['name'] = allowed['name']
-    value['data'] = {kind: {'name': 'fixture', 'credentialReference': name, 'retention': 'retain'}
-                     for kind, name in (('database', 'database'), ('bucket', 'bucket'))}
-    allowed['secretReferences'] = ['database', 'bucket']
+    value['data'] = data if data is not None else {
+        kind: {'name': 'fixture', 'credentialReference': name, 'retention': 'retain'}
+        for kind, name in (('database', 'database'), ('bucket', 'bucket'))}
+    allowed['secretReferences'] = [request['credentialReference'] for request in value['data'].values()]
+    if data_approvals is None:
+        data_approvals = {request['credentialReference']: {
+            'service': allowed['name'], 'name': request['name'], 'kind': kind,
+            'item': 'approved-' + request['credentialReference'] + '-item'}
+            for kind, request in value['data'].items()}
     return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
-            'catalog': [{'definition': value, 'approval': allowed}], 'dataApprovals': {
-                name: {'service': allowed['name'], 'name': 'fixture', 'kind': kind, 'item': 'approved-' + name + '-item'}
-                for kind, name in (('database', 'database'), ('bucket', 'bucket'))}}
+            'catalog': [{'definition': value, 'approval': allowed}], 'dataApprovals': data_approvals}
 
 
 def data_secret_render(values):
@@ -36,15 +40,19 @@ def data_secret_render(values):
                           input=json.dumps(values), capture_output=True, text=True, timeout=60)
 
 
-def data_secret_documents(namespace):
+def data_secret_documents(namespace, values=None):
     """Select only the native namespace and its two data credential deliveries."""
-    rendered = data_secret_render(data_secret_values(namespace))
+    if values is None:
+        values = data_secret_values(namespace)
+    names = {request['credentialReference'] for entry in values['catalog']
+             for request in entry['definition']['data'].values()}
+    rendered = data_secret_render(values)
     if rendered.returncode:
         raise RuntimeError('Native owner rendering failed; diagnostics withheld')
     objects = [obj for obj in yaml.safe_load_all(rendered.stdout) if obj]
     namespaces = [obj for obj in objects if obj['kind'] == 'Namespace' and obj['metadata']['name'] == namespace]
     secrets = [obj for obj in objects if obj['kind'] == 'ExternalSecret'
-               and obj['metadata']['namespace'] == namespace and obj['metadata']['name'] in ('database', 'bucket')]
+               and obj['metadata']['namespace'] == namespace and obj['metadata']['name'] in names]
     if len(namespaces) != 1 or len(secrets) != 2:
         raise RuntimeError('Native owner did not render the scoped namespace and two data deliveries')
     return {'namespace_document': namespaces[0], 'documents': secrets}
