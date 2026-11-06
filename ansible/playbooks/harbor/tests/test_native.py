@@ -371,6 +371,8 @@ assert "dotenv" not in sys.modules
     def test_existing_handoff_compares_authenticated_effective_resources_before_intent(self):
         from playbooks.harbor.files.configuration import client
         snapshot, resources, _ = native_installation(); snapshot['enabled'] = False
+        active = 'a0a42ac02b0d351a4c56cf40e88f697f3537f19a'
+        snapshot['public']['identity']['application']['installationRevision'] = active
         resources = {key: value for key, value in resources.items() if key[0] not in ('applicationset.argoproj.io', 'externalsecret.external-secrets.io', 'secret')}
         resources[('appproject.argoproj.io', native.APPS[0])]['spec']['sourceRepos'] = [native.PUBLIC]
         for name in native.APPS:
@@ -386,7 +388,7 @@ assert "dotenv" not in sys.modules
         with tempfile.TemporaryDirectory() as directory, patch.object(native, 'BASE', Path(directory)), patch.object(native, 'context', return_value=snapshot), \
                 patch.object(native, 'receipt', return_value={}), patch.object(native, 'get', side_effect=lambda kind, name, *args: copy.deepcopy(resources.get((kind, name)))), \
                 patch.object(native.source, 'authority_path', side_effect=lambda path, missing=False: path.stat() if path.exists() else None), \
-                patch('playbooks.keycloak.files.ownership.accepted_application', return_value='526891f62eb9b9a50a0ffaf6ef020269d09e7746'), \
+                patch('playbooks.keycloak.files.ownership.accepted_application', return_value=active), \
                 patch.object(native.source, 'root_guard', return_value=snapshot['targets'][0]), patch.object(native, 'application_ready', return_value=True), \
                 patch.object(recovery, 'atomic') as write:
             (Path(directory) / 'deployment-proof.json').write_text('{"phase":"ready"}')

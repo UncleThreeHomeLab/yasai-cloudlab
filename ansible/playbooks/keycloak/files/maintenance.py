@@ -28,7 +28,7 @@ def accepted_scoped_identity(*, revision):
     native_revision = accepted_application(app, revision=revision, base=BASE)
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
     values = app.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {})
-    if (receipt.get('phase') != 'scoped' or receipt.get('revision') != revision or not receipt.get('uid') or
+    if (receipt.get('phase') != 'scoped' or (native_revision or receipt.get('revision')) != revision or not receipt.get('uid') or
             app.get('metadata', {}).get('uid') != receipt['uid'] or
             app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER or
             (app['metadata'].get('ownerReferences') and not native_revision) or app['metadata'].get('finalizers') or app['metadata'].get('deletionTimestamp') or

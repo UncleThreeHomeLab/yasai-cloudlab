@@ -97,7 +97,7 @@ def snapshot(team):
     ownership = json.loads((BASE / 'ownership.json').read_text())
     app = get('application.argoproj.io', APP, 'argocd') or {}
     from playbooks.keycloak.files.ownership import accepted_application
-    accepted_application(app, revision=ownership.get('revision'), base=BASE)
+    ownership['revision'] = accepted_application(app, base=BASE) or ownership.get('revision')
     native = Path('/var/lib/cloudlab/gitops/identity-values-binding.json')
     if (ownership.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != ownership.get('uid') or
             app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
@@ -113,7 +113,11 @@ def snapshot(team):
         resource = get(kind, name, 'argocd') or {}
         if resource.get('metadata', {}).get('uid') != binding.get(key):
             raise RuntimeError('Native Argo binding identity changed before Access preparation')
-    if not application_ready('cloudlab-argocd', ownership['revision']):
+    root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+    platform_revision = root.get('status', {}).get('sync', {}).get('revision')
+    if (not isinstance(platform_revision, str) or not re.fullmatch('[a-f0-9]{40}', platform_revision)
+            or not application_ready('cloudlab-public-root', platform_revision)
+            or not application_ready('cloudlab-argocd', platform_revision)):
         raise RuntimeError('Native Argo must converge before Access preparation')
     source, revoked, _ = private_inputs({'private_repository': private['spec']['source']['repoURL'], 'values': values})
     external = get('externalsecret.external-secrets.io', 'keycloak-client-secrets', NAMESPACE)

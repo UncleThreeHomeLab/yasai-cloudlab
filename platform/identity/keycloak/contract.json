@@ -136,5 +136,6 @@
     "credential_rotation": "Preserve unrelated values; verify new credential acceptance and old credential rejection before completion",
     "host_clock": "Require automatic time synchronization on both hosts before cluster operations",
     "token_validation": "Enforce expiration, not-before and issued-at; never log claims or tokens"
-  }
+  },
+  "installation": "Public identity.application selects an exact supported installationRevision. The private installationRevision and native handoff receipts retain historical enrollment identity. Native ApplicationSet ownership, private binding, credential and resource UIDs authenticate the active target; generic upgrades require reviewed compatibility gates. Retain data and retired credentials."
 }

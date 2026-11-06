@@ -67,7 +67,8 @@ def run(payload, phase, *, retained_only=False):
         current = get('application.argoproj.io', APP, 'argocd')
         handoff = payload.get('native_handoff') is True
         native_revision = accepted_application(current or {}, base=BASE,
-            revision=payload.get('installation_revision'), register=retained_only) if current and (
+            revision=None if (state or {}).get('native', {}).get('phase') == 'accepted' else payload.get('installation_revision'),
+            register=retained_only) if current and (
                 not handoff or (state or {}).get('native', {}).get('phase') == 'accepted') else None
         if payload.get('identity_application_enabled') and not native_revision and not handoff:
             raise RuntimeError('Prepare and adopt the accepted identity installation before normal setup')
@@ -133,7 +134,7 @@ def run(payload, phase, *, retained_only=False):
             kube('apply', '--server-side', '--field-manager=' + OWNER, '-f', '-', document=desired)
         current = get('application.argoproj.io', APP, 'argocd')
         # Save identity before waiting so interrupted convergence can resume safely.
-        checkpoint = {'uid': current['metadata']['uid'], 'phase': phase, 'revision': identity_revision,
+        checkpoint = {'uid': current['metadata']['uid'], 'phase': phase, 'revision': state['revision'] if native_revision else identity_revision,
                       'private_uids': private_uids}
         if native_revision: checkpoint['native'] = state['native']
         receipt_changed = state != checkpoint

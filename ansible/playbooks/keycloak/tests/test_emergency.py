@@ -20,7 +20,8 @@ class EmergencyTests(unittest.TestCase):
             'trustedProxyAddresses': ['10.42.0.0/24'], 'retiredEmergencyItem': 'keycloak-emergency-' + 'a' * 32}
         spec = ownership.installation_values(document); spec['source']['targetRevision'] = 'main'
         app = {'metadata': {'uid': 'app', 'resourceVersion': '1', 'generation': 1, 'labels': {'cloudlab.io/owner': bootstrap.OWNER}}, 'spec': spec}
-        public = {'identity': {'application': {'enabled': False}}, 'observability': {'enabled': False}}
+        public = {'identity': {'application': {'enabled': False, 'installationRevision': ownership.INSTALLATION_REVISION,
+            'supportedInstallationRevisions': list(ownership.SUPPORTED_INSTALLATION_REVISIONS)}}, 'observability': {'enabled': False}}
         project = {'metadata': {'uid': 'project', 'generation': 1, 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/cloudlab-identity'}},
             'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY]}}
         desired = {'AppProject': {'spec': {'sourceRepos': [ownership.PUBLIC_REPOSITORY, 'https://github.com/example/private.git']}}}
@@ -125,7 +126,8 @@ class EmergencyTests(unittest.TestCase):
         parent = {'metadata': {'uid': 'parent', 'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/cloudlab-identity'}},
             'spec': {'fixed': 'native-contract'}, 'status': {'conditions': [{'type': 'ParametersGenerated', 'status': 'True'}]}}
         desired = {'ApplicationSet': copy.deepcopy(parent), 'AppProject': copy.deepcopy(project)}
-        public = {'identity': {'application': {'enabled': True}}, 'observability': {'enabled': False}}
+        public = {'identity': {'application': {'enabled': True, 'installationRevision': ownership.INSTALLATION_REVISION,
+            'supportedInstallationRevisions': list(ownership.SUPPORTED_INSTALLATION_REVISIONS)}}, 'observability': {'enabled': False}}
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             captured = {'phase': 'prepared', 'root_uid': 'root', 'project_uid': 'project', 'application_uid': 'app', 'keycloak_uid': 'server',
@@ -137,6 +139,7 @@ class EmergencyTests(unittest.TestCase):
             def read(kind, *args):
                 if kind.startswith('keycloak.'): return {'metadata': {'uid': 'server'}}
                 if kind.startswith('applicationset.'): return parent
+                if kind == 'application.argoproj.io': return app
                 return {'metadata': {'uid': 'reader' if kind.startswith('externalsecret.') else 'secret'}}
             with patch.object(ownership, 'installation_context', return_value=(public, 'c' * 40, {'valuesRepository': 'https://github.com/example/private.git'}, {}, desired,
                     {'metadata': {'uid': 'root'}}, project, 999)) as context, patch.object(ownership, 'get', side_effect=read), \
@@ -154,6 +157,25 @@ class EmergencyTests(unittest.TestCase):
                 with patch.object(emergency, 'BASE', base), self.assertRaisesRegex(RuntimeError, 'requested pin changed'):
                     emergency.phase_sync_patches(app, 'b' * 40)
                 context.assert_not_called(); credentials.assert_not_called()
+                active = ownership.SUPPORTED_INSTALLATION_REVISIONS[1]
+                public['identity']['application']['installationRevision'] = active
+                with self.assertRaisesRegex(RuntimeError, 'child source'):
+                    ownership.accepted_application(app, base=base)
+                app['spec']['source']['targetRevision'] = active
+                self.assertEqual(ownership.accepted_application(app, base=base), active)
+                self.assertEqual(ownership.installation_revision('c' * 40, base=base), active)
+                with self.assertRaisesRegex(RuntimeError, 'differs from its public owner'):
+                    ownership.accepted_application(app, revision=ownership.INSTALLATION_REVISION, base=base)
+                for key in ('parent_uid', 'reader_uid', 'secret_uid'):
+                    registered = json.loads((base / 'ownership.json').read_text())
+                    registered['native'][key] = 'foreign'
+                    (base / 'ownership.json').write_text(json.dumps(registered))
+                    with self.assertRaisesRegex(RuntimeError, 'was replaced'):
+                        ownership.accepted_application(app, base=base)
+                    (base / 'ownership.json').write_bytes(before)
+                app['spec']['source']['helm']['valuesObject']['databaseCA'] = ''
+                with self.assertRaises(RuntimeError): ownership.accepted_application(app, base=base)
+                app['spec']['source']['helm']['valuesObject']['databaseCA'] = 'fixture-ca'
                 app['metadata']['ownerReferences'][0]['uid'] = 'foreign'
                 with self.assertRaisesRegex(RuntimeError, 'controller ownership changed'):
                     ownership.accepted_application(app, base=base)
