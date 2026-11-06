@@ -20,6 +20,7 @@ OWNER = ROOT / 'ansible/playbooks/keycloak'
 class DeploymentTests(unittest.TestCase):
     def test_root_self_forwarding_releases_stale_identity_flag_and_preserves_binding_and_data_flags(self):
         root = ROOT / 'gitops/roots/public'
+        public = yaml.safe_load((root / 'values.yaml').read_text())
         binding = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private-fixture.git', 'valuesRevision': 'a' * 40}
         flags = {'maintenance': False, 'hibernated': False}
         stale = {'identity': {'enabled': True, 'application': {'enabled': False}, 'argo': binding},
@@ -38,7 +39,7 @@ class DeploymentTests(unittest.TestCase):
         parent = next(obj for obj in second if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity')
         self.assertEqual(stable, forwarded)
         self.assertEqual(parent['spec']['generators'][0]['merge']['generators'][1]['git']['revision'], binding['valuesRevision'])
-        self.assertEqual(parent['spec']['template']['spec']['source']['targetRevision'], '526891f62eb9b9a50a0ffaf6ef020269d09e7746')
+        self.assertEqual(parent['spec']['template']['spec']['source']['targetRevision'], public['identity']['application']['installationRevision'])
 
     def test_native_installation_render_and_typed_private_patch_refuse_other_pins(self):
         from playbooks.keycloak.files import ownership
@@ -53,7 +54,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertFalse(any(obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity' for obj in render(public)))
         public['identity']['argo'] = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private-fixture.git', 'valuesRevision': 'a' * 40}
         parent = next(obj for obj in render(public) if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity')['spec']
-        self.assertEqual(parent['template']['spec']['source']['targetRevision'], ownership.INSTALLATION_REVISION)
+        self.assertEqual(parent['template']['spec']['source']['targetRevision'], public['identity']['application']['installationRevision'])
         self.assertNotIn('sources', parent['template']['spec'])
         self.assertEqual(parent['ignoreApplicationDifferences'], [{'jsonPointers': ['/spec/source/helm/valuesObject/' + field for field in ownership.OPERATION_FIELDS]}])
         generators = parent['generators'][0]['merge']['generators']
