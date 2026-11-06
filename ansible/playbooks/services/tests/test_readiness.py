@@ -35,9 +35,11 @@ class ReadinessTests(unittest.TestCase):
                     patch('playbooks.services.files.remote.application_ready', return_value=True), \
                     patch('playbooks.keycloak.files.bootstrap.BASE', Path(folder)), \
                     patch('playbooks.keycloak.files.ownership.accepted_application', autospec=True, return_value=None), \
+                    patch('playbooks.keycloak.files.ownership.accepted_private_inventory', autospec=True) as inventory, \
                     patch('playbooks.keycloak.files.bootstrap.reconciled', return_value=True) as reconciled:
                 request = {'definition': value, 'approval': approval(), 'action': 'identity'}
                 inspect(request)
+                inventory.assert_not_called()
                 reconciled.assert_called_once_with('b' * 40, 'owned')
                 for field, wrong in (('repoURL', 'https://github.com/example/unapproved.git'), ('targetRevision', 'other'), ('path', 'other')):
                     original = identity['spec']['source'][field]
@@ -61,34 +63,36 @@ class ReadinessTests(unittest.TestCase):
         root = {'spec': {'source': source}, 'status': {'sync': {'revision': 'b' * 40}}}
         identity = {'spec': {'source': dict(source, targetRevision='c' * 40, path='platform/identity/keycloak')}}
         def get(kind, name=None, namespace=None):
-            if name == 'identity-private-state':
-                return {'data': {'desired_state': json.dumps(configuration), 'revocations': json.dumps(revocations)}}
-            if name == 'cloudlab-identity-private': return {'status': {'sync': {'revision': 'private'}}}
             if name == 'cloudlab-public-root': return root
             if name == 'cloudlab-identity': return identity
             raise AssertionError(name)
         with tempfile.TemporaryDirectory() as folder:
             Path(folder, 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': 'a' * 40}))
             with patch('playbooks.services.files.remote.get', side_effect=get), \
-                    patch('playbooks.services.files.remote.application_ready', return_value=True) as ready, \
+                    patch('playbooks.services.files.remote.application_ready', return_value=True), \
                     patch('playbooks.keycloak.files.bootstrap.BASE', Path(folder)), \
                     patch('playbooks.keycloak.files.ownership.accepted_application', autospec=True, return_value='c' * 40) as accepted, \
+                    patch('playbooks.keycloak.files.ownership.accepted_private_inventory', autospec=True,
+                          return_value=(configuration, revocations, 'd' * 40)) as inventory, \
                     patch('playbooks.keycloak.files.bootstrap.reconciled', return_value=True) as reconciled:
                 request = {'definition': value, 'approval': approval(), 'action': 'identity'}
                 inspect(request)
                 accepted.assert_called_once_with(identity, base=Path(folder))
+                inventory.assert_called_once_with(base=Path(folder))
                 reconciled.assert_called_once_with('c' * 40, 'owned')
                 reconciled.reset_mock()
+                inventory.reset_mock()
                 accepted.side_effect = RuntimeError('Native owner rejected')
                 with self.assertRaisesRegex(RuntimeError, 'Native owner rejected'): inspect(request)
                 reconciled.assert_not_called()
+                inventory.assert_not_called()
                 accepted.side_effect = None
                 reconciled.return_value = False
                 with self.assertRaisesRegex(RuntimeError, 'writer is not converged'): inspect(request)
                 reconciled.return_value = True
-                ready.side_effect = lambda app, revision: app != 'cloudlab-identity-private'
+                inventory.side_effect = RuntimeError('Private identity source is not converged')
                 with self.assertRaisesRegex(RuntimeError, 'Private identity source'): inspect(request)
-                ready.side_effect = None
+                inventory.side_effect = None
                 configuration['realms']['applications']['clients'] = []
                 with self.assertRaisesRegex(RuntimeError, 'exact approved contract'): inspect(request)
                 configuration['realms']['applications']['clients'] = [desired]

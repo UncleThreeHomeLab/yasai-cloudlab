@@ -478,6 +478,54 @@ def private_resources(payload):
     return [project, credential, app]
 
 
+def accepted_private_inventory(*, base=BASE):
+    """Observe private desired inputs after authenticating the native installation owner."""
+    from playbooks.argocd.files.source_transition import accepted_identity_binding
+    state = ownership_receipt(base)
+    kinds = ('AppProject', 'ExternalSecret', 'Application')
+    saved = state.get('private_uids', {}) if isinstance(state, dict) else {}
+    if (not isinstance(state, dict) or state.get('phase') != 'scoped'
+            or not isinstance(state.get('native'), dict) or state['native'].get('phase') != 'accepted'
+            or not isinstance(saved, dict) or set(saved) != set(kinds)
+            or any(not isinstance(uid, str) or not uid for uid in saved.values())):
+        raise RuntimeError('Private identity inventory requires its accepted registered owner')
+    name = 'cloudlab-identity-private'
+    objects = {kind: get(kind, name, 'argocd') or {} for kind in kinds}
+    app = objects['Application']
+    root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+    binding = accepted_identity_binding(repository=PUBLIC_REPOSITORY, branch='main',
+        revision=root.get('status', {}).get('sync', {}).get('revision'),
+        private_repository=app.get('spec', {}).get('source', {}).get('repoURL'))
+    for expected in private_resources({'private_repository': binding['valuesRepository'], 'private_branch': 'main'}):
+        kind = expected['kind']
+        actual = objects[kind]
+        check_private_owner(kind, actual, saved[kind])
+        if (actual.get('metadata', {}).get('name') != name or actual['metadata'].get('namespace') != 'argocd'
+                or actual.get('spec') != expected['spec']):
+            raise RuntimeError('Private identity source differs from its registered contract')
+    revision = app.get('status', {}).get('sync', {}).get('revision')
+    if (not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision)
+            or app.get('operation') or app.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source') != app['spec']['source']
+            or not application_ready(name, revision)):
+        raise RuntimeError('Private identity source is not converged')
+    private = get('configmap', 'identity-private-state', NAMESPACE) or {}
+    metadata = private.get('metadata', {})
+    if (private.get('apiVersion') != 'v1' or private.get('kind') != 'ConfigMap'
+            or metadata.get('name') != 'identity-private-state' or metadata.get('namespace') != NAMESPACE
+            or any(not isinstance(metadata.get(key), str) or not metadata[key] for key in ('uid', 'resourceVersion'))
+            or metadata.get('deletionTimestamp') or metadata.get('ownerReferences') or metadata.get('finalizers')
+            or metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id') !=
+                'cloudlab-identity-private:/ConfigMap:' + NAMESPACE + '/identity-private-state'
+            or not isinstance(private.get('data'), dict) or set(private['data']) != {'desired_state', 'revocations'}):
+        raise RuntimeError('Private identity inventory ownership or fields changed')
+    try:
+        configuration, revocations = (json.loads(private['data'][key]) for key in ('desired_state', 'revocations'))
+        if not isinstance(configuration, dict) or not isinstance(revocations, dict): raise ValueError()
+    except (TypeError, ValueError):
+        raise RuntimeError('Private identity inventory documents are invalid') from None
+    return configuration, revocations, revision
+
+
 def discover():
     import base64
     import ipaddress
