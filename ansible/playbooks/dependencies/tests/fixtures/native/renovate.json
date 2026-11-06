@@ -1,7 +1,0 @@
-{
-  "enabledManagers": ["npm"],
-  "draftPR": false,
-  "automerge": true,
-  "platformAutomerge": true,
-  "postUpgradeTasks": {"commands": ["exit 1"]}
-}

@@ -1,5 +1,0 @@
-apiVersion: v2
-name: persistent-fixture
-description: Synthetic retained data for native Git discovery failure checks.
-type: application
-version: 0.1.0
