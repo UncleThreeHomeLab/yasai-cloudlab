@@ -6,41 +6,41 @@ from playbooks.data.files.requests import request, resolve, protect, additions
 
 
 class RequestResolutionTests(unittest.TestCase):
-    def prices(self, roles=False):
-        data = {'database': {'name': 'prices', 'credentialReference': 'prices-database', 'retention': 'retain'},
-                'bucket': {'name': 'prices-history', 'credentialReference': 'prices-storage', 'retention': 'retain'}}
-        approved = {'prices-database': {'kind': 'database', 'service': 'prices', 'name': 'prices',
-                                        'item': 'cnpg-prices-production', 'migrationItem': 'cnpg-prices-migration'},
-                    'prices-storage': {'kind': 'bucket', 'service': 'prices', 'name': 'prices-history',
-                                       'item': 's3-prices-production'}}
+    def playground(self, roles=False):
+        data = {'database': {'name': 'playground', 'credentialReference': 'playground-database', 'retention': 'retain'},
+                'bucket': {'name': 'playground-history', 'credentialReference': 'playground-storage', 'retention': 'retain'}}
+        approved = {'playground-database': {'kind': 'database', 'service': 'playground', 'name': 'playground',
+                                        'item': 'cnpg-playground-production', 'migrationItem': 'cnpg-playground-migration'},
+                    'playground-storage': {'kind': 'bucket', 'service': 'playground', 'name': 'playground-history',
+                                       'item': 's3-playground-production'}}
         if roles:
-            approved['prices-database'].update(applicationRole='prices_app', migrationRole='prices_migration')
+            approved['playground-database'].update(applicationRole='playground_app', migrationRole='playground_migration')
         return data, approved
 
-    def prices_lookup(self, item, fields):
+    def playground_lookup(self, item, fields):
         if fields == ('BUCKET',):
-            return {'BUCKET': 'prices-history'}
-        return {'database': 'prices', 'username': 'prices_migration' if item.endswith('migration') else 'prices_app'}
+            return {'BUCKET': 'playground-history'}
+        return {'database': 'playground', 'username': 'playground_migration' if item.endswith('migration') else 'playground_app'}
 
-    def prices_row(self):
-        data, approved = self.prices()
-        return resolve([request('prices', data, approved)], self.prices_lookup)[0]
+    def playground_row(self):
+        data, approved = self.playground()
+        return resolve([request('playground', data, approved)], self.playground_lookup)[0]
 
-    def test_prices_request_resolves_exact_roles_items_and_scope(self):
-        data, approved = self.prices()
-        requested = request('prices', data, approved)
-        self.assertEqual(requested, {'service': 'prices', 'namespace': 'cloudlab-app-prices',
-            'database': dict(data['database'], item='cnpg-prices-production', migrationItem='cnpg-prices-migration'),
-            'bucket': dict(data['bucket'], item='s3-prices-production')})
-        rows = [self.prices_row()]
-        self.assertEqual(rows, [{'service': 'prices', 'namespace': 'cloudlab-app-prices',
-            'database': {'name': 'prices', 'applicationRole': 'prices_app', 'migrationRole': 'prices_migration',
-                         'applicationItem': 'cnpg-prices-production', 'migrationItem': 'cnpg-prices-migration'},
-            'bucket': {'name': 'prices-history', 'item': 's3-prices-production'}}])
-        data, approved = self.prices(roles=True)
-        enriched = request('prices', data, approved)
-        self.assertEqual(enriched['database']['applicationRole'], 'prices_app')
-        self.assertEqual(resolve([enriched], self.prices_lookup), rows)
+    def test_playground_request_resolves_exact_roles_items_and_scope(self):
+        data, approved = self.playground()
+        requested = request('playground', data, approved)
+        self.assertEqual(requested, {'service': 'playground', 'namespace': 'cloudlab-app-playground',
+            'database': dict(data['database'], item='cnpg-playground-production', migrationItem='cnpg-playground-migration'),
+            'bucket': dict(data['bucket'], item='s3-playground-production')})
+        rows = [self.playground_row()]
+        self.assertEqual(rows, [{'service': 'playground', 'namespace': 'cloudlab-app-playground',
+            'database': {'name': 'playground', 'applicationRole': 'playground_app', 'migrationRole': 'playground_migration',
+                         'applicationItem': 'cnpg-playground-production', 'migrationItem': 'cnpg-playground-migration'},
+            'bucket': {'name': 'playground-history', 'item': 's3-playground-production'}}])
+        data, approved = self.playground(roles=True)
+        enriched = request('playground', data, approved)
+        self.assertEqual(enriched['database']['applicationRole'], 'playground_app')
+        self.assertEqual(resolve([enriched], self.playground_lookup), rows)
         settings = {'database': 'notes', 'bucket': 'notes', 'applicationRole': 'notes_app',
                     'migrationRole': 'notes_migration', 'backupRole': 'backup',
                     'identity': {'enabled': True, 'database': 'identity', 'role': 'identity_app'}}
@@ -48,64 +48,64 @@ class RequestResolutionTests(unittest.TestCase):
         self.assertEqual(additions([], rows), rows)
         self.assertEqual(additions(rows, rows), [])
 
-    def test_prices_request_rejects_retention_unpaired_roles_refs_and_items(self):
+    def test_playground_request_rejects_retention_unpaired_roles_refs_and_items(self):
         for kind in ('database', 'bucket'):
-            data, approved = self.prices()
+            data, approved = self.playground()
             data[kind]['retention'] = 'delete'
-            with self.subTest(retention=kind), self.assertRaises(ValueError): request('prices', data, approved)
-        for roles in ({'applicationRole': 'prices_app'}, {'migrationRole': 'prices_migration'},
-                      {'applicationRole': 'prices_app', 'migrationRole': 'prices_app'}):
-            data, approved = self.prices()
-            approved['prices-database'].update(roles)
-            with self.subTest(roles=roles), self.assertRaises(ValueError): request('prices', data, approved)
+            with self.subTest(retention=kind), self.assertRaises(ValueError): request('playground', data, approved)
+        for roles in ({'applicationRole': 'playground_app'}, {'migrationRole': 'playground_migration'},
+                      {'applicationRole': 'playground_app', 'migrationRole': 'playground_app'}):
+            data, approved = self.playground()
+            approved['playground-database'].update(roles)
+            with self.subTest(roles=roles), self.assertRaises(ValueError): request('playground', data, approved)
         for kind, field, value in (
-                ('database', 'item', 's3-prices-production'),
-                ('database', 'item', 'cnpg-prices-migration'), ('database', 'migrationItem', 'cnpg-prices-production'),
-                ('database', 'migrationItem', 's3-prices-migration'),
-                ('bucket', 'item', 'cnpg-prices-production')):
-            data, approved = self.prices()
-            approved['prices-database' if kind == 'database' else 'prices-storage'][field] = value
+                ('database', 'item', 's3-playground-production'),
+                ('database', 'item', 'cnpg-playground-migration'), ('database', 'migrationItem', 'cnpg-playground-production'),
+                ('database', 'migrationItem', 's3-playground-migration'),
+                ('bucket', 'item', 'cnpg-playground-production')):
+            data, approved = self.playground()
+            approved['playground-database' if kind == 'database' else 'playground-storage'][field] = value
             with self.subTest(kind=kind, field=field, value=value), self.assertRaises(ValueError):
-                request('prices', data, approved)
-        for kind, ref in (('bucket', 'prices-database'), ('database', 'prices-storage'), ('database', 'unknown')):
-            data, approved = self.prices()
+                request('playground', data, approved)
+        for kind, ref in (('bucket', 'playground-database'), ('database', 'playground-storage'), ('database', 'unknown')):
+            data, approved = self.playground()
             data[kind]['credentialReference'] = ref
-            with self.subTest(collision=kind, ref=ref), self.assertRaises(ValueError): request('prices', data, approved)
+            with self.subTest(collision=kind, ref=ref), self.assertRaises(ValueError): request('playground', data, approved)
 
-    def test_prices_resolve_rejects_wrong_lookup_and_role_overlap(self):
-        data, approved = self.prices(roles=True)
-        requested = request('prices', data, approved)
+    def test_playground_resolve_rejects_wrong_lookup_and_role_overlap(self):
+        data, approved = self.playground(roles=True)
+        requested = request('playground', data, approved)
         def lookup(**changes):
             def fake(item, fields):
-                result = self.prices_lookup(item, fields)
+                result = self.playground_lookup(item, fields)
                 return result | changes.get('bucket' if fields == ('BUCKET',) else
                                             'migration' if item.endswith('migration') else 'app', {})
             return fake
         for changes in ({'app': {'database': 'other'}}, {'migration': {'database': 'other'}},
-                        {'bucket': {'BUCKET': 'prices'}}, {'bucket': {'BUCKET': 'other'}},
-                        {'app': {'username': 'other_app'}}, {'migration': {'username': 'prices_app'}}):
+                        {'bucket': {'BUCKET': 'playground'}}, {'bucket': {'BUCKET': 'other'}},
+                        {'app': {'username': 'other_app'}}, {'migration': {'username': 'playground_app'}}):
             with self.subTest(changes=changes), self.assertRaises(ValueError): resolve([requested], lookup(**changes))
-        data, approved = self.prices()
-        approved['prices-database']['item'] = 'cnpg-other-production'
-        swapped = request('prices', data, approved)
+        data, approved = self.playground()
+        approved['playground-database']['item'] = 'cnpg-other-production'
+        swapped = request('playground', data, approved)
         def other_item(item, fields):
             if item == 'cnpg-other-production':
                 return {'database': 'other', 'username': 'other_app'}
-            return self.prices_lookup(item, fields)
+            return self.playground_lookup(item, fields)
         with self.assertRaises(ValueError): resolve([swapped], other_item)
-        data, approved = self.prices()
+        data, approved = self.playground()
         other_data = {'database': {'name': 'other', 'credentialReference': 'other-database', 'retention': 'retain'}}
         approved['other-database'] = {'kind': 'database', 'service': 'other', 'name': 'other',
                                       'item': 'cnpg-other-production', 'migrationItem': 'cnpg-other-migration'}
         other = request('other', other_data, approved)
         def overlapping(item, fields):
             if item.startswith('cnpg-other'):
-                return {'database': 'other', 'username': 'other_migration' if item.endswith('migration') else 'prices_app'}
-            return self.prices_lookup(item, fields)
-        with self.assertRaises(ValueError): resolve([request('prices', data, approved), other], overlapping)
+                return {'database': 'other', 'username': 'other_migration' if item.endswith('migration') else 'playground_app'}
+            return self.playground_lookup(item, fields)
+        with self.assertRaises(ValueError): resolve([request('playground', data, approved), other], overlapping)
 
-    def test_prices_protect_and_additions_reject_scope_claim_removal_or_move(self):
-        row = self.prices_row()
+    def test_playground_protect_and_additions_reject_scope_claim_removal_or_move(self):
+        row = self.playground_row()
         settings = {'database': 'notes', 'bucket': 'notes', 'applicationRole': 'notes_app',
                     'migrationRole': 'notes_migration', 'backupRole': 'backup',
                     'identity': {'enabled': True, 'database': 'identity', 'role': 'identity_app'}}
