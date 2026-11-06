@@ -160,17 +160,24 @@ def inspect(request):
         if not revision or not application_ready('cloudlab-identity-private', revision):
             raise RuntimeError('Private identity source is not converged')
         from playbooks.keycloak.files.bootstrap import APP, BASE, reconciled
+        from playbooks.keycloak.files.ownership import accepted_application
         state = json.loads((BASE / 'ownership.json').read_text())
         root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
         identity = get('application.argoproj.io', APP, 'argocd') or {}
         public_source = root.get('spec', {}).get('source', {})
         identity_source = identity.get('spec', {}).get('source', {})
         revision = root.get('status', {}).get('sync', {}).get('revision')
-        # A branch advances after bootstrap; its saved revision is historical.
-        if (state.get('phase') != 'scoped' or not revision or not application_ready('cloudlab-public-root', revision) or
-                identity_source.get('repoURL') != public_source.get('repoURL') or
-                identity_source.get('targetRevision') != public_source.get('targetRevision') or
-                identity_source.get('path') != 'platform/identity/keycloak' or not reconciled(revision, state['uid'])):
+        if state.get('phase') != 'scoped' or not revision or not application_ready('cloudlab-public-root', revision):
+            raise RuntimeError('Identity writer is not converged')
+        identity_revision = accepted_application(identity, base=BASE)
+        if identity_revision is None:
+            # Legacy branch owners advance with Root; native owners keep their authenticated pin.
+            if (identity_source.get('repoURL') != public_source.get('repoURL') or
+                    identity_source.get('targetRevision') != public_source.get('targetRevision') or
+                    identity_source.get('path') != 'platform/identity/keycloak'):
+                raise RuntimeError('Identity writer is not converged')
+            identity_revision = revision
+        if not reconciled(identity_revision, state['uid']):
             raise RuntimeError('Identity writer is not converged')
     elif action == 'data':
         for kind, value in definition['data'].items():

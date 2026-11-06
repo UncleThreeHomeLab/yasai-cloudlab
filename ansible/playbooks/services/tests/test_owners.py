@@ -9,6 +9,15 @@ from playbooks.services.tests.fixtures import definition, approval
 
 
 class OwnerInputTests(unittest.TestCase):
+    def test_identity_read_allows_native_authentication_without_expanding_other_timeouts(self):
+        owner = Owners.__new__(Owners)
+        owner.definition, owner.approval = definition(), approval()
+        with patch.dict('os.environ', {'VM_HOST': 'fixture'}), \
+                patch('playbooks.access.files.preflight.ssh', return_value='{"ready":true}') as ssh:
+            for action, timeout in (('identity', 240), ('backend', 90), ('fixture-data', 660), ('fixture-volume', 660)):
+                owner.read(action)
+                self.assertEqual(ssh.call_args.kwargs['timeout'], timeout)
+
     def test_retirement_publishes_git_intent_without_reapplying_catalog(self):
         owner = Owners.__new__(Owners)
         owner.definition = definition()

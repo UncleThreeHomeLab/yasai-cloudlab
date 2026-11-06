@@ -997,6 +997,7 @@ Keep private settings in their accepted inputs and secret values in 1Password.
    the intended private `main` commit. Then verify a successful subsequent normal
    Keycloak writer run and the actual client configuration. The leased writer runs
    every five minutes; routine edits need no `identity-scoped` apply.
+   Keep the accepted identity installation pin; do not repin it to the advancing Root or service catalog revision.
    To retire a client, keep its declaration with `enabled: false` and persist its
    ID in `data.revocations` JSON at `realms.applications.clients`. Keep the tombstone;
    omission alone retains clients. Existing tokens do not become invalid immediately.
