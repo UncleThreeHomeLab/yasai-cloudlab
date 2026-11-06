@@ -954,7 +954,10 @@ Keep private settings in their accepted inputs and secret values in 1Password.
    Confidential clients also require `secretReference`, an approved
    `definition.secrets` mount and `approval.secretReferences` entry.
    The identity owner keeps their secret in `keycloak-client-secrets/client_secrets`
-   in CloudLab; never put the value in the catalog.
+   in CloudLab, at `client_secrets[realm][client-id]`; never put the value in Git.
+   Confidential enrollment requires an existing string of at least 32 characters.
+   Automatic missing-item creation is not supported; missing or incomplete credentials
+   block reconciliation.
    Guarded delivery requires a nonempty string at the selected realm/client and
    retains the last valid Secret until completion resumes through normal ESO refresh.
 2. **Agent:** check exact HTTPS callbacks derived from declared exposure hosts
@@ -964,13 +967,41 @@ Keep private settings in their accepted inputs and secret values in 1Password.
    registered logout redirects, report this unsupported service field to the identity
    owner and stop that integration. Logout redirects must stay on approved callback origins.
    Submit any changed service settings through the catalog PR flow in section 6.4.
-   Then use the current reviewed lifecycle bundle with the
-   [service contract](../charts/service/README.md) command
-   `service identity-provision <bundle>` through Compose.
-   **User:** review and merge its scoped private identity PR.
-   **Agent:** run `docker compose run --build --rm lab identity-scoped` and verify
-   client configuration. The owner generates `identity/configmap.yaml` and changes
-   `identity/argo-values.yaml` only when its integration requires it.
+   Edit the existing private `identity/configmap.yaml`: its `data.desired_state`
+   contains JSON, with client objects under `realms.applications.clients`.
+   For example, this public client object belongs inside that existing list;
+   it is not a replacement ConfigMap:
+
+   ```json
+   {
+     "id": "prices-ui",
+     "audience": "prices-api",
+     "public": true,
+     "callbacks": ["https://prices.example.invalid/oauth/callback"],
+     "web_origins": ["https://prices.example.invalid"],
+     "scopes": ["profile", "email"],
+     "roles": ["viewer"],
+     "role_groups": {"viewer": ["viewer"]}
+   }
+   ```
+
+   Match the client, audience, public flag, callbacks, scopes and role mappings to
+   the reviewed service settings. Replace example URLs with exact approved exposure
+   URLs. The identity compiler validates URL shape, not service exposure ownership;
+   review that binding explicitly. Preserve all existing clients, memberships, both
+   realms and `data.revocations`. Public clients must have no client-secret entry.
+   Service settings and this inventory remain separate inputs; standalone
+   per-service `identity.yaml` enrollment is not supported.
+   **User:** review and merge the private identity PR.
+   **Agent:** require the accepted `cloudlab-identity-private` Application to sync
+   the intended private `main` commit. Then verify a successful subsequent normal
+   Keycloak writer run and the actual client configuration. The leased writer runs
+   every five minutes; routine edits need no `identity-scoped` apply.
+   To retire a client, keep its declaration with `enabled: false` and persist its
+   ID in `data.revocations` JSON at `realms.applications.clients`. Keep the tombstone;
+   omission alone retains clients. Existing tokens do not become invalid immediately.
+   Retain the guarded removal, rotation and recovery procedures in the
+   [identity contract](../platform/identity/keycloak/contract.json); vault items are retained.
    A completed temporary login fixture is not an application dependency. If its
    vault item was intentionally removed, retire only its credential delivery:
    pipe `{"nonce":"EXACT_FIXTURE_NONCE","realm":"applications"}` into
