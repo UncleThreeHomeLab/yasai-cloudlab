@@ -306,7 +306,7 @@ class StorageProofTests(unittest.TestCase):
         receipt.value['intents']['delete-claim-loki']={'identity':identity['claim'],'accepted':True,'complete':True}
         state={'pv':pv,'volume':volume}
         def current(obj):return state.get('pv' if obj==identity['pv'] else 'volume' if obj==identity['volume'] else 'claim')
-        def delete(record,key,obj,scope):
+        def delete(record,key,obj,scope,*,deadline):
             self.assertEqual(set(record.saves[-1]['intents']) & {'delete-pv-loki','delete-volume-loki'}, {'delete-pv-loki','delete-volume-loki'})
             record.value['intents'][key]['accepted']=True
             state['pv']=state['volume']=None
@@ -938,7 +938,7 @@ class StorageProofTests(unittest.TestCase):
             if foreign: remaining[0]['metadata']['uid'] = uid(99)
             def native_current(identity):
                 return next((obj for key, obj in roots.items() if key != 'app' and proof.object_id(obj) == identity), None)
-            def delete_intent(record, key, obj, scope):
+            def delete_intent(record, key, obj, scope, *, deadline):
                 record.value['intents'][key] = {'accepted': True, 'complete': False, 'identity': proof.object_id(obj)}
             def cleaned(record, component, deadline, *, payload):
                 if component == 'grafana': remaining.clear()
@@ -956,6 +956,70 @@ class StorageProofTests(unittest.TestCase):
                     proof.cleanup(receipt, self.payload, proof.time.monotonic() + 1)
                     self.assertEqual([call.args[1] for call in storage.call_args_list], ['loki', 'tempo', 'grafana'])
                     self.assertTrue(receipt.value['cleanupComplete'])
+
+    def test_cleanup_revalidates_application_after_all_guards_without_adopting_metadata_changes(self):
+        class DeleteBoundary(Exception):
+            pass
+        for mutation in ('none', 'labels', 'annotations', 'presence', 'spec', 'uid', 'owner', 'deleting'):
+            with self.subTest(mutation=mutation):
+                receipt = MemoryReceipt()
+                namespace, project, anchor = proof.root_documents(receipt.operation)
+                for index, (key, value) in enumerate((('namespace', namespace), ('project', project), ('app', anchor)), 80):
+                    value['metadata'].update(uid=uid(index), resourceVersion='8')
+                    receipt.value['objects'][key] = proof.object_id(value)
+                anchor['spec']['source']['helm']['valuesObject']['phase'] = 'scaled-down'
+                anchor['metadata']['annotations'] = {}
+                fresh = copy.deepcopy(anchor)
+                fresh['metadata'].update(resourceVersion='9', generation=2)
+                if mutation == 'labels': fresh['metadata']['labels']['unexpected'] = 'writer'
+                if mutation == 'annotations': fresh['metadata']['annotations']['unexpected'] = 'writer'
+                if mutation == 'presence': del fresh['metadata']['annotations']
+                if mutation == 'spec': fresh['spec']['source']['targetRevision'] = 'main'
+                if mutation == 'uid': fresh['metadata']['uid'] = uid(99)
+                if mutation == 'owner': fresh['metadata']['ownerReferences'] = [{'uid': uid(99)}]
+                if mutation == 'deleting': fresh['metadata']['deletionTimestamp'] = '2026-11-05T12:03:00Z'
+                for index, component in enumerate(('loki', 'tempo', 'grafana'), 1):
+                    claim, pv, volume = storage_chain(receipt, component, index)
+                    receipt.value['storage'][component] = {'identity': {'claim': proof.object_id(claim),
+                        'pv': proof.object_id(pv), 'volume': proof.object_id(volume), 'handle': pv['metadata']['name']}}
+                    if component != 'loki': receipt.value['storage'][component]['replicas'] = replica_rows()
+                events, reads = [], {'app': 0}
+                def get(kind, name=None, ns=None, **kwargs):
+                    if kind == 'namespaces': return copy.deepcopy(namespace)
+                    self.assertEqual(kind, 'applications.v1alpha1.argoproj.io')
+                    reads['app'] += 1
+                    events.append('fresh-app' if reads['app'] == 3 else 'anchor')
+                    return copy.deepcopy(fresh if reads['app'] == 3 else anchor)
+                def guard(name, value=None):
+                    def run(*args, **kwargs):
+                        events.append(name)
+                        return value
+                    return run
+                deadline = proof.time.monotonic() + 30
+                def delete(record, key, value, scope, *, deadline):
+                    self.assertEqual(key, 'delete-app')
+                    self.assertEqual(value, fresh)
+                    self.assertEqual(scope, {'source': self.payload['source'], 'app': proof.object_id(anchor)})
+                    self.assertEqual(deadline, expected_deadline)
+                    for step in ('project', 'declared', 'children', 'inventory', 'storage', 'replicas'):
+                        self.assertLess(events.index(step), events.index('fresh-app'))
+                    raise DeleteBoundary()
+                expected_deadline = deadline
+                with patch.object(proof, 'get', side_effect=get), patch.object(proof, 'housekeeping', side_effect=guard('housekeeping')), \
+                     patch.object(proof, 'cleanup_markers', side_effect=guard('markers')), \
+                     patch.object(proof, 'project_guard', side_effect=guard('project')), \
+                     patch.object(proof, 'observe_declared', side_effect=guard('declared')), \
+                     patch.object(proof, 'record_native_children', side_effect=guard('children')), \
+                     patch.object(proof, 'inventory_gate', side_effect=guard('inventory')), \
+                     patch.object(proof, 'bind_storage', side_effect=guard('storage', True)), \
+                     patch.object(proof, 'capture_replicas', side_effect=guard('replicas', replica_rows())), \
+                     patch.object(proof, 'request_delete', side_effect=delete) as deletion:
+                    if mutation == 'none':
+                        with self.assertRaises(DeleteBoundary): proof.cleanup(receipt, self.payload, deadline)
+                        deletion.assert_called_once()
+                    else:
+                        with self.assertRaises(RuntimeError): proof.cleanup(receipt, self.payload, deadline)
+                        deletion.assert_not_called()
 
     def test_surviving_pv_after_native_cascade_is_revalidated_before_delete(self):
         receipt = MemoryReceipt()
@@ -1069,6 +1133,62 @@ class StorageProofTests(unittest.TestCase):
                             proof.request_delete(receipt, key, obj, scope)
                         native.assert_not_called()
                         if mutation != 'scope': self.assertNotIn(key, receipt.value['intents'])
+
+    def test_delete_retries_only_definite_current_resource_version_conflicts_within_bound(self):
+        for mutation in ('success', 'authority', 'uid', 'scope', 'running', 'unknown', 'timeout', 'twice', 'deadline', 'same-rv'):
+            with self.subTest(mutation=mutation):
+                receipt = MemoryReceipt()
+                content = proof.marker_content(receipt, 'loki')
+                receipt.value['markers']['loki'] = {'content': content, 'sha256': proof.digest(content.encode()), 'claimUID': uid(1)}
+                obj = proof.marker_document(receipt, self.payload, 'loki', 'write')
+                if mutation == 'running': obj = proof.root_documents(receipt.operation)[2]
+                obj['metadata'].update(uid=uid(81), resourceVersion='8')
+                identity = proof.object_id(obj)
+                receipt.value['objects']['app' if mutation == 'running' else 'marker-0'] = identity
+                scope = {'test': 'unchanged'}
+                state = {'reads': 0, 'deletes': 0, 'clock': 10.0, 'bounds': []}
+                def get(*unused, **kwargs):
+                    state['reads'] += 1
+                    state['bounds'].append(kwargs.get('deadline'))
+                    fresh = copy.deepcopy(obj)
+                    if state['reads'] > 1:
+                        fresh['metadata']['resourceVersion'] = '8' if mutation == 'same-rv' else '9'
+                        if mutation == 'authority': fresh['metadata']['annotations'] = {'unexpected': 'owner'}
+                        if mutation == 'uid': fresh['metadata']['uid'] = uid(99)
+                        if mutation == 'running': fresh['status'] = {'operationState': {'phase': 'Running'}}
+                    return fresh
+                def native(*arguments, **kwargs):
+                    state['deletes'] += 1
+                    options = proof.parsed(kwargs['body'])
+                    version = '8' if state['deletes'] == 1 else '9'
+                    self.assertEqual(options['preconditions'], {'uid': uid(81), 'resourceVersion': version})
+                    self.assertEqual(receipt.saves[-1]['intents']['delete-test']['resourceVersion'], version)
+                    self.assertFalse(receipt.saves[-1]['intents']['delete-test']['accepted'])
+                    if mutation == 'timeout': raise subprocess.TimeoutExpired(['fixture-delete'], 1)
+                    if state['deletes'] == 1 or mutation == 'twice':
+                        error = RuntimeError('fixture native failure')
+                        stderr = ('Error from server (Conflict): Operation cannot be fulfilled on '
+                            + identity['kind'] + ' "' + identity['name'] + '": the ResourceVersion in the precondition ('
+                            + version + ') does not match the ResourceVersion in record (' + str(int(version) + 1)
+                            + '). The object might have been modified\n')
+                        if mutation == 'unknown': stderr = 'Error from server (Conflict): unknown conflict\n'
+                        error.native_failure = {'exitCode': 1, 'stderr': stderr, 'stderrTruncated': False}
+                        if mutation == 'scope': receipt.value['intents']['delete-test']['scope'] = 'f' * 64
+                        if mutation == 'deadline': state['clock'] = 101.0
+                        raise error
+                    self.assertEqual(kwargs['deadline'], 15.0)
+                    return b''
+                with patch.object(proof, 'get', side_effect=get), patch.object(proof, 'kubectl', side_effect=native), \
+                     patch.object(proof.time, 'monotonic', side_effect=lambda: state['clock']):
+                    if mutation == 'success':
+                        proof.request_delete(receipt, 'delete-test', obj, scope, deadline=100)
+                        self.assertTrue(receipt.value['intents']['delete-test']['accepted'])
+                        self.assertEqual(state['bounds'], [100, 15.0])
+                    else:
+                        error = subprocess.TimeoutExpired if mutation == 'timeout' else RuntimeError
+                        with self.assertRaises(error): proof.request_delete(receipt, 'delete-test', obj, scope, deadline=100)
+                        self.assertFalse(receipt.value['intents']['delete-test']['accepted'])
+                    self.assertEqual(state['deletes'], 2 if mutation in ('success', 'twice') else 1)
 
     def test_private_first_failure_capture_preserves_original_error_and_protected_tree(self):
         with tempfile.TemporaryDirectory(dir='/root', prefix='obs-csi-failure-') as temporary:
@@ -1189,7 +1309,7 @@ class StorageProofTests(unittest.TestCase):
                 if mutation == 'spec': fresh['spec']['containers'][0]['command'] = ['python', '-c', 'pass']
                 state = {'reads': 0, 'deleted': False}
 
-                def get(kind, *unused):
+                def get(kind, *unused, **kwargs):
                     if kind == 'pod': return None
                     if kind == 'serviceaccount': return {'kind': 'ServiceAccount'}
                     self.assertEqual(kind, 'pods')
@@ -1264,9 +1384,10 @@ class StorageProofTests(unittest.TestCase):
             doc['metadata'].update(uid=uid(index), resourceVersion='8')
             roots[key] = doc
             receipt.value['objects'][key] = proof.object_id(doc)
+        roots['app']['spec']['source']['helm']['valuesObject']['phase'] = 'removed'
         for row in receipt.value['storage'].values(): row['replicas'] = replica_rows()
         state = {'pod': pod}
-        def current(identity):
+        def current(identity, *, deadline=None):
             if identity == proof.object_id(pod): return state['pod']
             return next((obj for obj in roots.values() if proof.object_id(obj) == identity), None)
         def native(*arguments, **unused):
@@ -1275,10 +1396,10 @@ class StorageProofTests(unittest.TestCase):
             state['pod'] = None
             return b''
         original_delete = proof.request_delete
-        def delete(record, key, obj, scope):
+        def delete(record, key, obj, scope, *, deadline):
             if key == 'delete-app': raise RuntimeError('synthetic interruption before App deletion')
-            return original_delete(record, key, obj, scope)
-        with patch.object(proof, 'marker_claim'), patch.object(proof, 'app_current'), patch.object(proof, 'project_guard'), \
+            return original_delete(record, key, obj, scope, deadline=deadline)
+        with patch.object(proof, 'marker_claim'), patch.object(proof, 'project_guard'), \
              patch.object(proof, 'workload_pods', return_value=[]), patch.object(proof, 'detached', return_value=True), \
              patch.object(proof, 'get', side_effect=lambda kind, *a: state['pod'] if kind == 'pod' else {'kind': 'ServiceAccount'}), \
              patch.object(proof, 'current', side_effect=current), patch.object(proof, 'kubectl', side_effect=native) as client, \

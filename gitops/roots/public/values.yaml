@@ -40,7 +40,7 @@ identity:
   enabled: true
   application:
     enabled: true
-    installationRevision: 526891f62eb9b9a50a0ffaf6ef020269d09e7746
+    installationRevision: a0a42ac02b0d351a4c56cf40e88f697f3537f19a
     supportedInstallationRevisions:
       - 526891f62eb9b9a50a0ffaf6ef020269d09e7746
       - a0a42ac02b0d351a4c56cf40e88f697f3537f19a
