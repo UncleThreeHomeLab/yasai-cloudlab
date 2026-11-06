@@ -1,6 +1,6 @@
 """Independent native settings and operation boundaries; all sources are synthetic."""
 import base64
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import copy
 import hashlib
 import json
@@ -29,8 +29,16 @@ class ObservationTests(unittest.TestCase):
         self.stack.enter_context(patch.object(native, 'receipt', side_effect=lambda path, **kwargs: self.fixture['binding'] if path == native.BINDING
             else json.loads(path.read_text()) if path.name == 'cold-maintenance.json' else self.fixture['state']))
         self.head = self.stack.enter_context(patch.object(native.source_snapshot, 'request', return_value={'protected': True, 'commit': {'sha': 'd' * 40}}))
+        self.public_events = []
+        @contextmanager
+        def metadata(state, *, deadline):
+            self.assertEqual(state, self.fixture['state'])
+            self.public_events.append('open')
+            try: yield self.head
+            finally: self.public_events.append('closed')
+        self.public_session = self.stack.enter_context(patch.object(native, 'public_metadata', side_effect=metadata))
         self.raw = self.stack.enter_context(patch.object(native.source_snapshot, 'read_url', return_value=yaml.safe_dump(self.fixture['committed']).encode()))
-        self.chart = self.stack.enter_context(patch.object(native.source_snapshot, 'chart_files', return_value=self.fixture['files']))
+        self.chart = self.stack.enter_context(patch.object(native.source_snapshot, 'chart_files', autospec=True, return_value=self.fixture['files']))
         self.api, self.client = Mock(), Mock()
         self.api.request.side_effect = [{'app_id': 1, 'repository_selection': 'selected',
             'permissions': {'contents': 'read', 'metadata': 'read'}}, {'token': 'synthetic-token'}]
@@ -55,9 +63,26 @@ class ObservationTests(unittest.TestCase):
         self.raw.return_value = yaml.safe_dump(self.fixture['committed']).encode()
         self.objects['application.argoproj.io', native.APP, 'argocd']['spec']['sources'][0]['helm']['valueFiles'][-1] = '$values/' + selected
         self.objects['externalsecret.external-secrets.io', 'cloudlab-argocd-identity-source', 'argocd']['metadata']['finalizers'] = [native.ESO_FINALIZER]
-        source = control.operation()
-        for _ in range(4):
-            self.assertEqual(control.settings(source), self.fixture['expected'])
+        acquire = native.authenticated_inputs
+        render = native.render_settings
+        def private(*args, **kwargs):
+            self.assertEqual(self.public_events, ['open', 'closed'])
+            return acquire(*args, **kwargs)
+        def settings(*args, **kwargs):
+            self.assertEqual(self.public_events, ['open', 'closed'])
+            return render(*args, **kwargs)
+        with patch.object(native, 'published_source', wraps=native.published_source) as published, \
+                patch.object(native, 'authenticated_inputs', side_effect=private), \
+                patch.object(native, 'render_settings', side_effect=settings):
+            source = control.operation()
+            for _ in range(4):
+                self.assertEqual(control.settings(source), self.fixture['expected'])
+        self.public_session.assert_called_once()
+        self.assertEqual(self.public_events, ['open', 'closed'])
+        self.assertIs(published.call_args.kwargs['fetch'], self.head)
+        self.assertIs(self.chart.call_args.kwargs['fetch'], self.head)
+        self.assertEqual(published.call_args.kwargs['deadline'], self.public_session.call_args.kwargs['deadline'])
+        self.assertEqual(self.chart.call_args.kwargs['deadline'], self.public_session.call_args.kwargs['deadline'])
         self.assertEqual(self.head.call_count, 1)
         self.assertEqual(self.raw.call_count, 1)
         self.assertEqual(self.chart.call_count, 1)
@@ -67,6 +92,30 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(self.api.request.call_args.args[2], {'repositories': ['private'], 'permissions': {'contents': 'read'}})
         self.assertIn(('GET', 'repos/example/private/contents/' + selected + '?ref=' + 'b' * 40), reads)
         self.assertFalse(any('/contents/services/catalog.json?' in args[1] for args in reads))
+
+    def test_public_metadata_failure_prevents_private_acquisition_and_writes(self):
+        for failure in ('read', 'cleanup'):
+            self.public_events.clear(); self.head.reset_mock(); self.chart.reset_mock()
+            self.head.side_effect = RuntimeError('Synthetic public read failure') if failure == 'read' else None
+            @contextmanager
+            def metadata(state, *, deadline):
+                self.assertEqual(state, self.fixture['state'])
+                self.public_events.append('open')
+                try: yield self.head
+                finally:
+                    self.public_events.append('closed')
+                    if failure == 'cleanup': raise RuntimeError('Synthetic public cleanup failure')
+            with self.subTest(failure=failure), patch.object(native, 'public_metadata', side_effect=metadata) as session, \
+                    patch.object(native, 'render_settings') as render, patch.object(native, 'kube') as write, \
+                    patch.object(control, 'sql') as sql, patch.object(control, 'grants') as grants, patch.object(control, 's3') as s3:
+                with self.assertRaisesRegex(RuntimeError, 'Synthetic public ' + failure + ' failure'):
+                    control.reconcile()
+                session.assert_called_once(); self.head.assert_called_once()
+                self.assertEqual(self.public_events, ['open', 'closed'])
+                self.assertEqual(self.chart.call_count, 0 if failure == 'read' else 1)
+                self.api.request.assert_not_called(); self.client.request.assert_not_called()
+                render.assert_not_called(); write.assert_not_called()
+                sql.assert_not_called(); grants.assert_not_called(); s3.assert_not_called()
 
     def test_missing_selected_catalog_revokes_without_legacy_fallback(self):
         from playbooks.argocd.files.github_setup import GitHubHTTPError
@@ -274,8 +323,10 @@ class ObservationTests(unittest.TestCase):
         with patch.object(native, 'GitHub', side_effect=[self.api, self.client]) as github, patch.object(native.time, 'monotonic', clock), \
                 patch.object(native, 'wait', side_effect=converge), \
                 patch.object(native, 'kube') as write:
+            sessions = self.public_session.call_count
             recovered = control.operation(recovery=True)
             self.assertTrue(recovered.settings()['maintenance'])
+            self.assertEqual(self.public_session.call_count, sessions)
             self.assertEqual(github.call_args_list[0].kwargs['deadline'], 920)
             write.assert_not_called()
 
