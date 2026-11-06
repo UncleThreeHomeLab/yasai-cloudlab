@@ -17,6 +17,7 @@ spec:
       labels: {cloudlab.io/identity-writer: 'true'}
     spec:
       serviceAccountName: identity-writer
+      automountServiceAccountToken: false
       restartPolicy: Never
       activeDeadlineSeconds: 210
       terminationGracePeriodSeconds: 20
@@ -40,6 +41,7 @@ spec:
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
           resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}
           volumeMounts:
+            - {name: kubernetes-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
             - {name: code, mountPath: /code, readOnly: true}
             - {name: imports, mountPath: /imports}
             - {name: emergency, mountPath: /emergency, readOnly: true}
@@ -95,6 +97,7 @@ spec:
             - {name: trust, mountPath: /trust, readOnly: true}
             - {name: temporary, mountPath: /tmp}
       volumes:
+{{ include "identity.kubernetes-credentials" . | indent 8 }}
         - {name: code, configMap: {name: identity-writer-code}}
         - {name: imports, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
         - {name: emergency, secret: {secretName: keycloak-emergency, defaultMode: 0440}}

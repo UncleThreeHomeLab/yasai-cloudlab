@@ -313,6 +313,7 @@ class EmergencyTests(unittest.TestCase):
                   'databaseCA': 'fixture-ca', 'trustedProxyAddresses': ['10.43.0.1/32'], 'maintenance': True,
                   'operation': self.operation()}
         objects = render(values)
+        seed_objects = objects
         job = next(row for row in objects if row['kind'] == 'Job')
         self.assertEqual(job['metadata']['annotations']['argocd.argoproj.io/hook'], 'PreSync')
         self.assertEqual(next(row['spec']['instances'] for row in objects if row['kind'] == 'Keycloak'), 0)
@@ -331,6 +332,15 @@ class EmergencyTests(unittest.TestCase):
         self.assertEqual(jobs[0]['metadata']['annotations']['argocd.argoproj.io/hook'], 'PostSync')
         images = json.loads((Path(__file__).parents[4] / 'platform/identity/keycloak/artifact.lock.json').read_text())['images']
         self.assertEqual(jobs[0]['spec']['template']['spec']['containers'][0]['image'], images['config_cli'])
+        values['operation']['action'] = 'retire-emergency'
+        retired = render(values)
+        for rows in (seed_objects, objects, retired):
+            pod = next(row for row in rows if row['kind'] == 'Job')['spec']['template']['spec']
+            self.assertIs(pod['automountServiceAccountToken'], False)
+            self.assertEqual([mount for mount in pod['initContainers'][0]['volumeMounts'] if mount['name'] == 'kubernetes-api'],
+                             [{'name': 'kubernetes-api', 'mountPath': '/var/run/secrets/kubernetes.io/serviceaccount', 'readOnly': True}])
+            self.assertFalse(any(mount['name'] == 'kubernetes-api' for container in pod['containers']
+                                 for mount in container['volumeMounts']))
         values['operation']['client'] = 'realm-writer'
         with self.assertRaises(ValueError): render(values)
 

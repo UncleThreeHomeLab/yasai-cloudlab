@@ -12,6 +12,42 @@ if not (ROOT / 'platform').is_dir():
 BASE = ROOT / 'platform/identity/keycloak'
 
 
+def writer_credentials(objects):
+    """Keep the writer's Kubernetes identity inside its API-using init container."""
+    accounts = [obj for obj in objects if obj['kind'] == 'ServiceAccount' and obj['metadata']['name'] == 'identity-writer']
+    templates = [obj['spec']['jobTemplate']['spec']['template'] if obj['kind'] == 'CronJob'
+                 else obj['spec']['template'] for obj in objects if obj['kind'] in ('Job', 'CronJob')]
+    pods = [item['spec'] for item in templates if item['spec'].get('serviceAccountName') == 'identity-writer' or
+            item.get('metadata', {}).get('labels', {}).get('cloudlab.io/identity-writer') == 'true']
+    if not accounts and not pods:
+        return
+    if len(accounts) != 1 or accounts[0].get('automountServiceAccountToken') is not False:
+        raise ValueError('Identity writer ServiceAccount must disable automatic credentials')
+    volume = {'name': 'kubernetes-api', 'projected': {'defaultMode': 0o440, 'sources': [
+        {'serviceAccountToken': {'path': 'token', 'expirationSeconds': 600}},
+        {'configMap': {'name': 'kube-root-ca.crt', 'items': [{'key': 'ca.crt', 'path': 'ca.crt'}]}},
+        {'downwardAPI': {'items': [{'path': 'namespace', 'fieldRef': {
+            'apiVersion': 'v1', 'fieldPath': 'metadata.namespace'}}]}}]}}
+    mount = {'name': volume['name'], 'mountPath': '/var/run/secrets/kubernetes.io/serviceaccount', 'readOnly': True}
+    for pod in pods:
+        if pod.get('serviceAccountName') != 'identity-writer' or pod.get('automountServiceAccountToken') is not False:
+            raise ValueError('Identity writer pods must disable automatic credentials')
+        volumes = pod.get('volumes', [])
+        if [item for item in volumes if item.get('name') == volume['name']] != [volume] or any(
+                'serviceAccountToken' in source for item in volumes if item.get('name') != volume['name']
+                for source in item.get('projected', {}).get('sources', [])):
+            raise ValueError('Identity writer requires its exact short-lived credential projection')
+        inits = [item for item in pod.get('initContainers', []) if item.get('name') == 'validate-and-lock']
+        if len(inits) != 1:
+            raise ValueError('Identity writer requires its API-using init container')
+        for container in pod.get('initContainers', []) + pod.get('containers', []) + pod.get('ephemeralContainers', []):
+            mounts = [item for item in container.get('volumeMounts', [])
+                      if item.get('name') == volume['name'] or item.get('mountPath') == mount['mountPath']]
+            if mounts != ([mount] if container is inits[0] else []) or any(
+                    item.get('name') == volume['name'] for item in container.get('volumeDevices', [])):
+                raise ValueError('Only the identity writer init container may mount Kubernetes credentials')
+
+
 def render(values=None):
     command = ['helm', 'template', 'cloudlab-keycloak', str(BASE), '--namespace', 'cloudlab-identity',
                '--kube-version', '1.36.5', '--values', '-']
@@ -21,7 +57,9 @@ def render(values=None):
         raise ValueError('Identity chart render failed: ' + outputs[0].stderr)
     if outputs[0].stdout != outputs[1].stdout:
         raise ValueError('Identity chart rendering is not deterministic')
-    return [obj for obj in yaml.safe_load_all(outputs[0].stdout) if obj]
+    objects = [obj for obj in yaml.safe_load_all(outputs[0].stdout) if obj]
+    writer_credentials(objects)
+    return objects
 
 
 def check():
