@@ -75,6 +75,7 @@ def compact_history():
             raise RuntimeError('Telemetry history Application replaced; inspect ownership before retrying')
         patches = history_patches(current)
         if patches:
+            writer_guard.inspect(get, inspected['spec']['source']['repoURL'])
             writer_guard.check_fence()
             kube('patch', 'application.argoproj.io', 'cloudlab-prometheus', '-n', 'argocd',
                  '--type=json', '-p', json.dumps(patches))
@@ -90,6 +91,7 @@ def seed(payload, name):
     writer_guard.check_child(current, desired['metadata']['name'], payload['repository'])
     changed = not current or not contains(current, desired)
     if changed:
+        writer_guard.inspect(get, payload['repository'])
         writer_guard.check_fence()
         if not current:
             kube('create', '--field-manager=' + OWNER, '-f', '-', document=desired)

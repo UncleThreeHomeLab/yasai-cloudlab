@@ -386,7 +386,8 @@ class NativeAPI:
             raise
 
 
-def install_argocd(api, directory, archive, lock_path, values_path, baseline_health=False):
+def install_argocd(api, directory, archive, lock_path, values_path, baseline_health=False, *, application_sets=False):
+    require(type(application_sets) is bool, "ApplicationSet fixture opt-in requires a boolean")
     lock = json.loads(Path(lock_path).read_text())
     archive = Path(archive)
     require(hashlib.sha256(archive.read_bytes()).hexdigest() == lock['chart']['sha256'], 'Argo chart checksum mismatch')
@@ -394,7 +395,7 @@ def install_argocd(api, directory, archive, lock_path, values_path, baseline_hea
     if baseline_health:
         config['configs']['cm'].pop('resource.customizations.health.argoproj.io_Application', None)
     config['server']['replicas'] = 0
-    config['applicationSet']['replicas'] = 0
+    config['applicationSet']['replicas'] = 1 if application_sets else 0
     config['redisSecretInit']['enabled'] = False
     config['configs']['cm']['timeout.reconciliation'] = '5s'
     config['configs']['cm']['timeout.reconciliation.jitter'] = '0s'
@@ -406,7 +407,10 @@ def install_argocd(api, directory, archive, lock_path, values_path, baseline_hea
     documents = [obj for obj in yaml.safe_load_all(rendered) if obj]
     running = {obj['metadata']['name'] for obj in documents if obj['kind'] in ('Deployment', 'StatefulSet')
                and obj['spec'].get('replicas', 1) > 0}
-    require(running == {'argocd-repo-server', 'argocd-redis', 'argocd-application-controller'},
+    expected_running = {'argocd-repo-server', 'argocd-redis', 'argocd-application-controller'}
+    if application_sets:
+        expected_running.add('argocd-applicationset-controller')
+    require(running == expected_running,
             'Unexpected active fixture controller')
     images = {container['image'] for obj in documents for container in
               obj.get('spec', {}).get('template', {}).get('spec', {}).get('containers', []) +

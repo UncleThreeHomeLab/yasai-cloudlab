@@ -46,31 +46,46 @@ spec:
 {{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: ApplicationSet
 metadata:
   name: cloudlab-observability-gitops
   namespace: argocd
   labels: {cloudlab.io/owner: observability-platform}
-  annotations: {argocd.argoproj.io/skip-reconcile: {{ $configuration.paused | quote }}}
+  annotations: {argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
 spec:
-  project: cloudlab-observability-gitops
-  sources:
-    - repoURL: {{ .Values.repository | quote }}
-      targetRevision: {{ $configuration.revision | quote }}
-      path: platform/observability/gitops
-      helm:
-        releaseName: cloudlab-observability-gitops
-        valueFiles: [{{ printf "$values/%s" $catalogPath | quote }}, '$values/platform/observability.yaml']
-        valuesObject:
-          nativeSource:
-            repository: {{ .Values.repository | quote }}
-            revision: {{ $configuration.revision | quote }}
-            valuesRepository: {{ .Values.identity.argo.valuesRepository | quote }}
-    - repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
-      targetRevision: main
-      ref: values
-  destination: {server: 'https://kubernetes.default.svc', namespace: argocd}
-  syncPolicy:
-    automated: {enabled: {{ not $configuration.paused }}, prune: false, selfHeal: {{ not $configuration.paused }}, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - merge:
+        mergeKeys: [consumer]
+        generators:
+          - list:
+              elements: [{consumer: observability}]
+          - git:
+              repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              files: [{path: platform/acceptance/observability.yaml}]
+  syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
+  template:
+    metadata:
+      name: cloudlab-observability-gitops
+      labels: {cloudlab.io/owner: observability-platform}
+      annotations:
+        argocd.argoproj.io/skip-reconcile: {{ $configuration.paused | quote }}
+        argocd.argoproj.io/compare-options: IgnoreExtraneous
+        argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
+        argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-observability-gitops
+    spec:
+{{- $private := .Values.identity.argo.valuesRepository }}
+{{- $nativeSource := dict "repository" .Values.repository "revision" $configuration.revision "valuesRepository" $private "paused" $configuration.paused "activationQualification" ($configuration.activationQualification | default "") }}
+{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("observability" | toJson) | replace "@@PRIVATE_REPOSITORY@@" ($private | toJson) | replace "@@COMMITMENT@@" ($configuration.acceptanceCommitment | toJson) | replace "@@PATHS_LF@@" (printf "%s\nplatform/observability.yaml" $catalogPath | toJson) | trim }}
+{{- $spec := dict "project" "cloudlab-observability-gitops" "sources" (list
+  (dict "repoURL" .Values.repository "targetRevision" $configuration.revision "path" "platform/observability/gitops" "helm" (dict
+    "releaseName" "cloudlab-observability-gitops" "valueFiles" (list (printf "$values/%s" $catalogPath) "$values/platform/observability.yaml")
+    "valuesObject" (dict "nativeSource" $nativeSource)))
+  (dict "repoURL" $private "targetRevision" $gate "ref" "values"))
+  "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
+  "syncPolicy" (dict "automated" (dict "enabled" (not $configuration.paused) "prune" false "selfHeal" (not $configuration.paused) "allowEmpty" false)
+    "syncOptions" (list "FailOnSharedResource=true" "DisableClientSideApplyMigration=true")) }}
+{{ toYaml $spec | indent 6 }}
 {{- end }}

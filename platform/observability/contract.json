@@ -88,10 +88,10 @@
     ],
     "input_key": "observabilityInputs",
     "trust": "Platform-reviewed values; merged Helm schema does not establish per-file tenant isolation",
-    "sources": "Public configuration enabled/paused/revision; disabled and paused by default. One private main checkout supplies catalog and platform inputs; all six children use only the pinned public source.",
+    "sources": "Public enabled/paused/revision/acceptanceCommitment selects one accepted immutable private catalog and platform revision; all six children use the pinned public source.",
     "provenance": "cloudlab.io/observability-input-digest hashes catalog, observabilityInputs, platformNotifications, serviceObservability and alertmanagerState. It is content provenance, not a Git revision. Actual private SHA requires successful parent sync.revisions with matching compared sources; legacy service catalog revision remains separate.",
-    "activation": "Enable automatic sync only after guarded writer handoff and identity DNS qualification; enabled/paused renders skip-reconcile true and automatic sync explicitly false.",
-    "legacy_guard": "Both legacy writers inspect the native parent and all six children before writes. Any protected retirement fence blocks writes. Handoff must hold main then history lock before fencing or adoption; history recovery takes only its own lock.",
+    "activation": "Public pause holds the parent for adoption. Guarded handoff must hold all six children explicitly before Git release; re-pausing the parent does not suspend active children.",
+    "legacy_guard": "Both legacy writers inspect ApplicationSets, parent and six children before writes; OBS-capable or ambiguous Sets and retirement fences block writes. Handoff requires authenticated coexistence evidence and main then history locks.",
     "runtime_proof": "VM credentials only; run ansible-playbook -i inventory.yml playbooks/observability/tests/runtime-proof.yml through the existing Compose lab image from a clean reviewed checkout, twice. Installs retained server modules, probes authority read-only and checks worker absence; no full setup, vault, private publication or workload convergence.",
     "notifications": "platformNotifications; disabled defaults; candidate transport requires qualified connections and existing dedicated Secret delivery before activation"
   },
@@ -126,5 +126,217 @@
     "other_applications": "Application health propagation stays disabled for other Applications. Their resource badge in the parent is Healthy for ordering only; child Application health is unchanged.",
     "retention": "Native child pruning removes ordinary configuration; Namespace, StorageClass, CRDs, shared ESO and persistent data retain protection. Loki claims use Retain/Retain, Tempo claim auto-deletion is disabled and Grafana PVC is non-prunable.",
     "issuer": "Native OIDC uses canonical login DNS and the existing private gateway with exact namespace/pod egress; no host alias or DNS owner is added."
+  },
+  "ownership_handoff": {
+    "input": "platform/observability.yaml ownershipHandoff",
+    "version": "cloudlab-observability-handoff/v1",
+    "schema": "platform/observability/gitops/values.schema.json#/properties/ownershipHandoff",
+    "qualification_registry": "platform/observability/gitops/handoff-profiles.json",
+    "qualification_schema": "platform/observability/gitops/values.schema.json#/properties/ownershipHandoff/properties/qualifications",
+    "approval": "Exact reviewed private baseline declarations require acceptedprivateSHA and public acceptanceCommitment. Live objects verify equality; never supply missing declarations.",
+    "activation": "Every phase requires exact reviewed qualification references. Mechanism rehearsal binds a private target cluster UID to a public SHA-256 commitment; only full C2 entrypoint integration permits native activation.",
+    "phases": {
+      "baseline": {
+        "applicationMode": "approved-baseline",
+        "skipReconcile": false,
+        "automated": {
+          "enabled": false,
+          "prune": false,
+          "selfHeal": false,
+          "allowEmpty": false
+        },
+        "baselineResourceDeltas": [
+          {
+            "apiVersion": "v1",
+            "kind": "ResourceQuota",
+            "namespace": "cloudlab-observability",
+            "name": "telemetry-budget",
+            "action": "change",
+            "fields": [
+              "/spec/hard/requests.storage",
+              "/spec/hard/persistentvolumeclaims"
+            ],
+            "condition": "quotaIncrease"
+          }
+        ]
+      },
+      "maintenance": {
+        "applicationMode": "approved-baseline",
+        "skipReconcile": false,
+        "automated": {
+          "enabled": false,
+          "prune": false,
+          "selfHeal": false,
+          "allowEmpty": false
+        },
+        "baselineResourceDeltas": [
+          {
+            "apiVersion": "v1",
+            "kind": "ResourceQuota",
+            "namespace": "cloudlab-observability",
+            "name": "telemetry-budget",
+            "action": "change",
+            "fields": [
+              "/spec/hard/requests.storage",
+              "/spec/hard/persistentvolumeclaims"
+            ],
+            "condition": "quotaIncrease"
+          },
+          {
+            "apiVersion": "security.istio.io/v1",
+            "kind": "AuthorizationPolicy",
+            "namespace": "cloudlab-observability",
+            "name": "cloudlab-observability-handoff-write-deny",
+            "action": "present",
+            "fields": [
+              "/spec"
+            ]
+          },
+          {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "namespace": "cloudlab-observability",
+            "name": "alertmanager-cloudlab",
+            "action": "change",
+            "fields": [
+              "/data/alertmanager.yaml"
+            ]
+          }
+        ]
+      },
+      "persistent-maintenance": {
+        "applicationMode": "approved-baseline",
+        "skipReconcile": false,
+        "automated": {
+          "enabled": false,
+          "prune": false,
+          "selfHeal": false,
+          "allowEmpty": false
+        },
+        "baselineResourceDeltas": [
+          {
+            "apiVersion": "v1",
+            "kind": "ResourceQuota",
+            "namespace": "cloudlab-observability",
+            "name": "telemetry-budget",
+            "action": "change",
+            "fields": [
+              "/spec/hard/requests.storage",
+              "/spec/hard/persistentvolumeclaims"
+            ],
+            "condition": "quotaIncrease"
+          },
+          {
+            "apiVersion": "security.istio.io/v1",
+            "kind": "AuthorizationPolicy",
+            "namespace": "cloudlab-observability",
+            "name": "cloudlab-observability-handoff-write-deny",
+            "action": "present",
+            "fields": [
+              "/spec"
+            ]
+          },
+          {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "namespace": "cloudlab-observability",
+            "name": "alertmanager-cloudlab",
+            "action": "change",
+            "fields": [
+              "/data/alertmanager.yaml"
+            ]
+          },
+          {
+            "apiVersion": "monitoring.coreos.com/v1",
+            "kind": "Alertmanager",
+            "namespace": "cloudlab-observability",
+            "name": "cloudlab",
+            "action": "change",
+            "fields": [
+              "/spec/storage",
+              "/spec/persistentVolumeClaimRetentionPolicy"
+            ]
+          }
+        ]
+      },
+      "persistent-normal": {
+        "applicationMode": "approved-baseline",
+        "skipReconcile": false,
+        "automated": {
+          "enabled": false,
+          "prune": false,
+          "selfHeal": false,
+          "allowEmpty": false
+        },
+        "baselineResourceDeltas": [
+          {
+            "apiVersion": "v1",
+            "kind": "ResourceQuota",
+            "namespace": "cloudlab-observability",
+            "name": "telemetry-budget",
+            "action": "change",
+            "fields": [
+              "/spec/hard/requests.storage",
+              "/spec/hard/persistentvolumeclaims"
+            ],
+            "condition": "quotaIncrease"
+          },
+          {
+            "apiVersion": "monitoring.coreos.com/v1",
+            "kind": "Alertmanager",
+            "namespace": "cloudlab-observability",
+            "name": "cloudlab",
+            "action": "change",
+            "fields": [
+              "/spec/storage",
+              "/spec/persistentVolumeClaimRetentionPolicy"
+            ]
+          }
+        ]
+      },
+      "native-paused": {
+        "applicationMode": "canonical-native",
+        "skipReconcile": true,
+        "automated": {
+          "enabled": false,
+          "prune": false,
+          "selfHeal": false,
+          "allowEmpty": false
+        },
+        "baselineResourceDeltas": []
+      },
+      "native": {
+        "applicationMode": "canonical-native",
+        "skipReconcile": false,
+        "automated": {
+          "enabled": true,
+          "prune": true,
+          "selfHeal": true,
+          "allowEmpty": false
+        },
+        "baselineResourceDeltas": []
+      }
+    },
+    "storage_profile": "alertmanager-retained-1gi-v1",
+    "storage_gate": "Fresh target claim must be preseeded and validated while original source remains alive, before Alertmanager CR synchronization.",
+    "quiescence_gate": {
+      "required_live_evidence": [
+        "Complete actual operator watch scope",
+        "No selected AlertmanagerConfigs",
+        "Zero effective Alertmanager integrations"
+      ],
+      "empty_selectors_prevent_config_merge": false,
+      "rendering_proves_isolation": false
+    },
+    "holds": "Intermediate children disable automated enabled/prune/selfHeal, keep skip-reconcile false, and permit only bounded explicit Argo operations after checking no outstanding operation.",
+    "provenance_annotations": [
+      "cloudlab.io/observability-handoff-operation",
+      "cloudlab.io/observability-handoff-phase",
+      "cloudlab.io/observability-handoff-baseline"
+    ],
+    "delta_scope": "Intermediate resource deltas compare with the reviewed baseline; omitted resources and fields must remain equal. Native phases use qualified canonical chart output.",
+    "target": "The first protected baseline discovery checks live identity and reviewed scope before granting read access, then seals ownershipHandoff.targetClusterUID from uniform native Application provenance. Later grants, fencing and continuation require the sealed private, live and scope identities to match; mismatch terminates the operation.",
+    "evidence": "handoff-evidence.json binds scope, observed cluster identity, five component references and native mechanism reports or the complete baseline-to-native-paused execution chain. Raw identity and evidence remain private.",
+    "activation_qualification": "Public observability.configuration.activationQualification references reviewed full handoff-evidence.json. Root always supplies its pointer or empty preparation sentinel at highest precedence; private values cannot replace it. The parent requires full qualification for active canonical graphs and native phase, including when ownershipHandoff is absent."
   }
 }

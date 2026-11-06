@@ -3,7 +3,7 @@ import os
 
 
 def identity_prepare():
-    from playbooks.observability.files.payload import metadata
+    from playbooks.observability.files.discovery import metadata
     from playbooks.observability.files.identity import provision
     from playbooks.argocd.files.github_setup import inputs
     values, api = inputs()

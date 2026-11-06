@@ -1,0 +1,24 @@
+{
+  "version": "cloudlab-observability-handoff-profiles/v1",
+  "requiredProfiles": {
+    "checkpoint": "cloudlab-observability-qualification/v1",
+    "lifecycle": "cloudlab-observability-qualification/v1",
+    "storage": "cloudlab-observability-qualification/v1",
+    "source": "cloudlab-observability-qualification/v1",
+    "transport": "cloudlab-observability-qualification/v1",
+    "handoff": "cloudlab-observability-qualification/v1"
+  },
+  "acceptedArtifacts": {},
+  "storageProfiles": {
+    "alertmanager-retained-1gi-v1": {
+      "namespace": "cloudlab-observability",
+      "claim": "alertmanager-cloudlab-db-alertmanager-cloudlab-0",
+      "storageClassName": "cloudlab-telemetry",
+      "accessModes": ["ReadWriteOnce"],
+      "storage": "1Gi",
+      "volumeMode": "Filesystem",
+      "persistentVolumeClaimRetentionPolicy": {"whenDeleted": "Retain", "whenScaled": "Retain"},
+      "volumeClaimTemplateName": null
+    }
+  }
+}

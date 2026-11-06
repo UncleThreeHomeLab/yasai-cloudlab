@@ -16,6 +16,9 @@
         "valuesRepository"
       ],
       "properties": {
+        "paused": {
+          "type": "boolean"
+        },
         "repository": {
           "type": "string",
           "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$"
@@ -27,6 +30,13 @@
         "valuesRepository": {
           "type": "string",
           "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$"
+        },
+        "activationQualification": {
+          "type": "string",
+          "pattern": "^([a-f0-9]{64})?$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
         }
       }
     },
@@ -1017,6 +1027,421 @@
           }
         }
       }
+    },
+    "ownershipHandoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": "cloudlab-observability-handoff/v1"
+        },
+        "operationId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$"
+        },
+        "phase": {
+          "enum": [
+            "baseline",
+            "maintenance",
+            "persistent-maintenance",
+            "persistent-normal",
+            "native-paused",
+            "native"
+          ]
+        },
+        "baselineApplications": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cloudlab-observability": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffApplication"
+                },
+                {
+                  "properties": {
+                    "metadata": {
+                      "properties": {
+                        "name": {
+                          "const": "cloudlab-observability"
+                        }
+                      }
+                    },
+                    "spec": {
+                      "properties": {
+                        "revisionHistoryLimit": {
+                          "const": 10
+                        },
+                        "source": {
+                          "properties": {
+                            "path": {
+                              "const": "platform/observability"
+                            },
+                            "helm": {
+                              "properties": {
+                                "releaseName": {
+                                  "const": "cloudlab-observability"
+                                }
+                              },
+                              "required": [
+                                "valuesObject"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "cloudlab-prometheus": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffApplication"
+                },
+                {
+                  "properties": {
+                    "metadata": {
+                      "properties": {
+                        "name": {
+                          "const": "cloudlab-prometheus"
+                        }
+                      }
+                    },
+                    "spec": {
+                      "properties": {
+                        "revisionHistoryLimit": {
+                          "const": 0
+                        },
+                        "source": {
+                          "properties": {
+                            "path": {
+                              "const": "platform/observability/prometheus"
+                            },
+                            "helm": {
+                              "properties": {
+                                "releaseName": {
+                                  "const": "cloudlab-prometheus"
+                                }
+                              },
+                              "required": [
+                                "valuesObject"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "cloudlab-loki": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffApplication"
+                },
+                {
+                  "properties": {
+                    "metadata": {
+                      "properties": {
+                        "name": {
+                          "const": "cloudlab-loki"
+                        }
+                      }
+                    },
+                    "spec": {
+                      "properties": {
+                        "revisionHistoryLimit": {
+                          "const": 10
+                        },
+                        "source": {
+                          "properties": {
+                            "path": {
+                              "const": "platform/observability/loki"
+                            },
+                            "helm": {
+                              "properties": {
+                                "releaseName": {
+                                  "const": "cloudlab-loki"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "cloudlab-tempo": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffApplication"
+                },
+                {
+                  "properties": {
+                    "metadata": {
+                      "properties": {
+                        "name": {
+                          "const": "cloudlab-tempo"
+                        }
+                      }
+                    },
+                    "spec": {
+                      "properties": {
+                        "revisionHistoryLimit": {
+                          "const": 10
+                        },
+                        "source": {
+                          "properties": {
+                            "path": {
+                              "const": "platform/observability/tempo"
+                            },
+                            "helm": {
+                              "properties": {
+                                "releaseName": {
+                                  "const": "cloudlab-tempo"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "cloudlab-alloy": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffApplication"
+                },
+                {
+                  "properties": {
+                    "metadata": {
+                      "properties": {
+                        "name": {
+                          "const": "cloudlab-alloy"
+                        }
+                      }
+                    },
+                    "spec": {
+                      "properties": {
+                        "revisionHistoryLimit": {
+                          "const": 10
+                        },
+                        "source": {
+                          "properties": {
+                            "path": {
+                              "const": "platform/observability/alloy"
+                            },
+                            "helm": {
+                              "properties": {
+                                "releaseName": {
+                                  "const": "cloudlab-alloy"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "cloudlab-kiali": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffApplication"
+                },
+                {
+                  "properties": {
+                    "metadata": {
+                      "properties": {
+                        "name": {
+                          "const": "cloudlab-kiali"
+                        }
+                      }
+                    },
+                    "spec": {
+                      "properties": {
+                        "revisionHistoryLimit": {
+                          "const": 10
+                        },
+                        "source": {
+                          "properties": {
+                            "path": {
+                              "const": "platform/observability/kiali"
+                            },
+                            "helm": {
+                              "properties": {
+                                "releaseName": {
+                                  "const": "cloudlab-kiali"
+                                }
+                              },
+                              "required": [
+                                "valuesObject"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "cloudlab-observability",
+            "cloudlab-prometheus",
+            "cloudlab-loki",
+            "cloudlab-tempo",
+            "cloudlab-alloy",
+            "cloudlab-kiali"
+          ]
+        },
+        "qualifications": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffQualification"
+                },
+                {
+                  "properties": {
+                    "profile": {
+                      "const": "checkpoint"
+                    }
+                  }
+                }
+              ]
+            },
+            "lifecycle": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffQualification"
+                },
+                {
+                  "properties": {
+                    "profile": {
+                      "const": "lifecycle"
+                    }
+                  }
+                }
+              ]
+            },
+            "storage": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffQualification"
+                },
+                {
+                  "properties": {
+                    "profile": {
+                      "const": "storage"
+                    }
+                  }
+                }
+              ]
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffQualification"
+                },
+                {
+                  "properties": {
+                    "profile": {
+                      "const": "source"
+                    }
+                  }
+                }
+              ]
+            },
+            "transport": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffQualification"
+                },
+                {
+                  "properties": {
+                    "profile": {
+                      "const": "transport"
+                    }
+                  }
+                }
+              ]
+            },
+            "handoff": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/handoffQualification"
+                },
+                {
+                  "properties": {
+                    "profile": {
+                      "const": "handoff"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "checkpoint",
+            "lifecycle",
+            "storage",
+            "source",
+            "transport",
+            "handoff"
+          ]
+        },
+        "approvedStorageTarget": {
+          "const": "alertmanager-retained-1gi-v1"
+        },
+        "quotaIncrease": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestsStorageGiB": {
+              "type": "integer",
+              "minimum": 72,
+              "maximum": 73
+            },
+            "persistentVolumeClaims": {
+              "const": 6
+            }
+          },
+          "required": [
+            "requestsStorageGiB",
+            "persistentVolumeClaims"
+          ]
+        },
+        "targetClusterUID": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        }
+      },
+      "required": [
+        "version",
+        "operationId",
+        "phase",
+        "baselineApplications",
+        "qualifications",
+        "approvedStorageTarget",
+        "targetClusterUID"
+      ]
     }
   },
   "$defs": {
@@ -1039,6 +1464,464 @@
         "name",
         "key"
       ]
+    },
+    "handoffJson": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string",
+          "maxLength": 65536
+        },
+        {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/handoffJson"
+          }
+        },
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "maxLength": 160
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/handoffJson"
+          }
+        }
+      ]
+    },
+    "handoffApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "const": "argoproj.io/v1alpha1"
+        },
+        "kind": {
+          "const": "Application"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "enum": [
+                "cloudlab-observability",
+                "cloudlab-prometheus",
+                "cloudlab-loki",
+                "cloudlab-tempo",
+                "cloudlab-alloy",
+                "cloudlab-kiali"
+              ]
+            },
+            "namespace": {
+              "const": "argocd"
+            },
+            "labels": {
+              "const": {
+                "cloudlab.io/owner": "observability-platform"
+              }
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "argocd.argoproj.io/skip-reconcile": {
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                },
+                "cloudlab.io/observability-input-digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "cloudlab.io/observability-health": {
+                  "const": "required"
+                },
+                "argocd.argoproj.io/sync-wave": {
+                  "enum": [
+                    "-20",
+                    "0"
+                  ]
+                },
+                "cloudlab.io/notification-delivery": {
+                  "enum": [
+                    "candidate",
+                    "unconfigured"
+                  ]
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "name",
+            "namespace",
+            "labels"
+          ]
+        },
+        "spec": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "project": {
+              "const": "cloudlab-observability"
+            },
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repoURL": {
+                  "type": "string",
+                  "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$"
+                },
+                "targetRevision": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "path": {
+                  "enum": [
+                    "platform/observability",
+                    "platform/observability/prometheus",
+                    "platform/observability/loki",
+                    "platform/observability/tempo",
+                    "platform/observability/alloy",
+                    "platform/observability/kiali"
+                  ]
+                },
+                "helm": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "releaseName": {
+                      "enum": [
+                        "cloudlab-observability",
+                        "cloudlab-prometheus",
+                        "cloudlab-loki",
+                        "cloudlab-tempo",
+                        "cloudlab-alloy",
+                        "cloudlab-kiali"
+                      ]
+                    },
+                    "valuesObject": {
+                      "type": "object",
+                      "maxProperties": 64,
+                      "additionalProperties": {
+                        "$ref": "#/$defs/handoffJson"
+                      }
+                    },
+                    "valueFiles": {
+                      "const": [
+                        "values.json"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "releaseName"
+                  ]
+                }
+              },
+              "required": [
+                "repoURL",
+                "targetRevision",
+                "path",
+                "helm"
+              ]
+            },
+            "destination": {
+              "const": {
+                "server": "https://kubernetes.default.svc",
+                "namespace": "cloudlab-observability"
+              }
+            },
+            "revisionHistoryLimit": {
+              "enum": [
+                0,
+                10
+              ]
+            },
+            "syncPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "automated": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "prune": {
+                      "type": "boolean"
+                    },
+                    "selfHeal": {
+                      "type": "boolean"
+                    },
+                    "allowEmpty": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "prune",
+                    "selfHeal",
+                    "allowEmpty"
+                  ]
+                },
+                "syncOptions": {
+                  "oneOf": [
+                    {
+                      "const": [
+                        "FailOnSharedResource=true",
+                        "ServerSideApply=true",
+                        "DisableClientSideApplyMigration=true"
+                      ]
+                    },
+                    {
+                      "const": [
+                        "FailOnSharedResource=true",
+                        "ServerSideApply=true",
+                        "DisableClientSideApplyMigration=true",
+                        "PruneLast=true"
+                      ]
+                    }
+                  ]
+                },
+                "retry": {
+                  "const": {
+                    "limit": 5,
+                    "backoff": {
+                      "duration": "10s",
+                      "factor": 2,
+                      "maxDuration": "1m"
+                    }
+                  }
+                }
+              },
+              "required": [
+                "automated",
+                "syncOptions",
+                "retry"
+              ]
+            }
+          },
+          "required": [
+            "project",
+            "source",
+            "destination",
+            "revisionHistoryLimit",
+            "syncPolicy"
+          ]
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ]
+    },
+    "handoffQualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": "cloudlab-observability-qualification/v1"
+        },
+        "profile": {
+          "enum": [
+            "checkpoint",
+            "lifecycle",
+            "storage",
+            "source",
+            "transport",
+            "handoff"
+          ]
+        },
+        "codeRevision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "moduleDigests": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_./-]{0,159}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "artifactDigests": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_./-]{0,159}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "imagePins": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$"
+          }
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "targetClusterUIDSHA256"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "mechanism-rehearsal"
+                },
+                "targetClusterUIDSHA256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "not": {
+                    "const": "0000000000000000000000000000000000000000000000000000000000000000"
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "full-entrypoint-integration"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "profile",
+        "codeRevision",
+        "moduleDigests",
+        "artifactDigests",
+        "imagePins"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "profile": {
+                "const": "handoff"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "artifactDigests": {
+                "required": [
+                  "handoff-evidence.json"
+                ]
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "ownershipHandoff"
+            ],
+            "properties": {
+              "ownershipHandoff": {
+                "required": [
+                  "phase"
+                ],
+                "properties": {
+                  "phase": {
+                    "const": "native"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "ownershipHandoff"
+              ]
+            },
+            "properties": {
+              "nativeSource": {
+                "required": [
+                  "paused"
+                ],
+                "properties": {
+                  "paused": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "nativeSource": {
+            "required": [
+              "activationQualification"
+            ],
+            "properties": {
+              "activationQualification": {
+                "minLength": 64
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

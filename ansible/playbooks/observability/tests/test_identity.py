@@ -18,7 +18,7 @@ class ClientContractTests(unittest.TestCase):
             order.append('inspection')
             return {'metadata': True}
         with patch('playbooks.argocd.files.github_setup.inputs', side_effect=inputs), \
-                patch('playbooks.observability.files.payload.metadata', side_effect=metadata), \
+                patch('playbooks.observability.files.discovery.metadata', side_effect=metadata), \
                 patch('playbooks.observability.files.identity.provision', return_value={'private_source_changed': False}) as publish, \
                 patch.dict('os.environ', {}, clear=True):
             self.assertEqual(identity_prepare(), {'private_source_changed': False})

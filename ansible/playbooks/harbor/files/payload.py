@@ -3,7 +3,7 @@ import json
 import os
 
 from playbooks.argocd.files.render import committed_payload
-from playbooks.observability.files.payload import metadata
+from playbooks.observability.files.discovery import metadata
 from playbooks.harbor.files.values import values
 from playbooks.harbor.files.configuration import client
 

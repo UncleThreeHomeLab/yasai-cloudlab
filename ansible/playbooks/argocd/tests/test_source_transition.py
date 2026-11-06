@@ -40,6 +40,29 @@ class SourceTransitionTests(unittest.TestCase):
                     patch.object(migration, 'wait_application', side_effect=AssertionError('mutating wait')):
                 self.assertEqual(migration.accepted_identity_binding(**arguments), receipt['target'])
 
+    def test_injected_binding_readers_preserve_checks_without_local_fallback(self):
+        objects, receipt, arguments = self.accepted_fixture()
+        readers = {'read_receipt': lambda: receipt, 'read': lambda *key: objects[key]}
+        with patch.object(migration, 'get', side_effect=AssertionError('local Kubernetes fallback')), \
+                patch.object(Path, 'read_text', side_effect=AssertionError('local receipt fallback')):
+            self.assertEqual(migration.accepted_identity_binding(**arguments, **readers), receipt['target'])
+            objects['statefulset', migration.CONTROLLER]['metadata']['uid'] = 'replacement'
+            with self.assertRaisesRegex(RuntimeError, 'resource identity changed'):
+                migration.accepted_identity_binding(**arguments, **readers)
+            readers['read_receipt'] = lambda: (_ for _ in ()).throw(OSError('reader unavailable'))
+            with self.assertRaisesRegex(RuntimeError, 'receipt is unavailable'):
+                migration.accepted_identity_binding(**arguments, **readers)
+
+    def test_injected_binding_requires_both_callable_readers(self):
+        _, receipt, arguments = self.accepted_fixture()
+        for readers in ({'read_receipt': lambda: receipt}, {'read': lambda *_: {}},
+                        {'read_receipt': receipt, 'read': lambda *_: {}},
+                        {'read_receipt': lambda: receipt, 'read': {}}):
+            with self.subTest(readers=tuple(readers)), patch.object(migration, 'get') as local, \
+                    self.assertRaisesRegex(ValueError, 'both callable readers'):
+                migration.accepted_identity_binding(**arguments, **readers)
+            local.assert_not_called()
+
     def test_binding_reader_rejects_missing_malformed_pending_or_changed_native_contract(self):
         for change in ('missing', 'malformed', 'phase', 'target-key', 'target-sha', 'private-repo', 'uid', 'deleting', 'root-repo',
                        'branch', 'overlay', 'identity-disabled', 'not-synced', 'revision', 'unhealthy', 'operation', 'compared', 'grant'):

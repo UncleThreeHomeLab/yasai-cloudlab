@@ -53,6 +53,8 @@ observability:
     enabled: false
     paused: true
     revision: ''
+    acceptanceCommitment: ''
+    activationQualification: ''
 harbor:
   enabled: true
 admission:

@@ -98,9 +98,55 @@ def check_parent(current, repository=None):
         refuse()
 
 
+def check_application_sets(current):
+    """No native Set coexistence until authenticated handoff evidence is supported."""
+    if (not isinstance(current, dict) or not isinstance(current.get('items'), list)
+            or len(current['items']) > 128):
+        refuse()
+    protected = (PARENT, *CHILDREN)
+    def overrides(value):
+        if isinstance(value, dict):
+            return any(key in ('template', 'templatePatch') or overrides(item) for key, item in value.items())
+        return isinstance(value, list) and any(overrides(item) for item in value)
+    for obj in current['items']:
+        metadata, spec = obj.get('metadata', {}), obj.get('spec', {})
+        template = spec.get('template', {})
+        name = template.get('metadata', {}).get('name', '')
+        project = template.get('spec', {}).get('project', '')
+        # A literal name prefix cannot be removed by generator substitutions.
+        prefix = name.split('{{', 1)[0] if isinstance(name, str) else ''
+        if (obj.get('apiVersion') != 'argoproj.io/v1alpha1' or obj.get('kind') != 'ApplicationSet'
+                or metadata.get('namespace') != 'argocd' or metadata.get('name') in protected
+                or not prefix or not re.fullmatch(r'[a-z0-9][a-z0-9-]*', prefix)
+                or any(target.startswith(prefix) for target in protected)
+                or project in ('cloudlab-observability', PARENT) or not isinstance(project, str)
+                or not re.fullmatch(r'[a-z0-9][a-z0-9-]*', project)
+                or spec.get('templatePatch') or overrides(spec.get('generators', []))):
+            refuse()
+        template_spec = template.get('spec', {})
+        if 'source' in template_spec and 'sources' in template_spec:
+            refuse()
+        sources = template_spec.get('sources')
+        if sources is None:
+            sources = [template.get('spec', {}).get('source', {})]
+        if not isinstance(sources, list) or not sources:
+            refuse()
+        for source in sources:
+            if not isinstance(source, dict) or 'plugin' in source:
+                refuse()
+            path = source.get('path')
+            if path is None and source.get('ref') == 'values':
+                continue
+            if (not isinstance(path, str) or not path or '{{' in path or '}}' in path
+                    or path.startswith('/') or '\\' in path or any(part in ('', '.', '..') for part in path.split('/'))
+                    or path == 'platform/observability' or path.startswith('platform/observability/')):
+                refuse()
+
+
 def inspect(get, repository=None):
     """API errors propagate; only successful --ignore-not-found means absence."""
     check_fence()
+    check_application_sets(get('applicationsets.argoproj.io', namespace='argocd'))
     parent = get('application.argoproj.io', PARENT, 'argocd')
     children = {name: get('application.argoproj.io', name, 'argocd') for name in CHILDREN}
     repositories = {row.get('spec', {}).get('source', {}).get('repoURL') for row in children.values()

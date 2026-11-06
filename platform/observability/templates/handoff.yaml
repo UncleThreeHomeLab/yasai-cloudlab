@@ -1,0 +1,22 @@
+{{- with .Values.ownershipHandoffInternal }}
+{{- if or (not $.Values.enabled) (ne .version "cloudlab-observability-handoff/v1") (not (regexMatch "^[a-f0-9]{16}$" .operationId)) (not (regexMatch "^[a-f0-9]{64}$" .baselineDigest)) (not (has .phase (list "baseline" "maintenance" "persistent-maintenance" "persistent-normal"))) }}{{ fail "Invalid platform-owned handoff adapter controls" }}{{ end }}
+{{- range $key, $_ := . }}
+{{- if not (has $key (list "version" "operationId" "baselineDigest" "phase" "quotaIncrease")) }}{{ fail "Unknown platform-owned handoff adapter control" }}{{ end }}
+{{- end }}
+{{- with .quotaIncrease }}
+{{- if or (ne (len .) 2) (not (has (toString .requestsStorageGiB) (list "72" "73"))) (ne (toString .persistentVolumeClaims) "6") }}{{ fail "Handoff quota increase exceeds the fixed retention budget" }}{{ end }}
+{{- end }}
+{{- if has .phase (list "maintenance" "persistent-maintenance") }}
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cloudlab-observability-handoff-write-deny
+  namespace: cloudlab-observability
+  labels: {cloudlab.io/owner: observability-platform}
+spec:
+  action: DENY
+  rules:
+    - to:
+        - operation: {ports: ['9093']}
+{{- end }}
+{{- end }}

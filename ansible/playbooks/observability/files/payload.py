@@ -1,24 +1,15 @@
 """Bind public pins to existing private identity and network interfaces."""
 import json
-import os
 from pathlib import Path
-import shlex
 import sys
 
 from playbooks.argocd.files.render import committed_payload
-from playbooks.access.files.preflight import ssh
 from playbooks.observability.files.configuration import grafana
+from playbooks.observability.files.discovery import metadata
 from playbooks.observability.files.values import values
 from playbooks.observability.files.dashboards import projection, generated, inventory
 
 ROOT = Path(__file__).resolve().parents[4]
-
-
-def metadata():
-    # Inspection uses the versioned module through stdin, without configuring the VM.
-    script = (ROOT / 'ansible/playbooks/observability/files/discovery.py').read_text()
-    script = "import sys,json;sys.path.insert(0,'/opt/cloudlab');\n" + script + '\nprint(json.dumps(run()))'
-    return json.loads(ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(script), timeout=60))
 
 
 def payload():

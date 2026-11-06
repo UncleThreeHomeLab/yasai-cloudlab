@@ -14,7 +14,7 @@ from playbooks.argocd.files.github_setup import inputs, repository
 from playbooks.keycloak.files.operations import change, private_files
 from playbooks.keycloak.files.private_source import decode_contents, publish
 from playbooks.keycloak.files.rotation import local
-from playbooks.observability.files.payload import metadata
+from playbooks.observability.files.discovery import metadata
 from playbooks.harbor.files.configuration import client
 
 

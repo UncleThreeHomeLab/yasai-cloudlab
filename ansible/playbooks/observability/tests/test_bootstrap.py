@@ -10,7 +10,7 @@ from playbooks.observability.files.bootstrap import application, seed, run, COMP
 
 class BootstrapTests(unittest.TestCase):
     def reader(self, current):
-        return lambda kind, name, namespace=None: current if name == current['metadata']['name'] else None
+        return lambda kind, name=None, namespace=None: {'items': []} if kind == 'applicationsets.argoproj.io' else current if name == current['metadata']['name'] else None
 
     def test_owned_source_update_guards_identity_and_preserves_unrelated_fields(self):
         payload = self.payload()
@@ -112,7 +112,8 @@ class BootstrapTests(unittest.TestCase):
             def seed(payload, name):
                 observed.append((name, payload['configuration']['monitoringEnabled']))
                 return not apis
-            def get(kind, name, namespace=None):
+            def get(kind, name=None, namespace=None):
+                if kind == 'applicationsets.argoproj.io': return {'items': []}
                 return {'api': True} if kind == 'crd' and apis else None
             with tempfile.TemporaryDirectory() as directory:
                 with patch('playbooks.observability.files.bootstrap.Path', side_effect=lambda _: Path(directory) / 'lock'), \

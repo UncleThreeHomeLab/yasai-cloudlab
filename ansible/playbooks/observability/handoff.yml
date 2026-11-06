@@ -1,0 +1,335 @@
+---
+- name: Prepare protected telemetry handoff inspection without releasing writers
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    handoff_phase: ''
+    handoff_phase_action: prepare
+    handoff_directory: '/var/lib/cloudlab/observability/handoff-{{ handoff_operation }}'
+    handoff_runtime: '{{ handoff_directory }}/runtime'
+  tasks:
+    - name: Require an exact operation and a trusted runner private binding input
+      ansible.builtin.assert:
+        that:
+          - handoff_operation is defined
+          - handoff_operation is string
+          - handoff_operation is match('^[a-f0-9]{16}$')
+          - handoff_source_binding_path is defined
+          - handoff_source_binding_path is string
+          - handoff_phase in ['', 'baseline', 'maintenance', 'persistent-maintenance', 'persistent-normal', 'native-paused']
+          - handoff_phase_action in ['prepare', 'record', 'authorize', 'collect', 'apply', 'collect-resources', 'execute']
+          - handoff_phase != '' or handoff_phase_action == 'prepare'
+          - handoff_phase == '' or handoff_phase_action != 'prepare' or handoff_qualification_root is defined
+          - handoff_phase_action != 'authorize' or handoff_phase == 'baseline'
+          - handoff_directory == '/var/lib/cloudlab/observability/handoff-' ~ handoff_operation
+          - handoff_runtime == handoff_directory ~ '/runtime'
+          - ansible_play_hosts_all == ['cloudlab']
+        quiet: true
+
+    - name: Prepare the finite stdlib bundle from the reviewed runner checkout
+      ansible.builtin.command:
+        argv: [python, -B, -m, playbooks.observability.files.handoff_source, bundle, --operation, '{{ handoff_operation }}']
+        chdir: /workspace/ansible
+      environment:
+        PYTHONPATH: /workspace/ansible
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: handoff_bundle
+
+    - name: Check host custody before creating operation files
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '-', stage-preflight, --operation, '{{ handoff_operation }}']
+        stdin: '{{ lookup("ansible.builtin.file", "/workspace/ansible/playbooks/observability/files/handoff.py", rstrip=false) }}'
+        stdin_add_newline: false
+      changed_when: false
+      no_log: true
+
+    - name: Create only protected operation package directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop: '{{ ["/var/lib/cloudlab/observability", handoff_directory, handoff_runtime] + ((handoff_bundle.stdout | from_json).directories | map("regex_replace", "^", handoff_runtime ~ "/") | list) }}'
+
+    - name: Stage immutable reviewed stdlib modules through existing become custody
+      ansible.builtin.copy:
+        content: '{{ item.value | b64decode }}'
+        dest: '{{ handoff_runtime }}/{{ item.key }}'
+        mode: '0600'
+        force: false
+      loop: '{{ (handoff_bundle.stdout | from_json).files | dict2items }}'
+      no_log: true
+
+    - name: Preserve the operation bundle manifest on repeat inspections
+      ansible.builtin.copy:
+        content: '{{ (handoff_bundle.stdout | from_json).manifest | to_json }}'
+        dest: '{{ handoff_directory }}/bundle.json'
+        mode: '0600'
+        force: false
+      no_log: true
+
+    - name: Read only the protected native identity receipt and three live owners
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', observe,
+               --operation, '{{ handoff_operation }}', --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+      changed_when: false
+      no_log: true
+      register: handoff_observation
+
+    - name: Authenticate public sources and the exact private identity on the runner
+      ansible.builtin.command:
+        argv: [python, -B, -m, playbooks.observability.files.handoff_source, prepare,
+               --operation, '{{ handoff_operation }}', --source-binding, '{{ handoff_source_binding_path }}']
+        chdir: /workspace/ansible
+        stdin: '{{ handoff_observation.stdout }}'
+        stdin_add_newline: false
+      environment:
+        PYTHONPATH: /workspace/ansible
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: handoff_source
+
+    - name: Preserve authenticated source inputs without replacing an existing operation
+      ansible.builtin.copy:
+        content: '{{ (handoff_source.stdout | from_json).source | to_json }}'
+        dest: '{{ handoff_directory }}/source.json'
+        mode: '0600'
+        force: false
+      no_log: true
+
+    - name: Freeze source and code after a fresh native identity observation
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', inspect,
+               --operation, '{{ handoff_operation }}', --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}',
+               --source-sha256, '{{ (handoff_source.stdout | from_json).sourceSHA256 }}']
+      register: handoff_inspection
+      changed_when: (handoff_inspection.stdout | from_json).changed
+      no_log: true
+      when: handoff_phase == ''
+
+    - name: Report only the inspection stage and hashes without workload readiness
+      ansible.builtin.debug:
+        msg: '{{ handoff_inspection.stdout | from_json }}'
+      when: handoff_phase == ''
+
+    - name: Package only previously reviewed exact qualification artifact bytes
+      ansible.builtin.command:
+        argv: [python, -B, -m, playbooks.observability.files.handoff_source, qualification-bundle,
+               --operation, '{{ handoff_operation }}', --qualification-root, '{{ handoff_qualification_root }}']
+        chdir: /workspace/ansible
+        stdin: '{{ (handoff_source.stdout | from_json).source | to_json }}'
+        stdin_add_newline: false
+      environment:
+        PYTHONPATH: /workspace/ansible
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: handoff_artifacts
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Refuse unsafe artifact ancestry before scoped staging
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', artifact-preflight,
+               --operation, '{{ handoff_operation }}', --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+      changed_when: false
+      no_log: true
+      when: handoff_phase != ''
+
+    - name: Create protected artifact and phase payload directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop: '{{ [handoff_directory ~ "/private", handoff_directory ~ "/qualifications"] + ((handoff_artifacts.stdout | from_json).directories | map("regex_replace", "^", handoff_directory ~ "/qualifications/") | list) }}'
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Preserve reviewed qualification artifacts without generating or replacing proof
+      ansible.builtin.copy:
+        src: '{{ handoff_qualification_root }}/{{ item.key }}'
+        dest: '{{ handoff_directory }}/qualifications/{{ item.key }}'
+        mode: '0600'
+        force: false
+      loop: '{{ (handoff_artifacts.stdout | from_json).files | dict2items }}'
+      no_log: true
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Observe exact current native sources and protected phase predecessor
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', phase-observe,
+               --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+               --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+      changed_when: false
+      no_log: true
+      register: handoff_phase_observation
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Prepare the independently authenticated phase-parent discovery input
+      ansible.builtin.command:
+        argv: [python, -B, -m, playbooks.observability.files.handoff_source, prepare-phase,
+               --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}', --source-binding, '{{ handoff_source_binding_path }}']
+        chdir: /workspace/ansible
+        stdin: '{{ handoff_phase_observation.stdout }}'
+        stdin_add_newline: false
+      environment:
+        PYTHONPATH: /workspace/ansible
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: handoff_phase_source
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Preserve the proposed source phase without applying Applications
+      ansible.builtin.copy:
+        content: '{{ (handoff_phase_source.stdout | from_json).proposal | to_json }}'
+        dest: '{{ handoff_directory }}/private/{{ ["baseline", "maintenance", "persistent-maintenance", "persistent-normal", "native-paused"].index(handoff_phase) }}-{{ handoff_phase }}.proposal.json'
+        mode: '0600'
+        force: false
+      no_log: true
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Stage protected phase preparation without creating transport resources or releasing writers
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', stage-phase,
+               --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+               --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}',
+               --source-sha256, '{{ (handoff_phase_source.stdout | from_json).sha256 }}']
+      changed_when: (handoff_phase_staged.stdout | from_json).changed
+      no_log: true
+      register: handoff_phase_staged
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Report only non-authorizing phase preparation hashes
+      ansible.builtin.debug:
+        msg: '{{ handoff_phase_staged.stdout | from_json }}'
+      when: handoff_phase != '' and handoff_phase_action == 'prepare'
+
+    - name: Export only protected actual collector outputs for phase validation
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', phase-export,
+               --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+               --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+      changed_when: false
+      no_log: true
+      register: handoff_collected_phase
+      when: handoff_phase != '' and handoff_phase_action == 'record'
+
+    - name: Validate exact phase deltas and complete tracking transfer intents on the runner
+      ansible.builtin.command:
+        argv: [python, -B, -m, playbooks.observability.files.handoff_source, finalize-phase, --operation, '{{ handoff_operation }}']
+        chdir: /workspace/ansible
+        stdin: '{{ handoff_collected_phase.stdout }}'
+        stdin_add_newline: false
+      environment:
+        PYTHONPATH: /workspace/ansible
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+      register: handoff_phase_validation
+      when: handoff_phase != '' and handoff_phase_action == 'record'
+
+    - name: Preserve source validation metadata without granting execution authority
+      ansible.builtin.copy:
+        content: '{{ (handoff_phase_validation.stdout | from_json).proposal | to_json }}'
+        dest: '{{ handoff_directory }}/private/{{ ["baseline", "maintenance", "persistent-maintenance", "persistent-normal", "native-paused"].index(handoff_phase) }}-{{ handoff_phase }}.final-proposal.json'
+        mode: '0600'
+        force: false
+      no_log: true
+      when: handoff_phase != '' and handoff_phase_action == 'record'
+
+    - name: Extend only the protected source phase chain
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', commit-phase,
+               --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+               --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}',
+               --source-sha256, '{{ (handoff_phase_validation.stdout | from_json).sha256 }}']
+      changed_when: (handoff_phase_recorded.stdout | from_json).changed
+      no_log: true
+      register: handoff_phase_recorded
+      when: handoff_phase != '' and handoff_phase_action == 'record'
+
+    - name: Report source phase metadata without workload readiness or adoption success
+      ansible.builtin.debug:
+        msg: '{{ handoff_phase_recorded.stdout | from_json }}'
+      when: handoff_phase != '' and handoff_phase_action == 'record'
+
+    - name: Run only the explicitly selected protected handoff transition
+      ansible.builtin.command:
+        argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', '{{ handoff_phase_action }}',
+               --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+               --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+      changed_when: (handoff_execution.stdout | from_json).get('changed', false)
+      no_log: true
+      register: handoff_execution
+      when: handoff_phase != '' and handoff_phase_action in ['authorize', 'collect', 'apply', 'collect-resources', 'execute']
+
+    - name: Classify only a pending actual native configuration through the trusted runner
+      when: handoff_phase_action in ['authorize', 'execute'] and (handoff_execution.stdout | default('{}') | from_json).get('stage') == 'native-config-pending'
+      block:
+        - name: Export the private actual status and authenticated source challenge
+          ansible.builtin.command:
+            argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', native-config-export,
+                   --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+                   --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+          changed_when: false
+          no_log: true
+          register: handoff_native_export
+
+        - name: Validate effective native configuration with the existing runner YAML boundary
+          ansible.builtin.command:
+            argv: [python, -B, -m, playbooks.observability.files.handoff_source, validate-native-config,
+                   --operation, '{{ handoff_operation }}']
+            chdir: /workspace/ansible
+            stdin: '{{ handoff_native_export.stdout }}'
+            stdin_add_newline: false
+          environment:
+            PYTHONPATH: /workspace/ansible
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          no_log: true
+          register: handoff_native_validation
+
+        - name: Preserve only this nonce classification proposal without replacing an existing result
+          ansible.builtin.copy:
+            content: '{{ handoff_native_validation.stdout }}'
+            dest: '{{ handoff_directory }}/private/native-{{ (handoff_native_export.stdout | from_json).challenge.nonce }}.proposal.json'
+            mode: '0600'
+            force: false
+          no_log: true
+
+        - name: Stage only the protected pending nonce and exact runner result hash
+          ansible.builtin.command:
+            argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', native-config-stage,
+                   --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+                   --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}',
+                   --source-sha256, '{{ handoff_native_validation.stdout | hash("sha256") }}']
+          changed_when: false
+          no_log: true
+
+        - name: Resume the same transition after fresh native identity and configuration validation
+          ansible.builtin.command:
+            argv: [python3, '-I', '-B', '{{ handoff_runtime }}/playbooks/observability/files/handoff.py', '{{ handoff_phase_action }}',
+                   --operation, '{{ handoff_operation }}', --phase, '{{ handoff_phase }}',
+                   --bundle-sha256, '{{ (handoff_bundle.stdout | from_json).bundleSHA256 }}']
+          changed_when: (handoff_resumed.stdout | from_json).get('changed', false)
+          no_log: true
+          register: handoff_resumed
+
+        - name: Require this fixed classification checkpoint to finish without a second challenge
+          ansible.builtin.assert:
+            that: (handoff_resumed.stdout | from_json).get('stage') != 'native-config-pending'
+            quiet: true
+
+    - name: Report protected transition state without activation readiness
+      ansible.builtin.debug:
+        msg: '{{ (handoff_resumed.stdout | default(handoff_execution.stdout)) | from_json }}'
+      when: handoff_phase != '' and handoff_phase_action in ['authorize', 'collect', 'apply', 'collect-resources', 'execute']

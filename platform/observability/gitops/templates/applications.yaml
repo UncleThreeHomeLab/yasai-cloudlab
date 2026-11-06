@@ -1,4 +1,6 @@
+{{- define "observability.nativeApplications" }}
 {{- $source := .Values.nativeSource }}
+{{- if not (kindIs "bool" $source.paused) }}{{ fail "Native telemetry pause requires a YAML boolean" }}{{ end }}
 {{- $inputs := .Values.observabilityInputs }}
 {{- $digest := toJson (dict "catalog" .Values.catalog "observabilityInputs" $inputs "platformNotifications" .Values.platformNotifications "serviceObservability" .Values.serviceObservability "alertmanagerState" .Values.alertmanagerState) | sha256sum }}
 {{- if eq $source.repository $source.valuesRepository }}{{ fail "Telemetry values require the distinct designated private source" }}{{ end }}
@@ -25,7 +27,7 @@
   "alertmanager" (dict "config" $notifications.config "alertmanagerSpec" (dict
     "secrets" $notifications.secrets
     "persistentVolumeClaimRetentionPolicy" (dict "whenDeleted" "Retain" "whenScaled" "Retain")
-    "storage" (dict "emptyDir" nil "volumeClaimTemplate" (dict
+    "storage" (dict "volumeClaimTemplate" (dict
       "metadata" (dict "annotations" (dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false"))
       "spec" (dict "storageClassName" $.Values.alertmanagerState.storageClass "accessModes" (list "ReadWriteOnce") "resources" (dict "requests" (dict "storage" (printf "%dGi" (int $.Values.alertmanagerState.sizeGiB)))))))))
   "grafana" (dict "persistence" (dict "annotations" (dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false")) "grafana.ini" (dict
@@ -56,6 +58,7 @@ metadata:
   namespace: argocd
   labels: {cloudlab.io/owner: observability-platform}
   annotations:
+    argocd.argoproj.io/skip-reconcile: {{ $source.paused | quote }}
     cloudlab.io/observability-input-digest: {{ $digest | quote }}
     cloudlab.io/observability-health: required
     argocd.argoproj.io/sync-wave: {{ ternary "-20" "0" $configuration | quote }}
@@ -80,9 +83,16 @@ spec:
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-observability}
   revisionHistoryLimit: {{ ternary 0 10 (eq $component "prometheus") }}
   syncPolicy:
-    automated: {enabled: true, prune: true, selfHeal: true, allowEmpty: false}
+    automated: {enabled: {{ not $source.paused }}, prune: {{ not $source.paused }}, selfHeal: {{ not $source.paused }}, allowEmpty: false}
     syncOptions: [FailOnSharedResource=true, ServerSideApply=true, DisableClientSideApplyMigration=true, PruneLast=true]
     retry:
       limit: 5
       backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+{{- end }}
+{{- end }}
+{{- if .Values.ownershipHandoff }}
+{{ include "observability.handoffApplications" . }}
+{{- else }}
+{{- if not .Values.nativeSource.paused }}{{ include "observability.activationQualification" . }}{{ end }}
+{{ include "observability.nativeApplications" . }}
 {{- end }}

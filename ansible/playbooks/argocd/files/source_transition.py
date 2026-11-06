@@ -25,8 +25,8 @@ ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
 
 
-def accepted_identity_binding(*, repository, branch, revision, private_repository):
-    """Read the accepted native handoff without repairing or mutating its owner."""
+def accepted_identity_binding(*, repository, branch, revision, private_repository, read_receipt=None, read=None):
+    """Read accepted identity; injected readers require an authenticated caller channel."""
     pattern = r'https://github[.]com/([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9_.-]*)[.]git'
     public = re.fullmatch(pattern, repository) if isinstance(repository, str) else None
     private = re.fullmatch(pattern, private_repository) if isinstance(private_repository, str) else None
@@ -35,8 +35,12 @@ def accepted_identity_binding(*, repository, branch, revision, private_repositor
             not isinstance(branch, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_-]*', branch) or
             not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision)):
         raise ValueError('Accepted identity binding requires exact expected source coordinates')
+    if ((read_receipt is None) != (read is None)
+            or (read_receipt is not None and (not callable(read_receipt) or not callable(read)))):
+        raise ValueError('Accepted identity observations require both callable readers')
     try:
-        receipt = json.loads((BASE / 'identity-values-binding.json').read_text())
+        receipt = (json.loads((BASE / 'identity-values-binding.json').read_text())
+                   if read_receipt is None else read_receipt())
     except (OSError, ValueError):
         raise RuntimeError('Accepted native identity receipt is unavailable') from None
     if (not isinstance(receipt, dict) or set(receipt) != {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid'} or
@@ -46,7 +50,8 @@ def accepted_identity_binding(*, repository, branch, revision, private_repositor
             any(not isinstance(receipt[key], str) or not receipt[key] for key in ('root_uid', 'controller_uid', 'project_uid')) or
             not isinstance(receipt['target']['valuesRevision'], str) or not re.fullmatch('[a-f0-9]{40}', receipt['target']['valuesRevision'])):
         raise RuntimeError('Native identity binding is not accepted')
-    objects = {key: get(kind, name) for key, kind, name in (
+    reader = get if read is None else read
+    objects = {key: reader(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', ROOT_APP), ('controller_uid', 'statefulset', CONTROLLER),
         ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
     if any(not obj or obj.get('metadata', {}).get('uid') != receipt[key] or

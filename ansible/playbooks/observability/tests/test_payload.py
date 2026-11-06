@@ -5,6 +5,32 @@ from playbooks.observability.files.payload import compile_payload
 
 
 class PayloadTests(unittest.TestCase):
+    def test_shared_metadata_owner_preserves_harbor_and_standalone_discovery(self):
+        import ast
+        import json
+        import os
+        from pathlib import Path
+        import shlex
+        from unittest.mock import patch
+        from playbooks.observability.files import discovery, payload
+        from playbooks.harbor.files import control as harbor_control, payload as harbor_payload
+        self.assertIs(payload.metadata, discovery.metadata)
+        self.assertIs(harbor_control.metadata, discovery.metadata)
+        self.assertIs(harbor_payload.metadata, discovery.metadata)
+        result = {'loginHost': 'login.example.invalid', 'gatewayIP': '192.0.2.4'}
+        with patch.dict(os.environ, {'VM_HOST': 'vm.fixture.invalid'}), \
+                patch('playbooks.access.files.preflight.ssh', return_value=json.dumps(result)) as ssh:
+            self.assertEqual(discovery.metadata(), result)
+        arguments = ssh.call_args.args
+        self.assertEqual(arguments[:2], ('VM', 'vm.fixture.invalid'))
+        program = shlex.split(arguments[2])
+        self.assertEqual(program[:2], ['python3', '-c'])
+        tree = ast.parse(program[2])
+        imports = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))]
+        self.assertFalse(any(isinstance(node, ast.ImportFrom) and node.module in
+            ('playbooks.access.files.preflight', 'playbooks.observability.files.payload') for node in imports))
+        self.assertIn('print(json.dumps(run()))', program[2])
+
     def test_verification_uses_same_catalog_snapshot_and_generated_configmap_bytes(self):
         import json
         from unittest.mock import patch

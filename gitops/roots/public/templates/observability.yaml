@@ -3,10 +3,21 @@
 {{- fail "Observability configuration requires YAML boolean enabled and paused settings and a string revision" }}
 {{- end }}
 {{- range $key, $_ := $configuration }}
-{{- if not (has $key (list "enabled" "paused" "revision")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
+{{- if not (has $key (list "enabled" "paused" "revision" "acceptanceCommitment" "activationQualification")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
+{{- end }}
+{{- $acceptance := $configuration.acceptanceCommitment }}
+{{- if or (not (kindIs "string" $acceptance)) (and $acceptance (not (regexMatch "^[a-f0-9]{64}$" $acceptance))) }}
+{{- fail "Observability acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
+{{- $activation := $configuration.activationQualification | default "" }}
+{{- if or (not (kindIs "string" $activation)) (and $activation (not (regexMatch "^[a-f0-9]{64}$" $activation))) (and $configuration.enabled (not $configuration.paused) (or (not $activation) (eq $activation (repeat 64 "0")))) }}
+{{- fail "Unpaused native observability requires a nonzero activation qualification SHA-256" }}
 {{- end }}
 {{- if $configuration.enabled }}
 {{- $binding := .Values.identity.argo | default dict }}
+{{- if or (not (regexMatch "^[a-f0-9]{64}$" $acceptance)) (not (regexMatch "^[a-f0-9]{40}$" (.Values.services.revision | default ""))) }}
+{{- fail "Native observability requires a reviewed consumer acceptance commitment and service revision" }}
+{{- end }}
 {{- if or (not (eq .Values.observability.enabled true)) (not (eq .Values.identity.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" $configuration.revision)) (and (hasKey .Values.identity "argo") (or (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" ($binding.valuesRepository | default ""))) (eq ($binding.valuesRepository | default "") .Values.repository))) }}
 {{- fail "Native observability requires enabled telemetry, External Secrets and reviewed immutable source bindings" }}
 {{- end }}

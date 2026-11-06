@@ -21,8 +21,10 @@ class WriterGuardTests(unittest.TestCase):
             app['metadata'].update(uid='uid-' + component, resourceVersion='7')
             self.children[app['metadata']['name']] = app
         self.objects = dict(self.children)
+        self.sets = []
 
-    def get(self, kind, name, namespace=None):
+    def get(self, kind, name=None, namespace=None):
+        if kind == 'applicationsets.argoproj.io': return {'items': self.sets}
         return self.objects.get(name)
 
     def parent(self):
@@ -88,6 +90,56 @@ class WriterGuardTests(unittest.TestCase):
                     patch.object(bootstrap, 'get', side_effect=self.get), patch.object(bootstrap, 'kube') as mutate:
                 with self.assertRaises(RuntimeError): bootstrap.seed(self.payload, 'configuration')
                 mutate.assert_not_called()
+
+    def test_native_set_blocks_both_writers_even_without_parent(self):
+        for name in (guard.PARENT, 'unrecognized-native-owner'):
+            self.sets = [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                'metadata': {'name': name, 'namespace': 'argocd'},
+                'spec': {'template': {'metadata': {'name': guard.PARENT},
+                    'spec': {'project': guard.PARENT, 'source': {'path': 'platform/observability/gitops'}}}}}]
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(bootstrap, 'Path', side_effect=lambda value: Path(directory) / Path(value).name), \
+                    patch.object(guard, 'check_fence'), patch.object(bootstrap, 'get', side_effect=self.get), \
+                    patch.object(bootstrap, 'kube') as mutate:
+                with self.assertRaises(RuntimeError): bootstrap.seed(self.payload, 'configuration')
+                with self.assertRaises(RuntimeError): bootstrap.compact_history()
+                mutate.assert_not_called()
+
+    def test_only_provably_unrelated_templates_pass_and_overrides_fail(self):
+        unrelated = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+            'metadata': {'name': 'fixture-services', 'namespace': 'argocd'},
+            'spec': {'generators': [{'list': {'elements': [{'name': 'api'}]}}],
+                'template': {'metadata': {'name': 'fixture-{{.name}}'}, 'spec': {
+                    'project': 'fixture-services', 'source': {'path': 'charts/service'}}}}}
+        guard.check_application_sets({'items': [unrelated]})
+        for case in ('unknown-name', 'unknown-project', 'unknown-path', 'native-path', 'generator-template', 'patch', 'both-sources', 'plugin', 'bad-list'):
+            changed = copy.deepcopy(unrelated)
+            if case == 'unknown-name': changed['spec']['template']['metadata']['name'] = '{{.name}}'
+            if case == 'unknown-project': changed['spec']['template']['spec']['project'] = '{{.project}}'
+            if case == 'unknown-path': changed['spec']['template']['spec']['source']['path'] = '{{.path}}'
+            if case == 'native-path': changed['spec']['template']['spec']['source']['path'] = 'platform/observability'
+            if case == 'generator-template': changed['spec']['generators'][0]['template'] = {'spec': {}}
+            if case == 'patch': changed['spec']['templatePatch'] = 'spec: {}'
+            if case == 'both-sources': changed['spec']['template']['spec']['sources'] = [{'ref': 'values'}]
+            if case == 'plugin': changed['spec']['template']['spec']['source']['plugin'] = {'name': 'other'}
+            value = None if case == 'bad-list' else {'items': [changed]}
+            with self.subTest(case=case), self.assertRaises(RuntimeError): guard.check_application_sets(value)
+
+    def test_set_appearing_after_initial_inspection_blocks_seed_write(self):
+        reads = 0
+        def read(kind, name=None, namespace=None):
+            nonlocal reads
+            if kind == 'applicationsets.argoproj.io':
+                reads += 1
+                if reads == 2:
+                    return {'items': [{'metadata': {'name': guard.PARENT}}]}
+            return self.get(kind, name, namespace)
+        payload = copy.deepcopy(self.payload)
+        payload['revision'] = 'b' * 40
+        with patch.object(guard, 'check_fence'), patch.object(bootstrap, 'get', side_effect=read), \
+                patch.object(bootstrap, 'kube') as mutate:
+            with self.assertRaises(RuntimeError): bootstrap.seed(payload, 'prometheus')
+            mutate.assert_not_called()
 
     def test_api_failure_is_not_absence(self):
         with patch.object(guard, 'check_fence'), patch.object(bootstrap, 'get', side_effect=RuntimeError('API denied')), \
@@ -174,7 +226,7 @@ class WriterGuardTests(unittest.TestCase):
 
     def test_recheck_refuses_target_replaced_with_native_child(self):
         count = 0
-        def get(kind, name, namespace=None):
+        def get(kind, name=None, namespace=None):
             nonlocal count
             if name == 'cloudlab-prometheus':
                 count += 1
@@ -191,7 +243,7 @@ class WriterGuardTests(unittest.TestCase):
     def test_compaction_recheck_binds_preflight_repository_and_uid(self):
         for change in ('repository', 'uid'):
             reads = 0
-            def get(kind, name, namespace=None):
+            def get(kind, name=None, namespace=None):
                 nonlocal reads
                 if name == 'cloudlab-prometheus':
                     reads += 1

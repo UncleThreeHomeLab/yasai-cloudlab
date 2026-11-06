@@ -1,5 +1,6 @@
 {{- if .Values.enabled }}
 {{- $policy := .Files.Get "policy.json" | fromJson }}
+{{- $quota := dig "ownershipHandoffInternal" "quotaIncrease" dict .Values.AsMap }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -47,7 +48,7 @@ spec:
     limits.cpu: {{ printf "%dm" ($policy.cpu_limit_millicores | int) | quote }}
     requests.memory: 3Gi
     limits.memory: {{ printf "%dMi" ($policy.memory_limit_mib | int) | quote }}
-    requests.storage: {{ printf "%dGi" ($policy.storage_limit_gib | int) | quote }}
-    persistentvolumeclaims: '5'
+    requests.storage: {{ printf "%dGi" (int (default $policy.storage_limit_gib $quota.requestsStorageGiB)) | quote }}
+    persistentvolumeclaims: {{ if $quota }}{{ $quota.persistentVolumeClaims | quote }}{{ else }}'5'{{ end }}
     pods: '16'
 {{- end }}
