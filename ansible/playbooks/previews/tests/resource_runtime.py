@@ -46,7 +46,10 @@ class HostKubernetes(Kubernetes):
     def __init__(self):
         pass
 
-    def request(self, method, route, value=None):
+    def request(self, method, route, value=None, *, _metadata_only=False):
+        if _metadata_only and (method != 'GET' or not re.fullmatch(
+                r'/api/v1/namespaces/[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?/secrets', route)):
+            raise ValueError('Unsupported fixture metadata projection')
         if method == 'GET':
             raw = kube('get', '--raw', route)
         elif method in ('POST', 'PUT', 'DELETE'):
@@ -64,7 +67,30 @@ class HostKubernetes(Kubernetes):
             raw = result.stdout
         else:
             raise ValueError('Unsupported fixture API method')
-        return json.loads(raw) if raw else None
+        if not _metadata_only:
+            return json.loads(raw) if raw else None
+        # Privileged kubectl --raw has no Accept override; this fixture projects its existing full read.
+        try:
+            result = json.loads(raw)
+            if (not isinstance(result, dict) or set(result) != {'apiVersion', 'kind', 'metadata', 'items'} or
+                    result['apiVersion'] != 'v1' or result['kind'] != 'SecretList' or
+                    not isinstance(result['metadata'], dict) or
+                    result['items'] is not None and not isinstance(result['items'], list)):
+                raise ValueError('Invalid fixture Secret list')
+            items = result['items']
+            if items is not None:
+                if len(items) > 500:
+                    raise ValueError('Incomplete fixture Secret list')
+                for obj in items:
+                    if (not isinstance(obj, dict) or obj.get('apiVersion', 'v1') != 'v1' or
+                            obj.get('kind', 'Secret') != 'Secret' or not isinstance(obj.get('metadata'), dict)):
+                        raise ValueError('Invalid fixture Secret object')
+                items = [{'apiVersion': 'meta.k8s.io/v1', 'kind': 'PartialObjectMetadata', 'metadata': obj['metadata']}
+                         for obj in items]
+            return {'apiVersion': 'meta.k8s.io/v1', 'kind': 'PartialObjectMetadataList',
+                    'metadata': result['metadata'], 'items': items}
+        except (ValueError, TypeError):
+            raise RuntimeError('Fixture Secret metadata projection unavailable') from None
 
     def get(self, key):
         from playbooks.istio.files.kube import get
