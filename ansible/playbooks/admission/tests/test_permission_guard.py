@@ -10,6 +10,7 @@ def qualified():
     expected = verify.permission_guard_desired()
     documents = copy.deepcopy(expected)
     for row in documents:
+        row['metadata']['uid'] = row['kind'] + '-' + row['metadata']['name']
         row['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = (
             'cloudlab-workload-policy:admissionregistration.k8s.io/' + row['kind'] + ':cloudlab-policy/' + row['metadata']['name'])
         if row['kind'] == 'ValidatingAdmissionPolicy':
@@ -23,7 +24,9 @@ class PermissionGuardTests(unittest.TestCase):
         current, expected = qualified()
         stale = copy.deepcopy(current)
         stale[0]['status']['observedGeneration'] = 1
-        for incomplete in ([None] * 4, stale):
+        deleting = copy.deepcopy(current)
+        deleting[1]['metadata']['deletionTimestamp'] = '2026-11-06T00:00:00Z'
+        for incomplete in ([None] * 4, stale, deleting):
             with self.subTest(incomplete=incomplete), \
                     patch.object(verify, 'application_ready', return_value=True), \
                     patch.object(verify, 'get', side_effect=[*incomplete, *current]) as get, \
@@ -62,6 +65,27 @@ class PermissionGuardTests(unittest.TestCase):
             elif field == 'matching': policy['spec']['matchConstraints']['resourceRules'][0]['resources'] = ['pods']
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 verify.permission_guard_validate(documents, expected)
+
+    def test_observed_policies_and_bindings_require_stable_lifecycle_identity(self):
+        for index in range(4):
+            for field, value in (('missing-uid', None), ('uid', ''), ('uid', None), ('uid', 1), ('uid', True),
+                    ('deletionTimestamp', '2026-11-06T00:00:00Z'),
+                    ('ownerReferences', [{'uid': 'foreign'}]), ('finalizers', ['foreign'])):
+                documents, expected = qualified()
+                metadata = documents[index]['metadata']
+                if field == 'missing-uid': metadata.pop('uid')
+                else: metadata[field] = value
+                with self.subTest(index=index, field=field, value=value), self.assertRaisesRegex(
+                        RuntimeError, 'stable non-deleting native owner'):
+                    verify.permission_guard_validate(documents, expected)
+
+    def test_absent_or_empty_lifecycle_metadata_passes_without_changing_desired_references(self):
+        documents, expected = qualified()
+        self.assertTrue(verify.permission_guard_validate(documents, expected))
+        for document in documents:
+            document['metadata'].update(deletionTimestamp=None, ownerReferences=[], finalizers=[])
+        self.assertTrue(verify.permission_guard_validate(documents, expected))
+        self.assertTrue(all('uid' not in row['metadata'] for row in expected))
 
     def test_rbac_denial_cannot_substitute_for_specific_native_guard_denial(self):
         def probe(document, caller):

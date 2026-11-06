@@ -68,6 +68,10 @@ def permission_guard_validate(documents, expected):
                 actual.get('spec') != reference['spec'] or
                 actual.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != marker):
             raise RuntimeError('Permission guard differs from its exact native owner')
+        metadata = actual['metadata']
+        if (not isinstance(metadata.get('uid'), str) or not metadata['uid'] or
+                metadata.get('deletionTimestamp') or metadata.get('ownerReferences') or metadata.get('finalizers')):
+            raise RuntimeError('Permission guard has no stable non-deleting native owner')
         if kind == 'ValidatingAdmissionPolicy':
             status = actual.get('status', {})
             type_checking = status.get('typeChecking', {})
