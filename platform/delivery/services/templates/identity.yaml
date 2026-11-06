@@ -19,7 +19,7 @@ spec:
       engineVersion: v2
       mergePolicy: Replace
       data:
-        client_secret: {{ printf "{{ index (index (.client_secrets | fromJson) %q) %q }}" $oidc.realm $oidc.client | quote }}
+        client_secret: {{ printf "{{- $value := index (index (.client_secrets | fromJson) %q) %q -}}{{- if not (and (kindIs \"string\" $value) $value) -}}{{- fail \"Required OIDC client secret must be a nonempty string\" -}}{{- end -}}{{ $value }}" $oidc.realm $oidc.client | quote }}
   dataFrom:
     - extract: {key: keycloak-client-secrets}
 {{- end }}

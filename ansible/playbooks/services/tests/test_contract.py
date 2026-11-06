@@ -1,5 +1,11 @@
 import copy
+import json
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+
+import yaml
 
 from playbooks.services.files.contract import validate, render, identity_request, external_route, exposure_bindings
 from playbooks.services.files.gitops import resources
@@ -19,12 +25,60 @@ class ContractTests(unittest.TestCase):
         approved['secretReferences'] = ['synthetic-oidc']
         objects = resources(value, approved, 'https://github.com/example/platform.git', 'b' * 40)
         secret = next(row for row in objects if row['kind'] == 'ExternalSecret' and row['metadata']['name'] == 'synthetic-oidc')
-        self.assertEqual(secret['spec']['dataFrom'], [{'extract': {'key': 'keycloak-client-secrets'}}])
-        template = secret['spec']['target']['template']
+        spec = secret['spec']
+        self.assertEqual(spec['dataFrom'], [{'extract': {'key': 'keycloak-client-secrets'}}])
+        self.assertEqual(spec['refreshInterval'], '24h')
+        self.assertEqual(spec['secretStoreRef'], {'name': 'cloudlab', 'kind': 'ClusterSecretStore'})
+        self.assertEqual(spec['target']['name'], 'synthetic-oidc')
+        self.assertEqual(spec['target']['creationPolicy'], 'Owner')
+        self.assertEqual(spec['target']['deletionPolicy'], 'Retain')
+        template = spec['target']['template']
+        self.assertEqual(template['engineVersion'], 'v2')
         self.assertEqual(template['mergePolicy'], 'Replace')
         self.assertEqual(set(template['data']), {'client_secret'})
         self.assertIn('"applications"', template['data']['client_secret'])
         self.assertIn('"synthetic"', template['data']['client_secret'])
+        with tempfile.TemporaryDirectory() as temporary:
+            chart = Path(temporary)
+            (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: oidc-secret-check\nversion: 0.0.0\n')
+            (chart / 'templates').mkdir()
+            (chart / 'templates/secret.yaml').write_text('apiVersion: v1\nkind: Secret\nmetadata: {name: synthetic}\nstringData:\n'
+                '{{- range $key, $template := .Values.templates }}\n'
+                '  {{ $key | quote }}: {{ tpl $template (merge (dict "Template" $.Template) $.Values.input) | quote }}\n'
+                '{{- end }}\n')
+
+            def evaluate(document):
+                return subprocess.run(['helm', 'template', 'oidc-secret-check', str(chart), '-f', '-'],
+                    input=yaml.safe_dump({'templates': template['data'], 'input': {'client_secrets': document}}),
+                    capture_output=True, text=True, timeout=30)
+
+            credential = '0\nsynthetic-value\n'
+            source = {'applications': {'synthetic': credential, 'unrelated': 'must-not-copy'},
+                      'platform': {'synthetic': 'must-not-copy'}}
+            valid = evaluate(json.dumps(source))
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            self.assertEqual(yaml.safe_load(valid.stdout)['stringData'], {'client_secret': credential})
+            invalid = [('missing', {'applications': {}}), ('missing-realm', {'platform': source['platform']}),
+                       ('malformed-json', '{')]
+            invalid += [(type(selected).__name__, {'applications': {'synthetic': selected}})
+                        for selected in ('', None, 1, True, {'unrelated': 'must-not-copy'}, ['must-not-copy'])]
+            for name, document in invalid:
+                with self.subTest(credential=name):
+                    rejected = evaluate(document if isinstance(document, str) else json.dumps(document))
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertEqual(rejected.stdout, '')
+                    self.assertNotIn('must-not-copy', rejected.stderr)
+                    if name not in ('missing-realm', 'malformed-json'):
+                        self.assertIn('Required OIDC client secret must be a nonempty string', rejected.stderr)
+
+        with self.assertRaisesRegex(ValueError, 'unapproved or privileged credentials'):
+            resources(value, dict(approved, secretReferences=[]), 'https://github.com/example/platform.git', 'b' * 40)
+        public = copy.deepcopy(value)
+        public['oidc']['public'] = True
+        public['oidc'].pop('secretReference')
+        public['secrets'] = []
+        self.assertFalse(any(row['kind'] == 'ExternalSecret' for row in
+            resources(public, approved, 'https://github.com/example/platform.git', 'b' * 40)))
 
     def test_minimal_and_persistent_render_has_no_platform_or_secret_owner(self):
         value = definition()
