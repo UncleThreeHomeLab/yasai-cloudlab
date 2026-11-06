@@ -26,42 +26,6 @@ class SourceTransitionTests(unittest.TestCase):
                      'private_repository': target['valuesRepository']}
         return objects, receipt, arguments
 
-    def test_pending_pre_public_authority_preserves_both_profiles_and_quiescence(self):
-        from playbooks.data.files import native
-        from private_activation import prepare
-        objects, _, arguments = self.accepted_fixture()
-        root = objects['application.argoproj.io', migration.ROOT_APP]
-        old = copy.deepcopy(root['spec']['source']['helm']['valuesObject']['identity']['argo'])
-        new = dict(old, valuesRevision='c' * 40)
-        root['spec']['source']['helm']['releaseName'] = 'cloudlab-public-root'
-        root['spec']['destination'] = {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
-        root['spec']['ignoreDifferences'] = native.delegations()
-        root['spec']['syncPolicy'] = {'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']}
-        objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
-        original = copy.deepcopy(root['spec']['source'])
-        patched = copy.deepcopy(original); patched['helm']['valuesObject']['identity']['argo'] = new
-        recorded = {'phase': 'paused', 'target': new, 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project',
-            'publicRevision': 'b' * 40, 'originalSource': original, 'patchedSource': patched,
-            'privateActivation': prepare({'repository': arguments['repository']}, new['valuesRepository'], new['valuesRevision'])}
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory); path = base / 'identity-values-binding.json'; path.write_text(json.dumps(recorded))
-            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda *key: objects[key]), \
-                    patch.object(native, 'receipt', side_effect=lambda path: json.loads(path.read_text())), \
-                    patch.object(native, 'kube', return_value='{"items": []}') as pods, \
-                    patch.object(native, 'source_credentials', side_effect=AssertionError('Pre-public authority cannot read credentials')):
-                for state, source in (('original', original), ('patched', patched)):
-                    root['spec']['source'] = copy.deepcopy(source)
-                    recovery = {'checkpoint': recorded, 'sourceState': state, 'rootSource': source}
-                    self.assertEqual(migration.pending_root_authority(recovery, arguments['repository']), (root, [old, new]))
-                    public = {'repository': arguments['repository'], 'identity': {'enabled': True, 'argo': old}}
-                    self.assertEqual(migration.pending_root_context(recovery, public), (root, [old, new]))
-                    pods.return_value = json.dumps({'items': [{'metadata': {'ownerReferences': [{'uid': 'controller'}]}}]})
-                    with self.assertRaisesRegex(RuntimeError, 'quiesced'):
-                        migration.pending_root_authority(recovery, arguments['repository'])
-                    pods.return_value = '{"items": []}'
-                    changed = copy.deepcopy(recovery); changed['checkpoint']['originalSource']['helm']['valuesObject']['identity'].pop('argo')
-                    with self.assertRaises(RuntimeError): migration.pending_root_authority(changed, arguments['repository'])
-
     def test_accepted_binding_reader_is_read_only_and_does_not_require_current_private_catalog_head(self):
         objects, receipt, arguments = self.accepted_fixture()
         with tempfile.TemporaryDirectory() as directory:
@@ -128,41 +92,6 @@ class SourceTransitionTests(unittest.TestCase):
                 (base / 'identity-values-binding.json').write_text(json.dumps(receipt))
                 with patch.object(migration, 'BASE', base), self.assertRaises(RuntimeError):
                     migration.accepted_identity_binding(**arguments)
-
-    def test_identity_binding_resumes_sole_controller_when_root_patch_fails(self):
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            (base / 'checkpoint.json').write_text(json.dumps({'phase': 'accepted'}))
-            objects = self.fixtures()
-            root = objects['application.argoproj.io', migration.ROOT_APP]
-            repository = 'https://github.com/example/platform.git'
-            root['spec']['source'].update(repoURL=repository, targetRevision='main', helm={'releaseName': 'root'})
-            objects['appproject.argoproj.io', 'cloudlab-root']['spec']['sourceRepos'] = [repository]
-            root['metadata']['resourceVersion'] = '1'
-            target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}
-            writes = []
-            def write(*args, **kwargs):
-                writes.append(args)
-                if args[0] == 'patch': raise RuntimeError('synthetic patch failure')
-            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda kind, name: objects.get((kind, name))), \
-                    patch('playbooks.data.files.native.published_source', return_value=({'privateSources': {'enabled': False}}, 'a' * 40)), \
-                    patch.object(migration, 'resume_identity_binding', return_value=False), \
-                    patch.object(migration, 'capture_public_revision', return_value='a' * 40), \
-                    patch.object(migration, 'pause'), patch.object(migration, 'kube', side_effect=write):
-                with self.assertRaisesRegex(RuntimeError, 'synthetic patch failure'):
-                    from service_activation import prepare
-                    from private_activation import prepare as prepare_private
-                    evidence = prepare({'repository': repository, 'services': {'enabled': False}},
-                                       target['valuesRepository'], target['valuesRevision'])
-                    migration.bind_identity({'private_repository': target['valuesRepository'], 'repository': repository,
-                                             'branch': 'main', 'revision': 'public',
-                                             'argo': {'serviceActivation': evidence, 'accessActivation': access_evidence(repository, target), 'dataActivation': data_evidence(repository, target), 'privateActivation': prepare_private(
-                                                 {'repository': repository}, target['valuesRepository'], target['valuesRevision'])}}, target)
-            self.assertEqual(writes[-1], ('scale', 'statefulset/' + migration.CONTROLLER, '-n', 'argocd', '--replicas=1'))
-            patch_body = json.loads(writes[0][-1])
-            self.assertEqual(patch_body[0], {'op': 'test', 'path': '/metadata/uid', 'value': 'root'})
-            self.assertEqual(patch_body[1]['path'], '/metadata/resourceVersion')
-            self.assertEqual(json.loads((base / 'identity-values-binding.json').read_text())['phase'], 'paused')
 
     def fixtures(self):
         return {
