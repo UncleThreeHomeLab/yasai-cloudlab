@@ -56,7 +56,7 @@ class Owners:
         request = json.dumps({'action': action, 'definition': self.definition, 'approval': self.approval})
         code = "import sys;sys.path.insert(0,'/opt/cloudlab');" + source
         output = ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code), input=request,
-                     timeout=660 if action in ('fixture-data', 'fixture-volume') else 90)
+                     timeout=660 if action in ('fixture-data', 'fixture-volume') else 240 if action == 'identity' else 90)
         result = json.loads(output)
         if result.get('ready') is not True:
             raise RuntimeError('Service owner readiness was not confirmed')
