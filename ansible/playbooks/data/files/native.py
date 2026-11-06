@@ -1,7 +1,7 @@
 """Operation-scoped data settings authenticated against their independent Git owners."""
 import base64
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -579,16 +579,19 @@ def operation(*, recovery=False, read=None):
 def projection(state, *, recovery=False, preparation=False):
     """Acquire authenticated inputs; this alone never authorizes a settings read."""
     deadline = time.monotonic() + 120
-    public, revision = published_source(state, deadline=deadline)
-    config = public.get('data', {}).get('configuration', {})
-    if public.get('data', {}).get('enabled') is not True or (not preparation and config.get('enabled') is not True):
-        raise RuntimeError('Native data consumer conflicts with its independently disabled owner')
-    if recovery:
-        wait_root(revision)
-        deadline = time.monotonic() + 120
-    target = root_guard(state, public, revision, recovery=recovery, preparation=preparation)
-    files = source_snapshot.chart_files({'repository': public['repository'], 'revision': config['revision'],
-                                        'path': 'platform/data/configuration'}, deadline=deadline)
+    # Operational recovery retains its pre-convergence reader; it is not pending-binding authority.
+    metadata = nullcontext(source_snapshot.request) if recovery else public_metadata(state, deadline=deadline)
+    with metadata as fetch:
+        public, revision = published_source(state, deadline=deadline, fetch=fetch)
+        config = public.get('data', {}).get('configuration', {})
+        if public.get('data', {}).get('enabled') is not True or (not preparation and config.get('enabled') is not True):
+            raise RuntimeError('Native data consumer conflicts with its independently disabled owner')
+        if recovery:
+            wait_root(revision)
+            deadline = time.monotonic() + 120
+        target = root_guard(state, public, revision, recovery=recovery, preparation=preparation)
+        files = source_snapshot.chart_files({'repository': public['repository'], 'revision': config['revision'],
+                                            'path': 'platform/data/configuration'}, deadline=deadline, fetch=fetch)
     documents = authenticated_inputs(target['valuesRepository'], target['valuesRevision'], deadline, public)
     expected = render_settings(files, documents + [{'sharedInputs': True, 'maintenance': False, 'hibernated': False}])
     if time.monotonic() >= deadline:
