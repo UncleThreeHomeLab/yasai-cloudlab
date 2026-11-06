@@ -934,6 +934,8 @@ Keep private settings in their accepted inputs and secret values in 1Password.
    `definition.secrets` mount and `approval.secretReferences` entry.
    The identity owner keeps their secret in `keycloak-client-secrets/client_secrets`
    in CloudLab; never put the value in the catalog.
+   Guarded delivery requires a nonempty string at the selected realm/client and
+   retains the last valid Secret until completion resumes through normal ESO refresh.
 2. **Agent:** check exact HTTPS callbacks derived from declared exposure hosts
    and `callbackPaths`; public-client web origins derive from those same hosts.
    Never use wildcard callbacks or unrelated origins.
