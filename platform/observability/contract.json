@@ -5,7 +5,7 @@
     "alert_rules_and_routing": "Git PrometheusRule and Alertmanager configuration",
     "logs_and_otlp": "Alloy",
     "identity": "Retained serialized Keycloak config-cli",
-    "independent_monitoring": "Independent Compose client and UptimeRobot Free"
+    "independent_monitoring": "platform/observability/uptimerobot.py and UptimeRobot Free; declarations follow uptime.schema.json"
   },
   "grafana_provider": {
     "disposition": "retain native Git provisioning; retain bounded API lifecycle for machine credentials",
@@ -74,6 +74,7 @@
       "notes-health",
       "notification-proof"
     ],
+    "ownership_keys": "One cloudlab-owned:<key> monitor per declared service key ([a-z][a-z0-9-]{0,31}); notification-proof keeps its disposable fixture scope and explicit URL migration rule",
     "endpoint": "Uncached public /health checks web, API, SQL and S3; private services and human authentication need separate checks",
     "fixture": "Only /monitoring-proof/ready and /monitoring-proof/failed; never stop production to demonstrate an outage",
     "notification_delivery": "Provider status alone is insufficient; confirm failure and recovery emails before acceptance",

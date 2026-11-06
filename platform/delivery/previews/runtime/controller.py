@@ -6,13 +6,13 @@ import time
 from pathlib import Path
 
 try:
-    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
+    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
     from .github import GitHub
     from .kube import Kubernetes, APIError, identity
     from .lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
     from .resources import resources, workload_keys, private_route
 except ImportError:
-    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
+    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
     from github import GitHub
     from kube import Kubernetes, APIError, identity
     from lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
@@ -367,7 +367,7 @@ class Controller:
 
     def run(self, settings, platform_repository):
         try:
-            runtime_catalog(settings)
+            settings = runtime_catalog(requested_catalog(settings))
             binding = {key: settings[key] for key in ('hostname', 'issuer')}
             if self.state.get('settings', binding) != binding:
                 return self.unavailable_input()
@@ -488,7 +488,7 @@ def run():
     if not approval_obj or approval_obj['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER:
         return controller.unavailable_input()
     try:
-        settings = runtime_catalog(json.loads(approval_obj['data']['catalog.json']))
+        settings = runtime_catalog(requested_catalog(json.loads(approval_obj['data']['catalog.json'])))
         platform_repository = approval_obj['data']['platformRepository']
     except (ValueError, TypeError, KeyError):
         return controller.unavailable_input()

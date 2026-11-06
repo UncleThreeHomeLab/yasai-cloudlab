@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudlab.invalid/platform/observability/uptime.schema.json",
+  "title": "Independent uptime and external-owner status declarations",
+  "description": "Public uptime declaration per service (for example services/<name>/uptime.yaml) and private external-owner status expectations (platform/operations/status.yaml). The uptime host derives from an approved public exposure, never an arbitrary URL; the endpoint must already be intentionally public and safe to probe without user authentication. Enabling status declares an expectation of bounded execution evidence; missing evidence stays visibly unavailable and a disabled executor never appears healthy.",
+  "type": "object",
+  "oneOf": [
+    {"required": ["service"]},
+    {"required": ["externalOwnerStatus"]}
+  ],
+  "properties": {
+    "service": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,34}$"
+    },
+    "independentMonitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exposureReference", "path", "expectedStatus", "intervalSeconds", "notificationProfile"],
+      "properties": {
+        "exposureReference": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "description": "Approved public exposure naming the probed host. YAML never authorizes publishing a private service."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/(?!.*[.][.])(?!.*%)[A-Za-z0-9._/-]{0,120}$",
+          "description": "Health path on the approved exposure. No credentials, query strings or private endpoints."
+        },
+        "expectedStatus": {
+          "const": 200,
+          "description": "Only 200 with the expected uncached health body is supported."
+        },
+        "intervalSeconds": {
+          "const": 300,
+          "description": "Only the accepted five-minute Free check interval is supported."
+        },
+        "notificationProfile": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "description": "Approved private notification profile; contact details stay private."
+        }
+      }
+    },
+    "externalOwnerStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roots"],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "enabled"],
+            "properties": {
+              "name": {
+                "enum": ["cloudflare", "github"],
+                "description": "External owner root supported by infra/status.contract.json."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Enabled roots must publish bounded redacted evidence; disabled roots report unavailable."
+              }
+            }
+          }
+        },
+        "maximumObservationAgeSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400,
+          "default": 86400,
+          "description": "Evidence older than this is stale, never healthy."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"required": ["service"]}, "then": {"required": ["independentMonitoring"]}}
+  ]
+}

@@ -72,35 +72,14 @@ Application charts consume Git definitions; the data owner repairs scoped public
 configuration. External publication, identity and retirement remain explicit.
 The public root owns the catalog Application and its reviewed `services.revision` pin.
 
-[Previews](playbooks/previews/) owns exact-revision approval, private namespace
-budgets, lifecycle cleanup and bounded transient identity intent.
-
 [Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
 redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installation,
 scoped registry credentials and coordinated recovery. Its host schedules use the
 same monthly export window and local-only freshness checks. Component tests own
 browser and provider fixtures.
 
-CI tools are qualified before job credentials are delivered. After independent
-bootstrap publication, run `docker compose --profile ci run --build --rm
---entrypoint python ci-bootstrap /opt/runner/run.py ci-bootstrap-check`.
-It uses the existing approved-namespace ESO contract for the public pull robot,
-then tests the production rootless profile, quota, read-only health identity and
-bounded sidecar termination on both nodes. Only owned disposable fixtures are removed.
-Generate non-secret CI values with the local `ci-bootstrap` entry point
-`python -m playbooks.ci.files.configuration`; it accepts the existing GitHub setup
-credential through stdin. Review its output into `platform/ci/config.json` in the
-designated private configuration repository. Argo reads this file through the
-read-only `github-argocd` App (`APP_ID`, `INSTALLATION_ID`, `PRIVATE_KEY`).
-The public root's `ci.enabled` installs the controller; `ci.poolEnabled` separately
-permits the runner pool. Pool inputs require `--workflow-revision` matching the
-actual private fixture's `main` workflow. Generate a new output file to review
-changed inputs; existing files and credentials are never overwritten.
-Release proposals accept only the fixed GitHub-hosted receiver on `main` and its
-designated App identity. They change one `apps/releases/*-ci.json` file through
-a PR, preserve interrupted branches and never merge or receive cluster credentials.
-The local `playbooks.ci.files.workflow_permissions apply` entry point imports the
-two GitOps repositories' existing workflow settings without remote changes, then
-converges read-only defaults and PR permission through the pinned GitHub provider.
-Its separate encrypted state uses the existing GitHub GitLab backend and recovery
-key. Repository identities are retained; organization settings remain external.
+CI tools are qualified before job credentials are delivered. Application CI is
+registered through reviewed private registration YAML; Argo reconciles the
+derived runner pools. Releases are proposed as `apps/releases/*.json` PRs and
+merged through branch protection; release Apps never merge their own PRs.
+See [service onboarding](../docs/service-onboarding.md).

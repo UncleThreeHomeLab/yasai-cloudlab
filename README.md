@@ -54,8 +54,8 @@ upgrades are managed separately.
 External resources use separate reviewed OpenTofu operations through Compose;
 see [infrastructure inputs and gates](ansible/playbooks/infrastructure/files/command.py).
 For later use: [automation](ansible/README.md),
-[app onboarding](docs/service-onboarding.md), [previews](ansible/playbooks/previews/README.md)
-and [dependency updates](ansible/playbooks/dependencies/README.md).
+[app onboarding](docs/service-onboarding.md), [previews](platform/delivery/previews/contract.json)
+and [dependency updates](platform/delivery/dependencies/maintenance.yaml).
 
 ## The stack
 
@@ -113,7 +113,7 @@ volume.
 | Docker Compose | Run the pinned automation environment |
 | OpenTofu | Manage external resources locally through Compose |
 | GitHub Actions | Trusted application builds through ARC |
-| [Renovate](ansible/playbooks/dependencies/README.md) | Local draft proposals and verified dependency updates |
+| [Renovate](platform/delivery/dependencies/maintenance.yaml) | Draft proposals and verified dependency updates |
 
 ## Detailed flows
 

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudlab.invalid/platform/ci/registration.schema.json",
+  "title": "Application CI registration",
+  "description": "Authoritative private registration input. Lives at platform/ci/applications/<name>.yaml in private GitOps. It declares immutable source identity, the exact approved workflow revision, enabled jobs and the approved publishing destination. Fixed platform profiles supply runner pod specifications, tool digests, isolation, network boundaries and resource budgets; nothing here changes runner authorization from workflow code. A new source revision never inherits a previous approval: renew ci.approval for every revision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["application", "source", "ci"],
+  "properties": {
+    "application": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,34}$",
+      "description": "Application name. Derives the runner scale-set names cloudlab-<name> and cloudlab-<name>-publish and the pool namespace cloudlab-ci-<visibility>-<name>."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "repositoryId", "visibility"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$",
+          "description": "Application source repository. Observed GitHub visibility must match the declared visibility."
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "description": "Immutable GitHub repository id. Renames never move runner authorization."
+        },
+        "visibility": {
+          "enum": ["public", "private"],
+          "description": "Source visibility. Private sources use exact-revision main-only approval; private PR/dev jobs stay disabled."
+        }
+      }
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "approval", "jobs"],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "description": "Fixed platform profile selecting qualified tooling, isolation and budgets (for example private-main). Profile selection never weakens source review."
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["revision"],
+          "properties": {
+            "revision": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$",
+              "description": "Exact approved source revision. Binds runner eligibility sha and workflow_sha; for public main it must be the protected main revision."
+            },
+            "pullRequest": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Optional open internal PR number for test-only eligibility at refs/pull/N/merge. Requires the PR merge revision in approval.revision; public sources only."
+            }
+          }
+        },
+        "jobs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["test"],
+          "properties": {
+            "test": {"type": "boolean"},
+            "publish": {"type": "boolean"}
+          },
+          "description": "Enabled jobs. publish requires the publishing block. PR approvals allow test only."
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"approval": {"required": ["pullRequest"]}}},
+         "then": {"type": "object", "properties": {"jobs": {"type": "object", "properties": {"publish": {"const": false}}}}}}
+      ]
+    },
+    "testing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^[a-z0-9.-]+/cloudlab-(public|private)/[a-z0-9][a-z0-9._/-]{0,180}@sha256:[a-f0-9]{64}$",
+          "description": "Immutable reviewed dependency-test environment image. Project must match source visibility."
+        }
+      }
+    },
+    "publishing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry", "releaseRepository", "releaseRepositoryId", "workflowIdentity"],
+      "properties": {
+        "registry": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{0,252}$",
+          "description": "Allowed artifact registry host. Project derives from source visibility."
+        },
+        "releaseRepository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$",
+          "description": "GitOps repository receiving release proposals. Same owner as the source repository."
+        },
+        "releaseRepositoryId": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Immutable GitHub id of the release repository."
+        },
+        "releaseVisibility": {
+          "enum": ["public", "private"],
+          "description": "Defaults to source visibility. Private sources always release to private GitOps."
+        },
+        "releaseMode": {
+          "enum": ["automatic", "manual"],
+          "default": "automatic",
+          "description": "Manual keeps GitOps write credentials out of CI; a human promotes the signed candidate through a reviewed PR."
+        },
+        "workflowIdentity": {
+          "type": "string",
+          "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/[.]github/workflows/(application-publish[.]yaml@[a-f0-9]{40}|ci[.]yaml@refs/heads/main)$",
+          "description": "Approved publishing workflow identity authorizing signatures and release proposals."
+        },
+        "components": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 8,
+          "propertyNames": {"pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["dockerfile"],
+            "properties": {
+              "dockerfile": {"type": "string", "maxLength": 180, "pattern": "^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"},
+              "target": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"}
+            }
+          }
+        },
+        "primaryComponent": {
+          "type": "string",
+          "pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$",
+          "description": "Required with components; the release digest is the primary image."
+        }
+      },
+      "allOf": [
+        {"if": {"required": ["components"]}, "then": {"required": ["primaryComponent"]}},
+        {"if": {"required": ["primaryComponent"]}, "then": {"required": ["components"]}},
+        {"if": {"required": ["releaseMode"], "properties": {"releaseMode": {"const": "manual"}}},
+         "then": {"required": ["releaseVisibility"], "properties": {"releaseVisibility": {"const": "private"}}}}
+      ]
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"source": {"properties": {"visibility": {"const": "private"}}}}},
+     "then": {"properties": {"publishing": {"properties": {"releaseVisibility": {"const": "private"}}}}}},
+    {"if": {"properties": {"ci": {"properties": {"jobs": {"required": ["publish"], "properties": {"publish": {"const": true}}}}}}},
+     "then": {"required": ["publishing"]}},
+    {"if": {"properties": {"source": {"properties": {"visibility": {"const": "private"}}}}},
+     "then": {"properties": {"ci": {"properties": {"approval": {"not": {"required": ["pullRequest"]}}}}}}}
+  ]
+}

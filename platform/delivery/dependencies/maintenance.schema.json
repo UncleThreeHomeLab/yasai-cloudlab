@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudlab.invalid/platform/delivery/dependencies/maintenance.schema.json",
+  "title": "Dependency maintenance policy",
+  "description": "Public platform maintenance policy selecting existing owners from owners.json and their checks. It schedules candidate proposals but never replaces the owner inventory, chooses write paths, waives qualification, merges, or prunes branches. Candidate code never executes with proposal writer credentials, private configuration, native state, or a Docker socket.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["maintenance"],
+  "properties": {
+    "maintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["groups", "automerge", "pruneBranches"],
+      "properties": {
+        "groups": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["owner", "cadence", "proposal", "qualification"],
+            "properties": {
+              "owner": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "Existing owner name from owners.json. Unknown owners fail closed with no proposal."
+              },
+              "cadence": {
+                "enum": ["daily", "weekly", "monthly"],
+                "description": "Proposal cadence resolved through the supported scheduler."
+              },
+              "proposal": {
+                "const": "draft",
+                "description": "Proposals are always drafts for explicit review."
+              },
+              "qualification": {
+                "const": "owner-defined",
+                "description": "The owner's existing repair, build, toolchain and verification stages qualify every candidate."
+              }
+            }
+          }
+        },
+        "automerge": {
+          "const": false,
+          "description": "Explicit review stays required; build scripts and qualification remain necessary implementation."
+        },
+        "pruneBranches": {
+          "const": false,
+          "description": "No automatic branch pruning."
+        }
+      }
+    }
+  }
+}

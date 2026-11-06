@@ -1,0 +1,15 @@
+# $schema: ./maintenance.schema.json
+# Public platform maintenance policy. Groups select existing owners.json owners;
+# scheduled proposals stay drafts and explicit review stays required.
+maintenance:
+  groups:
+    - owner: runner
+      cadence: weekly
+      proposal: draft
+      qualification: owner-defined
+    - owner: image:maintenance
+      cadence: monthly
+      proposal: draft
+      qualification: owner-defined
+  automerge: false
+  pruneBranches: false

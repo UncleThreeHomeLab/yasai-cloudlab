@@ -42,4 +42,4 @@ jobs:
           persist-credentials: false
       - name: Build scan sign and propose the application digest
         shell: bash
-        run: python3 -I -S platform/ansible/playbooks/ci/files/publisher.py
+        run: python3 -I -S platform/platform/delivery/ci/publisher/publisher.py
