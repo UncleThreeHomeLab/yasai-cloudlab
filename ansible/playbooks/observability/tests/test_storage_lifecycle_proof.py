@@ -1302,6 +1302,67 @@ class StorageProofTests(unittest.TestCase):
             step.assert_not_called()
             native.assert_not_called()
 
+    def test_removed_waits_only_for_validated_owned_pruning_and_checks_later_invariants(self):
+        for mutation in ('progress', 'foreign', 'retention', 'retained', 'foreign-pod'):
+            with self.subTest(mutation=mutation):
+                receipt = MemoryReceipt()
+                namespace, housekeeping, roots = housekeeping_fixture()
+                receipt.value['evidence'].update(namespaceCreatedAt=namespace['metadata']['creationTimestamp'], housekeepingRoots=roots)
+                receipt.value['housekeeping'] = {obj['metadata']['name']: proof.housekeeping_identity(obj, receipt.namespace,
+                    namespace['metadata']['creationTimestamp'], roots) for obj in housekeeping}
+                receipt.value['admission'] = {phase: {obj['kind'] + '/' + obj['metadata']['name']: copy.deepcopy(obj)
+                    for obj in documents} for phase, documents in self.payload['phases'].items()}
+                current = {kind: [] for kind in proof.KINDS}
+                for obj in housekeeping: current[obj['kind']].append(copy.deepcopy(obj))
+                def declared(kind, index, name=None):
+                    obj = copy.deepcopy(next(o for o in self.payload['phases']['running']
+                                             if o['kind'] == kind and (name is None or o['metadata']['name'] == name)))
+                    obj['metadata'].update(uid=uid(index), resourceVersion='8')
+                    group = obj['apiVersion'].split('/')[0] if '/' in obj['apiVersion'] else ''
+                    obj['metadata'].setdefault('annotations', {})
+                    if obj['metadata']['annotations'] is None: obj['metadata']['annotations'] = {}
+                    obj['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = (
+                        receipt.namespace + ':' + group + '/' + kind + ':' + receipt.namespace + '/' + obj['metadata']['name'])
+                    receipt.value['objects']['declared-' + kind + '/' + obj['metadata']['name']] = proof.object_id(obj)
+                    return obj
+                sentinel = declared('ConfigMap', 81, receipt.namespace + '-sentinel')
+                current['ConfigMap'].append(sentinel)
+                pending = declared('Deployment', 82)
+                pending['metadata'].update(deletionTimestamp='2026-11-05T12:03:00Z', finalizers=['foregroundDeletion'])
+                current['Deployment'].append(pending)
+                for index, component in enumerate(('loki', 'tempo', 'grafana'), 1):
+                    claim, pv, volume = storage_chain(receipt, component, index)
+                    receipt.value['storage'][component]['identity'] = {'claim': proof.object_id(claim), 'pv': proof.object_id(pv),
+                        'volume': proof.object_id(volume), 'handle': pv['metadata']['name']}
+                    current['PersistentVolumeClaim'].append(claim)
+                if mutation == 'foreign':
+                    foreign = declared('Secret', 90)
+                    del receipt.value['objects']['declared-Secret/' + foreign['metadata']['name']]
+                    current['Secret'].append(foreign)
+                if mutation == 'retention':
+                    service = declared('Service', 91)
+                    service['metadata']['annotations']['helm.sh/resource-policy'] = 'keep'
+                    current['Service'].append(service)
+                if mutation == 'retained': current['PersistentVolumeClaim'][0]['metadata']['uid'] = uid(99)
+                pods = [{'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': receipt.namespace + '-foreign',
+                    'namespace': receipt.namespace, 'uid': uid(99), 'resourceVersion': '8'}}] if mutation == 'foreign-pod' else []
+                def listed(kind, *unused):
+                    if kind == 'replicasets.apps': return []
+                    if kind == 'pods': return pods
+                    return copy.deepcopy(current[kind])
+                def fresh(record, claim, **unused):
+                    return next(row['identity'] for row in record.value['storage'].values()
+                                if row['identity']['claim']['uid'] == claim['metadata']['uid'])
+                with patch.object(proof, 'listed', side_effect=listed), patch.object(proof, 'fresh_identity', side_effect=fresh), \
+                     patch.object(proof, 'get', side_effect=lambda kind, name, *a, **kw:
+                                  next(obj for obj in housekeeping if obj['kind'] == kind and obj['metadata']['name'] == name)):
+                    if mutation == 'progress':
+                        self.assertFalse(proof.require_removed(receipt))
+                        current['Deployment'].clear()
+                        self.assertTrue(proof.require_removed(receipt))
+                    else:
+                        with self.assertRaises(RuntimeError): proof.require_removed(receipt)
+
     def test_removed_retention_accepts_detached_unknown_only_with_exact_storage_identity(self):
         class RemovalVerified(Exception):
             pass
