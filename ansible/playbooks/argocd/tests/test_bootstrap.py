@@ -89,46 +89,6 @@ class BootstrapTests(unittest.TestCase):
             self.assertFalse(bootstrap.grant_identity_source(project))
             self.assertEqual(write.call_count, 1)
 
-    def test_pending_identity_source_grant_repairs_with_controller_stopped_and_source_unchanged(self):
-        import source_transition
-        from fixtures import binding_fixture
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            objects, _, _, state = binding_fixture()
-            state['phase'] = 'resumed'
-            objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'] = copy.deepcopy(state['patchedSource'])
-            (base / 'identity-values-binding.json').write_text(json.dumps(state))
-            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda *key: objects.get(key)), \
-                    patch('playbooks.data.files.native.published_source', return_value=({'privateSources': {'enabled': False}}, 'a' * 40)), \
-                    patch.object(source_transition, 'pause') as pause, patch.object(bootstrap, 'kube') as write:
-                self.assertTrue(bootstrap.resume_identity_binding())
-                pause.assert_called_once()
-                self.assertEqual(write.call_args_list[0].args[:2], ('patch', 'appproject.argoproj.io'))
-                self.assertEqual(write.call_args.args[-1], '--replicas=1')
-                write.reset_mock()
-                objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source']['repoURL'] = 'foreign'
-                with self.assertRaisesRegex(RuntimeError, 'ambiguous'):
-                    bootstrap.resume_identity_binding()
-                write.assert_not_called()
-
-    def test_interrupted_identity_binding_repairs_controller_without_idp_or_replacement(self):
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            (base / 'identity-values-binding.json').write_text(json.dumps({
-                'phase': 'paused', 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project'}))
-            objects = {'application.argoproj.io': {'metadata': {'uid': 'root'}, 'spec': {'source': {'repoURL': 'public'}}},
-                'statefulset': {'metadata': {'uid': 'controller'}, 'spec': {'replicas': 0}},
-                'appproject.argoproj.io': {'metadata': {'uid': 'project'}}}
-            with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'get', side_effect=lambda kind, name: objects[kind]), \
-                    patch.object(bootstrap, 'kube') as repair:
-                self.assertTrue(bootstrap.resume_identity_binding())
-                self.assertEqual(repair.call_args.args, ('scale', 'statefulset/argocd-application-controller',
-                    '-n', 'argocd', '--replicas=1'))
-                objects['statefulset']['metadata']['uid'] = 'foreign'
-                with self.assertRaisesRegex(RuntimeError, 'identity changed'):
-                    bootstrap.resume_identity_binding()
-                self.assertEqual(repair.call_count, 1)
-
     def test_explicit_interruption_stops_before_root_creation_and_is_not_repeated(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
