@@ -148,19 +148,8 @@ def inspect(request):
         if not oidc['enabled']: return
         from playbooks.services.files.contract import identity_request
         desired = identity_request(definition, {oidc.get('secretReference'): 'x' * 48})
-        source = get('configmap', 'identity-private-state', 'cloudlab-identity')
-        if not source: raise RuntimeError('Private identity input is unavailable')
-        configuration = json.loads(source['data']['desired_state'])
-        revocations = json.loads(source['data']['revocations'])
-        clients = configuration['realms'].get(oidc['realm'], {}).get('clients', [])
-        if [c for c in clients if c['id'] == oidc['client']] != [desired['client']] or oidc['client'] in revocations['realms'].get(oidc['realm'], {}).get('clients', []):
-            raise RuntimeError('Identity client is not the exact approved contract')
-        private = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd')
-        revision = private.get('status', {}).get('sync', {}).get('revision') if private else None
-        if not revision or not application_ready('cloudlab-identity-private', revision):
-            raise RuntimeError('Private identity source is not converged')
         from playbooks.keycloak.files.bootstrap import APP, BASE, reconciled
-        from playbooks.keycloak.files.ownership import accepted_application
+        from playbooks.keycloak.files.ownership import accepted_application, accepted_private_inventory
         state = json.loads((BASE / 'ownership.json').read_text())
         root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
         identity = get('application.argoproj.io', APP, 'argocd') or {}
@@ -171,12 +160,25 @@ def inspect(request):
             raise RuntimeError('Identity writer is not converged')
         identity_revision = accepted_application(identity, base=BASE)
         if identity_revision is None:
+            source = get('configmap', 'identity-private-state', 'cloudlab-identity')
+            if not source: raise RuntimeError('Private identity input is unavailable')
+            configuration = json.loads(source['data']['desired_state'])
+            revocations = json.loads(source['data']['revocations'])
+            private = get('application.argoproj.io', 'cloudlab-identity-private', 'argocd')
+            private_revision = private.get('status', {}).get('sync', {}).get('revision') if private else None
+            if not private_revision or not application_ready('cloudlab-identity-private', private_revision):
+                raise RuntimeError('Private identity source is not converged')
             # Legacy branch owners advance with Root; native owners keep their authenticated pin.
             if (identity_source.get('repoURL') != public_source.get('repoURL') or
                     identity_source.get('targetRevision') != public_source.get('targetRevision') or
                     identity_source.get('path') != 'platform/identity/keycloak'):
                 raise RuntimeError('Identity writer is not converged')
             identity_revision = revision
+        else:
+            configuration, revocations, _ = accepted_private_inventory(base=BASE)
+        clients = configuration['realms'].get(oidc['realm'], {}).get('clients', [])
+        if [c for c in clients if c['id'] == oidc['client']] != [desired['client']] or oidc['client'] in revocations['realms'].get(oidc['realm'], {}).get('clients', []):
+            raise RuntimeError('Identity client is not the exact approved contract')
         if not reconciled(identity_revision, state['uid']):
             raise RuntimeError('Identity writer is not converged')
     elif action == 'data':

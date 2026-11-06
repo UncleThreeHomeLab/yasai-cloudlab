@@ -1335,6 +1335,72 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(app['spec']['source']['directory'], {'include': 'configmap.yaml'})
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertFalse(app['spec']['syncPolicy']['automated']['allowEmpty'])
+    def test_accepted_private_inventory_requires_registered_source_and_tracking(self):
+        from playbooks.keycloak.files.ownership import accepted_private_inventory, PUBLIC_REPOSITORY
+        repository = 'https://github.com/UncleThreeHomeLab/private-fixture.git'
+        resources = private_resources({'private_repository': repository, 'private_branch': 'main'})
+        objects = {row['kind']: copy.deepcopy(row) for row in resources}
+        for kind, row in objects.items():
+            row['metadata'].update(uid=kind + '-uid', resourceVersion='1')
+        app = objects['Application']
+        app['status'] = {'sync': {'revision': 'd' * 40, 'comparedTo': {'source': copy.deepcopy(app['spec']['source'])}}}
+        documents = ({'format': 1, 'realms': {}}, {'format': 1, 'realms': {}})
+        private = {'apiVersion': 'v1', 'kind': 'ConfigMap',
+            'metadata': {'name': 'identity-private-state', 'namespace': 'cloudlab-identity', 'uid': 'inventory', 'resourceVersion': '2',
+                'annotations': {'argocd.argoproj.io/tracking-id': 'cloudlab-identity-private:/ConfigMap:cloudlab-identity/identity-private-state'}},
+            'data': dict(zip(('desired_state', 'revocations'), map(json.dumps, documents)))}
+        root = {'status': {'sync': {'revision': 'b' * 40}}}
+        def get(kind, name, namespace):
+            if name == 'cloudlab-identity-private': return objects[kind]
+            if name == 'identity-private-state': return private
+            if name == 'cloudlab-public-root': return root
+            raise AssertionError((kind, name, namespace))
+        def binding(**coordinates):
+            self.assertEqual({key: coordinates[key] for key in ('repository', 'branch', 'revision')},
+                {'repository': PUBLIC_REPOSITORY, 'branch': 'main', 'revision': 'b' * 40})
+            if coordinates['private_repository'] != repository: raise RuntimeError('Accepted binding differs')
+            return {'valuesRepository': repository, 'valuesRevision': 'a' * 40}
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            state = {'phase': 'scoped', 'native': {'phase': 'accepted'},
+                'private_uids': {kind: row['metadata']['uid'] for kind, row in objects.items()}}
+            (base / 'ownership.json').write_text(json.dumps(state))
+            with patch('playbooks.keycloak.files.ownership.get', side_effect=get), \
+                    patch('playbooks.argocd.files.source_transition.accepted_identity_binding', autospec=True, side_effect=binding) as accepted, \
+                    patch('playbooks.keycloak.files.ownership.application_ready', return_value=True) as ready:
+                self.assertEqual(accepted_private_inventory(base=base), (*documents, 'd' * 40))
+                accepted.assert_called_once_with(repository=PUBLIC_REPOSITORY, branch='main', revision='b' * 40,
+                    private_repository=repository)
+                ready.assert_called_once_with('cloudlab-identity-private', 'd' * 40)
+                changes = [
+                    (app['spec']['source'], 'repoURL', 'https://github.com/UncleThreeHomeLab/foreign.git'),
+                    (app['spec']['source'], 'targetRevision', 'other'),
+                    (app['spec']['source'], 'path', 'other'),
+                    (objects['AppProject']['spec'], 'sourceRepos', ['https://github.com/UncleThreeHomeLab/foreign.git']),
+                    (objects['ExternalSecret']['spec'], 'refreshInterval', '1h'),
+                    (objects['ExternalSecret']['metadata'], 'uid', 'replacement'),
+                    (objects['Application']['metadata'], 'labels', {}),
+                    (app, 'operation', {'sync': {}}),
+                    (private['metadata']['annotations'], 'argocd.argoproj.io/tracking-id', 'foreign'),
+                    (private['metadata'], 'resourceVersion', ''),
+                    (private['metadata'], 'ownerReferences', [{'uid': 'foreign'}]),
+                    (private['data'], 'desired_state', 'private-value-invalid-json'),
+                    (private['data'], 'revocations', '[]'),
+                    (private['data'], 'extra', '{}'),
+                ]
+                for target, key, wrong in changes:
+                    with self.subTest(key=key, wrong=wrong):
+                        present, original = key in target, copy.deepcopy(target.get(key))
+                        target[key] = wrong
+                        try:
+                            with self.assertRaises(RuntimeError) as error: accepted_private_inventory(base=base)
+                            self.assertNotIn('private-value', str(error.exception))
+                        finally:
+                            if present: target[key] = original
+                            else: target.pop(key)
+                state['private_uids'].pop('Application')
+                (base / 'ownership.json').write_text(json.dumps(state))
+                with self.assertRaisesRegex(RuntimeError, 'registered owner'): accepted_private_inventory(base=base)
     def test_runtime_owner_preserves_lease_and_never_enables_operator_or_real_clients(self):
         payload = {'repository': 'https://github.com/fixture/platform.git', 'branch': 'main', 'values': {
             'loginHost': 'login.example.invalid', 'adminHost': 'identity-admin.internal.example.invalid',
