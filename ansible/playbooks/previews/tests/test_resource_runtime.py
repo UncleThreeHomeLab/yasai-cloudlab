@@ -14,6 +14,54 @@ from playbooks.previews.tests import fixtures, resource_runtime as runtime
 
 
 class ResourceTests(unittest.TestCase):
+    def test_host_adapter_inventory_keeps_secret_cleanup_veto_and_incomplete_reads_closed(self):
+        namespace = 'cloudlab-preview-synthetic'
+        route = '/api/v1/namespaces/' + namespace + '/secrets'
+        secret = {'apiVersion': 'v1', 'kind': 'Secret', 'data': {'private-body-sentinel': 'sensitive'},
+                  'metadata': {'name': 'unexpected', 'namespace': namespace, 'uid': 'secret', 'resourceVersion': '7'}}
+        api = runtime.HostKubernetes()
+        with patch.object(runtime, 'kube') as read:
+            for method, path in (('POST', route), ('GET', route + '/foreign')):
+                with self.subTest(method=method, path=path), self.assertRaises(ValueError):
+                    api.request(method, path, _metadata_only=True)
+            read.assert_not_called()
+        for change in ('empty', 'null', 'secret', 'omitted-item-types', 'list-kind', 'item-kind',
+                       'missing-items', 'pagination', 'remaining', 'invalid-json'):
+            with self.subTest(change=change):
+                value = {'apiVersion': 'v1', 'kind': 'SecretList', 'metadata': {'resourceVersion': '7'}, 'items': []}
+                if change == 'null': value['items'] = None
+                elif change in ('secret', 'omitted-item-types', 'item-kind'):
+                    value['items'] = [copy.deepcopy(secret)]
+                    if change == 'item-kind': value['items'][0]['kind'] = 'ConfigMap'
+                    elif change == 'omitted-item-types':
+                        del value['items'][0]['apiVersion']; del value['items'][0]['kind']
+                elif change == 'list-kind': value['kind'] = 'ConfigMapList'
+                elif change == 'missing-items': del value['items']
+                elif change == 'pagination': value['metadata']['continue'] = 'private-body-sentinel'
+                elif change == 'remaining': value['metadata']['remainingItemCount'] = 1
+                responses = {'/api/v1': json.dumps({'resources': [
+                    {'name': 'secrets', 'kind': 'Secret', 'namespaced': True, 'verbs': ['list']}]}),
+                    '/apis': json.dumps({'groups': []}),
+                    route: '{private-body-sentinel' if change == 'invalid-json' else json.dumps(value)}
+                receipts = Mock(api=api, state={'resources': {'v1/Namespace//' + namespace: {'uid': 'namespace'}}})
+                with patch.object(api, 'get', return_value={'metadata': {'uid': 'namespace'}}), \
+                        patch.object(runtime, 'kube', side_effect=lambda method, raw, path: responses[path]) as read, \
+                        patch.object(runtime, 'namespace_disposable', wraps=runtime.namespace_disposable) as disposable:
+                    if change in ('empty', 'null'):
+                        runtime.cleanup_namespace(receipts, namespace)
+                        receipts.delete.assert_called_once_with(('v1', 'Namespace', '', namespace))
+                    else:
+                        with self.assertRaises((RuntimeError, ValueError)) as error:
+                            runtime.cleanup_namespace(receipts, namespace)
+                        self.assertNotIn('private-body-sentinel', str(error.exception))
+                        receipts.delete.assert_not_called()
+                    if change in ('secret', 'omitted-item-types'):
+                        self.assertEqual(disposable.call_args.args[0], [
+                            {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': secret['metadata']}])
+                        self.assertIsInstance(error.exception, ValueError)
+                    self.assertEqual(read.call_args_list, [
+                        unittest.mock.call('get', '--raw', path) for path in ('/api/v1', '/apis', route)])
+
     def test_degraded_platform_allows_only_named_retained_recovery_and_keeps_host_custody_strict(self):
         from playbooks.previews.tests import probe_state
         key=('argoproj.io/v1alpha1','Application','argocd','cloudlab-previews')

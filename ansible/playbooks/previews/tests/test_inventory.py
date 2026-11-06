@@ -1,5 +1,6 @@
 import ast
 import copy
+import http.client
 import json
 import io
 from pathlib import Path
@@ -8,13 +9,161 @@ import unittest
 import urllib.error
 from unittest.mock import Mock, patch
 
-from playbooks.previews.files.kube import Kubernetes, APIError
+from playbooks.previews.files.kube import Kubernetes, APIError, METADATA_ACCEPT
 from playbooks.previews.files.lifecycle import namespace_disposable
 from playbooks.previews.tests.native_admission import REMOTE
 from playbooks.previews.tests.fixtures import native_inventory_graph, inventory_responses
 
 
 class InventoryTests(unittest.TestCase):
+    def secret_responses(self, items):
+        responses = inventory_responses(native_inventory_graph(self.namespace), self.namespace)
+        responses['/api/v1']['resources'].append(
+            {'name': 'secrets', 'kind': 'Secret', 'namespaced': True, 'verbs': ['get', 'list']})
+        responses['/api/v1/namespaces/' + self.namespace + '/secrets'] = {
+            'apiVersion': 'meta.k8s.io/v1', 'kind': 'PartialObjectMetadataList',
+            'metadata': {'resourceVersion': '7'}, 'items': items}
+        return responses
+
+    def test_secret_metadata_transport_normalizes_presence_and_keeps_cleanup_veto(self):
+        meta = {'name': 'unexpected', 'namespace': self.namespace, 'uid': 'secret-uid', 'resourceVersion': '7',
+                'ownerReferences': [{'uid': 'native-root'}],
+                'annotations': {'cloudlab.io/retention': 'keep'}}
+        secret = {'apiVersion': 'meta.k8s.io/v1', 'kind': 'PartialObjectMetadata', 'metadata': meta}
+        route = '/api/v1/namespaces/' + self.namespace + '/secrets'
+        for items in ([secret], [], None):
+            with self.subTest(items=items), tempfile.TemporaryDirectory() as directory:
+                responses = self.secret_responses(items)
+                kube = object.__new__(Kubernetes); kube.context = None; kube.account = Path(directory)
+                kube.account.joinpath('token').write_text('synthetic-token')
+                def response(request, **kwargs):
+                    path = request.full_url.removeprefix('https://kubernetes.default.svc')
+                    self.assertEqual(request.get_header('Accept'), METADATA_ACCEPT if path == route else None)
+                    self.assertEqual(request.get_header('Authorization'), 'Bearer synthetic-token')
+                    self.assertEqual(kwargs, {'timeout': 10})
+                    # Native metadata JSON may have a plain application/json Content-Type.
+                    stream = io.BytesIO(json.dumps(responses[path]).encode())
+                    stream.headers = {'Content-Type': 'application/json'}
+                    return stream
+                opener = Mock(); opener.open.side_effect = response
+                with patch('playbooks.previews.files.kube.urllib.request.build_opener', return_value=opener):
+                    inventory = kube.namespace_inventory(self.namespace)
+                self.assertEqual(sum(call.args[0].full_url.endswith('/secrets') for call in opener.open.call_args_list), 1)
+                if items:
+                    observed = next(obj for obj in inventory if obj['kind'] == 'Secret')
+                    self.assertEqual(observed, {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': meta})
+                    with self.assertRaisesRegex(ValueError, 'Unexpected data'):
+                        namespace_disposable(inventory, {'native-root'}, 'namespace')
+                    # Secret presence alone vetoes cleanup, even with an accepted owner and no retention annotation.
+                    observed['metadata'].pop('annotations')
+                    with self.assertRaisesRegex(ValueError, 'Unexpected data'):
+                        namespace_disposable(inventory, {'native-root'}, 'namespace')
+                else:
+                    self.assertTrue(namespace_disposable(inventory, {'native-root'}, 'namespace'))
+
+    def test_secret_metadata_invalid_representations_fail_closed_without_fallback(self):
+        route = '/api/v1/namespaces/' + self.namespace + '/secrets'
+        secret = {'apiVersion': 'meta.k8s.io/v1', 'kind': 'PartialObjectMetadata',
+                  'metadata': {'name': 'unexpected', 'namespace': self.namespace,
+                               'uid': 'secret-uid', 'resourceVersion': '7'}}
+        original = self.secret_responses([secret])[route]
+        changes = ('list-version', 'list-kind', 'list-extra', 'list-metadata', 'missing-metadata',
+                   'missing-items', 'items-shape', 'limit', 'continuation', 'remaining', 'remaining-type',
+                   'null-continuation', 'item-shape', 'item-version', 'item-kind', 'item-metadata',
+                   'item-name', 'item-namespace', 'item-uid', 'item-resourceVersion',
+                   'data', 'stringData', 'type', 'spec', 'status', 'full-list', 'null-list')
+        for change in changes:
+            value = copy.deepcopy(original)
+            if change == 'list-version': value['apiVersion'] = 'v1'
+            elif change == 'list-kind': value['kind'] = 'SecretList'
+            elif change == 'list-extra': value['data'] = {'private-body-sentinel': 'sensitive'}
+            elif change == 'list-metadata': value['metadata'] = []
+            elif change == 'missing-metadata': del value['metadata']
+            elif change == 'missing-items': del value['items']
+            elif change == 'items-shape': value['items'] = {}
+            elif change == 'limit': value['items'] *= 501
+            elif change == 'continuation': value['metadata']['continue'] = 'private-body-sentinel'
+            elif change == 'remaining': value['metadata']['remainingItemCount'] = 1
+            elif change == 'remaining-type': value['metadata']['remainingItemCount'] = True
+            elif change == 'null-continuation': value['metadata']['continue'] = None
+            elif change == 'item-shape': value['items'] = ['private-body-sentinel']
+            elif change == 'item-version': value['items'][0]['apiVersion'] = 'v1'
+            elif change == 'item-kind': value['items'][0]['kind'] = 'Secret'
+            elif change == 'item-metadata': value['items'][0]['metadata'] = None
+            elif change.startswith('item-'): value['items'][0]['metadata'][change.removeprefix('item-')] = ''
+            elif change in ('data', 'stringData', 'type', 'spec', 'status'):
+                value['items'][0][change] = {'private-body-sentinel': 'sensitive'}
+            elif change == 'full-list':
+                value.update(apiVersion='v1', kind='SecretList')
+                value['items'][0].update(apiVersion='v1', kind='Secret', data={'private-body-sentinel': 'sensitive'})
+            else: value = None
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                responses = self.secret_responses([]); responses[route] = value
+                kube = object.__new__(Kubernetes); kube.context = None; kube.account = Path(directory)
+                kube.account.joinpath('token').write_text('synthetic-token')
+                def response(request, **kwargs):
+                    path = request.full_url.removeprefix('https://kubernetes.default.svc')
+                    self.assertEqual(request.get_header('Accept'), METADATA_ACCEPT if path == route else None)
+                    return io.BytesIO(json.dumps(responses[path]).encode())
+                opener = Mock(); opener.open.side_effect = response
+                with patch('playbooks.previews.files.kube.urllib.request.build_opener', return_value=opener):
+                    with self.assertRaises(RuntimeError) as error: kube.namespace_inventory(self.namespace)
+                self.assertNotIn('private-body-sentinel', str(error.exception))
+                self.assertEqual(sum(call.args[0].full_url.endswith('/secrets') for call in opener.open.call_args_list), 1)
+
+    def test_secret_metadata_transport_failures_are_sanitized_without_fallback(self):
+        route = '/api/v1/namespaces/' + self.namespace + '/secrets'
+        for failure in (403, 406, b'{private-body-sentinel', b'private-body-sentinel' * 110000,
+                        http.client.IncompleteRead(b'private-body-sentinel', 100),
+                        OSError('private-body-sentinel')):
+            with self.subTest(failure=type(failure)), tempfile.TemporaryDirectory() as directory:
+                responses = self.secret_responses([])
+                kube = object.__new__(Kubernetes); kube.context = None; kube.account = Path(directory)
+                kube.account.joinpath('token').write_text('synthetic-token')
+                def response(request, **kwargs):
+                    path = request.full_url.removeprefix('https://kubernetes.default.svc')
+                    if path != route: return io.BytesIO(json.dumps(responses[path]).encode())
+                    self.assertEqual(request.get_header('Accept'), METADATA_ACCEPT)
+                    if isinstance(failure, int):
+                        raise urllib.error.HTTPError(request.full_url, failure, 'private-body-sentinel', {}, None)
+                    stream = io.BytesIO(failure if isinstance(failure, bytes) else b'')
+                    if isinstance(failure, Exception): stream.read = Mock(side_effect=failure)
+                    return stream
+                opener = Mock(); opener.open.side_effect = response
+                with patch('playbooks.previews.files.kube.urllib.request.build_opener', return_value=opener):
+                    with self.assertRaises(RuntimeError) as error: kube.namespace_inventory(self.namespace)
+                self.assertNotIn('private-body-sentinel', str(error.exception))
+                self.assertEqual(sum(call.args[0].full_url.endswith('/secrets') for call in opener.open.call_args_list), 1)
+
+    def test_core_secret_discovery_mismatch_fails_before_collection_read(self):
+        for change in ({'kind': 'Observation'}, {'name': 'observations'},
+                       {'namespaced': False}, {'verbs': ['get']}):
+            with self.subTest(change=change):
+                responses = self.secret_responses([])
+                responses['/api/v1']['resources'][-1].update(change)
+                kube = object.__new__(Kubernetes)
+                with patch.object(kube, 'request', side_effect=lambda method, path: copy.deepcopy(responses[path])) as request:
+                    with self.assertRaisesRegex(RuntimeError, 'Native Secrets'): kube.namespace_inventory(self.namespace)
+                self.assertFalse(any(call.args[1].endswith('/secrets') for call in request.call_args_list))
+
+    def test_secret_metadata_negotiation_does_not_change_unknown_collections(self):
+        responses = self.secret_responses([])
+        version = 'foreign.example/v1'
+        responses['/apis']['groups'].append({'versions': [{'groupVersion': version}]})
+        responses['/apis/' + version] = {'resources': [
+            {'name': 'secrets', 'kind': 'Secret', 'namespaced': True, 'verbs': ['list']}]}
+        route = '/apis/' + version + '/namespaces/' + self.namespace + '/secrets'
+        foreign = {'apiVersion': version, 'kind': 'Secret', 'metadata': {'name': 'foreign'}, 'spec': {'foreign': True}}
+        responses[route] = {'items': [foreign]}
+        kube = object.__new__(Kubernetes)
+        with patch.object(kube, 'request', side_effect=lambda method, path, **kwargs: copy.deepcopy(responses[path])) as request:
+            inventory = kube.namespace_inventory(self.namespace)
+        self.assertIn(foreign, inventory)
+        self.assertEqual([call.kwargs for call in request.call_args_list if call.args[1] == route], [{}])
+        self.assertEqual([call.kwargs for call in request.call_args_list if call.kwargs], [{'_metadata_only': True}])
+        with self.assertRaisesRegex(ValueError, 'Unexpected data'):
+            namespace_disposable(inventory, {'native-root'}, 'namespace')
+
     def test_object_get_actual_transport_distinguishes_404_from_uncertain_success(self):
         key = ('v1', 'Namespace', '', 'cloudlab-preview-synthetic')
         namespace = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': key[3], 'uid': 'owned'}}
