@@ -51,6 +51,16 @@ class OwnerSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exact Git blob'):
             owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=False, comparison_defaults='values.json')
 
+    def test_authenticated_metadata_deadline_also_bounds_credential_free_raw_reads(self):
+        contents = owner_files()
+        api, raw, _ = owner_api(contents)
+        api.deadline = 250
+        selected = dict(owner.configuration(self.public()), path=owner.CHART)
+        with patch.object(owner.snapshot.time, 'monotonic', return_value=100):
+            self.assertEqual(owner.snapshot.chart_files(selected, fetch=api, read_file=raw, deadline=280), contents)
+        self.assertTrue(all(call.args[1] == 250 for call in api.call_args_list))
+        self.assertTrue(all(call.args[3] == 250 for call in raw.call_args_list))
+
     def test_exact_commit_tree_and_blob_bytes_need_only_two_rest_calls(self):
         files = owner_files()
         api, raw, _ = owner_api(files)

@@ -1,10 +1,11 @@
 """Read versioned private intent with the existing scoped GitHub App."""
+from contextlib import contextmanager
 import json
 import time
 import yaml
 
 from playbooks.secrets.files.vault import fields
-from playbooks.argocd.files.github_app import app_token, verify_installation
+from playbooks.argocd.files.github_app import app_token, verify_installation, public_metadata, PUBLIC_REPOSITORY
 from playbooks.argocd.files.github_setup import GitHub, repository
 from playbooks.keycloak.files.private_source import decode_contents
 
@@ -79,6 +80,19 @@ def read(values, *, include_revision=False, public=None):
     return _read(values, select, consume)
 
 
+@contextmanager
+def public_source_metadata(values, public_repository, *, deadline):
+    """Use runner vault custody only after validating its original private scope."""
+    private_repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
+    public_repo = repository(public_repository)
+    if (public_repository != PUBLIC_REPOSITORY or private_repo.casefold() == public_repo.casefold()
+            or private_repo.split('/')[0].casefold() != public_repo.split('/')[0].casefold()):
+        raise ValueError('Consumer requires its designated private repository')
+    credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+    with public_metadata(credentials, deadline=deadline) as fetch:
+        yield fetch
+
+
 def read_consumer(values, consumer, *, public=None):
     """Authenticate public approval, then read its complete immutable private bundle."""
     from playbooks.argocd.files.private_sources import consumer_contract, accepted_consumer
@@ -89,8 +103,9 @@ def read_consumer(values, consumer, *, public=None):
     deadline = time.monotonic() + READ_SECONDS
     try:
         coordinates = configuration()
-        current, public_revision = published_source({'publicSource': {'repository': coordinates['repository'], 'branch': 'main'}},
-            deadline=deadline - CLEANUP_SECONDS)
+        with public_source_metadata(values, coordinates['repository'], deadline=deadline) as fetch:
+            current, public_revision = published_source({'publicSource': {'repository': coordinates['repository'], 'branch': 'main'}},
+                deadline=deadline - CLEANUP_SECONDS, fetch=fetch)
         contract = consumer_contract(current, consumer)
         if public is not None and json.dumps(consumer_contract(public, consumer), sort_keys=True) != json.dumps(contract, sort_keys=True):
             raise ValueError('Consumer source context differs from current public authority')
@@ -101,7 +116,9 @@ def read_consumer(values, consumer, *, public=None):
         repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
         if repo.casefold() == repository(current['repository']).casefold(): raise ValueError('Private repository is required')
         if time.monotonic() >= deadline - CLEANUP_SECONDS: raise RuntimeError('Read deadline expired')
-    except Exception:
+    except Exception as error:
+        if isinstance(error, RuntimeError) and str(error).startswith('Public metadata '):
+            raise RuntimeError(str(error)) from None
         raise RuntimeError('Private consumer read failed at configuration; token cleanup: not-issued') from None
     def consume(client, selected_repo, head, _):
         if selected_repo != repo: raise ValueError('Consumer source repository changed')

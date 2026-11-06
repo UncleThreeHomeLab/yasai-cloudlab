@@ -1,6 +1,7 @@
 """Operation-scoped data settings authenticated against their independent Git owners."""
 import base64
 import copy
+from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -372,12 +373,56 @@ def authenticated_inputs(repo, revision, deadline):
         client.request('DELETE', 'installation/token')
 
 
-def published_source(state, *, deadline):
+@contextmanager
+def public_metadata(state, *, deadline, recovery=None, first_binding=None):
+    """Borrow only the original accepted private reader after local authority checks."""
+    from playbooks.argocd.files import github_app, source_transition
+    coordinates = state.get('publicSource', {})
+    if coordinates != {'repository': github_app.PUBLIC_REPOSITORY, 'branch': 'main'}:
+        raise RuntimeError('Public metadata requires its fixed trusted source')
+    if first_binding is not None:
+        if recovery is not None:
+            raise RuntimeError('First binding cannot borrow established recovery credentials')
+        source_transition.pending_root_authority(first_binding, coordinates['repository'], first_binding=True)
+        yield source_snapshot.request
+        return
+    binding = receipt(BINDING, missing=True)
+    if not binding:
+        # An existing empty or malformed receipt is never initial bootstrap.
+        root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+        identity = root.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {}).get('identity', {})
+        if (authority_path(BINDING, missing=True) is not None or recovery is not None
+                or not isinstance(identity, dict) or 'argo' in identity):
+            raise RuntimeError('Public metadata binding authority is malformed')
+        yield source_snapshot.request
+        return
+    if binding.get('phase') == 'accepted':
+        if recovery is not None:
+            raise RuntimeError('Pending recovery requires its durable pending binding')
+        target = binding.get('target', {})
+        root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
+        observed = root.get('status', {}).get('sync', {}).get('revision')
+        target = source_transition.accepted_identity_binding(repository=coordinates['repository'], branch='main',
+            revision=observed, private_repository=target.get('valuesRepository'))
+    else:
+        if recovery is None:
+            raise RuntimeError('Public metadata requires explicit pending binding recovery')
+        _, targets = source_transition.pending_root_authority(recovery, coordinates['repository'])
+        target = targets[0]
+    credentials = source_credentials(target['valuesRepository'])
+    with github_app.public_metadata(credentials, deadline=deadline) as fetch:
+        yield fetch
+
+
+def published_source(state, *, deadline, fetch=None):
     coordinates = state.get('publicSource')
     if not isinstance(coordinates, dict) or set(coordinates) != {'repository', 'branch'} or coordinates['branch'] != 'main':
         raise RuntimeError('Data public owner coordinates require trusted published-input attestation')
     repo = repository(coordinates['repository'])
-    branch = source_snapshot.request('repos/' + repo + '/branches/main', deadline)
+    fetch = source_snapshot.request if fetch is None else fetch
+    session_deadline = getattr(fetch, 'deadline', None)
+    if type(session_deadline) in (int, float): deadline = min(deadline, session_deadline)
+    branch = fetch('repos/' + repo + '/branches/main', deadline)
     revision = branch.get('commit', {}).get('sha')
     if branch.get('protected') is not True or not re.fullmatch('[a-f0-9]{40}', revision or ''):
         raise RuntimeError('Data public owner requires its protected main branch')

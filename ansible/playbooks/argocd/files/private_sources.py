@@ -295,12 +295,14 @@ def verification_payload(values, public):
     if not isinstance(permissions, dict) or type(permissions.get('enabled', False)) is not bool:
         raise ValueError('Permissions verification requires boolean enablement')
     if permissions.get('enabled', False):
-        from playbooks.services.files.source import read_consumer
+        from playbooks.services.files.source import read_consumer, public_source_metadata
         from playbooks.data.files import native
         import time
         evidence = read_consumer(values, 'permissions', public=public)
-        files = native.source_snapshot.chart_files({'repository': public['repository'],
-            'revision': evidence['publicRevision'], 'path': 'gitops/roots/public'}, deadline=time.monotonic() + 90)
+        deadline = time.monotonic() + 90
+        with public_source_metadata(values, public['repository'], deadline=deadline) as fetch:
+            files = native.source_snapshot.chart_files({'repository': public['repository'],
+                'revision': evidence['publicRevision'], 'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
         approved = yaml.safe_load(files['values.yaml'])
         contract = consumer_contract(approved, 'permissions')
         if not contract['enabled'] or contract != consumer_contract(public, 'permissions'):

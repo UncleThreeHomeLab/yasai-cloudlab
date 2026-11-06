@@ -1,6 +1,7 @@
 """Finite Harbor installation authority and operational delegation boundaries."""
 import base64
 import copy
+from contextlib import nullcontext
 from contextlib import ExitStack
 import hashlib
 import json
@@ -137,7 +138,8 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(coordinates['revision'], native.REVISION)
             return snapshot['charts'][native.APPS[0] if coordinates['path'].endswith('/server') else native.APPS[1]]
         from playbooks.argocd.files import source_transition
-        with patch.object(native, 'receipt', return_value=state), patch.object(native, 'get', side_effect=lambda kind, name, *args: copy.deepcopy(resources.get((kind, name)))), \
+        with patch.object(native.source, 'public_metadata', side_effect=lambda *a, **k: nullcontext()), \
+                patch.object(native, 'receipt', return_value=state), patch.object(native, 'get', side_effect=lambda kind, name, *args: copy.deepcopy(resources.get((kind, name)))), \
                 patch.object(native.source, 'published_source', return_value=(snapshot['public'], snapshot['head'])), \
                 patch.object(native.source.source_snapshot, 'chart_files', side_effect=chart_files), \
                 patch.object(source_transition, 'pending_root_context', return_value=(root, [old, new])) as pending, \
@@ -197,6 +199,9 @@ import json
 assert json.loads((recovery.ARTIFACTS / "cosign.lock.json").read_text())["image"]
 assert native.REVISION == "d3d639cf80e8cfecebeb756d666a24db92a6bb74"
 assert callable(m.pending_root_context)
+assert callable(m.pending_root_authority)
+from playbooks.data.files import native as data_native
+assert callable(data_native.public_metadata)
 try:
     m.pending_root_context({}, {})
 except RuntimeError:

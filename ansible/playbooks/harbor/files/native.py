@@ -163,11 +163,16 @@ def context(*, preparing=False, recovery=None, deadline=None):
     from playbooks.argocd.files.source_transition import pending_root_context
     deadline = min(time.monotonic() + 180, deadline) if deadline is not None else time.monotonic() + 180
     coordinates = {'publicSource': {'repository': PUBLIC, 'branch': 'main'}}
-    public, head = source.published_source(coordinates, deadline=deadline)
-    enabled = public.get('harbor', {}).get('installation', {}).get('enabled')
-    if type(enabled) is not bool: raise RuntimeError('Harbor requires explicit public installation intent')
-    if not enabled and not preparing: return None
-    if public.get('harbor', {}).get('enabled') is not True: raise RuntimeError('Harbor installation is disabled')
+    with source.public_metadata(coordinates, deadline=deadline, recovery=recovery) as fetch:
+        public, head = source.published_source(coordinates, deadline=deadline, fetch=fetch)
+        enabled = public.get('harbor', {}).get('installation', {}).get('enabled')
+        if type(enabled) is not bool: raise RuntimeError('Harbor requires explicit public installation intent')
+        if not enabled and not preparing: return None
+        if public.get('harbor', {}).get('enabled') is not True: raise RuntimeError('Harbor installation is disabled')
+        root_files = source.source_snapshot.chart_files({'repository': PUBLIC, 'revision': head, 'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
+        charts = {name: source.source_snapshot.chart_files({'repository': PUBLIC, 'revision': REVISION,
+            'path': 'platform/harbor' + ('/server' if name == APPS[0] else '')}, fetch=fetch, deadline=deadline,
+            require_schema=False, comparison_defaults='values.json' if name == APPS[0] else 'values.yaml') for name in APPS}
     if recovery is None:
         targets = [source.root_guard(coordinates, public, head)]
         root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
@@ -175,7 +180,6 @@ def context(*, preparing=False, recovery=None, deadline=None):
     else:
         root, targets = pending_root_context(recovery, public)
         binding = recovery['checkpoint']
-    root_files = source.source_snapshot.chart_files({'repository': PUBLIC, 'revision': head, 'path': 'gitops/roots/public'}, deadline=deadline)
     contracts = []
     for target in targets:
         settings = copy.deepcopy(public); settings['identity']['argo'] = target
@@ -194,9 +198,6 @@ def context(*, preparing=False, recovery=None, deadline=None):
             raise RuntimeError('Harbor registered source was replaced before credential issuance')
     credentials = source.source_credentials(targets[0]['valuesRepository'], *((READER, APPS[0]) if enabled else ()))
     document = read_profiles(targets, credentials, deadline)
-    charts = {name: source.source_snapshot.chart_files({'repository': PUBLIC, 'revision': REVISION,
-        'path': 'platform/harbor' + ('/server' if name == APPS[0] else '')}, deadline=deadline,
-        require_schema=False, comparison_defaults='values.json' if name == APPS[0] else 'values.yaml') for name in APPS}
     if recovery is not None: pending_root_context(recovery, public)
     if time.monotonic() >= deadline: raise RuntimeError('Harbor source acquisition exceeded its budget')
     return {'public': public, 'head': head, 'root': root, 'targets': targets, 'contracts': contracts, 'recovery': recovery,

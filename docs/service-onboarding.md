@@ -18,6 +18,8 @@ Keep confirmed source-visibility and service-access choices across later stages.
 Ask again only for a requested change or conflicting observed state.
 Keep application inputs in private GitOps. Never put private repo details,
 credentials or diagnostic dumps in this public repo.
+Public approval reads use the existing `github-argocd` read App prerequisite in
+[Ansible](../ansible/README.md); no application App grant is added for these reads.
 
 Shared access reads private `platform/access.yaml` at the approved identity binding,
 with the existing `administrator` field. Private main cannot advance this value;
