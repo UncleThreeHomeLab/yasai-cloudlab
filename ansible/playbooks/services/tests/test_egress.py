@@ -34,6 +34,43 @@ class EgressTests(unittest.TestCase):
         return {'namespace': 'kube-system', 'podSelector': {'matchLabels': {'k8s-app': 'kube-dns'}},
                 'ports': [{'port': 53, 'protocol': 'TCP'}, {'port': 53, 'protocol': 'UDP'}]}
 
+    def external(self, cidr='192.0.2.0/24', **kwargs):
+        return {'ipBlock': dict(cidr=cidr, **kwargs), 'ports': [{'port': 443, 'protocol': 'TCP'}]}
+
+    def test_mixed_external_and_namespace_peers_preserve_exact_native_fields(self):
+        external = self.external(**{'except': ['192.0.2.128/25', '192.0.2.4/32']})
+        policy = self.policy(dict(approval(), egress=[self.rule(), external]))
+        self.assertEqual(policy['spec']['egress'][1], {'to': [{'ipBlock': external['ipBlock']}],
+                                                      'ports': external['ports']})
+        for cidr in ('0.0.0.0/0', '255.255.255.255/32', '128.0.0.0/1'):
+            with self.subTest(cidr=cidr):
+                self.assertEqual(self.policy(dict(approval(), egress=[self.external(cidr)]))['spec']['egress'][0]['to'],
+                                 [{'ipBlock': {'cidr': cidr}}])
+
+    def test_external_invalid_cidrs_exceptions_and_peer_types_fail_even_when_retired(self):
+        invalid = [self.external(cidr) for cidr in ('::/0', '2001:db8::/32', '::ffff:192.0.2.1/128',
+            '192.0.2.1/24', '256.0.0.0/8', '192.00.2.0/24', '192.0.2.0/024', '192.0.2.0/33',
+            '192.0.2.0', 'example.invalid/24', ' 192.0.2.0/24', '192.0.2.0/24\n', None, 24)]
+        invalid += [self.external(**{'except': value}) for value in
+            (['192.0.2.0/24'], ['192.0.0.0/16'], ['198.51.100.0/24'], ['192.0.2.1/25'], ['::/1'],
+             ['192.0.2.0/25'] * 2, [f'192.0.2.{n}/32' for n in range(33)], None, '192.0.2.0/25')]
+        invalid += [{'ipBlock': {}, 'ports': self.external()['ports']},
+                    dict(self.external(), namespace='peer'), dict(self.external(), podSelector={'matchLabels': {'app': 'x'}}),
+                    dict(self.external(), ports=[{'port': 'https', 'protocol': 'TCP'}]),
+                    dict(self.external(), ports=[{'port': 443, 'protocol': 'SCTP'}]),
+                    dict(self.external(), ipBlock={'cidr': '192.0.2.0/24', 'unknown': True})]
+        for rule in invalid:
+            for publication in ('ready', 'retired'):
+                with self.subTest(rule=rule, publication=publication):
+                    self.assertNotEqual(self.render(dict(approval(), egress=[rule]), publication=publication).returncode, 0)
+
+    def test_external_withdrawal_and_retirement_retain_deny_policy(self):
+        allowed = dict(approval(), egress=[self.external()])
+        active = self.policy(allowed)
+        for policy in (self.policy(dict(allowed, egress=[])), self.policy(allowed, publication='retired')):
+            self.assertEqual(policy['metadata'], active['metadata'])
+            self.assertEqual(policy['spec'], dict(active['spec'], egress=[]))
+
     def test_required_empty_egress_denies_every_pod_without_implicit_allow(self):
         allowed = approval()
         allowed.pop('egress')

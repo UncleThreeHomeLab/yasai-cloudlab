@@ -46,11 +46,18 @@ egress:
     podSelector:
       matchLabels: {k8s-app: kube-dns}
     ports: [{port: 53, protocol: TCP}, {port: 53, protocol: UDP}]
+  - ipBlock:
+      cidr: 192.0.2.0/24
+      except: [192.0.2.128/25]
+    ports: [{port: 443, protocol: TCP}]
 ```
 
 Use the actual resolver labels; DNS has no implicit allowance. Each peer requires
-both the exact namespace and pod labels. External destinations, broad selectors
-and named ports need a separately supported platform capability. Notes and
+both the exact namespace and pod labels, or one IPv4 `ipBlock`. Keep external
+addresses in private Git. CIDRs require canonical network addresses; exclusions
+must be distinct strict subnets. IPv6, hostnames and named ports are unsupported.
+Broad CIDRs require an explicit administrator choice; CIDRs do not authorize hostnames.
+Rules never add implicit DNS or Internet access. Notes and
 compositions retain their own controls and reject this field. Removing a rule
 withdraws that allowance. Retiring a retained entry clears all allows while keeping
 the deny policy. Keep an egress-capable owner during rollback; whole-entry removal cannot
@@ -58,6 +65,11 @@ withdraw policies automatically while catalog pruning is disabled. Before changi
 the active owner/path, verify dependencies and actual CNI, mesh and dual-stack
 enforcement, including other policies that may add allows. Rendered policies alone
 do not establish isolation.
+
+External rules require an explicitly selected owner revision supporting `ipBlock`;
+existing owner pins do not advance automatically. Approve external address ranges
+separately from promoting the owner. Public HTTPS and dynamic webhooks gain no
+allowance from this capability alone.
 
 Run the [egress verifier](../verification/integration/workload_egress.py) against
 the two existing nodes before advancing the active owner:
@@ -73,6 +85,13 @@ a fresh proof. Existing connections and unsupported destinations remain separate
 Ambient DNS can answer Service names locally; test forwarded queries separately.
 For ambient peers, verify the HBONE transport allowance and use mesh authorization
 to restrict workload identity and inner ports.
+
+Use `--external-ipv4` for the isolated external lifecycle. Supply private JSON on
+stdin: `addresses` contains two distinct off-cluster IPv4 addresses; `ports`
+contains two distinct TCP ports. All four HTTP listeners must return exactly
+`cloudlab-external-egress-proof`. Keep these controls reachable throughout the
+proof; missing or unhealthy controls leave it unqualified. This does not qualify
+hostnames, HTTPS, UDP, IPv6 or established connections.
 
 Shared gateways read `platform/certificates.yaml` from private Git main and
 `identity/argo-values.yaml` at the existing approved identity binding revision.
