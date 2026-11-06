@@ -1,4 +1,0 @@
-apiVersion: v2
-name: cloudlab-storage-lifecycle-fixture
-version: 0.1.0
-type: application

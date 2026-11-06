@@ -27,13 +27,8 @@
   become: true
   gather_facts: false
   tasks:
-    - name: Run the repository baseline reader from stdin
-      ansible.builtin.command:
-        argv: [python3, '-']
-        stdin: "{{ lookup('file', '/workspace/verification/integration/live_baseline.py') }}"
-      register: baseline_cluster
-      changed_when: false
-      no_log: true
-    - name: Report only the baseline reader's allowlisted fields
-      ansible.builtin.debug:
-        msg: "{{ baseline_cluster.stdout | from_json }}"
+    - name: Refuse validation-coupled baseline read until it moves under verification
+      ansible.builtin.fail:
+        msg: >-
+          Controller ownership baseline moved out of the runtime module.
+          Run the check from verification/ instead. No mutation performed.
