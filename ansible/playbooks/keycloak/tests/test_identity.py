@@ -32,6 +32,86 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_writer_kubernetes_credentials_are_init_only_across_operations(self):
+        from playbooks.keycloak.files.chart import render
+        values = {'enabled': True, 'operatorEnabled': False, 'reconciliationEnabled': True,
+                  'privateStateEnabled': True, 'databaseCA': 'fixture-ca', 'trustedProxyAddresses': ['10.43.0.1/32']}
+        variants = [{}, {'bootstrapMode': True}, {'bootstrapMode': True, 'primaryAdminEnabled': True},
+                    {'operation': {'action': 'remove-client', 'realm': 'applications', 'client': 'reference'}}]
+        variants += [{'bootstrapAdminEnabled': False, 'operation': {'action': action, 'realm': realm, 'nonce': 'a' * 32}}
+                     for action, realm in (('prepare-proof', 'platform'), ('initialize-proof', 'applications'),
+                                           ('prepare-owner', 'applications'), ('initialize-owner', 'applications'))]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                objects = render(dict(values, **variant))
+                account = next(obj for obj in objects if obj['kind'] == 'ServiceAccount' and obj['metadata']['name'] == 'identity-writer')
+                self.assertIs(account['automountServiceAccountToken'], False)
+                writers = []
+                for obj in objects:
+                    if obj['kind'] not in ('Job', 'CronJob'):
+                        continue
+                    job = obj['spec']['jobTemplate']['spec'] if obj['kind'] == 'CronJob' else obj['spec']
+                    pod = job['template']['spec']
+                    if pod['serviceAccountName'] == 'identity-health':
+                        self.assertFalse(any(volume.get('projected') for volume in pod['volumes']))
+                        continue
+                    writers.append(pod)
+                    self.assertIs(pod['automountServiceAccountToken'], False)
+                    self.assertEqual(pod['securityContext']['runAsUser'], 1000)
+                    self.assertEqual(pod['securityContext']['fsGroup'], 1000)
+                    volume = next(row for row in pod['volumes'] if row['name'] == 'kubernetes-api')
+                    self.assertEqual(volume['projected']['defaultMode'], 0o440)
+                    self.assertEqual(volume['projected']['sources'][0], {
+                        'serviceAccountToken': {'path': 'token', 'expirationSeconds': 600}})
+                    mounts = [(container['name'], mount) for field in ('initContainers', 'containers', 'ephemeralContainers')
+                              for container in pod.get(field, []) for mount in container.get('volumeMounts', [])
+                              if mount['name'] == 'kubernetes-api']
+                    self.assertEqual(mounts, [('validate-and-lock', {'name': 'kubernetes-api',
+                        'mountPath': '/var/run/secrets/kubernetes.io/serviceaccount', 'readOnly': True})])
+                self.assertTrue(writers)
+
+    def test_render_rejects_credential_mount_and_projection_boundary_changes(self):
+        from playbooks.keycloak.files import chart
+        objects = chart.render({'enabled': True, 'operatorEnabled': False, 'reconciliationEnabled': True,
+                                'privateStateEnabled': True, 'databaseCA': 'fixture-ca',
+                                'trustedProxyAddresses': ['10.43.0.1/32']})
+        changes = ('account-auto', 'account-missing', 'pod-auto', 'pod-missing', 'other-account', 'missing-init',
+                   'missing-mount', 'writable-mount', 'alternate-mount', 'subpath', 'main-mount', 'other-init-mount',
+                   'ephemeral-mount', 'extra-projection', 'projection-mode', 'token-audience', 'token-lifetime',
+                   'token-path', 'ca-source', 'namespace-source')
+        for change in changes:
+            with self.subTest(change=change):
+                altered = copy.deepcopy(objects)
+                account = next(obj for obj in altered if obj['kind'] == 'ServiceAccount' and obj['metadata']['name'] == 'identity-writer')
+                pod = next(obj for obj in altered if obj['kind'] == 'Job')['spec']['template']['spec']
+                init = pod['initContainers'][0]
+                mount = next(row for row in init['volumeMounts'] if row['name'] == 'kubernetes-api')
+                projection = next(row for row in pod['volumes'] if row['name'] == 'kubernetes-api')['projected']
+                if change == 'account-auto': account['automountServiceAccountToken'] = True
+                elif change == 'account-missing': del account['automountServiceAccountToken']
+                elif change == 'pod-auto': pod['automountServiceAccountToken'] = True
+                elif change == 'pod-missing': del pod['automountServiceAccountToken']
+                elif change == 'other-account': pod['serviceAccountName'] = 'default'
+                elif change == 'missing-init': pod['initContainers'] = []
+                elif change == 'missing-mount': init['volumeMounts'].remove(mount)
+                elif change == 'writable-mount': mount['readOnly'] = False
+                elif change == 'alternate-mount': mount['mountPath'] = '/alternate'
+                elif change == 'subpath': mount['subPath'] = 'token'
+                elif change == 'main-mount': pod['containers'][0]['volumeMounts'].append(copy.deepcopy(mount))
+                elif change == 'other-init-mount': pod['initContainers'].append({'name': 'other', 'volumeMounts': [copy.deepcopy(mount)]})
+                elif change == 'ephemeral-mount': pod['ephemeralContainers'] = [{'name': 'debug', 'volumeMounts': [copy.deepcopy(mount)]}]
+                elif change == 'extra-projection': pod['volumes'].append({'name': 'other', 'projected': {
+                    'sources': [{'serviceAccountToken': {'path': 'token'}}]}})
+                elif change == 'projection-mode': projection['defaultMode'] = 0o644
+                elif change == 'token-audience': projection['sources'][0]['serviceAccountToken']['audience'] = 'other'
+                elif change == 'token-lifetime': projection['sources'][0]['serviceAccountToken']['expirationSeconds'] = 3600
+                elif change == 'token-path': projection['sources'][0]['serviceAccountToken']['path'] = 'alternate'
+                elif change == 'ca-source': projection['sources'][1]['configMap']['name'] = 'other'
+                else: projection['sources'][2]['downwardAPI']['items'][0]['fieldRef']['fieldPath'] = 'metadata.name'
+                output = Mock(returncode=0, stdout=yaml.safe_dump_all(altered), stderr='')
+                with patch.object(chart.subprocess, 'run', return_value=output), self.assertRaisesRegex(ValueError, 'Identity writer|identity writer'):
+                    chart.render()
+
     def test_explicit_public_peer_preserves_https_hostname_and_rejects_redirects(self):
         from playbooks.keycloak.files import health
         connection = Mock()
