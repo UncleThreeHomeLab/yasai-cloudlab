@@ -52,6 +52,8 @@ def main(arguments=None):
             from playbooks.keycloak.files.rotation import local
             definition = validate(value['definition'])
             oidc = definition['oidc']
+            if 'clientReference' in oidc:
+                raise ValueError('Referenced clients require the independent identity rotation procedure')
             if not oidc['enabled'] or oidc['public']:
                 raise ValueError('Only an approved confidential client can rotate a secret')
             result = local({'action': 'rotate', 'realm': oidc['realm'], 'client_id': oidc['client']})

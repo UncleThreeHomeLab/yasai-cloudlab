@@ -40,6 +40,8 @@ def retire(definition, owners):
     definition = validate(definition)
     owners.require_private_inputs(definition)
     same_exposure(definition, owners.current_exposure(definition))
+    if 'clientReference' in definition['oidc']:
+        owners.identity_retired(definition)
     owners.dns_withdraw(definition)
     owners.routing_withdraw(definition)
     owners.unreachable_verified(definition)

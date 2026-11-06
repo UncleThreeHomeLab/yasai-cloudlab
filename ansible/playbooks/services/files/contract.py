@@ -98,17 +98,45 @@ def validate(definition):
         raise ValueError('Additional exposure must select a public or private route')
     oidc = value['oidc']
     if oidc['enabled']:
-        if oidc['public'] and 'secretReference' in oidc:
+        if oidc.get('public') and 'secretReference' in oidc:
             raise ValueError('Public OIDC clients must not select secrets')
         if oidc.get('secretReference') in references:
             raise ValueError('OIDC and data credentials must have distinct secret owners')
-        identity_request(value, {oidc.get('secretReference'): 'x' * 48})
+        if 'clientReference' in oidc:
+            if oidc.get('secretReference') and oidc['secretReference'] not in {s['name'] for s in value['secrets']}:
+                raise ValueError('Identity reference requires its scoped mounted secret')
+        else:
+            identity_request(value, {oidc.get('secretReference'): 'x' * 48})
     return value
+
+
+def identity_binding(definition, approval):
+    """Resolve only protected client coordinates, never duplicate client settings."""
+    oidc = definition['oidc']
+    binding = approval.get('identityClient')
+    if 'clientReference' not in oidc:
+        if 'identityClient' in approval: raise ValueError('Identity binding is only valid for a client reference')
+        return None
+    if (oidc.get('enabled') is not True or set(oidc) - {'enabled', 'clientReference', 'secretReference'}
+            or 'composition' in approval or approval.get('chartPath', 'charts/service') != 'charts/service'):
+        raise ValueError('Identity references require the ordinary service profile')
+    expected = {'realm': 'applications', 'client': oidc['clientReference']}
+    if 'secretReference' in oidc: expected['secretReference'] = oidc['secretReference']
+    if (not isinstance(binding, dict) or binding != expected or any(
+            not isinstance(value, str) or not re.fullmatch('[a-z][a-z0-9-]{0,40}', value)
+            for value in expected.values())):
+        raise ValueError('Identity reference differs from its protected client binding')
+    if 'secretReference' in expected and (expected['secretReference'] not in approval['secretReferences']
+            or expected['secretReference'] not in {s['name'] for s in definition['secrets']}):
+        raise ValueError('Identity credential requires its approved scoped secret mount')
+    return dict(expected)
 
 
 def identity_request(definition, secrets):
     """The identity module validates and exclusively creates/rotates/removes clients."""
     oidc, exposure = definition['oidc'], definition['exposure']
+    if 'clientReference' in oidc:
+        raise ValueError('Referenced identity settings belong to private Git, not service provisioning')
     if not oidc['enabled']:
         return None
     if exposure['class'] == 'none':

@@ -143,11 +143,14 @@ def inspect(request):
         quota = get('resourcequota', 'budget', namespace)
         if not quota or quota['spec']['hard'].get('requests.cpu') != '1':
             raise RuntimeError('Backend lacks its platform resource budget')
-    elif action == 'identity':
+    elif action in ('identity', 'identity-retired'):
         oidc = definition['oidc']
         if not oidc['enabled']: return
-        from playbooks.services.files.contract import identity_request
-        desired = identity_request(definition, {oidc.get('secretReference'): 'x' * 48})
+        from playbooks.services.files.contract import identity_request, identity_binding
+        binding = identity_binding(definition, approval)
+        retired = action == 'identity-retired'
+        if retired and binding is None: raise ValueError('Retirement observation requires an identity reference')
+        desired = None if binding else identity_request(definition, {oidc.get('secretReference'): 'x' * 48})
         from playbooks.keycloak.files.bootstrap import APP, BASE, reconciled
         from playbooks.keycloak.files.ownership import accepted_application, accepted_private_inventory
         state = json.loads((BASE / 'ownership.json').read_text())
@@ -160,6 +163,7 @@ def inspect(request):
             raise RuntimeError('Identity writer is not converged')
         identity_revision = accepted_application(identity, base=BASE)
         if identity_revision is None:
+            if binding: raise RuntimeError('Identity references require the accepted native identity owner')
             source = get('configmap', 'identity-private-state', 'cloudlab-identity')
             if not source: raise RuntimeError('Private identity input is unavailable')
             configuration = json.loads(source['data']['desired_state'])
@@ -176,11 +180,36 @@ def inspect(request):
             identity_revision = revision
         else:
             configuration, revocations, _ = accepted_private_inventory(base=BASE)
-        clients = configuration['realms'].get(oidc['realm'], {}).get('clients', [])
-        if [c for c in clients if c['id'] == oidc['client']] != [desired['client']] or oidc['client'] in revocations['realms'].get(oidc['realm'], {}).get('clients', []):
+        realm, identifier = (binding['realm'], binding['client']) if binding else (oidc['realm'], oidc['client'])
+        clients = configuration['realms'].get(realm, {}).get('clients', [])
+        selected = [c for c in clients if c['id'] == identifier]
+        denied = revocations['realms'].get(realm, {})
+        if binding:
+            if (len(selected) != 1 or selected[0].get('enabled', True) is not (not retired)
+                    or identifier in denied.get('removed_clients', [])
+                    or (identifier in denied.get('clients', [])) != retired):
+                raise RuntimeError('Referenced identity client has not converged at its lifecycle intent')
+            declared = selected[0]
+            if type(declared.get('public')) is not bool or declared['public'] == ('secretReference' in binding):
+                raise RuntimeError('Identity credential binding differs from the declared client type')
+            credentials = {}
+            if not declared['public']:
+                import base64
+                external = get('externalsecret.external-secrets.io', binding['secretReference'], namespace)
+                secret = get('secret', binding['secretReference'], namespace)
+                if (not condition(external, 'Ready') or not secret or set(secret.get('data', {})) != {'client_secret'}
+                        or not any(owner.get('uid') == external['metadata']['uid'] for owner in secret.get('metadata', {}).get('ownerReferences', []))):
+                    raise RuntimeError('Referenced identity credential is not ready and ESO-owned')
+                credentials[identifier] = base64.b64decode(secret['data']['client_secret'], validate=True).decode()
+            from playbooks.keycloak.files.configuration import client
+            expected = client(declared, credentials)
+        elif selected != [desired['client']] or identifier in denied.get('clients', []):
             raise RuntimeError('Identity client is not the exact approved contract')
         if not reconciled(identity_revision, state['uid']):
             raise RuntimeError('Identity writer is not converged')
+        if binding:
+            from playbooks.keycloak.files.client_readiness import verify
+            verify(realm, expected, identity_source['helm']['valuesObject']['adminHost'])
     elif action == 'data':
         for kind, value in definition['data'].items():
             external = get('externalsecret.external-secrets.io', value['credentialReference'], namespace)

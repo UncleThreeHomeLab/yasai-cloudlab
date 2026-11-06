@@ -1,11 +1,41 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from playbooks.services.files.lifecycle import publish, retire
 from playbooks.services.tests.fixtures import definition
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_reference_retirement_precheck_precedes_all_exposure_changes(self):
+        value = self.value()
+        value['oidc'] = {'enabled': True, 'clientReference': 'synthetic'}
+        owners = self.owners()
+        owners.identity_retired.side_effect = RuntimeError('Shared client is active')
+        with self.assertRaisesRegex(RuntimeError, 'Shared client is active'): retire(value, owners)
+        owners.dns_withdraw.assert_not_called()
+        owners.routing_withdraw.assert_not_called()
+        owners.workload_retire.assert_not_called()
+        owners.identity_retired.side_effect = None
+        owners.reset_mock()
+        retire(value, owners)
+        calls = [call[0] for call in owners.mock_calls]
+        self.assertLess(calls.index('identity_retired'), calls.index('dns_withdraw'))
+
+    def test_reference_identity_commands_reject_before_owner_side_effects(self):
+        from playbooks.keycloak.files.service_client import prepare
+        from playbooks.services.files.command import main
+        value = self.value()
+        value['oidc'] = {'enabled': True, 'clientReference': 'synthetic'}
+        with patch('playbooks.secrets.files.vault.fields') as vault, \
+                patch('playbooks.keycloak.files.private_source.publish') as publish, \
+                patch('playbooks.keycloak.files.rotation.local') as rotation:
+            for action in ('provision-client', 'retire-client', 'remove-client'):
+                with self.assertRaisesRegex(ValueError, 'private Git'): prepare(value, action)
+            with patch('playbooks.services.files.command.read', return_value={'definition': value}):
+                with self.assertRaisesRegex(ValueError, 'independent identity rotation'):
+                    main(['identity-rotate', 'fixture'])
+            vault.assert_not_called(); publish.assert_not_called(); rotation.assert_not_called()
+
     def value(self):
         value = definition()
         value['exposure'] = {'class': 'public', 'hostname': 'fixture.example.invalid', 'access': 'human', 'path': '/', 'port': 8080}

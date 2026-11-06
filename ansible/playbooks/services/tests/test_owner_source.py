@@ -15,6 +15,28 @@ from playbooks.services.tests.fixtures import approval, definition, owner_api, o
 
 
 class OwnerSourceTests(unittest.TestCase):
+    def test_identity_reference_requires_the_selected_owner_schema(self):
+        candidate = owner_files()
+        historical = copy.deepcopy(candidate)
+        schema = json.loads(historical['values.schema.json'])
+        schema['definitions']['service']['properties']['oidc']['oneOf'].pop()
+        schema['properties']['catalog']['items']['properties']['approval']['properties'].pop('identityClient')
+        historical['values.schema.json'] = json.dumps(schema).encode()
+        value, allowed = definition(), approval()
+        value['oidc'] = {'enabled': True, 'clientReference': 'synthetic'}
+        allowed['identityClient'] = {'realm': 'applications', 'client': 'synthetic'}
+        catalog = {'catalog': [{'definition': value, 'approval': allowed, 'publication': 'ready'}], 'dataApprovals': {}}
+        acquire = owner.chart
+        @contextmanager
+        def selected(public):
+            files = candidate if public['services']['revision'] == 'c' * 40 else historical
+            api, raw, _ = owner_api(files, revision=public['services']['revision'])
+            with acquire(public, fetch=api, read_file=raw) as chart: yield chart
+        with patch.object(owner, 'chart', side_effect=selected):
+            self.assertEqual(inputs.validate_catalog(catalog, public=self.public('c' * 40)), catalog)
+            with self.assertRaisesRegex(ValueError, 'catalog failed'):
+                inputs.validate_catalog(catalog, public=self.public())
+
     def public(self, revision='a' * 40):
         return {'repository': 'https://github.com/example/platform.git', 'revision': 'd' * 40,
                 'services': {'revision': revision, 'catalogPath': 'services/catalog-v2.yaml'}}

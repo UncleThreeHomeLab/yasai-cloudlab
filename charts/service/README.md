@@ -17,11 +17,40 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `persistence` | Opt-in replicated storage, at most 4 GiB, retained on removal |
 | `exposure`, `additionalExposures` | One primary exposure plus optional private views; common hostname/class/access/path/port fields |
 | `data` | Optional database/bucket names, scoped credential references and `retain` policy |
-| `oidc` | Optional applications-realm client, exact callback paths, audience, profile/email scopes and role/group mapping |
+| `oidc` | Optional approved identity client reference; legacy catalogs retain explicit client settings |
 | `monitoring` | Disabled; application monitoring stays with its accepted telemetry owner |
 | `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
 
 Source visibility (`approval.visibility`) is independent of network exposure.
+The reference profile requires a catalog owner revision that supports it; historical
+owners reject it. Current deployed catalogs remain on their accepted profile until
+owner promotion, network prerequisites and private migration are approved.
+
+For ordinary `charts/service` entries, reference the existing private identity owner:
+
+```yaml
+definition:
+  oidc:
+    enabled: true
+    clientReference: prices-ui
+approval:
+  identityClient:
+    realm: applications
+    client: prices-ui
+```
+
+These are fields within a complete catalog entry. Client settings belong only in
+private `identity/configmap.yaml`; its leased Keycloak writer owns convergence.
+For a confidential client, add the same `secretReference` to both objects, its
+approved `secretReferences` entry and scoped `definition.secrets` mount. Existing
+1Password credentials must be complete; automatic missing-item creation is unsupported.
+Public references have no credential. Notes and composition adapters require the
+legacy profile and reject references. Do not mix reference and legacy settings.
+
+Reference readiness checks compiler-owned client fields and the scoped confidential
+secret against the provider. Provider metadata, other attributes/configuration,
+client-role resources, realm roles, group grants, memberships and issued-token roles
+remain unverified. Real browser login and allowed/denied application checks remain required.
 Administrator-approved multi-workload charts use optional `approval.composition` in
 the same private catalog. Its exact chart source, image value paths, rendered pod
 profiles, named backends/selectors, retained claims, aggregate secret item fields and namespace
@@ -119,8 +148,8 @@ Privileged data credentials and migration credentials never reach application po
 2. Review the complete catalog, exact source SHA and approved references. Use
    `docker compose --profile services run --rm service catalog-propose <file>`
    with the existing GitHub writer supplied through standard input if needed.
-3. For OIDC, run `service identity-provision <bundle>` through the same Compose
-   entry point. Merge its scoped identity PR, then run `lab identity-scoped`.
+3. For OIDC, merge settings through the accepted private identity inventory and
+   observe normal writer convergence. References bind that client without copying settings.
 4. Enable `services.enabled` in the public root; `services.revision` is the exact
    platform commit for its root-owned catalog Application. Initial identity binding
    checks catalog ownership collisions and composition admission before activation.
@@ -144,8 +173,14 @@ Private catalog reads use the existing scoped GitHub App. A local file under
 private inputs stop before mutation or live planning. Reviewed Access protection
 must already belong to the platform; an HTTPRoute does not create DNS or Access.
 
-Remove reachability with `service retire <bundle>`. DNS and tunnel/routes withdraw
-before identity or workload removal. For OIDC, publish `identity-retire`, wait for
+Remove reachability with `service retire <bundle>`. Reference clients must first be
+retained as disabled declarations with persistent client tombstones in private identity
+Git and converge to disabled provider clients. A shared active client blocks service
+retirement before DNS/routes/workloads change; service retirement never disables it.
+Reference provision/retire/remove/rotate commands are rejected; independent identity
+rotation, physical removal, recovery and token/session gates retain their scoped procedures.
+For legacy OIDC, DNS and tunnel/routes withdraw before identity or workload removal.
+Publish `identity-retire`, wait for
 disable convergence, then publish `identity-remove` and rerun retirement. Identity
 enforces its token/session grace period and preserves the vault value. Retired
 catalog entries remain as explicit retention intent. Namespaces, quotas, credentials,

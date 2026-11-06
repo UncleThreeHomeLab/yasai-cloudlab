@@ -1,6 +1,6 @@
 {{- range .Values.catalog }}
-{{- $oidc := .definition.oidc }}
-{{- if and $oidc.enabled (not $oidc.public) }}
+{{- $oidc := include "cloudlab.service.identity" . | fromJson }}
+{{- if and $oidc.enabled (hasKey $oidc "secretReference") }}
 {{- if not (has $oidc.secretReference .approval.secretReferences) }}{{ fail "Confidential OIDC requires an administrator-approved secret reference" }}{{- end }}
 ---
 apiVersion: external-secrets.io/v1

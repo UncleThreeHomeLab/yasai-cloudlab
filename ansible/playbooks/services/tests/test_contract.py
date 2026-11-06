@@ -13,6 +13,37 @@ from playbooks.services.tests.fixtures import definition, approval
 
 
 class ContractTests(unittest.TestCase):
+    def test_identity_reference_binds_approved_coordinates_without_copying_settings(self):
+        from playbooks.services.files.contract import identity_binding
+        value, allowed = definition(), approval()
+        value['oidc'] = {'enabled': True, 'clientReference': 'synthetic'}
+        allowed['identityClient'] = {'realm': 'applications', 'client': 'synthetic'}
+        self.assertEqual(identity_binding(validate(value), allowed), allowed['identityClient'])
+        self.assertFalse(any(row['kind'] == 'ExternalSecret' for row in
+            resources(value, allowed, 'https://github.com/example/platform.git', 'b' * 40)))
+        with self.assertRaisesRegex(ValueError, 'private Git'): identity_request(value, {})
+        value['oidc']['secretReference'] = 'synthetic-oidc'
+        value['secrets'] = [{'name': 'synthetic-oidc', 'mountPath': '/secrets/oidc'}]
+        allowed['secretReferences'] = ['synthetic-oidc']
+        allowed['identityClient']['secretReference'] = 'synthetic-oidc'
+        objects = resources(value, allowed, 'https://github.com/example/platform.git', 'b' * 40)
+        secret = next(row for row in objects if row['kind'] == 'ExternalSecret')
+        self.assertEqual(secret['spec']['target']['deletionPolicy'], 'Retain')
+        self.assertIn('"applications"', secret['spec']['target']['template']['data']['client_secret'])
+        for mutate in (lambda a: a['identityClient'].update(client='foreign'),
+                       lambda a: a.update(identityClient={}), lambda a: a.update(secretReferences=[]),
+                       lambda a: a.update(chartPath='apps/notes'), lambda a: a.update(composition={})):
+            denied = copy.deepcopy(allowed); mutate(denied)
+            with self.assertRaises(ValueError): resources(value, denied, 'https://github.com/example/platform.git', 'b' * 40)
+        mixed = copy.deepcopy(value); mixed['oidc']['audience'] = 'synthetic'
+        with self.assertRaises(ValueError): validate(mixed)
+        for publication in ('ready', 'retired'):
+            denied = copy.deepcopy(allowed); denied['identityClient']['client'] = 'foreign'
+            with self.assertRaises(ValueError):
+                resources(value, denied, 'https://github.com/example/platform.git', 'b' * 40, publication=publication)
+        with self.assertRaises(ValueError):
+            resources(definition(), allowed, 'https://github.com/example/platform.git', 'b' * 40)
+
     def test_confidential_oidc_extracts_item_and_delivers_only_scoped_client_secret(self):
         value = definition()
         value['exposure'] = {'class': 'private', 'access': 'tailnet',

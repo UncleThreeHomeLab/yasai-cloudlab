@@ -8,6 +8,8 @@ from playbooks.services.files.contract import identity_request, validate
 
 
 def prepare(definition, action):
+    if 'clientReference' in definition.get('oidc', {}):
+        raise ValueError('Referenced identity settings require private Git changes through their owner')
     definition = validate(definition)
     oidc = definition['oidc']
     if not oidc['enabled']:

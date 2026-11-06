@@ -56,7 +56,9 @@ class Owners:
         request = json.dumps({'action': action, 'definition': self.definition, 'approval': self.approval})
         code = "import sys;sys.path.insert(0,'/opt/cloudlab');" + source
         output = ssh('VM', os.environ['VM_HOST'], 'python3 -c ' + shlex.quote(code), input=request,
-                     timeout=660 if action in ('fixture-data', 'fixture-volume') else 240 if action == 'identity' else 90)
+                     timeout=660 if action in ('fixture-data', 'fixture-volume') else
+                     360 if action == 'identity-retired' or action == 'identity' and 'clientReference' in self.definition['oidc'] else
+                     240 if action == 'identity' else 90)
         result = json.loads(output)
         if result.get('ready') is not True:
             raise RuntimeError('Service owner readiness was not confirmed')
@@ -69,6 +71,7 @@ class Owners:
         return value['exposure'] if value else None
 
     def identity_ready(self, definition): self.read('identity')
+    def identity_retired(self, definition): self.read('identity-retired')
     def data_ready(self, definition): self.read('data')
     def backend_ready(self, definition): self.read('backend')
     def tls_ready(self, definition): self.read('tls')
@@ -214,6 +217,7 @@ class Owners:
         self.unreachable_verified(definition)
 
     def identity_retire(self, definition):
+        if 'clientReference' in definition['oidc']: return
         if definition['oidc']['enabled']:
             from playbooks.keycloak.files.lifecycle import local
             local({'realm': definition['oidc']['realm'], 'client_id': definition['oidc']['client']})

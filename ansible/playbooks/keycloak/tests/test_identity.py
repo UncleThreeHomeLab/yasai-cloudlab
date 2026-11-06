@@ -32,6 +32,58 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 class IdentityTests(unittest.TestCase):
+    def test_reference_client_reader_checks_owned_fields_and_scoped_secret_with_bounded_requests(self):
+        from playbooks.keycloak.files import client_readiness as reader
+        declaration = {'id': 'synthetic', 'audience': 'synthetic-api', 'public': True,
+            'callbacks': ['https://synthetic.example.invalid/callback'], 'web_origins': ['https://synthetic.example.invalid'],
+            'scopes': ['profile'], 'roles': [], 'role_groups': {}}
+        uid = '12345678-abcd-abcd-abcd-123456789abc'
+        external = {'metadata': {'uid': 'eso'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        writers = {'metadata': {'ownerReferences': [{'uid': 'eso'}]},
+            'data': {'applications_client_secret': base64.b64encode(b'writer-fixture').decode()}}
+        with patch.object(reader, 'get', side_effect=lambda kind, *args: writers if kind == 'secret' else external), \
+                patch.object(reader, 'private_request', autospec=True) as request:
+            for public in (True, False):
+                declaration['public'] = public
+                expected = client(declaration, {} if public else {'synthetic': 'x' * 48})
+                actual = dict(copy.deepcopy(expected), id=uid, secret='********')
+                actual['protocolMappers'][0]['config']['provider-extra'] = 'unverified'
+                actual['attributes']['provider-extra'] = 'unverified'
+                responses = [{'access_token': 'fixture-token'}, [{'id': uid, 'clientId': 'synthetic'}], actual]
+                if not public: responses.append({'value': 'x' * 48})
+                request.side_effect = copy.deepcopy(responses); request.reset_mock()
+                reader.verify('applications', expected, 'identity-admin.internal.example.invalid')
+                self.assertEqual(request.call_count, 3 if public else 4)
+                self.assertTrue(all(0 < call.kwargs['timeout'] <= 20 for call in request.call_args_list))
+                for mutate in (lambda row: row.update(enabled=1),
+                               lambda row: row['redirectUris'].append('https://foreign.example.invalid/callback'),
+                               lambda row: row['protocolMappers'].append(copy.deepcopy(row['protocolMappers'][0])),
+                               lambda row: row['protocolMappers'][0]['config'].update({'included.custom.audience': 'foreign'}),
+                               lambda row: row['attributes'].update({'pkce.code.challenge.method': 'plain'}),
+                               lambda row: row['attributes'].update({'post.logout.redirect.uris': 'https://foreign.example.invalid/'})):
+                    changed = copy.deepcopy(actual); mutate(changed)
+                    self.assertFalse(reader.matches(changed, expected))
+                rejected = copy.deepcopy(responses)
+                rejected[1][0]['id'] = '../foreign'
+                request.side_effect = rejected
+                with self.assertRaisesRegex(RuntimeError, 'values withheld'):
+                    reader.verify('applications', expected, 'identity-admin.internal.example.invalid')
+                if not public:
+                    rejected = copy.deepcopy(responses); rejected[-1]['value'] = 'different-secret'
+                    request.side_effect = rejected
+                    with self.assertRaisesRegex(RuntimeError, 'values withheld'):
+                        reader.verify('applications', expected, 'identity-admin.internal.example.invalid')
+            external['status']['conditions'][0]['status'] = 'False'
+            request.reset_mock()
+            with self.assertRaisesRegex(RuntimeError, 'values withheld'):
+                reader.verify('applications', expected, 'identity-admin.internal.example.invalid')
+            request.assert_not_called()
+            external['status']['conditions'][0]['status'] = 'True'
+            request.side_effect = responses
+            with patch.object(reader.time, 'monotonic', side_effect=[0, 0, 91]):
+                with self.assertRaisesRegex(RuntimeError, 'values withheld'):
+                    reader.verify('applications', expected, 'identity-admin.internal.example.invalid')
+
     def test_writer_kubernetes_credentials_are_init_only_across_operations(self):
         from playbooks.keycloak.files.chart import render
         values = {'enabled': True, 'operatorEnabled': False, 'reconciliationEnabled': True,
@@ -318,6 +370,17 @@ class IdentityTests(unittest.TestCase):
             self.assertIsNone(private_request('https://identity.example.invalid/logout', token='private',
                               method='POST', accepted_statuses=(204,)))
             self.assertEqual(opener.return_value.open.call_args.args[0].get_method(), 'POST')
+            self.assertEqual(opener.return_value.open.call_args.kwargs['timeout'], 20)
+            private_request('https://identity.example.invalid/logout', method='POST', accepted_statuses=(204,), timeout=3.5)
+            self.assertEqual(opener.return_value.open.call_args.kwargs['timeout'], 3.5)
+            error = HTTPError('https://identity.example.invalid/logout', 403, 'denied', None, Mock())
+            with patch.object(error, 'close') as close:
+                opener.return_value.open.side_effect = error
+                with self.assertRaisesRegex(RuntimeError, 'diagnostics withheld'):
+                    private_request('https://identity.example.invalid/logout')
+                close.assert_called_once()
+        self.assertEqual((Path(__file__).resolve().parents[1] / 'files/configuration.py').read_bytes(),
+            (Path(__file__).resolve().parents[4] / 'platform/identity/keycloak/runtime/configuration.py').read_bytes())
 
     def test_only_scheduled_writers_skip_busy_valid_leases(self):
         from playbooks.keycloak.files import lease
