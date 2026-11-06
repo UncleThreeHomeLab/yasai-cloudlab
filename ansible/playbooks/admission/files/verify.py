@@ -14,6 +14,7 @@ from playbooks.istio.files.kube import application_ready, condition, get, kube, 
 PERMISSIONS_GUARD_NAME = 'cloudlab-permissions-ownership'
 PERMISSIONS_CONTROLLER = 'system:serviceaccount:argocd:argocd-application-controller'
 PERMISSIONS_GUARD_MESSAGE = 'Permission catalog writes require the native Argo owner, exact tracking and an unchanged owned scope.'
+NAMESPACE_GUARD_NAME = 'cloudlab-workload-namespace-native'
 
 
 def permission_guard_desired(path=None):
@@ -26,6 +27,73 @@ def permission_input_desired(path=None):
     import yaml
     path = path or Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates/permission-input.yaml'
     return list(yaml.safe_load_all(Path(path).read_text()))
+
+
+def namespace_guard_desired(declaration=None):
+    if declaration is None:
+        import yaml
+        declaration = yaml.safe_load((Path(__file__).resolve().parents[4] /
+            'platform/delivery/admission/policies/templates/workload-namespace.yaml').read_text())
+    if (not isinstance(declaration, dict) or declaration.get('kind') != 'ValidatingPolicy' or
+            declaration.get('metadata', {}).get('name') != 'cloudlab-workload-namespace' or
+            declaration.get('spec', {}).get('failurePolicy') != 'Fail' or
+            declaration['spec'].get('validationActions') != ['Deny'] or
+            not declaration['spec'].get('variables') or not declaration['spec'].get('validations')):
+        raise RuntimeError('Native namespace guard requires its complete declared Namespace contract')
+    policy = {'apiVersion': 'admissionregistration.k8s.io/v1', 'kind': 'ValidatingAdmissionPolicy',
+        'metadata': {'name': NAMESPACE_GUARD_NAME, 'annotations': {
+            'argocd.argoproj.io/sync-wave': '1',
+            'argocd.argoproj.io/sync-options': 'ServerSideApply=true,Prune=false,Delete=false'}},
+        'spec': {'failurePolicy': 'Fail', 'matchConstraints': {
+            'matchPolicy': 'Exact', 'namespaceSelector': {}, 'objectSelector': {}, 'resourceRules': [{
+                'apiGroups': [''], 'apiVersions': ['v1'], 'operations': ['CREATE', 'UPDATE'],
+                'resources': ['namespaces'], 'scope': 'Cluster'}]},
+            'variables': copy.deepcopy(declaration['spec']['variables']),
+            'validations': copy.deepcopy(declaration['spec']['validations'])}}
+    binding = {'apiVersion': 'admissionregistration.k8s.io/v1', 'kind': 'ValidatingAdmissionPolicyBinding',
+        'metadata': {'name': NAMESPACE_GUARD_NAME, 'annotations': {
+            'argocd.argoproj.io/sync-wave': '2',
+            'argocd.argoproj.io/sync-options': 'ServerSideApply=true,Prune=false,Delete=false'}},
+        'spec': {'policyName': NAMESPACE_GUARD_NAME, 'validationActions': ['Deny']}}
+    return [policy, binding]
+
+
+def namespace_guard_validate(documents, declaration=None):
+    expected = namespace_guard_desired(declaration)
+    if not isinstance(documents, list) or len(documents) != 2:
+        raise RuntimeError('Native namespace guard requires its complete policy and binding')
+    for actual, reference in zip(documents, expected, strict=True):
+        kind = reference['kind']
+        marker = 'cloudlab-workload-policy:admissionregistration.k8s.io/' + kind + ':cloudlab-policy/' + NAMESPACE_GUARD_NAME
+        if (not isinstance(actual, dict) or actual.get('apiVersion') != reference['apiVersion'] or
+                actual.get('kind') != kind or actual.get('metadata', {}).get('name') != NAMESPACE_GUARD_NAME or
+                actual.get('spec') != reference['spec'] or
+                any(actual.get('metadata', {}).get('annotations', {}).get(key) != value
+                    for key, value in reference['metadata']['annotations'].items()) or
+                actual.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != marker):
+            raise RuntimeError('Native namespace guard differs from its exact declared owner and scope')
+        if kind == 'ValidatingAdmissionPolicy':
+            status = actual.get('status', {})
+            typing = status.get('typeChecking', {})
+            if (not actual['metadata'].get('generation') or status.get('observedGeneration') != actual['metadata']['generation'] or
+                    not isinstance(typing, dict) or typing.get('expressionWarnings') or
+                    any(row.get('status') == 'False' for row in status.get('conditions', []))):
+                raise RuntimeError('Native namespace guard type-checking is incomplete or has warnings')
+    return True
+
+
+def namespace_guard_denied(diagnostics, message):
+    attribution = "ValidatingAdmissionPolicy '" + NAMESPACE_GUARD_NAME + "' with binding '" + NAMESPACE_GUARD_NAME + "' denied request:"
+    return attribution in diagnostics and message in diagnostics
+
+
+def namespace_guard_create_probe(declaration=None):
+    document = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {
+        'name': 'cloudlab-app-native-guard-probe', 'labels': {'cloudlab.io/owner': 'foreign'}}}
+    message = namespace_guard_desired(declaration)[0]['spec']['validations'][0]['message']
+    result = kube('create', '--dry-run=server', '-f', '-', document=document, allow_failure=True)
+    if not result.returncode or not namespace_guard_denied(result.stderr, message):
+        raise RuntimeError('Native namespace guard did not deny its synthetic CREATE probe')
 
 
 def permission_tracking(kind, name, namespace='argocd'):
@@ -263,7 +331,6 @@ def namespace_profile(row):
 
 
 def namespace_admission(row):
-    name = 'cloudlab-workload-namespace'
     good = copy.deepcopy(row)
     good['metadata'].setdefault('annotations', {})['cloudlab.io/admission-proof'] = 'dry-run'
     result = kube('replace', '--dry-run=server', '-f', '-', allow_failure=True, document=good)
@@ -273,8 +340,8 @@ def namespace_admission(row):
         changed = copy.deepcopy(row)
         changed['metadata']['labels'] = labels
         result = kube('replace', '--dry-run=server', '-f', '-', allow_failure=True, document=changed)
-        if (not result.returncode or not re.search(r'(?<![\w.-])' + name + r'(?![\w.-])', result.stderr) or
-                'Application namespaces must retain their platform owner, ambient capture, secret eligibility and pinned Pod Security labels.' not in result.stderr):
+        if (not result.returncode or not namespace_guard_denied(result.stderr,
+                'Application namespaces must retain their platform owner, ambient capture, secret eligibility and pinned Pod Security labels.')):
             raise RuntimeError('Application namespace security-label change was not denied by its native guard')
 
 
@@ -310,7 +377,7 @@ def namespaces(workloads, enforce, catalog):
     return ephemeral_checked, composition_checked, restricted_checked
 
 
-def run(revision, actions, catalog=None, guard_expected=None):
+def run(revision, actions, catalog=None, guard_expected=None, namespace_expected=None):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
     if actions not in (['Audit', 'Warn'], ['Deny']):
@@ -333,6 +400,14 @@ def run(revision, actions, catalog=None, guard_expected=None):
         result = kube(*arguments, document=document, allow_failure=True)
         return result.returncode, result.stderr
     permission_guard_probes(permission_dry_run)
+    def namespace_guard_ready():
+        documents = [get(row['kind'], row['metadata']['name']) for row in namespace_guard_desired(namespace_expected)]
+        try:
+            return namespace_guard_validate(documents, namespace_expected)
+        except RuntimeError:
+            return False
+    wait(namespace_guard_ready, 'native namespace guard convergence', timeout=180)
+    namespace_guard_create_probe(namespace_expected)
     for name, background, resources in (
             ('cloudlab-workload-contract', True, ['pods']),
             ('cloudlab-workload-ephemeral', False, ['pods/ephemeralcontainers'])):
@@ -369,6 +444,7 @@ def run(revision, actions, catalog=None, guard_expected=None):
             'composition_namespaces_checked': composition_checked,
             'unapproved_composition_namespace_denied': True,
             'namespace_security_labels_denied': True,
+            'native_namespace_guard_verified': True,
             'restricted_workload_admitted': restricted_checked > 0,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 
@@ -379,6 +455,7 @@ if __name__ == '__main__':
         data = json.loads(raw) if raw.strip() else []
         print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2]),
             data['catalog'] if isinstance(data, dict) else data,
-            data.get('permissionsGuard') if isinstance(data, dict) else None), sort_keys=True))
+            data.get('permissionsGuard') if isinstance(data, dict) else None,
+            data.get('namespaceGuard') if isinstance(data, dict) else None), sort_keys=True))
     except Exception:
         raise SystemExit('Admission verification incomplete; existing workloads and policy mode retained') from None

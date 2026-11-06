@@ -75,11 +75,11 @@ def check():
             raise ValueError('Native admission API does not serve the selected policy version')
     documents = render(True)
     policies = [row for row in documents if row['kind'] == 'ValidatingPolicy']
-    from playbooks.admission.files.verify import permission_guard_desired, permission_input_desired
+    from playbooks.admission.files.verify import permission_guard_desired, permission_input_desired, namespace_guard_desired
     native = [row for row in documents if row['kind'] != 'ValidatingPolicy']
     if sorted(json.dumps(row, sort_keys=True) for row in native) != sorted(
-            json.dumps(row, sort_keys=True) for row in permission_guard_desired() + permission_input_desired()):
-        raise ValueError('Native permissions guard differs from its exact declared policy and binding')
+            json.dumps(row, sort_keys=True) for row in permission_guard_desired() + permission_input_desired() + namespace_guard_desired()):
+        raise ValueError('Native admission guards differ from their exact declared policies and bindings')
     actions = yaml.safe_load((BASE / 'policies/values.yaml').read_text())['validationActions']
     runner_actions = yaml.safe_load((BASE / 'policies/values.yaml').read_text())['runnerValidationActions']
     if (actions not in (['Audit', 'Warn'], ['Deny']) or runner_actions not in (['Audit', 'Warn'], ['Deny']) or

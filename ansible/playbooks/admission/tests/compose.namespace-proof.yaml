@@ -1,0 +1,44 @@
+# Disposable native Namespace proof only; never combine with the lab Compose file.
+# Use a unique namespace-proof-<run> project. See namespace_proof.py for host restart steps.
+# Inspect exact project/purpose labels before down --volumes; retain failed receipts first.
+services:
+  cluster:
+    extends:
+      file: ../../access/tests/compose.permissions-proof.yaml
+      service: cluster
+    command: [server, '--disable=traefik,servicelb,local-storage,metrics-server,coredns',
+              --disable-agent, --tls-san=cluster, --node-ip=10.245.240.2, --advertise-address=10.245.240.2,
+              --data-dir=/fixture/cluster-data, --write-kubeconfig=/fixture/kubeconfig, --write-kubeconfig-mode=600]
+    networks:
+      fixture: {ipv4_address: 10.245.240.2}
+    labels: {cloudlab.io/purpose: namespace-startup-proof}
+  proof:
+    build:
+      context: ../../../runner
+      additional_contexts:
+        ci-source: ../../../../platform/delivery/ci
+    entrypoint: [python, -B, -m, playbooks.admission.tests.namespace_proof]
+    working_dir: /tmp
+    environment:
+      FIXTURE_PROJECT: ${COMPOSE_PROJECT_NAME:?Use a unique namespace-proof-<run> project}
+      PYTHONPATH: /workspace/ansible
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ../../:/workspace/ansible/playbooks:ro
+      - ../../../../platform:/workspace/platform:ro
+      - credentials:/fixture:ro
+      - receipts:/receipts
+    networks: [fixture]
+    labels: {cloudlab.io/purpose: namespace-startup-proof}
+volumes:
+  credentials:
+    labels: {cloudlab.io/purpose: namespace-startup-proof}
+  receipts:
+    labels: {cloudlab.io/purpose: namespace-startup-proof}
+networks:
+  fixture:
+    internal: true
+    labels: {cloudlab.io/purpose: namespace-startup-proof}
+    ipam:
+      config: [{subnet: 10.245.240.0/24}]
