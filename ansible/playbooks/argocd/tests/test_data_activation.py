@@ -50,16 +50,42 @@ class DataActivationTests(unittest.TestCase):
         return data_activation.prepare(self.public, self.target['valuesRepository'], self.target['valuesRevision'], self.client, lookup=self.lookup)
 
     def test_preparation_uses_exact_private_commit_and_both_selected_native_owners(self):
-        with patch('playbooks.argocd.files.source_snapshot.chart_files', return_value=self.files) as chart, \
-                patch('playbooks.services.files.owner.chart', return_value=nullcontext(ROOT / 'platform/delivery/services')) as service:
-            evidence = self.prepare()
-        self.assertEqual(chart.call_args.args[0], {'repository': self.public['repository'], 'revision': 'a' * 40, 'path': 'platform/data/configuration'})
-        service.assert_called_once_with(self.public)
-        self.assertEqual(evidence['settings']['identity'], self.profile['identity'])
-        self.assertEqual(evidence['settings']['s3Host'], 's3.internal.example.invalid')
-        self.assertFalse(evidence['required'])
-        self.assertEqual(self.client.request.call_count, 3)
-        self.assertTrue(all(call.args[1].endswith('?ref=' + 'b' * 40) for call in self.client.request.call_args_list))
+        for path, supplied in (('services/catalog.json', False), ('services/catalog-v2.yaml', False), ('services/catalog-v2.yaml', True)):
+            self.client.request.reset_mock()
+            self.public['services']['catalogPath'] = path
+            self.documents[path] = self.documents['services/catalog.json']
+            with self.subTest(path=path, supplied=supplied), \
+                    patch('playbooks.argocd.files.source_snapshot.chart_files', return_value=self.files) as chart, \
+                    patch('playbooks.services.files.owner.chart', return_value=nullcontext(ROOT / 'platform/delivery/services')) as service:
+                evidence = data_activation.prepare(self.public, self.target['valuesRepository'], self.target['valuesRevision'], self.client,
+                    catalog=self.documents[path] if supplied else None, lookup=self.lookup)
+            self.assertEqual(chart.call_args.args[0], {'repository': self.public['repository'], 'revision': 'a' * 40, 'path': 'platform/data/configuration'})
+            if supplied: service.assert_not_called()
+            else: service.assert_called_once_with(self.public)
+            self.assertEqual(evidence['settings']['identity'], self.profile['identity'])
+            self.assertEqual(evidence['settings']['s3Host'], 's3.internal.example.invalid')
+            self.assertFalse(evidence['required'])
+            self.assertEqual(evidence.get('catalogPath', 'services/catalog.json'), path)
+            if path == 'services/catalog.json': self.assertNotIn('catalogPath', evidence)
+            self.assertEqual(self.client.request.call_count, 2 if supplied else 3)
+            reads = [call.args[1] for call in self.client.request.call_args_list]
+            self.assertTrue(all(item.endswith('?ref=' + 'b' * 40) for item in reads))
+            self.assertEqual(any('/contents/' + path + '?' in item for item in reads), not supplied)
+            if path != 'services/catalog.json': self.assertFalse(any('/contents/services/catalog.json?' in item for item in reads))
+
+    def test_catalog_evidence_preserves_legacy_default_and_rejects_root_override(self):
+        evidence = {'required': False, 'enabled': True, 'repository': self.public['repository'],
+            'revision': 'a' * 40, 'seaweedfsRevision': 'c' * 40, 'private_repository': self.target['valuesRepository'],
+            'private_revision': self.target['valuesRevision'], 'settings': None}
+        root = {'spec': {'source': {'repoURL': self.public['repository'], 'path': 'gitops/roots/public',
+            'helm': {'valuesObject': {'services': {'catalogPath': 'services/catalog.json'}}}}}}
+        self.assertEqual(data_activation.validate(evidence, self.target, root), evidence)
+        evidence['catalogPath'] = 'services/catalog-v2.yaml'
+        with self.assertRaisesRegex(RuntimeError, 'reviewed root'): data_activation.validate(evidence, self.target, root)
+        root['spec']['source']['helm']['valuesObject']['services']['catalogPath'] = evidence['catalogPath']
+        self.assertEqual(data_activation.validate(evidence, self.target, root), evidence)
+        evidence['catalogPath'] = 'services/../identity.yaml'
+        with self.assertRaises(ValueError): data_activation.validate(evidence, self.target)
 
     def test_historical_absence_is_exact_authenticated_404_only_when_disabled(self):
         self.documents['platform/data.yaml'] = None

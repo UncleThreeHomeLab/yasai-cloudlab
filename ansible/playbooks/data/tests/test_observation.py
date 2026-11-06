@@ -38,7 +38,7 @@ class ObservationTests(unittest.TestCase):
             if method == 'DELETE': return None
             if path == 'repos/example/private':
                 return {'full_name': 'example/private', 'private': True, 'default_branch': 'main'}
-            for filename, document in zip(native.VALUE_FILES, self.fixture['documents']):
+            for filename, document in zip(native.value_files(self.fixture['committed']), self.fixture['documents']):
                 if '/contents/' + filename + '?ref=' + 'b' * 40 in path:
                     raw = document if isinstance(document, bytes) else json.dumps(document).encode()
                     return {'type': 'file', 'path': filename, 'encoding': 'base64', 'size': len(raw),
@@ -50,6 +50,10 @@ class ObservationTests(unittest.TestCase):
         self.stack.enter_context(patch.object(native, 'app_token', return_value='synthetic-app-token'))
 
     def test_acquires_once_and_revokes_before_repeated_settings_reads(self):
+        selected = 'services/catalog-v2.yaml'
+        self.fixture['committed']['services']['catalogPath'] = selected
+        self.raw.return_value = yaml.safe_dump(self.fixture['committed']).encode()
+        self.objects['application.argoproj.io', native.APP, 'argocd']['spec']['sources'][0]['helm']['valueFiles'][-1] = '$values/' + selected
         self.objects['externalsecret.external-secrets.io', 'cloudlab-argocd-identity-source', 'argocd']['metadata']['finalizers'] = [native.ESO_FINALIZER]
         source = control.operation()
         for _ in range(4):
@@ -61,6 +65,25 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(len(reads), 5)
         self.assertEqual(reads[-1], ('DELETE', 'installation/token'))
         self.assertEqual(self.api.request.call_args.args[2], {'repositories': ['private'], 'permissions': {'contents': 'read'}})
+        self.assertIn(('GET', 'repos/example/private/contents/' + selected + '?ref=' + 'b' * 40), reads)
+        self.assertFalse(any('/contents/services/catalog.json?' in args[1] for args in reads))
+
+    def test_missing_selected_catalog_revokes_without_legacy_fallback(self):
+        from playbooks.argocd.files.github_setup import GitHubHTTPError
+        self.fixture['committed']['services']['catalogPath'] = 'services/catalog-v2.yaml'
+        self.raw.return_value = yaml.safe_dump(self.fixture['committed']).encode()
+        read = self.client.request.side_effect
+        def missing(method, path, **kwargs):
+            if '/contents/services/catalog-v2.yaml?' in path:
+                raise GitHubHTTPError(404)
+            return read(method, path, **kwargs)
+        self.client.request.side_effect = missing
+        with patch.object(native, 'render_settings') as render, patch.object(control, 'grants') as sql, patch.object(control, 's3') as s3:
+            with self.assertRaises(GitHubHTTPError): control.reconcile()
+            render.assert_not_called(); sql.assert_not_called(); s3.assert_not_called()
+        reads = [call.args for call in self.client.request.call_args_list]
+        self.assertEqual(reads[-1], ('DELETE', 'installation/token'))
+        self.assertFalse(any('/contents/services/catalog.json?' in args[1] for args in reads))
 
     def test_identity_reader_matches_actual_root_render(self):
         actual = self.objects['externalsecret.external-secrets.io', 'cloudlab-argocd-identity-source', 'argocd']

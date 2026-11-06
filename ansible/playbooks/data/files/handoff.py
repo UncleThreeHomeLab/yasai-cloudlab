@@ -236,10 +236,13 @@ def transition_guard(evidence, target, root, read, *, binding=None):
         raise RuntimeError('Pending data transition differs from its armed authority')
     quiescent()
     public = {'repository': owner['publicSource']['repository'], 'data': {'configuration': value['pins']}}
+    if 'catalogPath' in evidence:
+        public['services'] = {'catalogPath': evidence['catalogPath']}
     published, _ = native.published_source(owner, deadline=time.monotonic() + 120)
     config = published.get('data', {}).get('configuration', {})
     if (published.get('data', {}).get('enabled') is not True or config.get('enabled') is not True
-            or {key: config.get(key) for key in value['pins']} != value['pins']):
+            or {key: config.get(key) for key in value['pins']} != value['pins']
+            or native.value_files(published) != native.value_files(public)):
         raise RuntimeError('Pending data resume differs from the current protected public scope')
     meta = root.get('metadata', {}); spec = root.get('spec', {})
     if (meta.get('deletionTimestamp') or meta.get('ownerReferences') or meta.get('finalizers')

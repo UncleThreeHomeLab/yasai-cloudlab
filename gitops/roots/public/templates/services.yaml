@@ -1,3 +1,11 @@
+{{- define "cloudlab.serviceCatalogPath" -}}
+{{- $catalogPath := "services/catalog.json" }}
+{{- if hasKey .Values.services "catalogPath" }}{{ $catalogPath = .Values.services.catalogPath }}{{ end }}
+{{- if or (not (kindIs "string" $catalogPath)) (gt (len $catalogPath) 128) (not (regexMatch "^services/catalog(-[a-z0-9]+(-[a-z0-9]+)*)?[.](json|yaml)$" $catalogPath)) }}
+{{- fail "Service catalog path must be a bounded catalog JSON or YAML file directly under services" }}
+{{- end }}
+{{- $catalogPath -}}
+{{- end }}
 {{- if .Values.services.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -32,11 +40,7 @@ spec:
 {{- end }}
 
 {{- if and .Values.services.enabled (hasKey .Values.identity "argo") }}
-{{- $catalogPath := "services/catalog.json" }}
-{{- if hasKey .Values.services "catalogPath" }}{{ $catalogPath = .Values.services.catalogPath }}{{ end }}
-{{- if or (not (kindIs "string" $catalogPath)) (gt (len $catalogPath) 128) (not (regexMatch "^services/catalog(-[a-z0-9]+(-[a-z0-9]+)*)?[.](json|yaml)$" $catalogPath)) }}
-{{- fail "Service catalog path must be a bounded catalog JSON or YAML file directly under services" }}
-{{- end }}
+{{- $catalogPath := include "cloudlab.serviceCatalogPath" . }}
 {{- if not (regexMatch "^[a-f0-9]{40}$" (.Values.services.revision | default "")) }}
 {{- fail "Service catalog requires its reviewed immutable platform revision" }}
 {{- end }}

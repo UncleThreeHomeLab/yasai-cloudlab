@@ -149,7 +149,7 @@ spec:
       path: platform/data/configuration
       helm:
         releaseName: cloudlab-data-configuration
-        valueFiles: ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/services/catalog.json']
+        valueFiles: ['$values/platform/certificates.yaml', '$values/platform/data.yaml', {{ printf "$values/%s" (include "cloudlab.serviceCatalogPath" .) | quote }}]
         valuesObject: {{ merge (dict "sharedInputs" true) $flags | toJson }}
     - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: {{ .Values.identity.argo.valuesRevision | quote }}, ref: values}
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-data}

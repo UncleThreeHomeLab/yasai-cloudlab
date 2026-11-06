@@ -5,8 +5,11 @@ import hashlib
 import json
 import re
 import sys
+import time
 
 sys.path.insert(0, "/opt/cloudlab")
+
+from playbooks.argocd.files.service_activation import catalog_path
 
 APP = 'cloudlab-data-configuration'
 SEAWEED = 'cloudlab-seaweedfs'
@@ -19,12 +22,15 @@ def binding_fence(target):
 
 def prepare(public, repository, revision, client, catalog=None, *, lookup=None):
     from playbooks.argocd.files.source_snapshot import chart_files
-    from playbooks.data.files.native import private_file, render_settings, validate_private_input
+    from playbooks.data.files.native import private_file, render_settings, validate_private_input, value_files
     config = public.get('data', {}).get('configuration', {})
     evidence = {'required': config.get('enabled', False), 'enabled': public.get('data', {}).get('enabled', False),
         'repository': public['repository'], 'revision': config.get('revision'),
         'seaweedfsRevision': config.get('seaweedfsRevision'),
         'private_repository': repository, 'private_revision': revision, 'settings': None}
+    path = value_files(public)[-1]
+    if path != catalog_path():
+        evidence['catalogPath'] = path
     target = {'valuesRepository': repository, 'valuesRevision': revision}
     validate(evidence, target)
     profile = private_file(client, repository, revision, 'platform/data.yaml', missing=True)
@@ -35,8 +41,8 @@ def prepare(public, repository, revision, client, catalog=None, *, lookup=None):
         return validate(evidence, target)
     if catalog is None:
         from playbooks.services.files.inputs import validate_catalog
-        catalog = validate_catalog(private_file(client, repository, revision, 'services/catalog.json'), public=public)
-    validate_private_input('services/catalog.json', catalog)
+        catalog = validate_catalog(private_file(client, repository, revision, path), public=public)
+    validate_private_input(path, catalog)
     certificates = private_file(client, repository, revision, 'platform/certificates.yaml')
     files = chart_files({'repository': public['repository'], 'revision': evidence['revision'], 'path': 'platform/data/configuration'})
     settings = render_settings(files, [certificates, profile, catalog, {'sharedInputs': True, 'maintenance': False, 'hibernated': False}])
@@ -60,13 +66,14 @@ def prepare(public, repository, revision, client, catalog=None, *, lookup=None):
 
 def validate(evidence, target, root=None):
     fields = {'required', 'enabled', 'repository', 'revision', 'seaweedfsRevision', 'private_repository', 'private_revision', 'settings'}
-    if (not isinstance(evidence, dict) or not fields <= set(evidence) <= fields | {'absence', 'authority'}
+    if (not isinstance(evidence, dict) or not fields <= set(evidence) <= fields | {'absence', 'authority', 'catalogPath'}
             or type(evidence['required']) is not bool or type(evidence['enabled']) is not bool
             or not isinstance(target, dict) or set(target) != {'valuesRepository', 'valuesRevision'}
             or evidence['private_repository'] != target['valuesRepository'] or evidence['private_revision'] != target['valuesRevision']
             or not isinstance(evidence['private_revision'], str) or not re.fullmatch('[a-f0-9]{40}', evidence['private_revision'])
             or (evidence['required'] and not evidence['enabled'])):
         raise RuntimeError('Data activation evidence does not match its approved source')
+    path = catalog_path(evidence.get('catalogPath', catalog_path()))
     pattern = r'https://github[.]com/([A-Za-z0-9-]+)/[A-Za-z0-9_.-]+[.]git'
     public = re.fullmatch(pattern, evidence['repository'] or '')
     private = re.fullmatch(pattern, evidence['private_repository'] or '')
@@ -81,9 +88,11 @@ def validate(evidence, target, root=None):
     if root is not None:
         source = root.get('spec', {}).get('source', {})
         values = source.get('helm', {}).get('valuesObject', {}).get('data', {})
+        services = source.get('helm', {}).get('valuesObject', {}).get('services', {})
         config = values.get('configuration', {}) if isinstance(values, dict) else None
         if (source.get('repoURL') != evidence['repository'] or source.get('path') != 'gitops/roots/public'
                 or root.get('spec', {}).get('sources') or not isinstance(values, dict) or not isinstance(config, dict)
+                or not isinstance(services, dict) or ('catalogPath' in services and services['catalogPath'] != path)
                 or ('enabled' in values and (type(values['enabled']) is not bool or values['enabled'] != evidence['enabled']))
                 or any(key in config and (type(config[key]) is not type(value) or config[key] != value) for key, value in
                        (('enabled', evidence['required']), ('revision', evidence['revision']), ('seaweedfsRevision', evidence['seaweedfsRevision'])))):
@@ -104,7 +113,8 @@ def exclusion(*, held=False):
 def guard(evidence, target, read, root=None, *, patched=False, held=False, binding=None):
     evidence = validate(evidence, target, root)
     from playbooks.data.files import control
-    from playbooks.data.files.native import native_application, quiet, quiet_operation, legacy_guard
+    from playbooks.data.files import native as owner
+    from playbooks.data.files.native import native_application, quiet, quiet_operation, legacy_guard, value_files
     with exclusion(held=held):
         binding_fence(target)
         app = read('application.argoproj.io', APP)
@@ -159,8 +169,14 @@ def guard(evidence, target, read, root=None, *, patched=False, held=False, bindi
             baseline = saved.get('baseline')
             if not isinstance(baseline, dict) or set(saved.get('specs', {})) != {APP, SEAWEED}:
                 raise RuntimeError('Data activation captured baseline is unavailable')
+            public = {'services': {'catalogPath': evidence.get('catalogPath', catalog_path())}}
+            expected_files = ['$values/' + path for path in value_files(public)]
             for obj, name in ((app, APP), (seaweed, SEAWEED)):
                 old = saved['specs'][name]
+                sources = old.get('sources') or []
+                if (native and name == APP and (not isinstance(sources, list) or len(sources) != 2
+                        or sources[0].get('helm', {}).get('valueFiles') != expected_files)):
+                    raise RuntimeError('Data activation catalog differs from its captured source')
                 desired = copy.deepcopy(old)
                 if native:
                     if name == APP:
@@ -170,6 +186,20 @@ def guard(evidence, target, read, root=None, *, patched=False, held=False, bindi
                         desired['source']['targetRevision'] = evidence['seaweedfsRevision']
                 if obj['spec'] != old and (not patched or obj['spec'] != desired):
                     raise RuntimeError('Data activation source changed outside its captured transition')
+            if native:
+                from playbooks.argocd.files import source_transition
+                recovery = None
+                if owner.receipt(owner.BINDING).get('phase') != 'accepted':
+                    if not isinstance(binding, dict):
+                        raise RuntimeError('Captured native data requires its durable pending binding context')
+                    observed = root if root is not None else read('application.argoproj.io', 'cloudlab-public-root')
+                    recovery = {'checkpoint': binding, 'sourceState': source_transition.binding_source(binding, observed),
+                                'rootSource': copy.deepcopy(observed['spec']['source'])}
+                deadline = time.monotonic() + 60
+                with owner.public_metadata(state, deadline=deadline, recovery=recovery) as fetch:
+                    published, _ = owner.published_source(state, deadline=deadline, fetch=fetch)
+                    if ['$values/' + path for path in value_files(published)] != expected_files:
+                        raise RuntimeError('Captured native data catalog conflicts with current protected public selection')
             current = baseline
             if native:
                 obj = control.get('configmap', 'cloudlab-data-settings', control.NAMESPACE) or {}

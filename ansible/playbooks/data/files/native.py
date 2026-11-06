@@ -19,6 +19,7 @@ from playbooks.argocd.files.github_app import app_token, verify_installation
 from playbooks.argocd.files.github_setup import GitHub, repository
 from playbooks.argocd.files.private_sources import PEM_TEMPLATE
 from playbooks.argocd.files.source_revision import matches_revision, identity_project_rules
+from playbooks.argocd.files.service_activation import catalog_path
 from playbooks.istio.files.kube import condition, get, kube, wait
 
 APP = 'cloudlab-data-configuration'
@@ -26,9 +27,13 @@ SEAWEED = 'cloudlab-seaweedfs'
 SETTINGS = 'cloudlab-data-settings'
 BINDING = Path('/var/lib/cloudlab/gitops/identity-values-binding.json')
 COMPONENTS = ('master', 'volume', 'filer', 's3')
-VALUE_FILES = ('platform/certificates.yaml', 'platform/data.yaml', 'services/catalog.json')
 TRACKING = 'cloudlab-public-root:argoproj.io/'
 ESO_FINALIZER = 'externalsecrets.external-secrets.io/externalsecret-cleanup'
+
+
+def value_files(public):
+    return ('platform/certificates.yaml', 'platform/data.yaml',
+            catalog_path(public.get('services', {}).get('catalogPath', catalog_path())))
 
 
 def delegations():
@@ -353,7 +358,8 @@ def source_credentials(repo, name='cloudlab-argocd-identity-source', project='cl
                     (data['githubAppID'], data['githubAppInstallationID'], data['githubAppPrivateKey'])))
 
 
-def authenticated_inputs(repo, revision, deadline):
+def authenticated_inputs(repo, revision, deadline, public):
+    paths = value_files(public)
     credentials = source_credentials(repo)
     api = GitHub(app_token(credentials), deadline=deadline, max_response=3 * 1024 * 1024)
     path = 'app/installations/' + credentials['INSTALLATION_ID']
@@ -366,7 +372,7 @@ def authenticated_inputs(repo, revision, deadline):
         if (actual.get('full_name', '').lower() != repository(repo).lower() or actual.get('private') is not True
                 or actual.get('fork') or actual.get('archived') or actual.get('disabled') or actual.get('default_branch') != 'main'):
             raise RuntimeError('Data source repository identity changed')
-        return [private_file(client, repo, revision, path) for path in VALUE_FILES]
+        return [private_file(client, repo, revision, path) for path in paths]
     finally:
         # Revocation has its own bounded deadline, including acquisition timeout.
         client.deadline = time.monotonic() + 15
@@ -583,7 +589,7 @@ def projection(state, *, recovery=False, preparation=False):
     target = root_guard(state, public, revision, recovery=recovery, preparation=preparation)
     files = source_snapshot.chart_files({'repository': public['repository'], 'revision': config['revision'],
                                         'path': 'platform/data/configuration'}, deadline=deadline)
-    documents = authenticated_inputs(target['valuesRepository'], target['valuesRevision'], deadline)
+    documents = authenticated_inputs(target['valuesRepository'], target['valuesRevision'], deadline, public)
     expected = render_settings(files, documents + [{'sharedInputs': True, 'maintenance': False, 'hibernated': False}])
     if time.monotonic() >= deadline:
         raise RuntimeError('Data source acquisition exceeded its total deadline')
@@ -595,7 +601,7 @@ def application_sources(name, public, target, flags, replicas):
     if name == APP:
         return {'source': None, 'sources': [
             {'repoURL': public['repository'], 'targetRevision': config['revision'], 'path': 'platform/data/configuration',
-             'helm': {'releaseName': APP, 'valueFiles': ['$values/' + path for path in VALUE_FILES],
+             'helm': {'releaseName': APP, 'valueFiles': ['$values/' + path for path in value_files(public)],
                       'valuesObject': dict(sharedInputs=True, **flags)}},
             {'repoURL': target['valuesRepository'], 'targetRevision': target['valuesRevision'], 'ref': 'values'}]}
     return {'source': {'repoURL': public['repository'], 'targetRevision': config['seaweedfsRevision'],
