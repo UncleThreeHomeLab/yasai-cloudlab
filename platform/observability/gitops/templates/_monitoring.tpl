@@ -1,4 +1,4 @@
-{{/* Canonical collection validator. package.py projects this into its two consumers. */}}
+{{/* Canonical collection validator. The defined template must match charts/service/templates/_monitoring.tpl. */}}
 {{- define "cloudlab.service.monitoring" -}}
 {{- $v := .definition | toJson | fromJson -}}
 {{- $metricsEnabled := dig "monitoring" "metrics" "enabled" false $v -}}

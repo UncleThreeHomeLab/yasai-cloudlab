@@ -3,7 +3,11 @@
   "kind": "PrometheusRule",
   "metadata": {
     "name": "notes-user-slo",
-    "namespace": "cloudlab-observability"
+    "namespace": "cloudlab-observability",
+    "annotations": {
+      "cloudlab.io/slo-source": "apps/notes/slo.json@45e2bc343f5b4afa charts/service/release-policy.json@2011bf23b73b9ea6",
+      "cloudlab.io/slo-source-note": "Pinned render of the single threshold source; never edit expressions here. A threshold change must re-derive this file and its digests in the same PR."
+    }
   },
   "spec": {
     "groups": [

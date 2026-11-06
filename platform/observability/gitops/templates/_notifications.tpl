@@ -13,8 +13,19 @@
 {{- $catalog := dict -}}
 {{- range .Values.catalog }}{{ $_ := set $catalog .definition.name . }}{{ end -}}
 {{- if not $input.enabled -}}
-{{- if or $input.fallbackReceiver $input.receivers $input.subscriptions }}{{ fail "Disabled notification delivery cannot contain destinations or subscriptions" }}{{ end -}}
+{{- if or $input.fallbackReceiver $input.receivers $input.subscriptions $input.timeIntervals $input.muteWindows $input.inhibitRules }}{{ fail "Disabled notification delivery cannot contain destinations or subscriptions" }}{{ end -}}
 {{- else -}}
+{{- $defined := dict -}}
+{{- range $window := $input.timeIntervals -}}
+{{- if hasKey $defined $window.name }}{{ fail "Notification time interval names must be unique" }}{{ end -}}
+{{- range $span := $window.times -}}
+{{- if ge $span.start $span.end }}{{ fail "Notification maintenance windows require start before end" }}{{ end -}}
+{{- end -}}
+{{- $_ := set $defined $window.name true -}}
+{{- end -}}
+{{- range $name := $input.muteWindows -}}
+{{- if not (hasKey $defined $name) }}{{ fail "Notification mute windows require a declared time interval" }}{{ end -}}
+{{- end -}}
 {{- $receivers = list -}}
 {{- $known := dict -}}
 {{- range $receiver := $input.receivers -}}
@@ -74,5 +85,23 @@
 {{- end -}}
 {{- end -}}
 {{- $route := dict "receiver" $fallback "routes" $routes "group_by" (list "alertname" "service" "severity") "group_wait" (printf "%ds" (int $input.groupWaitSeconds)) "group_interval" (printf "%ds" (int $input.groupIntervalSeconds)) "repeat_interval" (printf "%ds" (int $input.repeatIntervalSeconds)) -}}
-{{- toYaml (dict "config" (dict "global" (dict "resolve_timeout" "1m") "route" $route "receivers" $receivers) "secrets" (keys $secrets | sortAlpha)) -}}
+{{- if $input.muteWindows }}{{ $_ := set $route "mute_time_intervals" $input.muteWindows }}{{ end -}}
+{{- $inhibit := list -}}
+{{- range $rule := $input.inhibitRules -}}
+{{- $native := dict "source_matchers" $rule.sourceMatchers "target_matchers" $rule.targetMatchers -}}
+{{- if $rule.equal }}{{ $_ := set $native "equal" $rule.equal }}{{ end -}}
+{{- $inhibit = append $inhibit $native -}}
+{{- end -}}
+{{- $nativeIntervals := list -}}
+{{- range $window := $input.timeIntervals -}}
+{{- $spans := list -}}
+{{- range $span := $window.times -}}
+{{- $spans = append $spans (dict "start_time" $span.start "end_time" $span.end) -}}
+{{- end -}}
+{{- $nativeIntervals = append $nativeIntervals (dict "name" $window.name "time_intervals" (list (dict "weekdays" $window.weekdays "times" $spans))) -}}
+{{- end -}}
+{{- $config := dict "global" (dict "resolve_timeout" "1m") "route" $route "receivers" $receivers -}}
+{{- if $inhibit }}{{ $_ := set $config "inhibit_rules" $inhibit }}{{ end -}}
+{{- if $nativeIntervals }}{{ $_ := set $config "time_intervals" $nativeIntervals }}{{ end -}}
+{{- toYaml (dict "config" $config "secrets" (keys $secrets | sortAlpha)) -}}
 {{- end -}}

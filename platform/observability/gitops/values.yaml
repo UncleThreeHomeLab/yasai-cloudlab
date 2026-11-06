@@ -12,6 +12,9 @@ platformNotifications:
   groupWaitSeconds: 10
   groupIntervalSeconds: 60
   repeatIntervalSeconds: 14400
+  timeIntervals: []
+  muteWindows: []
+  inhibitRules: []
 alertmanagerState:
   storageClass: cloudlab-telemetry
   sizeGiB: 1
