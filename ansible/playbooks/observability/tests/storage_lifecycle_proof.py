@@ -200,7 +200,7 @@ def kubectl(*arguments, body=None, deadline=None):
     return command(['kubectl', '--request-timeout=30s', *arguments], body, deadline=deadline)
 
 
-def get(kind, name=None, ns=None, *, managed_fields=False):
+def get(kind, name=None, ns=None, *, managed_fields=False, deadline=None):
     args = ['get', kind]
     if name:
         args += [name, '--ignore-not-found']
@@ -208,7 +208,7 @@ def get(kind, name=None, ns=None, *, managed_fields=False):
         args += ['-n', ns]
     if managed_fields:
         args += ['--show-managed-fields']
-    raw = kubectl(*args, '-o', 'json')
+    raw = kubectl(*args, '-o', 'json', **({'deadline': deadline} if deadline is not None else {}))
     return parsed(raw) if raw.strip() else None
 
 
@@ -239,10 +239,10 @@ def api_path(identity):
     return root + '/' + plurals[identity['kind']] + '/' + identity['name']
 
 
-def current(identity):
+def current(identity, *, deadline=None):
     api, plural = identity['apiVersion'], api_path(identity).rsplit('/', 2)[1]
     kind = plural if api == 'v1' else plural + '.' + '.'.join(reversed(api.split('/')))
-    value = get(kind, identity['name'], identity['namespace'])
+    value = get(kind, identity['name'], identity['namespace'], **({'deadline': deadline} if deadline is not None else {}))
     if value:
         require(object_id(value) == identity, 'Recorded resource replaced')
     return value
@@ -404,7 +404,7 @@ def record_failure(receipt, error):
         return False
 
 
-def request_delete(receipt, key, obj, scope):
+def request_delete(receipt, key, obj, scope, *, deadline=None):
     identity = object_id(obj)
     deletion_scope(receipt, identity)
     previous = receipt.value['intents'].get(key)
@@ -413,29 +413,60 @@ def request_delete(receipt, key, obj, scope):
         require(not previous['complete'], 'Completed deletion target reappeared')
         if previous['accepted']:
             return
-    fresh = current(identity)
-    require(fresh is not None, 'Deletion target absent without acknowledged deletion')
     def profile(value):
         result = copy.deepcopy(value)
         result['metadata'].pop('resourceVersion', None)
         if identity['kind'] in ('Namespace', 'AppProject', 'Application', 'Pod'):
             result.pop('status', None)
         return result
-    require(canonical(profile(fresh)) == canonical(profile(obj)), 'Deletion target authority changed')
-    if identity['kind'] == 'Application':
-        require(fresh.get('operation') is None and fresh.get('status', {}).get('operationState', {}).get('phase')
-                in (None, 'Succeeded', 'Failed', 'Error'), 'Application is not idle before deletion')
-    version = fresh['metadata'].get('resourceVersion')
-    require(type(version) is str and version, 'Deletion target resourceVersion unavailable')
-    intent = receipt.intention(key, identity, scope)
-    require(not intent['complete'], 'Completed deletion target reappeared')
-    intent['resourceVersion'] = version
-    receipt.save()
-    options = {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'propagationPolicy': 'Foreground',
-               'preconditions': {'uid': identity['uid'], 'resourceVersion': version}}
-    kubectl('delete', '--raw', api_path(identity), '-f', '-', body=canonical(options))
-    intent['accepted'] = True
-    receipt.save()
+    protected, scope_hash = canonical(profile(obj)), digest(canonical(scope))
+    retry_deadline, conflict_version = None, None
+    for attempt in range(2):
+        bound = deadline if attempt == 0 else retry_deadline
+        require(bound is None or time.monotonic() < bound, 'Deletion deadline expired')
+        fresh = current(identity, **({'deadline': bound} if bound is not None else {}))
+        require(fresh is not None, 'Deletion target absent without acknowledged deletion')
+        require(canonical(profile(fresh)) == protected and digest(canonical(scope)) == scope_hash,
+                'Deletion target authority changed')
+        if identity['kind'] == 'Application':
+            require(fresh.get('operation') is None and fresh.get('status', {}).get('operationState', {}).get('phase')
+                    in (None, 'Succeeded', 'Failed', 'Error'), 'Application is not idle before deletion')
+        version = fresh['metadata'].get('resourceVersion')
+        require(type(version) is str and version, 'Deletion target resourceVersion unavailable')
+        require(attempt == 0 or version != conflict_version, 'Conflict did not advance the resourceVersion')
+        intent = receipt.intention(key, identity, scope)
+        require(not intent['complete'], 'Completed deletion target reappeared')
+        if intent['accepted']:
+            return
+        intent['resourceVersion'] = version
+        receipt.save()
+        options = {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'propagationPolicy': 'Foreground',
+                   'preconditions': {'uid': identity['uid'], 'resourceVersion': version}}
+        try:
+            kubectl('delete', '--raw', api_path(identity), '-f', '-', body=canonical(options),
+                    **({'deadline': bound} if bound is not None else {}))
+        except Exception as error:
+            native = getattr(error, 'native_failure', {})
+            if type(native) is not dict:
+                native = {}
+            pattern = ('Error from server \\(Conflict\\): Operation cannot be fulfilled on '
+                + re.escape(identity['kind']) + ' "' + re.escape(identity['name'])
+                + '": the ResourceVersion in the precondition \\(' + re.escape(version)
+                + '\\) does not match the ResourceVersion in record \\(([^()\\r\\n]+)\\)\\. The object might have been modified')
+            match = re.fullmatch(pattern, native.get('stderr', '').rstrip('\r\n')) if (
+                type(native.get('exitCode')) is int and native['exitCode'] == 1
+                and native.get('stderrTruncated') is False and type(native.get('stderr')) is str) else None
+            if attempt == 0 and match and match.group(1) != version:
+                retry_deadline = time.monotonic() + 5
+                if deadline is not None:
+                    retry_deadline = min(retry_deadline, deadline)
+                if time.monotonic() < retry_deadline:
+                    conflict_version = version
+                    continue
+            raise
+        intent['accepted'] = True
+        receipt.save()
+        return
 
 
 def finish_delete(receipt, key, deadline):
@@ -1127,7 +1158,8 @@ def marker_io(receipt, payload, component, mode, deadline):
         'finishedAt': done['status']['containerStatuses'][0]['state']['terminated']['finishedAt']}
     require_marker_verification(receipt, record, identity)
     receipt.save()
-    request_delete(receipt, 'delete-' + key, delete_obj, {'profile': PROFILE, 'marker': identity, 'document': digest(canonical(document))})
+    request_delete(receipt, 'delete-' + key, delete_obj,
+                   {'profile': PROFILE, 'marker': identity, 'document': digest(canonical(document))}, deadline=deadline)
     finish_delete(receipt, 'delete-' + key, deadline)
     wait('marker volume detach', lambda: detached(receipt, component), deadline)
     receipt.value['markerRuns'][index]['complete'] = True
@@ -1778,7 +1810,7 @@ def cleanup_storage(receipt, component, deadline, *, payload=None):
                 'Consumers block claim cleanup')
         wait('claim detached for cleanup', lambda: detached(receipt, component), deadline)
         require(fresh_identity(receipt, claim, healthy=False) == identity, 'Claim changed before cleanup')
-        request_delete(receipt, key, claim, identity)
+        request_delete(receipt, key, claim, identity, deadline=deadline)
         finish_delete(receipt, key, deadline)
     else:
         intent = receipt.value['intents'].get(key)
@@ -1795,7 +1827,7 @@ def cleanup_storage(receipt, component, deadline, *, payload=None):
         for replica in replicas:
             now = directory_state(replica)
             require(now == replica['context'], 'Backing changed before native deletion')
-        request_delete(receipt, volume_key, volume, scope)
+        request_delete(receipt, volume_key, volume, scope, deadline=deadline)
         finish_delete(receipt, volume_key, deadline)
     else:
         pair = [receipt.value['intents'].get(k) for k in (pv_key, volume_key)]
@@ -1813,7 +1845,7 @@ def cleanup_storage(receipt, component, deadline, *, payload=None):
         released_pv(receipt, identity, pv)
         scope = {'profile': PROFILE, 'operation': receipt.operation, 'component': component,
                  'identity': identity, 'replicas': replicas}
-        request_delete(receipt, pv_key, pv, scope)
+        request_delete(receipt, pv_key, pv, scope, deadline=deadline)
         finish_delete(receipt, pv_key, deadline)
     else:
         require(receipt.value['intents'][volume_key]['accepted'], 'PV disappeared before accepted backing deletion')
@@ -1907,7 +1939,7 @@ def cleanup_markers(receipt, payload, deadline):
                     and not obj['metadata'].get('ownerReferences') and not obj['metadata'].get('finalizers'),
                     'Marker cleanup authority changed')
             request_delete(receipt, 'delete-' + key, obj, {'profile': PROFILE, 'marker': identity,
-                           'document': digest(canonical(document))})
+                           'document': digest(canonical(document))}, deadline=deadline)
             finish_delete(receipt, 'delete-' + key, deadline)
             existing = None
         else:
@@ -1938,7 +1970,7 @@ def cleanup(receipt, payload, deadline):
             require(not listed('pvc', receipt.namespace), 'Unrecorded claims block root-only cleanup')
             housekeeping(receipt, deadline)
             inventory_gate(receipt)
-            request_delete(receipt, 'delete-namespace', ns, {'namespace': object_id(ns), 'noApplicationOrStorage': True})
+            request_delete(receipt, 'delete-namespace', ns, {'namespace': object_id(ns), 'noApplicationOrStorage': True}, deadline=deadline)
             finish_delete(receipt, 'delete-namespace', deadline)
         else:
             require(receipt.value['intents'].get('delete-namespace', {}).get('accepted'), 'Namespace absent without cleanup intent')
@@ -1947,7 +1979,7 @@ def cleanup(receipt, payload, deadline):
             project = current(receipt.value['objects']['project'])
             if project is not None:
                 project_guard(receipt, deadline=deadline, app_absent=True)
-                request_delete(receipt, 'delete-project', project, {'project': object_id(project), 'noConsumers': True})
+                request_delete(receipt, 'delete-project', project, {'project': object_id(project), 'noConsumers': True}, deadline=deadline)
             else:
                 require(receipt.value['intents'].get('delete-project', {}).get('accepted'), 'Project absent without cleanup intent')
             finish_delete(receipt, 'delete-project', deadline)
@@ -1985,7 +2017,7 @@ def cleanup(receipt, payload, deadline):
                 if 'replicas' not in row:
                     row['replicas'] = capture_replicas(row['identity'])
                     receipt.save()
-            request_delete(receipt, 'delete-app', app, {'source': payload['source'], 'app': object_id(app)})
+            request_delete(receipt, 'delete-app', app, {'source': payload['source'], 'app': object_id(app)}, deadline=deadline)
             finish_delete(receipt, 'delete-app', deadline)
         else:
             require(receipt.value['intents'].get('delete-app', {}).get('accepted'), 'Application absent without accepted cleanup')
@@ -2007,7 +2039,7 @@ def cleanup(receipt, payload, deadline):
         require(not listed('pvc', receipt.namespace), 'Claims remain after exact cleanup')
         inventory_gate(receipt)
         ns_obj = root_current(receipt, 'namespace')
-        request_delete(receipt, 'delete-namespace', ns_obj, {'namespace': object_id(ns_obj), 'storageCleaned': True})
+        request_delete(receipt, 'delete-namespace', ns_obj, {'namespace': object_id(ns_obj), 'storageCleaned': True}, deadline=deadline)
         finish_delete(receipt, 'delete-namespace', deadline)
     else:
         require(receipt.value['intents'].get('delete-namespace', {}).get('accepted'), 'Namespace absent without accepted cleanup')
@@ -2017,7 +2049,7 @@ def cleanup(receipt, payload, deadline):
     if project is not None:
         project_guard(receipt, deadline=deadline, app_absent=True)
         project = root_current(receipt, 'project')
-        request_delete(receipt, 'delete-project', project, {'project': object_id(project), 'noConsumers': True})
+        request_delete(receipt, 'delete-project', project, {'project': object_id(project), 'noConsumers': True}, deadline=deadline)
     else:
         require(receipt.value['intents'].get('delete-project', {}).get('accepted'), 'Project absent without accepted cleanup')
     finish_delete(receipt, 'delete-project', deadline)
