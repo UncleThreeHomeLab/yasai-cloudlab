@@ -330,28 +330,24 @@ setting when the approved application count grows; keep runner job budgets uncha
 Never patch the live quota to bypass its declarative owner.
 
 1. Use a clean checkout of a reviewed, published platform revision.
-   The generator rejects a dirty checkout or unpublished history.
 2. Check `ci.enabled: true` in
    [`gitops/roots/public/values.yaml`](../gitops/roots/public/values.yaml).
    Confirm Argo has deployed the CI ApplicationSets.
-3. Confirm CI tool images were published and qualified on both nodes.
-   Registration reads `/infra-work/harbor/ci/qualified.json` from the existing
-   Compose `harbor_infra_work` volume. Do not create or edit this receipt manually.
-4. Check ignored `.env` contains the existing VM access inputs and
-   `PRIVATE_CONFIG_REPOSITORY`. Use the same Compose project as CI bootstrap,
-   so registration can read its retained volume.
-5. Confirm local `gh` authentication can read the application repo.
+3. Confirm CI tool images were published and qualified on both nodes
+   before onboarding runners for a new repo.
+4. Confirm local `gh` authentication can read the application repo.
    The application must belong to the same owner as the public platform repo.
+   Read the immutable repository id; renames never move runner authorization.
 
 If prerequisites are missing, stop. Use the
 [CI platform setup](../ansible/README.md) before onboarding the application.
 Do not rebuild or requalify working CI tools for each new repo.
 
-### 4.2 Write the application input in private GitOps — Agent
+### 4.2 Write the registration in private GitOps — Agent
 
-Open a checkout of the private repo named by `PRIVATE_CONFIG_REPOSITORY` in `.env`.
-The commands below assume that checkout is `../cloudlab-config`, beside this
-platform checkout. Substitute your actual checkout path if different.
+Open a checkout of the private repo. The commands below assume that checkout
+is `../cloudlab-config`, beside this platform checkout. Substitute your actual
+checkout path if different.
 
 Create a branch in the private checkout:
 
@@ -359,76 +355,80 @@ Create a branch in the private checkout:
 git -C ../cloudlab-config switch -c onboard/example-app
 ```
 
-Create `platform/ci/pools/example-app/application.json` in that private checkout:
+Create `platform/ci/applications/example-app.yaml` in that private checkout,
+following [`registration.schema.json`](../platform/delivery/ci/registration.schema.json):
 
-```json
-{
-  "name": "example-app",
-  "repository": "https://github.com/OWNER/REPO.git",
-  "visibility": "public"
-}
+```yaml
+application: example-app
+source:
+  repository: OWNER/REPO
+  repositoryId: "REPOSITORY_ID"
+  visibility: public
+ci:
+  profile: public-main
+  approval:
+    revision: REVIEWED_MAIN_SHA
+  jobs:
+    test: true
+    publish: false
 ```
 
-Replace `example-app` and `OWNER/REPO`. Set `visibility` to `public` or `private`
-to match GitHub. Keep the full HTTPS URL ending in `.git`.
-Use the same application name in paths and commands below.
+Replace `example-app`, `OWNER/REPO`, `REPOSITORY_ID` and `REVIEWED_MAIN_SHA`.
+Set `visibility` to `public` or `private` to match GitHub; observed visibility
+must match the declaration. Use the same application name in paths below.
+Private sources use exact-revision main-only approval; private PR/dev jobs
+stay disabled. A new source revision never inherits a previous approval.
 
-This file is the versioned registration input. Keep it alongside generated
-`controller.json` and, after workflow approval, `runner.json` and `publisher.json`.
-Do not recreate it as an untracked local input.
-The generator reads `application.json`; Argo deploys the generated files.
+This file is the versioned registration input. Argo deploys the pool files
+derived from it (step 4.3). Do not copy registration files into this public repo.
 
-### 4.3 Generate controller configuration — Agent
+### 4.3 Derive the pool files — Agent
 
-In the platform checkout, create `.infra-private/onboarding/` for temporary output.
-Run this single command. It mounts the private application directory read-only
-and passes the existing GitHub token through stdin:
+Derive `platform/ci/pools/example-app/` pool files from the registration.
+The fixed platform profile
+[`platform/delivery/ci/pool/values.json`](../platform/delivery/ci/pool/values.json)
+supplies the runner pod specification, tool digests, isolation and budgets;
+the pool files carry only identity, approval and destination bindings:
 
-```sh
-gh auth token | docker compose --profile ci run --build -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --volume ./.infra-private/onboarding:/generated --entrypoint python ci-bootstrap -m playbooks.ci.files.configuration --application-file /application/application.json --output /generated/example-app/controller-first
-```
+| Pool file | Derived content |
+| --- | --- |
+| `controller.json` | `name: example-app`; watched namespace `cloudlab-ci-public-example-app` (or `cloudlab-ci-private-example-app`); `values.runnerPools: 1` (`2` with publishing) |
+| `runner.json` | `name`/`namespace` as above; `values.arc.githubConfigUrl: https://github.com/OWNER/REPO`; `values.arc.runnerScaleSetName: cloudlab-example-app`; `values.policyName: cloudlab-ci-eligibility`; `values.eligibility` entries binding `repository_id`, `repository`, `workflow_ref: OWNER/REPO/.github/workflows/ci.yaml@<ref>`, `workflow_sha` and `sha` to the approved revision; `values.testing.image` pin |
+| `publisher.json`, publishing only | Separate publisher role: `values.policyName: cloudlab-ci-eligibility-publish`; `values.publishing` with application, source and release repository identities, registry, project, workflow identity, release visibility and mode |
 
-If `.env` already supplies `GITHUB_PROVISION_TOKEN`, the generator uses that token.
-Never put tokens in command arguments or print them.
+For `main` approvals, `ref` is `refs/heads/main` with `push` and
+`workflow_dispatch` events. For public PR test-only approvals, `ref` is
+`refs/pull/PR_NUMBER/merge` with the `pull_request` event and `test` job only,
+and the approved revision must be the PR's current merge revision. The pool
+chart validates every binding; Argo rejects mismatched identity, visibility,
+workflow approval or publishing destination.
 
-Expected result:
+Derivation is mechanical and reviewer-checked: normally copy the qualified
+previous revision's pool files for the same application and update only the
+changed identity and approval fields. Never hand-edit a pool file to widen
+runner access, credentials or resource budgets beyond the fixed profile.
 
-```json
-{"configuration_generated": true, "application_documents": 1, "credentials_created": 0}
-```
+### 4.4 Propose the registration in private GitOps — Agent, then User
 
-Output: `.infra-private/onboarding/example-app/controller-first/controller.json`
-in the platform checkout. Only generated output is temporary; `application.json`
-remains in private GitOps.
-The generator reads GitHub and cluster endpoints; it writes local configuration.
-It does not deploy the controller or create GitHub credentials.
-
-On failure, preserve existing files. Check prerequisites and input values.
-The command reports only a generic error. If inputs change, choose a fresh
-output directory instead of overwriting the previous result.
-
-### 4.4 Propose the controller in private GitOps — Agent, then User
-
-1. **Agent:** copy
-   `.infra-private/onboarding/example-app/controller-first/controller.json`
-   from the platform checkout to
-   `../cloudlab-config/platform/ci/pools/example-app/controller.json`.
-2. **Agent:** confirm `application.json` and `controller.json` are together
-   in the private repo's `platform/ci/pools/example-app/` directory.
-   Do not copy either file into this public repo.
-3. **Agent:** review the file before opening a PR. Confirm application name,
-   visibility namespace, pinned controller image and discovered network addresses.
+1. **Agent:** confirm the registration YAML and its derived pool files are
+   together in the private repo (`platform/ci/applications/example-app.yaml`
+   and `platform/ci/pools/example-app/`).
+   Do not copy either into this public repo.
+2. **Agent:** review the files before opening a PR. Confirm application name,
+   immutable repository id, visibility namespace, approved revision,
+   qualified tool digests and immutable `testing.image`.
    For this example, the controller name is `cloudlab-example-app-controller`;
    its watched namespace is `cloudlab-ci-public-example-app` for public repos,
    or `cloudlab-ci-private-example-app` for private repos.
-4. **Agent:** commit both files, push `onboard/example-app` and open a PR
+3. **Agent:** commit the files, push `onboard/example-app` and open a PR
    targeting private `main`.
    Preserve existing files for other applications. If this application already
    has configuration, review its diff instead of treating it as a new installation.
-5. **User:** review and merge through branch protection.
+4. **User:** review and merge through branch protection.
 
-Do not add `runner.json` or `publisher.json` yet. Those files require approved
-workflow inputs. Do not manually create runner pods or apply generated manifests.
+Do not add `publisher.json` until publishing is approved. Publishing also
+needs section 5.2 prerequisites and `runnerPools: 2` in `controller.json`.
+Do not manually create runner pods or apply pool manifests.
 
 ### 4.5 Verify Argo deployment — Agent
 
@@ -439,7 +439,7 @@ Use the existing private Argo/Kubernetes access to check:
 | Argo application | `cloudlab-ci-example-app-controller` exists; Synced and Healthy |
 | Controller Deployment | `cloudlab-example-app-controller` is Available in `cloudlab-ci-system` |
 | Watched namespace | Matches the visibility namespace from step 4.4 |
-| GitOps source | Tracks private `main` containing the merged controller file |
+| GitOps source | Tracks private `main` containing the merged pool files |
 
 Argo reads `platform/ci/pools/*/controller.json` automatically.
 If the application is missing, inspect the
@@ -451,7 +451,7 @@ Keep credentials and diagnostic dumps out of tracked files.
 when adding these application-specific controllers and pools.
 
 **Done when:** the repo's controller is healthy. Jobs remain disabled until
-workflow approval produces `runner.json` and, when needed, `publisher.json`.
+registration approval produces `runner.json` and, when needed, `publisher.json`.
 Tests select `cloudlab-example-app`; publishing, when configured, selects
 `cloudlab-example-app-publish`. Workflows must not select GitHub-hosted runners.
 
@@ -521,12 +521,12 @@ Only main build jobs use BuildKit against approved application Dockerfiles for
 For publishing, check out the
 reviewed platform implementation under `platform/` and the application under
 `application/`, then run
-`python3 -I -S platform/ansible/playbooks/ci/files/publisher.py`.
+`python3 -I -S platform/platform/delivery/ci/publisher/publisher.py`.
 
 The pinned [application-test.yaml](../.github/workflows/application-test.yaml)
 runs direct tests through `cloudlab-test` using `deploy/testing/run_tests.sh`.
 For private sources, call this single-job workflow from `test` and approve each
-exact main SHA using `--approve-private-revision`. Do not enable private PR/dev
+exact main SHA in the registration. Do not enable private PR/dev
 jobs or substitute a prior image-building revision. Public repository-owned jobs
 retain their protected-main and approved-workflow requirements.
 Use [application-publish.yaml](../.github/workflows/application-publish.yaml)
@@ -537,15 +537,13 @@ requests that permission. Test jobs use Contents and Pull requests read access.
 #### Prepare and approve the dependency environment — Agent, then User
 
 For public sources, require protected main. For private sources, review the exact
-main recipe and add `--approve-private-revision ENV_MAIN_SHA` to the environment
-publication command. The owner requires clean tracked source, matching labels and
+main recipe and record its SHA for registration approval.
+The owner requires clean tracked source, matching labels and
 current GitHub main. Private environments publish to `cloudlab-private`; only the
 private pool receives its pull-only credential. Never place private images or
 source metadata in the public project. Scanning gates remain mandatory.
 
-Run these operations from a normal, clean, published platform clone using the same
-Compose project and retained CI volume as section 4. Its `.git` must be a directory,
-not a linked worktree file pointing outside the container.
+Run these operations from a normal, clean, published platform clone.
 Use the reviewed application's actual dependency recipe and complete test entrypoint;
 the examples below use `deploy/docker/tests.Dockerfile`, target `test-environment`,
 and `deploy/testing/run_tests.sh`.
@@ -560,20 +558,21 @@ and `deploy/testing/run_tests.sh`.
    For public sources, require `protected: true`; private sources use exact revision approval. Replace `ENV_MAIN_SHA` below with that exact SHA.
    Create fresh ignored `.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/tracked-source/`.
    This environment revision is separate from the later workflow-approval SHA.
-2. **Agent:** create a normal Linux clone inside the existing protected client volume.
-   It avoids Windows checkout line-ending differences without changing host Git settings:
+2. **Agent:** clone the exact revision into ignored scratch space with Unix line
+   endings, without changing host Git settings:
 
    ```sh
-   docker compose --profile ci run --build --rm --entrypoint git ci-bootstrap -c credential.helper= clone --config core.autocrlf=false --branch main --single-branch https://github.com/OWNER/REPO.git /infra-work/harbor/ci/environment-sources/example-app/ENV_MAIN_SHA/source
-   docker compose --profile ci run --rm --entrypoint git ci-bootstrap -C /infra-work/harbor/ci/environment-sources/example-app/ENV_MAIN_SHA/source rev-parse HEAD
-   docker compose --profile ci run --rm --entrypoint git ci-bootstrap -C /infra-work/harbor/ci/environment-sources/example-app/ENV_MAIN_SHA/source status --porcelain --untracked-files=all
+   git clone --config core.autocrlf=false --branch main --single-branch https://github.com/OWNER/REPO.git .infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source
+   git -C .infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source rev-parse HEAD
+   git -C .infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source status --porcelain --untracked-files=all
    ```
 
    Require the recorded SHA and empty status. Reuse an existing clone only after
-   these checks pass. Export that revision's tracked source through the Linux client:
+   these checks pass. Export that revision's tracked source:
 
    ```sh
-   docker compose --profile ci run --rm --volume ./.infra-private/onboarding:/workspace/.infra-private/onboarding --entrypoint sh ci-bootstrap -ec 'git -C /infra-work/harbor/ci/environment-sources/example-app/ENV_MAIN_SHA/source archive --format=tar --output=/workspace/.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source.tar ENV_MAIN_SHA; tar -xf /workspace/.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source.tar -C /workspace/.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/tracked-source'
+   git -C .infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source archive --format=tar --output=.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source.tar ENV_MAIN_SHA
+   tar -xf .infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/source.tar -C .infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/tracked-source
    ```
 
    The export omits `.git` and untracked `.env` or credentials. Inspect tracked inputs;
@@ -604,17 +603,15 @@ and `deploy/testing/run_tests.sh`.
 
    Mount no `.env`, `.git`, credentials or Docker socket.
    Keep test state temporary; this local check does not replace native executor qualification.
-5. **Agent:** scan and publish that unchanged archive through the existing owner:
-
-   ```sh
-   gh auth token | docker compose --profile ci run --build -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --volume ./.infra-private/onboarding:/workspace/.infra-private/onboarding ci-bootstrap --test-environment-archive /workspace/.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/environment.tar --application-file /application/application.json --source-checkout /infra-work/harbor/ci/environment-sources/example-app/ENV_MAIN_SHA/source --output /workspace/.infra-private/onboarding/example-app/environment-ENV_MAIN_SHA/reference.json
-   ```
-
-   Require the current locked scan to pass unchanged; never weaken its gate.
+5. **Agent:** scan that unchanged archive with the current locked scan
+   configuration and publish it to the visibility-matching Harbor project.
+   Require the locked scan to pass unchanged; never weaken its gate.
    If protected `main` advances before publication, stop and rebuild/retest from its new SHA.
    Never relabel an old archive to match a newer revision.
-   Read ignored `reference.json`, whose shape is `{"image": "<immutable registry reference>"}`.
-   Set `testing` in private `platform/ci/pools/example-app/application.json` to that object,
+   Record the immutable pushed reference as ignored `reference.json` with shape
+   `{"image": "<immutable registry reference>"}`.
+   Set `testing` in the private registration
+   `platform/ci/applications/example-app.yaml` to that object,
    preserving the other inputs. **User:** review it with the runner configuration PR.
    Enable no workflow until both the full suite and scan pass and the environment pin is approved.
 
@@ -646,10 +643,10 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
    Private exact-revision approval does not waive this guard. If the destination
    cannot enforce it, stop publishing rather than bypassing the check.
 5. For private signing, confirm CloudLab items `ci-private-signer/private_key`
-   and `ci-private-verifier/public_key` exist. If missing, use the existing
-   [signing owner](../ansible/playbooks/ci/files/signing.py) through
-   `docker compose --profile ci run --build --rm ci-signing`.
-   The local provisioning token stays local. Never put secret values in GitOps JSON.
+   and `ci-private-verifier/public_key` exist with their retained values.
+   Use the existing credential owners to create missing items; preserve
+   existing keys. The local provisioning token stays local.
+   Never put secret values in GitOps files.
 
 | Source repo | Release App credential | Release file destination |
 | --- | --- | --- |
@@ -657,10 +654,10 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
 | Public, explicit private destination | `github-release-private` | Private GitOps repo: `apps/releases/example-app.json` |
 | Private | `github-release-private` | Private GitOps repo: `apps/releases/example-app.json` |
 
-Set optional `releaseRepository: "OWNER/PRIVATE_CONFIG_REPO"` in private
-`platform/ci/pools/example-app/application.json` to select the designated private
-GitOps destination. Registry project and signing still follow source visibility.
-Private source releases cannot target public GitOps.
+Set the `publishing` block in the private registration
+`platform/ci/applications/example-app.yaml` to select the designated
+`releaseRepository` GitOps destination. Registry project and signing still
+follow source visibility. Private source releases cannot target public GitOps.
 
 For multiple images, add `components`, mapping each component name to its relative
 `dockerfile` and optional build `target`, plus an explicit `primaryComponent`.
@@ -671,81 +668,65 @@ That file adds `components` and `primary_component`; its `digest` remains the pr
 #### Manual private promotion
 
 Set `releaseMode: "manual"` with an explicit private `releaseRepository` in
-`application.json`. Regenerate with the same `--publish` command in section 5.3.
-The generator verifies the designated private destination but reads no release App keys.
-No CI pod receives GitOps write credentials. Automatic promotion's guards stay unchanged.
+the registration. No CI pod receives GitOps write credentials.
+Automatic promotion's guards stay unchanged.
 
 CI scans and signs all images, then signs an immutable candidate in the same
 authenticated Harbor application repository. Its tag is
 `release-candidate-SOURCE_SHA-RUN_ID-ATTEMPT`, covered by existing immutable `release-*` policy.
 CI prints only `candidate_digest`;
-release JSON stays in Harbor until local promotion opens a private PR.
+release JSON stays in Harbor until a reviewer submits the release PR.
 
-After the main workflow completes successfully, run from the platform checkout:
-
-```sh
-gh auth token | docker compose --profile ci run -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --entrypoint python ci-bootstrap -m playbooks.ci.files.promotion --publisher-file /application/publisher.json --candidate-digest CANDIDATE_DIGEST --source-revision SOURCE_SHA --workflow-run-id RUN_ID --workflow-run-attempt ATTEMPT
-```
-
-Use human `gh` authentication with private-repository write access, the existing
-CloudLab read-only vault token in `.env`, and the reviewed generated `publisher.json`.
-Copy the entire `candidate_digest` value, including `sha256:`.
-The command verifies protected-main history, completed run/attempt, approved local
-jobs, candidate configuration and all signatures before proposing one private
-`apps/releases/example-app.json`. It never merges. Review that PR normally.
-Do not upload candidate JSON to public GitHub artifacts or release files.
+After the main workflow completes successfully, an authorized reviewer verifies
+the completed run and attempt, the approved publisher configuration, the
+candidate digest and all signatures, then submits `apps/releases/example-app.json`
+directly as a private PR with the verified `digest`, `source_revision` and
+`workflow_run_id`. Review that PR normally; the submitter never merges their
+own release. Do not upload candidate JSON to public GitHub artifacts or release files.
 
 **Done when:** registry/signing inputs and either guarded automatic promotion or
-local human private promotion are configured.
+reviewer-submitted manual promotion are configured.
 
-### 5.3 Generate runner configuration — Agent
+### 5.3 Approve the runner configuration — Agent
 
-Read the existing private input:
-`../cloudlab-config/platform/ci/pools/example-app/application.json`.
-Keep application name, source URL and visibility consistent with section 4.
-Include the reviewed `testing.image` pin from section 5.1. The generator must include
-direct-test support and accept the matching two-node qualification before use.
+Read the existing private registration:
+`../cloudlab-config/platform/ci/applications/example-app.yaml`.
+Keep application name, source identity and visibility consistent with section 4.
+Include the reviewed `testing.image` pin from section 5.1.
 
-Run from the clean, published platform checkout. Replace `REVIEWED_MAIN_SHA`
-with the exact 40-character application `main` commit from section 5.1.
-Use a fresh output directory; do not overwrite section 4's output.
-
-For public repository-owned CI without publishing:
-
-```sh
-gh auth token | docker compose --profile ci run --build -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --volume ./.infra-private/onboarding:/generated --entrypoint python ci-bootstrap -m playbooks.ci.files.configuration --application-file /application/application.json --approve-repository-workflow --workflow-revision REVIEWED_MAIN_SHA --output /generated/example-app/ci-first
-```
-
-For private sources, use the pinned shared test/publish interface and replace
-`--approve-repository-workflow --pull-request PR_NUMBER` with
-`--approve-private-revision`. Set `--workflow-revision REVIEWED_MAIN_SHA` to the
-reviewed current main commit. Review and merge its application PR before this
+Replace `REVIEWED_MAIN_SHA` with the exact 40-character application `main`
+commit from section 5.1. For public sources, require protected main; for
+private sources, use the pinned shared test/publish interface and the reviewed
+current main commit. Review and merge the application PR before this
 main-only approval; no private PR job receives runner access. Renew approval for
-every source revision. Repository-owned automatic approval remains public-only.
+every source revision. Repository-owned approval remains public-only.
 
-Without publishing, output is `application_documents: 2`, containing `controller.json` and
-`runner.json`. The controller normally remains unchanged; no second-pool quota is needed.
-Only for publishing, complete section 5.2 and add `--publish` to the generator command.
-That produces `application_documents: 3`. Generated files are under
-`.infra-private/onboarding/example-app/ci-first/`:
+Update `ci.approval.revision` (and `ci.jobs`) in the registration, then
+re-derive the pool files from section 4.3:
 
-| Generated file | Purpose |
+| Pool file | Purpose |
 | --- | --- |
 | `controller.json` | Controller configuration; publishing updates quota to `values.runnerPools: 2` |
 | `runner.json` | Approves direct tests and any main-only build job on `cloudlab-example-app`; pins the test environment |
 | `publisher.json`, publishing only | Approves publishing and assigns `cloudlab-example-app-publish` |
 
-The generator binds workflow approval and, when publishing, the release destination; it does not
-deploy runners, create registry credentials or publish an application image.
+Without publishing, the controller normally remains unchanged; no second-pool
+quota is needed. Only for publishing, complete section 5.2 and add the
+`publishing` block to the registration.
 
-**Done when:** the required files are generated from the reviewed application revision.
+The registration binds workflow approval and, when publishing, the release
+destination; it does not deploy runners, create registry credentials or publish
+an application image.
+
+**Done when:** the registration and derived pool files cover the reviewed application revision.
 
 ### 5.4 Deploy the approved pools — Agent, then User
 
-1. **Agent:** copy generated files into private
-   `platform/ci/pools/example-app/`, alongside the existing `application.json`.
+1. **Agent:** confirm the registration and derived pool files are together in
+   private `platform/ci/applications/example-app.yaml` and
+   `platform/ci/pools/example-app/`.
    Review `controller.json`; tests and main-only builds normally leave it unchanged.
-   For publishing, include its regenerated quota for the second pool and `publisher.json`.
+   For publishing, include its quota for the second pool and `publisher.json`.
 2. **Agent:** review the diff. Confirm repo identity, visibility, workflow approval,
    runner names, qualified tool digests and immutable `testing.image`;
    check release destination and publishing
@@ -1181,21 +1162,20 @@ An image-only update uses that release file; it does not change the service cata
    ```
 
    Require an open, mergeable internal PR targeting `main`. Replace `PR_NUMBER` and
-   `PR_MERGE_SHA` below with that PR number and its current `merge_commit_sha`:
+   `PR_MERGE_SHA` below with that PR number and its current `merge_commit_sha`.
+   Set `ci.approval.revision: PR_MERGE_SHA` and
+   `ci.approval.pullRequest: PR_NUMBER` in the private registration, with
+   test-only jobs, and re-derive `runner.json` from section 4.3.
 
-   ```sh
-   gh auth token | docker compose --profile ci run --build -T --rm --volume ../cloudlab-config/platform/ci/pools/example-app:/application:ro --volume ./.infra-private/onboarding:/generated --entrypoint python ci-bootstrap -m playbooks.ci.files.configuration --application-file /application/application.json --approve-repository-workflow --workflow-revision PR_MERGE_SHA --pull-request PR_NUMBER --output /generated/example-app/pr-PR_NUMBER-PR_MERGE_SHA
-   ```
-
-   Review generated `runner.json` into private `platform/ci/pools/example-app/runner.json`.
+   Review the updated registration and `runner.json` into the private PR.
    Preserve existing controller quotas and publisher configuration.
    **User:** review and merge this private approval PR before application tests or merge.
 4. **Agent:** wait for the runner's Argo application to become Synced and Healthy.
    Rerun the eligible current PR workflow; changing approval does not retry failed jobs.
    If the PR head or base changes, refresh `merge_commit_sha` and recheck approval
    against that revision. **User:** merge the application PR only after required checks are green.
-5. **Agent:** after merge, read the new protected `main` SHA and regenerate main approval
-   using section 5.3; include `--publish` when publishing is enabled.
+5. **Agent:** after merge, read the new protected `main` SHA and renew main approval
+   using section 5.3; include the `publishing` block when publishing is enabled.
    **User:** review and merge required private runner/publisher changes.
    **Agent:** wait for Argo convergence and rerun the eligible main workflow as needed.
    Build and publishing jobs stay main-only. Private exact-revision approval has no PR jobs;
@@ -1214,15 +1194,15 @@ workflow/publishing approval is ready for the release run.
    The publisher builds the reviewed component Dockerfiles and optional targets,
    or root `Dockerfile`'s `runtime` target for a single-image declaration.
    Ordinary releases need no edits to workflow or runner configuration files.
-3. Find the release PR created by automatic promotion, or run section 5.2's local
-   promotion command for a manual private candidate. If a job fails, fix the owning
-   application or approved configuration before retrying.
+3. Find the release PR created by automatic promotion, or follow section 5.2's
+   manual private promotion for a reviewer-submitted release PR. If a job fails,
+   fix the owning application or approved configuration before retrying.
 
 **Done when:** CI has published a signed digest and proposed its release record.
 
 ### 7.3 Review the release PR — User, then Agent
 
-Automatic publication or local human promotion changes this file in the selected release repo:
+Automatic publication or reviewer-submitted manual promotion changes this file in the selected release repo:
 
 | Application source visibility | Release file |
 | --- | --- |
@@ -1237,7 +1217,7 @@ Automatic publication or local human promotion changes this file in the selected
    For component releases, verify every approved component digest and confirm
    `primary_component` selects the image recorded in `digest`.
 2. **User:** review and merge through the repository's configured review process.
-   Automatic release Apps cannot merge; manual promotion only proposes a PR.
+   Automatic release Apps cannot merge; manual promotion only submits a PR.
 
 **Done when:** the reviewed release record is on the owning repo's `main` branch.
 

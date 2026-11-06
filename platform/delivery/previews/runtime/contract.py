@@ -111,6 +111,51 @@ def approval(value):
     return value
 
 
+def request(value):
+    """Translate one reviewed YAML approval request into its immutable stored approval."""
+    fields = {'service', 'repository', 'repositoryId', 'pullRequest', 'sourceRevision', 'image',
+              'platformRevision', 'profile', 'definition', 'createdAt', 'expiresAt'}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError('Preview request requires its complete approval fields')
+    if not isinstance(value['service'], str) or not re.fullmatch('[a-z][a-z0-9-]{0,34}', value['service']):
+        raise ValueError('Preview request service is invalid')
+    definition = value['definition']
+    if (not isinstance(definition, dict) or value['profile'] not in ('synthetic', 'application') or
+            value['profile'] != definition.get('profile')):
+        raise ValueError('Preview request profile must match its definition')
+    # Deterministic identity: identical content reuses its instance and can never
+    # reactivate a retired tombstone; any changed field enrolls a new instance.
+    row = {'instance': digest(canonical(value))[:32],
+           'repository': value['repository'], 'repositoryId': value['repositoryId'],
+           'pullRequest': value['pullRequest'], 'sourceSha': value['sourceRevision'],
+           'sourcePath': SOURCE_PATH, 'image': value['image'],
+           'sourceDigest': digest(canonical(definition)), 'definition': definition,
+           'platformRevision': value['platformRevision'], 'createdAt': value['createdAt'],
+           'expiresAt': value['expiresAt']}
+    return stored_approval(row)
+
+
+def requested_catalog(value):
+    """Merge YAML approval requests into catalog approvals with derived ownership."""
+    if not isinstance(value, dict):
+        raise ValueError('Preview catalog requires exact private access and approvals')
+    pending = value.get('requests', [])
+    if not isinstance(pending, list) or len(pending) > 20:
+        raise ValueError('Preview approval requests exceed their bound')
+    rows = [approval(request(item)) for item in pending]
+    merged = dict(value)
+    merged['approvals'] = value['approvals'] + rows
+    ownership = dict(value['ownership'])
+    for row in rows:
+        namespace = names(row)['namespace']
+        derived = row['instance'] + ':' + digest(canonical(row))
+        if ownership.setdefault(namespace, derived) != derived:
+            raise ValueError('Preview request conflicts with retained namespace authorization')
+    merged['ownership'] = ownership
+    merged.pop('requests', None)
+    return merged
+
+
 def _catalog(value, validate):
     if not isinstance(value, dict) or set(value) != {'hostname', 'issuer', 'approvals', 'privateDiscovery', 'ownership', 'artifacts'}:
         raise ValueError('Preview catalog requires exact private access and approvals')

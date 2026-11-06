@@ -12,6 +12,7 @@
   "identityGraceSeconds": 600,
   "tombstoneCapacity": 256,
   "privateValues": "previews/catalog.json",
+  "approvalRequests": "Reviewed private YAML approvals (approval.schema.json) merge into catalog approvals; the controller derives the deterministic instance, source path, source digest and namespace ownership. Removing a request retires its instance through guarded disposable cleanup. Changing any approved field enrolls a new instance; retired instances never reactivate. Legacy explicit approvals with retained ownership stay accepted during migration.",
   "privateDiscoveryCredential": {
     "localAppItem": "github-release-private",
     "localAppFields": [
@@ -35,6 +36,7 @@
   "applicationArtifacts": "Public immutable artifacts require an approved signer, issuer, source repository and signed githubWorkflowSha equal to the approved source SHA. Private registry credentials are not supported.",
   "identity": "Distinct private browser origin, public PKCE client and audience per instance. Exact callback and empty health/callback exceptions; legacy shared origins retire before execution or repair; no production credentials.",
   "deletion": "Only inventoried disposable preview objects and clients. UID/version guards and complete namespace inventory precede cascading deletion. Unexpected storage, retention or ownership blocks deletion.",
+  "removal": "Expiry, PR close, unapproved revision or removed request marks the instance retiring. Ordered removal: native regeneration stops first, then owned workloads under UID guards, then the per-instance identity client, then the namespace after disposable inventory proves no foreign or retained objects, then global controls. Ownership authorization stays in the state record until resources are verified absent. Issued tokens expire within 300 seconds; logout never revokes them. An unavailable source never authorizes blanket deletion; accepted expiry and close cleanup still run.",
   "persistentResources": "ApplicationSet create-update and resource preservation remain effective. Git failures never authorize persistent application or private-source pruning.",
   "privateMaximumLifetimeSeconds": 3000
 }

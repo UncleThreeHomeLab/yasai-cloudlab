@@ -1,0 +1,13 @@
+{
+  "status": "unsupported",
+  "scope": "Temporary-access selection and shared request UI/API (access plan sections 3-4)",
+  "blocked": "Product decision open: no maintained upstream-only capability or scoped reviewed integration is selected. Evaluated candidates each fail one or more security gates (current-authority checks, immutable scope, usage budgets, revocation, audience enforcement, reproducible free approval path). No speculative installation.",
+  "acceptance": "One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path; one UI/API parity scenario proves identical requester isolation, self-approval rejection and changed-scope rejection.",
+  "bounds": {
+    "diagnosticsMinutes": 15,
+    "identityEditsMinutes": 10,
+    "rotationStartMinutes": 5,
+    "renewal": "No automatic renewal; shorter backend limits apply.",
+    "approval": "Approval binds immutable requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget. Requester, beneficiary, delegated equivalents and conflicting identities are excluded from approval. Human review is required initially for identity and secret operations."
+  }
+}
