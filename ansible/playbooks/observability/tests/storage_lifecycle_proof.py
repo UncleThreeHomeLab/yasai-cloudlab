@@ -885,21 +885,45 @@ def workload_pods(receipt):
     return [p for p in listed('pods', receipt.namespace) if p['metadata']['name'] != receipt.namespace + '-marker']
 
 
-def record_native_children(receipt, *, require_ready=True):
+def record_native_children(receipt, *, require_ready=True, known_only=False):
+    require(not known_only or not require_ready, 'Strict pruning checks do not assess readiness')
     roots = {row['uid']: key.removeprefix('workload-') for key, row in receipt.value['objects'].items() if key.startswith('workload-')}
     replicas = listed('replicasets.apps', receipt.namespace)
+    known = list(receipt.value['objects'].values())
     parents = dict(roots)
+    if known_only:
+        recorded = recorded_grafana_replicasets(receipt)
+        parents.update({obj['uid']: 'grafana' for obj in known if (obj['kind'], obj['name']) in recorded})
     for item in replicas:
         owners = item['metadata'].get('ownerReferences', [])
         require(len(owners) == 1 and owners[0].get('uid') in roots and owners[0].get('kind') == 'Deployment'
                 and owners[0].get('controller') is True, 'Foreign ReplicaSet')
-        receipt.record('rs-' + item['metadata']['name'], item)
+        if known_only:
+            require(object_id(item) in known, 'Unrecorded ReplicaSet during pruning')
+            deployment = receipt.value['objects']['workload-grafana']
+            require(owners[0].get('uid') == deployment['uid'] and owners[0].get('name') == deployment['name'],
+                    'ReplicaSet parent changed during pruning')
+            source = receipt.value['admission']['running']['Deployment/' + receipt.namespace + '-grafana']['spec']['template']
+            require(source_spec(item['spec']['template']['spec'], source['spec'])
+                    and all(item['metadata'].get('labels', {}).get(k) == v for k, v in source['metadata'].get('labels', {}).items()),
+                    'ReplicaSet source changed during pruning')
+        else:
+            receipt.record('rs-' + item['metadata']['name'], item)
         parents[item['metadata']['uid']] = roots[owners[0]['uid']]
-    for item in workload_pods(receipt):
+    pods = listed('pods', receipt.namespace) if known_only else workload_pods(receipt)
+    for item in pods:
+        if known_only:
+            require(object_id(item) in known and item['metadata']['name'] != receipt.namespace + '-marker',
+                    'Unrecorded or reappeared marker Pod during pruning')
         owners = item['metadata'].get('ownerReferences', [])
         require(len(owners) == 1 and owners[0].get('uid') in parents and owners[0].get('controller') is True,
                 'Foreign workload Pod')
         component = parents[owners[0]['uid']]
+        if known_only:
+            parent = next(obj for obj in known if obj['uid'] == owners[0]['uid'])
+            require(owners[0].get('kind') == ('ReplicaSet' if component == 'grafana' else 'StatefulSet')
+                    and owners[0].get('name') == parent['name'] and owners[0].get('apiVersion') == parent['apiVersion'],
+                    'Native Pod parent changed during pruning')
         kind = 'Deployment' if component == 'grafana' else 'StatefulSet'
         workload_doc = receipt.value['admission']['running'][kind + '/' + receipt.namespace + '-' + component]
         expected = copy.deepcopy(workload_doc['spec']['template']['spec'])
@@ -911,7 +935,12 @@ def record_native_children(receipt, *, require_ready=True):
             expected['subdomain'] = workload_doc['spec']['serviceName']
         require(item['spec'].get('nodeName') in receipt.value['baseline']['nodes'], 'Backend placed outside recorded native nodes')
         require(source_spec(item['spec'], expected), 'Native backend Pod source changed')
-        receipt.record('pod-' + item['metadata']['uid'], item)
+        if known_only:
+            require(all(item['metadata'].get('labels', {}).get(k) == v
+                        for k, v in workload_doc['spec']['template']['metadata'].get('labels', {}).items()),
+                    'Native Pod ownership changed during pruning')
+        else:
+            receipt.record('pod-' + item['metadata']['uid'], item)
         statuses = item.get('status', {}).get('containerStatuses', [])
         if not require_ready:
             continue
@@ -921,6 +950,8 @@ def record_native_children(receipt, *, require_ready=True):
             return False
         if not any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in item.get('status', {}).get('conditions', [])):
             return False
+    if known_only:
+        return not replicas and not pods
     return not require_ready or len(workload_pods(receipt)) == 3
 
 
@@ -1799,18 +1830,56 @@ def cleanup_storage(receipt, component, deadline, *, payload=None):
 def require_removed(receipt):
     ns = receipt.namespace
     retained = set(claim_names(receipt.operation).values())
-    for kind in KINDS:
+    pending = False
+    def declared(obj):
+        metadata, kind = obj['metadata'], obj['kind']
+        key = kind + '/' + metadata['name']
+        require(object_id(obj) == receipt.value['objects'].get('declared-' + key), 'Unrecorded resource during pruning')
+        profiles = [receipt.value['admission'][phase][key] for phase in ('running', 'scaled-down')]
+        require(any(body_profile(obj) == body_profile(profile) for profile in profiles), 'Declared resource body changed during pruning')
+        require(metadata.get('labels', {}).get('cloudlab.io/owner') == OWNER
+                and metadata['labels'].get(LABEL) == receipt.operation, 'Declared ownership changed during pruning')
+        group = obj['apiVersion'].split('/')[0] if '/' in obj['apiVersion'] else ''
+        tracking = ns + ':' + group + '/' + kind + ':' + ns + '/' + metadata['name']
+        annotations = metadata.get('annotations') or {}
+        require(annotations.get('argocd.argoproj.io/tracking-id') == tracking, 'Declared tracking changed during pruning')
+        expected = profiles[0]['metadata']
+        require((metadata.get('ownerReferences') or []) == (expected.get('ownerReferences') or [])
+                and all(annotations.get(key) == (expected.get('annotations') or {}).get(key) for key in
+                        ('argocd.argoproj.io/sync-options', 'helm.sh/resource-policy', 'argocd.argoproj.io/hook')),
+                'Declared retention or ownership changed during pruning')
+        allowed = set(expected.get('finalizers') or []) | ({'foregroundDeletion'} if metadata.get('deletionTimestamp') else set())
+        require(set(metadata.get('finalizers') or []) <= allowed, 'Unknown finalizer during pruning')
+    for kind in sorted(KINDS):
         objects = listed(kind, ns)
         if kind == 'PersistentVolumeClaim':
             require({o['metadata']['name'] for o in objects} == retained, 'Retained claim inventory changed')
+            for obj in objects:
+                identity = next(row['identity'] for row in receipt.value['storage'].values()
+                                if row['identity']['claim']['name'] == obj['metadata']['name'])
+                require(object_id(obj) == identity['claim'] and fresh_identity(receipt, obj, healthy=False) == identity,
+                        'Retained storage changed during pruning')
         elif kind == 'ConfigMap':
-            require({o['metadata']['name'] for o in objects} == {ns + '-sentinel', 'kube-root-ca.crt', 'istio-ca-root-cert', 'istio-ca-crl'},
-                    'Ordinary ConfigMaps not pruned')
+            expected = {ns + '-sentinel', 'kube-root-ca.crt', 'istio-ca-root-cert', 'istio-ca-crl'}
+            require(expected <= {o['metadata']['name'] for o in objects}, 'Retained ConfigMaps disappeared')
         elif kind == 'ServiceAccount':
-            require({o['metadata']['name'] for o in objects} == {'default'}, 'Ordinary service accounts not pruned')
-        else:
-            require(not objects, 'Ordinary fixture resources not pruned')
-    return not workload_pods(receipt)
+            require('default' in {o['metadata']['name'] for o in objects}, 'Default service account disappeared')
+        if kind != 'PersistentVolumeClaim':
+            for obj in objects:
+                name = obj['metadata']['name']
+                housekeeping_row = receipt.value.get('housekeeping', {}).get(name)
+                if housekeeping_row is not None:
+                    actual = get(kind, name, ns, managed_fields=True)
+                    require(actual is not None and object_id(actual) == object_id(obj)
+                            and housekeeping_identity(actual, ns, receipt.value['evidence']['namespaceCreatedAt'],
+                                receipt.value['evidence']['housekeepingRoots']) == housekeeping_row,
+                            'Retained housekeeping changed during pruning')
+                else:
+                    declared(obj)
+                    if not (kind == 'ConfigMap' and name == ns + '-sentinel'):
+                        pending = True
+    children_gone = record_native_children(receipt, require_ready=False, known_only=True)
+    return not pending and children_gone
 
 
 def cleanup_markers(receipt, payload, deadline):
