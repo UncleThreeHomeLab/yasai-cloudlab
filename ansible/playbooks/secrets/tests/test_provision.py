@@ -1,5 +1,7 @@
+import copy
 import json
 import os
+import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
@@ -69,6 +71,124 @@ class ProvisionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 provision.ensure_items('', self.definitions())
         call.assert_not_called()
+
+    def test_placeholders_create_empty_stdin_fields_and_reject_generators(self):
+        definitions = {'test-item': {'password': ('CONCEALED', None), 'username': ('STRING', None)}}
+        with patch.object(provision.subprocess, 'run', side_effect=[
+                Mock(returncode=0, stdout='[]'), Mock(returncode=0, stdout='[]'),
+                Mock(returncode=0, stdout='{"id":"item-id","title":"test-item"}')]) as run:
+            self.assertEqual(provision.ensure_items('writer', definitions, placeholders=True),
+                             {'created': ['test-item'], 'preserved': [],
+                              'pending': {'test-item': ['password', 'username']}})
+        arguments, keywords = run.call_args
+        self.assertEqual(arguments[0], ['op', 'item', 'create', '-', '--vault', 'CloudLab', '--format', 'json'])
+        self.assertNotIn('writer', str(arguments))
+        self.assertEqual(json.loads(keywords['input']), {
+            'title': 'test-item', 'category': 'SECURE_NOTE', 'tags': ['cloudlab-managed'],
+            'fields': [{'id': label, 'label': label, 'type': kind, 'value': ''}
+                       for label, (kind, _) in definitions['test-item'].items()]})
+        generated = self.definitions()
+        with patch.object(provision, 'command') as call:
+            with self.assertRaises(ValueError):
+                provision.ensure_items('writer', generated, placeholders=True)
+        call.assert_not_called()
+        generated['test-item']['password'][1].assert_not_called()
+
+    def test_placeholders_preserve_empty_partial_and_complete_items_on_repeat(self):
+        definitions = {'test-item': {'password': ('CONCEALED', None), 'username': ('STRING', None)}}
+        for password, username in ((None, None), ('', ''), ('', 'existing-user'),
+                                   ('existing-secret', 'existing-user')):
+            current = {'id': 'item-id', 'title': 'test-item', 'category': 'SECURE_NOTE',
+                       'tags': ['human-tag'], 'fields': [
+                           {'id': 'kept-id', 'label': 'password', 'type': 'CONCEALED', 'value': password},
+                           {'label': 'username', 'type': 'STRING', 'value': username},
+                           {'label': 'extra', 'type': 'STRING', 'value': 'kept'}]}
+            if password is None:
+                del current['fields'][0]['value']
+            before = copy.deepcopy(current)
+            missing = [label for label, value in [('password', password), ('username', username)] if not value]
+            for _ in range(2):
+                with self.subTest(password=password, username=username), patch.object(
+                        provision, 'command', side_effect=[
+                            [{'id': 'item-id', 'title': 'test-item'}], current]) as call:
+                    self.assertEqual(provision.ensure_items('writer', definitions, placeholders=True), {
+                        'created': [], 'preserved': ['test-item'],
+                        'pending': {'test-item': missing} if missing else {}})
+                self.assertEqual(call.call_count, 2)
+                self.assertEqual(current, before)
+
+    def test_placeholders_refuse_incompatible_or_unreadable_batch_before_create(self):
+        definitions = {'new-item': {'password': ('CONCEALED', None)},
+                       'test-item': {'password': ('CONCEALED', None)}}
+        inventory = [{'id': 'item-id', 'title': 'test-item'}]
+        current = {'id': 'item-id', 'title': 'test-item', 'category': 'SECURE_NOTE',
+                   'fields': [{'label': 'password', 'type': 'CONCEALED', 'value': ''}]}
+        incompatible = [dict(current, id='changed'), dict(current, title='changed'),
+                        dict(current, category='LOGIN'), dict(current, fields=[]),
+                        dict(current, fields=current['fields'] * 2),
+                        dict(current, fields=[{'label': 'password', 'type': 'STRING', 'value': ''}]),
+                        dict(current, fields=[{'label': 'password', 'type': 'CONCEALED', 'value': 42}]),
+                        dict(current, fields={}), dict(current, fields=[None]), None,
+                        RuntimeError('read unavailable')]
+        responses = [[inventory, item] for item in incompatible]
+        responses += [[invalid] for invalid in (None, {}, [None], [{'title': 'test-item'}],
+                                                [{'id': 'item-id'}], inventory * 2)]
+        responses += [[[], invalid] for invalid in (None, {}, [None])]
+        for response in responses:
+            with self.subTest(response=response), patch.object(provision, 'command', side_effect=response) as call:
+                with self.assertRaises(RuntimeError):
+                    provision.ensure_items('writer', definitions, placeholders=True)
+                self.assertFalse(any('create' in args.args[0] for args in call.call_args_list))
+
+    def test_placeholder_uncertain_create_requires_inspection_without_retry(self):
+        definitions = {'test-item': {'password': ('CONCEALED', None)}}
+        for response in (None, {}, {'id': 'item-id', 'title': 'changed'},
+                         {'id': 42, 'title': 'test-item'}):
+            with self.subTest(response=response), patch.object(
+                    provision, 'command', side_effect=[[], [], response]) as call:
+                with self.assertRaisesRegex(RuntimeError, 'inspect existence before retrying'):
+                    provision.ensure_items('writer', definitions, placeholders=True)
+            self.assertEqual(sum('create' in args.args[0] for args in call.call_args_list), 1)
+        with patch.object(provision.subprocess, 'run', side_effect=[
+                Mock(returncode=0, stdout='[]'), Mock(returncode=0, stdout='[]'),
+                subprocess.TimeoutExpired('op', 60)]) as run:
+            with self.assertRaisesRegex(RuntimeError, 'inspect item existence before retrying'):
+                provision.ensure_items('writer', definitions, placeholders=True)
+        self.assertEqual(run.call_count, 3)
+        with patch.object(provision.subprocess, 'run', side_effect=[
+                Mock(returncode=0, stdout='[]'), Mock(returncode=0, stdout='[]'),
+                Mock(returncode=0, stdout='invalid private response')]) as run:
+            with self.assertRaisesRegex(RuntimeError, 'inspect item existence before retrying') as error:
+                provision.ensure_items('writer', definitions, placeholders=True)
+        self.assertNotIn('private response', str(error.exception))
+        self.assertEqual(run.call_count, 3)
+
+    def test_generated_mode_validates_definitions_and_values_without_changing_result(self):
+        invalid = {'new-item': {'password': ('CONCEALED', Mock())},
+                   'test-item': {'password': ('CONCEALED', None)}}
+        with patch.object(provision, 'command') as call:
+            with self.assertRaises(ValueError):
+                provision.ensure_items('token', invalid)
+        call.assert_not_called()
+        invalid['new-item']['password'][1].assert_not_called()
+        for value in ('', None, 42):
+            definitions = {'test-item': {'password': ('CONCEALED', Mock(return_value=value))}}
+            with self.subTest(value=value), patch.object(provision, 'command', side_effect=[[], []]) as call:
+                with self.assertRaises(ValueError):
+                    provision.ensure_items('token', definitions)
+                self.assertFalse(any('create' in args.args[0] for args in call.call_args_list))
+            with patch.object(provision, 'command', side_effect=[
+                    [{'id': 'item-id', 'title': 'test-item'}],
+                    {'fields': [{'label': 'password', 'type': 'CONCEALED', 'value': value}]}]):
+                with self.assertRaises(RuntimeError):
+                    provision.ensure_items('token', definitions)
+        definitions = self.definitions()
+        with patch.object(provision, 'command', side_effect=[
+                [], [], {'id': 'item-id', 'title': 'test-item'}]) as call:
+            self.assertEqual(provision.ensure_items('token', definitions),
+                             {'created': ['test-item'], 'preserved': []})
+        definitions['test-item']['password'][1].assert_called_once_with()
+        self.assertEqual(call.call_args.args[2]['fields'][0]['value'], 'synthetic-secret')
 
 
 if __name__ == '__main__':
