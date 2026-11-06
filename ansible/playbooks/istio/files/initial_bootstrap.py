@@ -37,7 +37,7 @@ def application(payload, zone, argo=None):
             'helm': {'releaseName': APP, 'valueFiles': ['values.json'], 'valuesObject': values}},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'cloudlab-gateway-public'},
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
-                'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true'],
+                'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false'],
                 'retry': {'limit': 5, 'backoff': {'duration': '5s', 'factor': 2, 'maxDuration': '1m'}}}}}
 
 

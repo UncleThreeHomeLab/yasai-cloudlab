@@ -123,11 +123,19 @@ def controller_items(items):
     return result
 
 
+def binding_receipt():
+    try:
+        return json.loads((BASE / 'identity-values-binding.json').read_text())
+    except OSError:
+        return {}
+    except ValueError:
+        raise RuntimeError('Pending verification binding receipt is malformed') from None
+
+
 def pending_verification_context(evidence, repository):
     """Derive explicit recovery mode only from the protected pending operation."""
-    from playbooks.data.files import native
     from playbooks.argocd.files import source_transition
-    binding = native.receipt(native.BINDING, missing=True)
+    binding = binding_receipt()
     if not binding or binding.get('phase') == 'accepted':
         return None, False
     public = (evidence or {}).get('contract', {}).get('context', {}).get('repository')
@@ -144,41 +152,107 @@ def pending_verification_context(evidence, repository):
     return context, initial
 
 
-def permissions_declaration(evidence, repository, *, first_binding=None, recovery=None):
+def verification_fetch(public_repository, deadline, *, first_binding=None, recovery=None):
+    """Borrow only explicitly authorized public reads: anonymous before binding, App reader after."""
+    from contextlib import contextmanager
+    from playbooks.argocd.files import source_transition, source_snapshot
+    from playbooks.argocd.files.github_app import PUBLIC_REPOSITORY, public_metadata
+    from playbooks.secrets.files.vault import fields
+    if public_repository != PUBLIC_REPOSITORY:
+        raise RuntimeError('Consumer verification requires the designated public repository')
+
+    @contextmanager
+    def session():
+        if first_binding is not None:
+            if recovery is not None:
+                raise RuntimeError('First binding cannot borrow established recovery credentials')
+            source_transition.pending_root_authority(first_binding, public_repository, first_binding=True)
+            yield source_snapshot.request
+            return
+        binding = binding_receipt()
+        if not binding:
+            root = get('application.argoproj.io', 'cloudlab-public-root') or {}
+            identity = root.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {}).get('identity', {})
+            if (BASE / 'identity-values-binding.json').exists() or recovery is not None \
+                    or not isinstance(identity, dict) or 'argo' in identity:
+                raise RuntimeError('Public verification binding authority is malformed')
+            yield source_snapshot.request
+            return
+        if binding.get('phase') == 'accepted':
+            if recovery is not None:
+                raise RuntimeError('Pending recovery requires its durable pending binding')
+            target = binding.get('target', {})
+            root = get('application.argoproj.io', 'cloudlab-public-root') or {}
+            observed = root.get('status', {}).get('sync', {}).get('revision')
+            source_transition.accepted_identity_binding(repository=public_repository, branch='main',
+                revision=observed, private_repository=target.get('valuesRepository'))
+        else:
+            if recovery is None:
+                raise RuntimeError('Public verification requires explicit pending binding recovery')
+            source_transition.pending_root_authority(recovery, public_repository)
+        with public_metadata(fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')), deadline=deadline) as fetch:
+            yield fetch
+    return session()
+
+
+def published_approval(fetch, public_repository, deadline):
+    """Read live protected main values; anonymous bytes are verified against the tree."""
+    from playbooks.argocd.files import source_snapshot
+    from playbooks.argocd.files.github_setup import repository
+    import yaml
+    repo = repository(public_repository)
+    branch = fetch('repos/' + repo + '/branches/main', deadline)
+    revision = branch.get('commit', {}).get('sha')
+    if branch.get('protected') is not True or not re.fullmatch('[a-f0-9]{40}', revision or ''):
+        raise RuntimeError('Consumer verification requires the protected public main branch')
+    raw = source_snapshot.read_url('https://raw.githubusercontent.com/' + repo + '/' + revision + '/gitops/roots/public/values.yaml',
+                                   deadline, 65536)
+    public = yaml.safe_load(raw)
+    if not isinstance(public, dict) or public.get('repository') != public_repository or public.get('revision') != 'main':
+        raise RuntimeError('Consumer verification coordinates differ from committed root settings')
+    return public, revision
+
+
+def consumer_declaration(consumer, evidence, repository, *, first_binding=None, recovery=None):
     """Authenticate current approval once; polling never reads credentials or Git."""
-    from playbooks.data.files import native
-    from playbooks.argocd.files.private_sources import consumer_contract, validate_consumer_acceptance, acceptance_spec
+    from playbooks.argocd.files import source_snapshot
+    from playbooks.argocd.files.private_sources import consumer_contract, validate_consumer_acceptance, acceptance_spec, render_objects
+    label = consumer.capitalize()
     if not isinstance(evidence, dict) or not isinstance(evidence.get('contract'), dict):
-        raise RuntimeError('Permissions verification requires its authenticated contract')
+        raise RuntimeError(label + ' verification requires its authenticated contract')
     deadline = time.monotonic() + 120
     contract = evidence.get('contract', {})
     public_repository = contract.get('context', {}).get('repository')
-    with native.public_metadata({'publicSource': {'repository': public_repository, 'branch': 'main'}}, deadline=deadline, first_binding=first_binding, recovery=recovery) as fetch:
-        public, revision = native.published_source({'publicSource': {'repository': public_repository, 'branch': 'main'}}, fetch=fetch, deadline=deadline)
-        current = consumer_contract(public, 'permissions')
+    with verification_fetch(public_repository, deadline, first_binding=first_binding, recovery=recovery) as fetch:
+        public, revision = published_approval(fetch, public_repository, deadline)
+        current = consumer_contract(public, consumer)
         if (not current['enabled'] or current != contract or revision != evidence.get('publicRevision')
                 or evidence.get('acceptanceCommitment') != current['acceptanceCommitment']):
-            raise RuntimeError('Permissions approval differs from current protected public intent')
+            raise RuntimeError(label + ' approval differs from current protected public intent')
         validate_consumer_acceptance(evidence.get('acceptanceReceipt'), repository, current)
         if evidence.get('acceptedRevision') != evidence['acceptanceReceipt']['revision']:
-            raise RuntimeError('Permissions revision differs from its approved receipt')
-        files = native.source_snapshot.chart_files({'repository': public_repository, 'revision': revision,
+            raise RuntimeError(label + ' revision differs from its approved receipt')
+        files = source_snapshot.chart_files({'repository': public_repository, 'revision': revision,
             'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
-        profile_files = native.source_snapshot.chart_files({'repository': public_repository,
-            'revision': current['context']['permissions']['revision'], 'path': 'platform/connectivity/permissions'}, fetch=fetch, deadline=deadline)
-        policy_files = native.source_snapshot.chart_files({'repository': public_repository,
-            'revision': revision, 'path': 'platform/delivery/admission/policies'}, fetch=fetch, deadline=deadline)
+        if consumer == 'permissions':
+            profile_files = source_snapshot.chart_files({'repository': public_repository,
+                'revision': current['context']['permissions']['revision'], 'path': 'platform/connectivity/permissions'}, fetch=fetch, deadline=deadline)
+            policy_files = source_snapshot.chart_files({'repository': public_repository,
+                'revision': revision, 'path': 'platform/delivery/admission/policies'}, fetch=fetch, deadline=deadline)
     pending = first_binding if first_binding is not None else recovery
     if pending is not None:
         from playbooks.argocd.files.source_transition import pending_root_context
         pending_root_context(pending, public, first_binding=first_binding is not None)
-    expected = acceptance_spec(public, repository, evidence['acceptedRevision'], files=files, consumer='permissions')
+    expected = acceptance_spec(public, repository, evidence['acceptedRevision'], files=files, consumer=consumer)
     if expected != evidence.get('applicationSet'):
-        raise RuntimeError('Permissions parent differs from its authenticated native declaration')
-    projection = native.render_objects(profile_files, [{'mode': 'profiles', 'context': {
+        raise RuntimeError(label + ' parent differs from its authenticated native declaration')
+    if consumer != 'permissions':
+        if pending is not None: pending_root_context(pending, public, first_binding=first_binding is not None)
+        return {'parent': expected}
+    projection = render_objects(profile_files, [{'mode': 'profiles', 'context': {
         'repository': public_repository, 'revision': current['context']['permissions']['revision'],
         'commitment': current['acceptanceCommitment'], 'namespace': 'argocd'}}])
-    policies = [row for row in native.render_objects(policy_files, [])
+    policies = [row for row in render_objects(policy_files, [])
         if row['kind'] in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')
         and row['metadata']['name'] in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')]
     if (len(projection) != 1 or projection[0]['kind'] != 'ConfigMap' or len(policies) != 4
@@ -186,13 +260,17 @@ def permissions_declaration(evidence, repository, *, first_binding=None, recover
                 (kind, name) for kind in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')
                 for name in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')}):
         raise RuntimeError('Permissions require their canonical public projection and input policy')
-    roots = native.render_objects(files, [public | {'identity': public['identity'] | {'argo': {
+    roots = render_objects(files, [public | {'identity': public['identity'] | {'argo': {
         'valuesRepository': repository, 'valuesRevision': evidence['acceptedRevision']}}}])
     profile_apps = [row for row in roots if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions-profiles']
     if len(profile_apps) != 1:
         raise RuntimeError('Permissions public profile owner is missing')
     if pending is not None: pending_root_context(pending, public, first_binding=first_binding is not None)
     return {'parent': expected, 'projection': projection[0], 'policies': policies, 'profileApplication': profile_apps[0]}
+
+
+def permissions_declaration(evidence, repository, *, first_binding=None, recovery=None):
+    return consumer_declaration('permissions', evidence, repository, first_binding=first_binding, recovery=recovery)
 
 
 def permissions_healthy(evidence, repository, expected):
@@ -301,6 +379,48 @@ def permissions_healthy(evidence, repository, expected):
         and application_healthy(root))
 
 
+def observability_healthy(repository, evidence, declaration, read):
+    """Require the exact paused-aware telemetry owner, parent and project."""
+    parent = read('applicationset.argoproj.io', 'cloudlab-observability-gitops')
+    app = read('application.argoproj.io', 'cloudlab-observability-gitops')
+    root = read('application.argoproj.io', 'cloudlab-public-root') or {}
+    if not parent or not app:
+        return False
+    meta, spec, status = app['metadata'], app.get('spec', {}), app.get('status', {})
+    paused = declaration.get('paused', False)
+    desired = copy.deepcopy(declaration['parent']['template']['spec'])
+    for source in desired['sources']:
+        if isinstance(source.get('targetRevision'), str) and 'Consumer source acceptance refused' in source['targetRevision']:
+            source['targetRevision'] = evidence['acceptedRevision']
+    pmeta = parent.get('metadata', {})
+    if (not pmeta.get('uid') or pmeta.get('deletionTimestamp') or pmeta.get('ownerReferences') or pmeta.get('finalizers')
+            or pmeta.get('labels', {}).get('cloudlab.io/owner') != 'observability-platform'
+            or pmeta.get('annotations', {}).get('argocd.argoproj.io/tracking-id')
+                != 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/cloudlab-observability-gitops'
+            or parent.get('spec') != declaration['parent']):
+        return False
+    if (meta.get('labels', {}).get('cloudlab.io/owner') != 'observability-platform'
+            or meta.get('finalizers') or meta.get('deletionTimestamp')
+            or meta.get('annotations', {}).get('argocd.argoproj.io/tracking-id')
+                != 'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-observability-gitops'
+            or spec != desired or spec.get('project') != 'cloudlab-observability-gitops'
+            or meta.get('ownerReferences') != [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                'name': 'cloudlab-observability-gitops', 'uid': pmeta['uid'], 'controller': True, 'blockOwnerDeletion': True}]
+            or app.get('operation') or status.get('operationState', {}).get('phase') in ('Running', 'Terminating')
+            or any(row.get('type', '').endswith('Error') for row in status.get('conditions', []))
+            or (not paused and (status.get('health', {}).get('status') != 'Healthy'
+                                or status.get('sync', {}).get('status') != 'Synced'))):
+        return False
+    identity = root.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {}).get('identity', {})
+    binding = binding_receipt()
+    target = binding.get('target', {}) if isinstance(binding, dict) else {}
+    if (not isinstance(identity, dict) or identity.get('argo', {}) != target
+            or target.get('valuesRepository') != repository
+            or root.get('metadata', {}).get('uid') != binding.get('root_uid')):
+        return False
+    return True
+
+
 def run(payload):
     repository = payload.get('configuration_repository')
     if not repository:
@@ -317,15 +437,27 @@ def run(payload):
     if permissions is None and (any(app.get('metadata', {}).get('name') == 'cloudlab-permissions' for app in applications)
             or (get('applicationset.argoproj.io', 'cloudlab-permissions') or {}).get('metadata', {}).get('name') == 'cloudlab-permissions'):
         raise RuntimeError('Active permissions require authenticated consumer approval evidence')
-    if not consumers and permissions is None:
+    observability = payload.get('observability')
+    if observability is None and (any(app.get('metadata', {}).get('name') == 'cloudlab-observability-gitops' for app in applications)
+            or (get('applicationset.argoproj.io', 'cloudlab-observability-gitops') or {}).get('metadata', {}).get('name') == 'cloudlab-observability-gitops'):
+        raise RuntimeError('Active telemetry requires authenticated consumer approval evidence')
+    if not consumers and permissions is None and observability is None:
         raise RuntimeError('Actual private configuration source has no reconciled consumers')
     permission_spec = permissions_declaration(permissions, repository, first_binding=pending if initial else None, recovery=pending if not initial else None) if permissions is not None else None
     if permission_spec is not None:
         wait(lambda: permissions_healthy(permissions, repository, permission_spec), 'permissions approval convergence')
+    telemetry = consumer_declaration('observability', observability, repository, first_binding=pending if initial else None, recovery=pending if not initial else None) if observability is not None else None
+    if telemetry is not None:
+        telemetry['paused'] = observability['contract']['context']['observability']['configuration'].get('paused', False)
+        wait(lambda: observability_healthy(repository, observability, telemetry, get), 'telemetry approval convergence')
     secrets = json.loads(kube('get', 'secrets', '-n', 'argocd', '-o', 'json'))['items']
     externals = json.loads(kube('get', 'externalsecrets.external-secrets.io', '-n', 'argocd', '-o', 'json'))['items']
     for app in consumers:
-        wait(lambda: configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions), 'configuration convergence')
+        name = app['metadata']['name']
+        if telemetry is not None and telemetry['paused'] and name == 'cloudlab-observability-gitops':
+            credential_owner(app, repository, secrets, externals)
+            continue
+        wait(lambda: configuration_healthy(name, repository, revision, symbolic_revisions), 'configuration convergence')
         credential_owner(app, repository, secrets, externals)
     if permission_spec is not None:
         credential_owner({'spec': {'project': 'cloudlab-permissions'}}, repository, secrets, externals)
@@ -344,7 +476,7 @@ def run(payload):
                 or catalog.get('spec', {}).get('syncPolicy', {}).get('automated') !=
                     {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': True}
                 or catalog.get('spec', {}).get('syncPolicy', {}).get('syncOptions') !=
-                    ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PruneLast=true']):
+                    ['FailOnSharedResource=true', 'ClientSideApplyMigration=false', 'PruneLast=true']):
             raise RuntimeError('Private catalog ownership or source differs from reviewed declarations')
         for desired in payload['objects']:
             kind = desired['kind']
@@ -375,7 +507,9 @@ def run(payload):
         time.sleep(10)
         if (controllers() != baseline
                 or permission_spec is not None and not permissions_healthy(permissions, repository, permission_spec)
-                or not all(configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions) for app in consumers)
+                or telemetry is not None and not observability_healthy(repository, observability, telemetry, get)
+                or not all(configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions) for app in consumers
+                           if not (telemetry is not None and telemetry['paused'] and app['metadata']['name'] == 'cloudlab-observability-gitops'))
                 or not all(child_healthy(entry) for entry in payload['sources'])):
             raise RuntimeError('Controllers or private convergence changed during stability observation')
     return {'private_roots_converged': len(payload['sources']), 'private_configuration_consumers': len(consumers),

@@ -56,7 +56,7 @@ spec:
     automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
     syncOptions:
       - FailOnSharedResource=true
-      - DisableClientSideApplyMigration=true
+      - ClientSideApplyMigration=false
       - RespectIgnoreDifferences=true
       - SkipDryRunOnMissingResource=true
     retry:

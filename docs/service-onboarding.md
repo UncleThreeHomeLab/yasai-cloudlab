@@ -841,12 +841,18 @@ destructive migrations require a separate explicit data scope.
    `approval.secretReferences`; never grant application pods privileged data credentials.
 3. **User/Agent:** keep secret values in 1Password's CloudLab vault.
    Use the [service contract](../charts/service/README.md) for required item fields
-   and credential provisioning. After merging the catalog PR, the control-machine
+   and credential provisioning. The accepted private catalog carries every secret,
+   identity and data binding; per-service `secrets.yaml` files do not exist and are
+   never created beside a workload. After merging the catalog PR, the control-machine
    credential reconciler creates missing approved items with empty required fields;
    keep its private checkout at reviewed main and the same active catalog path as
-   public `services.catalogPath`. Ordinary secrets need an `approval.secretBindings`
-   entry binding the approved name to its vault item and fields. The reconciler
-   preserves existing items and reports pending field names.
+   public `services.catalogPath`. Run it as a daemon with
+   `docker compose --profile credentials up -d credential-reconciler` and inspect
+   its persisted per-cycle report for created, pending and awaiting-administrator
+   items. Ordinary secrets need an `approval.secretBindings` entry binding the
+   approved name to its vault item and fields. Composition secrets need an
+   `approval.composition.secrets` entry. The reconciler preserves existing items
+   and reports pending field names.
    **User:** fill pending fields in 1Password. External Secrets remains the sole
    synchronizer. Guarded ordinary, composition and SQL/S3 secret templates reject
    missing or empty required fields and preserve valid deployed credentials.

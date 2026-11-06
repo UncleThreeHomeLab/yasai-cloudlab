@@ -45,7 +45,7 @@ spec:
   destination: {server: 'https://kubernetes.default.svc', namespace: {{ .Values.namespace }}}
   syncPolicy:
     automated: {enabled: true, prune: true, selfHeal: true, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false]
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -128,7 +128,7 @@ spec:
   (dict "repoURL" .Values.repository "targetRevision" $permissions.revision "path" "platform/connectivity/permissions" "helm" (dict "releaseName" "cloudlab-permissions"))
   "destination" (dict "server" "https://kubernetes.default.svc" "namespace" .Values.namespace)
   "syncPolicy" (dict "automated" (dict "enabled" true "prune" true "selfHeal" true "allowEmpty" false)
-    "syncOptions" (list "FailOnSharedResource=true" "DisableClientSideApplyMigration=true" "PrunePropagationPolicy=background")
+    "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false" "PrunePropagationPolicy=background")
     "retry" (dict "limit" 5 "backoff" (dict "duration" "5s" "factor" 2 "maxDuration" "1m"))) }}
 {{ toYaml $spec | indent 6 }}
   templatePatch: |

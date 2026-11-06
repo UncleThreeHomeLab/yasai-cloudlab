@@ -63,7 +63,7 @@ def validate(envelope):
         'source': {'repoURL': row['repository'], 'targetRevision': 'main', 'path': row['path']},
         'destination': {'server': 'https://kubernetes.default.svc', 'namespace': NAMESPACE},
         'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
-            'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true']}}
+            'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false']}}
     namespace = next(obj for obj in targets if obj['kind'] == 'Namespace')
     if (app.get('apiVersion') != 'argoproj.io/v1alpha1' or app.get('spec') != expected_spec
             or app['metadata'].get('namespace') != 'argocd'

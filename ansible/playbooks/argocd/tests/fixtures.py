@@ -21,8 +21,11 @@ import yaml
 
 
 def first_binding_observation(*, patched=True, replicas=1):
-    from playbooks.data.files import native
     from playbooks.argocd.files.private_activation import prepare
+    delegations = [{'group': 'argoproj.io', 'kind': 'Application', 'name': 'cloudlab-public-root', 'namespace': 'argocd',
+            'jsonPointers': ['/spec/source/helm/valuesObject/data/configuration/' + field for field in ('maintenance', 'hibernated')]},
+        {'group': 'argoproj.io', 'kind': 'Application', 'name': 'cloudlab-seaweedfs', 'namespace': 'argocd',
+            'jsonPointers': ['/spec/source/helm/valuesObject/seaweedfs/' + name + '/replicas' for name in ('master', 'volume', 'filer', 's3')]}]
     public = {'repository': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git',
         'identity': {'enabled': True}, 'data': {'configuration': {}}}
     target = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private.git', 'valuesRevision': 'a' * 40}
@@ -31,8 +34,8 @@ def first_binding_observation(*, patched=True, replicas=1):
     proposed = copy.deepcopy(original); proposed['helm']['valuesObject']['identity']['argo'] = target
     root = {'metadata': {'uid': 'root'}, 'spec': {'project': 'cloudlab-root', 'source': copy.deepcopy(proposed if patched else original),
         'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
-        'ignoreDifferences': native.delegations(), 'syncPolicy': {'syncOptions': [
-            'FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']}}}
+        'ignoreDifferences': delegations, 'syncPolicy': {'syncOptions': [
+            'FailOnSharedResource=true', 'ClientSideApplyMigration=false', 'RespectIgnoreDifferences=true']}}}
     project = {'metadata': {'uid': 'project'}, 'spec': {'sourceRepos': [public['repository']],
         'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],
         'clusterResourceWhitelist': [{'group': '', 'kind': 'Namespace'}],
@@ -100,14 +103,31 @@ def namespace_probe(document):
         NAMESPACE_GUARD_NAME + "' denied request: " + namespace_guard_desired()[0]['spec']['validations'][0]['message'])
 
 
+def services_approval(public, repository, revision='b' * 40):
+    from private_sources import CONSUMER_ACCEPTANCE_VERSION
+    from service_activation import catalog_path
+    paths = [catalog_path(public['services'].get('catalogPath', catalog_path())), 'identity/argo-values.yaml']
+    receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': 'services', 'paths': paths,
+        'revision': revision, 'nonce': '2' * 64}
+    commitment = hashlib.sha256(('\n'.join([receipt['version'], 'services', repository, str(len(paths)), *paths,
+        revision, receipt['nonce'], ''])).encode()).hexdigest()
+    public['services']['acceptanceCommitment'] = commitment
+    return {'acceptanceCommitment': commitment, 'acceptedRevision': revision, 'acceptanceReceipt': receipt}
+
+
 def binding_fixture(required=True, *, repository='https://github.com/example/platform.git',
                     private_repository='https://github.com/example/private.git'):
     from service_activation import prepare
     from private_activation import prepare as prepare_private
     target = {'valuesRepository': private_repository, 'valuesRevision': 'b' * 40}
-    public = {'repository': repository, 'services': {'enabled': required, 'revision': 'c' * 40}}
+    root = Path(__file__).resolve().parents[4]
+    public = yaml.safe_load((root / 'gitops/roots/public/values.yaml').read_text())
+    public['repository'] = repository
+    public['services']['enabled'] = required
+    acceptance = services_approval(public, private_repository) if required else None
     evidence = prepare(public, target['valuesRepository'], target['valuesRevision'],
-                       {'catalog': [], 'dataApprovals': {}} if required else None)
+                       {'catalog': [], 'dataApprovals': {}} if required else None,
+                       acceptance=acceptance)
     objects = {
         ('application.argoproj.io', 'cloudlab-public-root'): {
             'metadata': {'uid': 'root', 'resourceVersion': '1'},
@@ -126,7 +146,8 @@ def binding_fixture(required=True, *, repository='https://github.com/example/pla
                'private_repository': target['valuesRepository'], 'argo': {'serviceActivation': evidence,
                    'accessActivation': access_evidence(repository, target),
                    'dataActivation': data_evidence(repository, target),
-                   'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'])}}
+                   'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'],
+                       {'sources': []}, acceptance=source_approval(public, private_repository))}}
     if required:
         objects.update(namespace_policies(evidence['namespaceGuard']))
     original = copy.deepcopy(objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'])

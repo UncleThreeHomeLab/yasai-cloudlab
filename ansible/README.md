@@ -40,13 +40,27 @@ metadata reads use a disposable token restricted to the public repository.
 First-binding reads remain anonymous under their durable operation; failed
 acquisition or unconfirmed revocation blocks changes.
 
+Private source advancement is generic across consumers (`private-sources`,
+`services`, `observability`, `permissions`): publish an acceptance receipt at
+`platform/acceptance/<consumer>.yaml` on a private branch, compute its matching
+public commitment with
+`docker compose run --rm --entrypoint python lab playbooks/argocd/files/private_sources.py commit <consumer> <private-repository> <revision> <nonce>`,
+merge the receipt, then merge the commitment (and any enablement or pin) into
+`gitops/roots/public/values.yaml`. The identity binding accepts only a
+Git-accepted receipt revision; host input alone never retargets it. Qualify a
+new consumer with the isolated controller fixture
+(`verification/integration/private_source_acceptance.py`) before transferring a
+live owner, and verify live convergence with the private verification payload.
+
 [Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.
 Host DNS runs independently of Kubernetes. Scoped tailnet operations preserve
-unrelated grants. [Infrastructure](playbooks/infrastructure/) invokes the accepted
-[native roots](../infra/); apply requires the exact reviewed plan, source and
-inputs. Encrypted state, backend locks and interrupted-operation recovery remain
-with each root. Ordinary setup never imports existing external resources.
+unrelated grants. The control-machine governance reconciler
+(`docker compose --profile infra run --rm infra-github once`, looped by
+`up -d`) plans the accepted [github-workflows root](../infra/github-workflows/)
+every cycle; apply requires the exact reviewed plan hash. Encrypted state,
+backend locks and interrupted-operation recovery remain with each root.
+Ordinary setup never imports existing external resources.
 
 [Data](playbooks/data/) keeps scoped SQL grants, S3 credentials and bucket repair
 on its independent five-minute host timer. CNPG and Argo retain continuous data

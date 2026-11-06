@@ -68,7 +68,7 @@ spec:
     namespace: tailscale
   syncPolicy:
     automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false]
     retry:
       limit: 5
       backoff: {duration: 5s, factor: 2, maxDuration: 1m}
@@ -123,7 +123,7 @@ spec:
   destination: {server: 'https://kubernetes.default.svc', namespace: tailscale}
   syncPolicy:
     automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false]
     retry:
       limit: 5
       backoff: {duration: 5s, factor: 2, maxDuration: 1m}

@@ -84,5 +84,5 @@ spec:
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
   syncPolicy:
     automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+    syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false]
 {{- end }}

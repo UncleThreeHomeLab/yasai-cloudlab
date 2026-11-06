@@ -94,6 +94,6 @@ spec:
   (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $gate "ref" "values"))
   "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
   "syncPolicy" (dict "automated" (dict "enabled" true "prune" true "selfHeal" true "allowEmpty" true)
-    "syncOptions" (list "FailOnSharedResource=true" "DisableClientSideApplyMigration=true" "PruneLast=true")) }}
+    "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false" "PruneLast=true")) }}
 {{ toYaml $spec | indent 6 }}
 {{- end }}

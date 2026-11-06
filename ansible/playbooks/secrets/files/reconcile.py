@@ -13,6 +13,8 @@ or the reviewed services.catalogPath selection) carries secret, identity, and
 data bindings; services/<name>/protection.yaml files carry backup protection
 bindings. Shared platform credentials (OIDC shared item, protection
 destinations) are reported for user/administrator completion, never created.
+Per-service secrets.yaml files do not exist: catalog supersession stands and
+every binding lives in the accepted catalog, never beside a workload.
 """
 
 import argparse
@@ -446,6 +448,26 @@ def cycle(arguments, profiles):
             'awaitingAdministrator': awaiting}
 
 
+def persist_report(state_dir, payload):
+    """Persist the latest cycle report; the cycle counter proves recurring operation."""
+    directory = Path(state_dir)
+    previous = {}
+    try:
+        previous = json.loads((directory / 'report.json').read_text())
+    except (OSError, ValueError):
+        previous = {}
+    if not isinstance(previous, dict):
+        previous = {}
+    cycles = previous.get('cycles')
+    report = dict(payload)
+    report['cycles'] = cycles + 1 if type(cycles) is int and cycles >= 0 else 1
+    report['completedAt'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    tmp = directory / ('report.json.tmp-' + str(os.getpid()))
+    tmp.write_text(json.dumps(report, indent=2, sort_keys=True))
+    os.replace(tmp, directory / 'report.json')
+    return report
+
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(description='Create missing approved credential placeholders.')
     parser.add_argument('--private-dir', default=os.environ.get('PRIVATE_CONFIG_DIR', '/private-config'))
@@ -472,7 +494,8 @@ def main(argv=None):
     try:
         while True:
             try:
-                print(json.dumps(cycle(arguments, profiles), sort_keys=True), flush=True)
+                report = persist_report(arguments.state_dir, cycle(arguments, profiles))
+                print(json.dumps(report, sort_keys=True), flush=True)
             except (RuntimeError, ValueError, OSError) as error:
                 print('credential reconciler: ' + str(error), file=sys.stderr, flush=True)
                 if not arguments.interval:

@@ -1,7 +1,9 @@
 import copy
 import json
 import os
+from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -189,6 +191,20 @@ class ProvisionTests(unittest.TestCase):
                              {'created': ['test-item'], 'preserved': []})
         definitions['test-item']['password'][1].assert_called_once_with()
         self.assertEqual(call.call_args.args[2]['fields'][0]['value'], 'synthetic-secret')
+
+
+class ReconcilerReportTests(unittest.TestCase):
+    def test_reports_persist_with_monotonic_cycle_counter(self):
+        from playbooks.secrets.files import reconcile
+        with tempfile.TemporaryDirectory() as directory:
+            first = reconcile.persist_report(directory, {'created': []})
+            self.assertEqual(first['cycles'], 1)
+            self.assertRegex(first['completedAt'], r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+            second = reconcile.persist_report(directory, {'created': ['synthetic']})
+            self.assertEqual(second['cycles'], 2)
+            self.assertEqual(json.loads((Path(directory) / 'report.json').read_text()), second)
+            (Path(directory) / 'report.json').write_text('corrupt')
+            self.assertEqual(reconcile.persist_report(directory, {'created': []})['cycles'], 1)
 
 
 if __name__ == '__main__':
