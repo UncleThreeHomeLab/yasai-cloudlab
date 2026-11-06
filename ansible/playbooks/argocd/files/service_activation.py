@@ -13,7 +13,7 @@ def catalog_path(value='services/catalog.json'):
     return value
 
 
-def prepare(public, private_repository, private_revision, catalog=None):
+def prepare(public, private_repository, private_revision, catalog=None, *, namespace_declaration=None):
     """Capture already validated non-secret inputs at the identity source revision."""
     evidence = {'required': public.get('services', {}).get('enabled', False),
                      'repository': public['repository'],
@@ -23,13 +23,22 @@ def prepare(public, private_repository, private_revision, catalog=None):
                      'catalog': catalog}
     if 'catalogPath' in public.get('services', {}):
         evidence['catalogPath'] = catalog_path(public['services']['catalogPath'])
+    if evidence['required']:
+        from playbooks.admission.files.namespace_guard import namespace_guard_desired
+        if namespace_declaration is None:
+            from pathlib import Path
+            import yaml
+            namespace_declaration = yaml.safe_load((Path(__file__).resolve().parents[4] /
+                'platform/delivery/admission/policies/templates/workload-namespace.yaml').read_text())
+        namespace_guard_desired(namespace_declaration)
+        evidence['namespaceGuard'] = copy.deepcopy(namespace_declaration)
     return validate(evidence,
                     {'valuesRepository': private_repository, 'valuesRevision': private_revision})
 
 
-def validate(evidence, target, root=None):
+def validate(evidence, target, root=None, *, allow_missing_namespace_guard=False):
     required = {'required', 'repository', 'revision', 'private_repository', 'private_revision', 'telemetry', 'catalog'}
-    if (not isinstance(evidence, dict) or not required <= set(evidence) <= required | {'existing', 'catalogPath'}
+    if (not isinstance(evidence, dict) or not required <= set(evidence) <= required | {'existing', 'catalogPath', 'namespaceGuard', 'namespaceAuthority'}
             or type(evidence['required']) is not bool or type(evidence['telemetry']) is not bool
             or set(target) != {'valuesRepository', 'valuesRevision'}
             or evidence['private_repository'] != target['valuesRepository']
@@ -55,6 +64,21 @@ def validate(evidence, target, root=None):
                        (('enabled', evidence['required']), ('revision', evidence['revision']), ('catalogPath', path)))):
             raise RuntimeError('Service activation differs from the current public root')
     if evidence['required']:
+        from playbooks.admission.files.namespace_guard import namespace_guard_desired
+        if 'namespaceGuard' not in evidence:
+            if not allow_missing_namespace_guard:
+                raise RuntimeError('Service activation requires its trusted public Namespace declaration')
+        else:
+            if not isinstance(evidence['namespaceGuard'], dict):
+                raise RuntimeError('Service activation requires its explicit public Namespace declaration')
+            namespace_guard_desired(evidence['namespaceGuard'])
+        if 'namespaceAuthority' in evidence and (not isinstance(evidence['namespaceAuthority'], list) or
+                len(evidence['namespaceAuthority']) != 2 or any(not isinstance(row, dict) or
+                set(row) != {'uid', 'generation', 'annotations', 'labels', 'spec'} or
+                not isinstance(row['uid'], str) or not row['uid'] or type(row['generation']) is not int or
+                row['generation'] < 1 or any(not isinstance(row[key], dict) for key in ('annotations', 'labels', 'spec'))
+                for row in evidence['namespaceAuthority'])):
+            raise RuntimeError('Service activation Namespace authority is incomplete')
         catalog = evidence['catalog']
         if (not re.fullmatch('[a-f0-9]{40}', evidence['revision'] or '') or not isinstance(catalog, dict)
                 or set(catalog) != {'catalog', 'dataApprovals'} or not isinstance(catalog['catalog'], list)
@@ -85,9 +109,28 @@ def sources_match(app, evidence):
             and sources[1] == {'repoURL': evidence['private_repository'], 'targetRevision': 'main', 'ref': 'values'})
 
 
-def guard(evidence, target, read, root=None):
-    """Refuse initial adoption of foreign objects; never create or repair resources."""
+def namespace_preflight(evidence, target, read, root=None, *, probe=None):
+    """Qualify the public installer while its reconciler can still run."""
     evidence = validate(evidence, target, root)
+    if not evidence['required']:
+        return evidence
+    if probe is None:
+        raise RuntimeError('Service activation requires its Namespace server dry-run adapter')
+    from playbooks.admission.files.namespace_guard import qualify
+    evidence['namespaceAuthority'] = qualify(evidence['namespaceGuard'], read, probe,
+        evidence.get('namespaceAuthority'))
+    return evidence
+
+
+def guard(evidence, target, read, root=None, *, probe=None):
+    """Refuse initial adoption of foreign objects; never create or repair resources."""
+    evidence = namespace_preflight(evidence, target, read, root, probe=probe)
+    return authority_guard(evidence, target, read, root)
+
+
+def authority_guard(evidence, target, read, root=None):
+    """Preserve catalog ownership checks independently of new Namespace readiness."""
+    evidence = validate(evidence, target, root, allow_missing_namespace_guard=True)
     if not evidence['required']:
         return evidence
     entries = evidence['catalog']['catalog']

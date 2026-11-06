@@ -59,6 +59,38 @@ class NativeAccessTests(unittest.TestCase):
             if change == 'unapproved': root['spec']['source']['helm']['valuesObject']['identity']['argo']['valuesRevision'] = 'e' * 40
             with self.subTest(change=change), self.cluster(), self.assertRaises(RuntimeError): native.guard(self.contract)
 
+    def test_binding_accepts_only_legacy_or_exact_versioned_receipt(self):
+        original = copy.deepcopy(self.binding_receipt)
+        for value in (1, None, True, 0, 2, '1'):
+            self.binding_receipt = dict(copy.deepcopy(original), namespaceGuardContract=value)
+            with self.subTest(value=value), self.cluster():
+                if type(value) is int and value == 1:
+                    self.assertEqual(native.binding(self.payload), original['target'])
+                else:
+                    with self.assertRaises(RuntimeError): native.binding(self.payload)
+        self.binding_receipt = dict(original, namespaceGuardContract=1, unexpected=True)
+        with self.cluster(), self.assertRaises(RuntimeError): native.binding(self.payload)
+
+    def test_runtime_packaging_keeps_existing_access_owner_before_its_consumers(self):
+        import yaml
+        tasks = Path(__file__).resolve().parents[1] / 'tasks'
+        main = yaml.safe_load((tasks / 'main.yml').read_text())
+        runtime = yaml.safe_load((tasks / 'runtime.yml').read_text())
+        imports = [row.get('ansible.builtin.import_tasks') for row in main]
+        index = imports.index('runtime.yml')
+        self.assertGreater(index, 0)
+        self.assertLess(index, imports.index('source.yml'))
+        self.assertEqual([row['ansible.builtin.copy']['dest'] for row in runtime if 'ansible.builtin.copy' in row],
+            ['/var/lib/cloudlab/connectivity/{{ item }}'])
+        self.assertEqual(runtime[0]['ansible.builtin.file'],
+            {'path': '/var/lib/cloudlab/connectivity', 'state': 'directory', 'mode': '0700'})
+        self.assertEqual(runtime[1]['loop'], ['initial_bootstrap.py', 'native.py'])
+        self.assertEqual(runtime[1]['ansible.builtin.copy'],
+            {'src': '/workspace/ansible/playbooks/access/files/{{ item }}',
+             'dest': '/var/lib/cloudlab/connectivity/{{ item }}', 'mode': '0600'})
+        self.assertFalse(any(row.get('ansible.builtin.copy', {}).get('dest') == '/var/lib/cloudlab/connectivity/{{ item }}'
+            for row in main))
+
     def test_template_slots_cannot_select_foreign_repository_or_wrong_public_pin(self):
         for change in ('pin', 'repository', 'sha'):
             payload = copy.deepcopy(self.payload)

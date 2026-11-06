@@ -90,8 +90,45 @@ class ServiceBindingTests(unittest.TestCase):
                 self.assertFalse(migration.bind_identity(self.payload, self.target)['changed'])
                 self.assertEqual(len(self.calls), before)
             state = json.loads((base / 'identity-values-binding.json').read_text())
-            self.assertEqual(set(state), {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid'})
+            self.assertEqual(set(state), {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid', 'namespaceGuardContract'})
+            self.assertEqual(state['namespaceGuardContract'], 1)
             self.assertEqual(state['phase'], 'accepted')
+
+    def test_unqualified_native_namespace_guard_fails_before_pause_or_checkpoint(self):
+        for failure in ('missing', 'allowed', 'transport', 'drift'):
+            self.setUp()
+            key = ('validatingadmissionpolicy.admissionregistration.k8s.io', 'cloudlab-workload-namespace-native')
+            if failure == 'missing': self.objects.pop(key)
+            def probe(document):
+                if failure == 'transport': return 1, 'unavailable'
+                if failure == 'allowed': return 0, ''
+                if failure == 'drift': self.objects[key]['metadata']['uid'] = 'replacement'
+                return private_probe(self.payload['argo']['privateActivation'], document)
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                with self.contexts(base), patch.object(migration, 'private_server_probe', side_effect=probe):
+                    with self.assertRaises(RuntimeError): migration.bind_identity(self.payload, self.target)
+                self.assertEqual(self.calls, [])
+                self.assertFalse((base / 'identity-values-binding.json').exists())
+
+    def test_legacy_namespace_declaration_is_never_backfilled_or_versioned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); state = self.pending(base)
+            state['serviceActivation'].pop('namespaceGuard')
+            path = base / 'identity-values-binding.json'; path.write_text(json.dumps(state))
+            with self.contexts(base):
+                migration.hydrate_binding(path, state, self.payload, self.target)
+                self.assertNotIn('namespaceGuard', state['serviceActivation'])
+                self.assertNotIn('namespaceGuardContract', state)
+                self.objects['validatingadmissionpolicy.admissionregistration.k8s.io',
+                    'cloudlab-workload-namespace-native']['metadata']['uid'] = 'replacement'
+                self.assertTrue(bootstrap.resume_identity_binding())
+                self.assertNotIn('namespaceGuardContract', json.loads(path.read_text()))
+            changed = copy.deepcopy(self.payload)
+            changed['argo']['serviceActivation']['catalog']['catalog'][0]['definition'] = {'changed': True}
+            with self.contexts(base):
+                migration.hydrate_binding(path, state, changed, self.target)
+            self.assertNotEqual(state['serviceActivation']['catalog'], changed['argo']['serviceActivation']['catalog'])
 
     def test_full_pending_retry_preserves_captured_data_authority_and_rejects_changed_projection(self):
         fresh = copy.deepcopy(self.payload['argo']['dataActivation'])
@@ -132,7 +169,7 @@ class ServiceBindingTests(unittest.TestCase):
             guard.assert_not_called(); self.assertEqual(self.calls, [])
             self.assertEqual((base / 'identity-values-binding.json').read_bytes(), before)
 
-    def test_foreign_resource_refuses_before_patch_and_safely_resumes_original_root(self):
+    def test_foreign_resource_refuses_before_patch_and_keeps_versioned_original_paused(self):
         self.objects['namespace', 'cloudlab-app-synthetic'] = {'metadata': {'uid': 'foreign'}}
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -140,7 +177,8 @@ class ServiceBindingTests(unittest.TestCase):
             with self.contexts(base), self.assertRaisesRegex(RuntimeError, 'another owner'):
                 migration.bind_identity(self.payload, self.target)
             self.assertFalse(any(call[0] == 'patch' for call in self.calls))
-            self.assertEqual(self.calls[-1][-1], '--replicas=1')
+            self.assertEqual(self.calls, [('pause',)])
+            self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
 
     def test_failed_patch_that_did_not_commit_resumes_original_source(self):
         self.patch_failure = 'before'
@@ -165,7 +203,7 @@ class ServiceBindingTests(unittest.TestCase):
             self.assertFalse(any(call[0] == 'scale' for call in self.calls))
             self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
 
-    def pending(self, base, *, legacy=False):
+    def pending(self, base, *, legacy=False, versioned=False):
         state = copy.deepcopy(self.checkpoint)
         state['serviceActivation'] = copy.deepcopy(self.payload['argo']['serviceActivation'])
         state['privateActivation'] = copy.deepcopy(self.payload['argo']['privateActivation'])
@@ -173,6 +211,11 @@ class ServiceBindingTests(unittest.TestCase):
         self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
         if legacy:
             for key in ('serviceActivation', 'originalSource', 'patchedSource'): state.pop(key)
+        if versioned:
+            from service_activation import namespace_preflight
+            from fixtures import namespace_probe
+            state['namespaceGuardContract'] = 1
+            state['serviceActivation'] = namespace_preflight(state['serviceActivation'], self.target, self.read, probe=namespace_probe)
         (base / 'identity-values-binding.json').write_text(json.dumps(state))
         return state
 
@@ -184,6 +227,179 @@ class ServiceBindingTests(unittest.TestCase):
                 self.assertTrue(bootstrap.resume_identity_binding())
             self.assertEqual(self.calls[-1][-1], '--replicas=1')
             self.assertTrue(any(call[:2] == ('patch', 'appproject.argoproj.io') for call in self.calls))
+
+    def test_actual_patched_source_is_contained_before_missing_namespace_guard_even_with_old_phase(self):
+        original = copy.deepcopy(self.objects)
+        for phase in ('prepared', 'paused', 'source-updated', 'resumed'):
+            for replicas in (0, 1):
+                self.objects = copy.deepcopy(original)
+                self.calls.clear()
+                with self.subTest(phase=phase, replicas=replicas), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    state = self.pending(base, versioned=True)
+                    state['phase'] = phase
+                    state['serviceActivation'].pop('namespaceGuard')
+                    path = base / 'identity-values-binding.json'
+                    path.write_text(json.dumps(state))
+                    before = path.read_bytes()
+                    self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = replicas
+                    with self.contexts(base), self.assertRaisesRegex(RuntimeError, 'Namespace declaration'):
+                        bootstrap.resume_identity_binding()
+                    self.assertEqual(self.calls, [('pause',)] if replicas else [])
+                    self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 0)
+                    self.assertEqual(path.read_bytes(), before)
+
+    def test_running_original_keeps_installer_running_when_namespace_guard_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            state = self.pending(base, versioned=True)
+            state['serviceActivation'].pop('namespaceGuard')
+            root = self.objects['application.argoproj.io', migration.ROOT_APP]
+            root['spec']['source'] = copy.deepcopy(state['originalSource'])
+            self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+            path = base / 'identity-values-binding.json'
+            path.write_text(json.dumps(state))
+            before = path.read_bytes()
+            with self.contexts(base), self.assertRaisesRegex(RuntimeError, 'Namespace declaration'):
+                bootstrap.resume_identity_binding()
+            self.assertEqual(self.calls, [])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 1)
+
+    def test_legacy_original_restores_without_namespace_guard_but_new_transition_must_qualify(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+            state = self.pending(base)
+            state.update(phase='paused', publicRevision=self.payload['revision'])
+            state['serviceActivation'].pop('namespaceGuard')
+            self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+            self.objects.pop(('validatingadmissionpolicy.admissionregistration.k8s.io', 'cloudlab-workload-namespace-native'))
+            path = base / 'identity-values-binding.json'
+            path.write_text(json.dumps(state))
+            before = path.read_bytes()
+            with self.contexts(base):
+                self.assertTrue(bootstrap.resume_identity_binding())
+                self.assertEqual(self.calls, [('scale', 'statefulset/argocd-application-controller', '-n', 'argocd', '--replicas=1')])
+                self.assertEqual(path.read_bytes(), before)
+                self.calls.clear()
+                with self.assertRaisesRegex(RuntimeError, '[Nn]amespace'):
+                    migration.bind_identity(self.payload, self.target)
+                self.assertEqual(sum(call[0] == 'pause' for call in self.calls), 1)
+                self.assertFalse(any(call[0] == 'patch' for call in self.calls))
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_versioned_original_and_desired_matrix_require_stable_native_authority(self):
+        original = copy.deepcopy(self.objects)
+        for source in ('original', 'patched', 'ambiguous'):
+            for replicas in (0, 1):
+                for valid in (False, True):
+                    self.objects = copy.deepcopy(original)
+                    self.calls.clear()
+                    with self.subTest(source=source, replicas=replicas, valid=valid), tempfile.TemporaryDirectory() as directory:
+                        base = Path(directory)
+                        state = self.pending(base, versioned=True)
+                        root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                        if source == 'original': root['spec']['source'] = copy.deepcopy(state['originalSource'])
+                        if source == 'ambiguous': root['spec']['source']['targetRevision'] = 'foreign'
+                        self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = replicas
+                        if not valid:
+                            self.objects['validatingadmissionpolicy.admissionregistration.k8s.io',
+                                'cloudlab-workload-namespace-native']['metadata']['uid'] = 'replacement'
+                        path = base / 'identity-values-binding.json'
+                        before = path.read_bytes()
+                        with self.contexts(base):
+                            if source == 'ambiguous' or not valid:
+                                with self.assertRaises(RuntimeError): bootstrap.resume_identity_binding()
+                                expected = [('pause',)] if replicas and source != 'original' else []
+                                self.assertEqual(self.calls, expected)
+                                self.assertEqual(path.read_bytes(), before)
+                                self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'],
+                                    replicas if source == 'original' else 0)
+                            else:
+                                self.assertTrue(bootstrap.resume_identity_binding())
+                                self.assertEqual(self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'], 1)
+                                self.assertEqual(json.loads(path.read_text())['namespaceGuardContract'], 1)
+
+    def test_contract_marker_and_capture_cannot_be_downgraded_by_any_pending_writer(self):
+        for damage in ('absent', 'null', 'bool', 'unknown', 'guard', 'authority', 'uid', 'disabled'):
+            for action in ('hydrate', 'check', 'resume', 'accept', 'record'):
+                with self.subTest(damage=damage, action=action), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    state = self.pending(base, versioned=True)
+                    path = base / 'identity-values-binding.json'
+                    before = path.read_bytes()
+                    if damage == 'absent': state.pop('namespaceGuardContract')
+                    if damage in ('null', 'bool', 'unknown'):
+                        state['namespaceGuardContract'] = {'null': None, 'bool': True, 'unknown': 2}[damage]
+                    if damage == 'guard': state['serviceActivation'].pop('namespaceGuard')
+                    if damage == 'authority': state['serviceActivation'].pop('namespaceAuthority')
+                    if damage == 'uid': state['serviceActivation']['namespaceAuthority'][0]['uid'] = 'replacement'
+                    if damage == 'disabled': state['serviceActivation']['required'] = False
+                    root = self.objects['application.argoproj.io', migration.ROOT_APP]
+                    operations = {
+                        'hydrate': lambda: migration.hydrate_binding(path, state, self.payload, self.target),
+                        'check': lambda: migration.check_activation(state, root, self.read),
+                        'resume': lambda: migration.safe_identity_resume(state, self.read),
+                        'accept': lambda: migration.accept_binding(path, state),
+                        'record': lambda: migration.record(path, state)}
+                    with self.contexts(base), self.assertRaises(RuntimeError): operations[action]()
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(self.calls, [])
+
+    def test_versioned_normal_and_pending_completions_recheck_guard_before_acceptance(self):
+        original = copy.deepcopy(self.objects)
+        for pending in (False, True):
+            self.objects = copy.deepcopy(original)
+            self.calls.clear()
+            with self.subTest(pending=pending), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                if pending: self.pending(base, versioned=True)
+                path = base / 'identity-values-binding.json'
+                def converged(*args):
+                    self.objects.pop(('validatingadmissionpolicy.admissionregistration.k8s.io', 'cloudlab-workload-namespace-native'), None)
+                with self.contexts(base), patch.object(migration, 'wait_application', side_effect=converged):
+                    with self.assertRaisesRegex(RuntimeError, '[Nn]amespace'):
+                        migration.bind_identity(self.payload, self.target)
+                state = json.loads(path.read_text())
+                self.assertNotEqual(state['phase'], 'accepted')
+                self.assertEqual(state['namespaceGuardContract'], 1)
+
+    def test_contract_marker_is_not_a_caller_input(self):
+        for location in ('payload', 'argo'):
+            proposed = copy.deepcopy(self.payload)
+            (proposed if location == 'payload' else proposed['argo'])['namespaceGuardContract'] = 1
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                with self.contexts(base), self.assertRaisesRegex(RuntimeError, 'runtime-only'):
+                    migration.bind_identity(proposed, self.target)
+                self.assertEqual(self.calls, [])
+                self.assertFalse((base / 'identity-values-binding.json').exists())
+
+    def test_malformed_durable_contract_uses_source_containment_before_rejection(self):
+        original = copy.deepcopy(self.objects)
+        for source in ('original', 'patched'):
+            for replicas in (0, 1):
+                for marker in (None, True, 2):
+                    self.objects = copy.deepcopy(original)
+                    self.calls.clear()
+                    with self.subTest(source=source, replicas=replicas, marker=marker), tempfile.TemporaryDirectory() as directory:
+                        base = Path(directory)
+                        (base / 'checkpoint.json').write_text('{"phase":"accepted"}')
+                        state = self.pending(base, versioned=True)
+                        state['namespaceGuardContract'] = marker
+                        if source == 'original':
+                            self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['source'] = copy.deepcopy(state['originalSource'])
+                        self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = replicas
+                        path = base / 'identity-values-binding.json'
+                        path.write_text(json.dumps(state))
+                        before = path.read_bytes()
+                        with self.contexts(base), self.assertRaisesRegex(RuntimeError, 'Unknown Namespace'):
+                            migration.bind_identity(self.payload, self.target)
+                        self.assertEqual(self.calls, [('pause',)] if source == 'patched' and replicas else [])
+                        self.assertEqual(path.read_bytes(), before)
 
     def test_missing_or_mismatched_pending_activation_never_resumes(self):
         for change in ('missing', 'sha', 'target', 'uid', 'root-source', 'root-project', 'topology'):

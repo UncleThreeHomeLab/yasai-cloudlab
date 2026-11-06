@@ -470,8 +470,11 @@ def wait_root(revision):
 
 def root_guard(state, public, revision, *, recovery=False, preparation=False, root=None):
     binding = receipt(BINDING)
+    fields = {'phase', 'target', 'root_uid', 'project_uid', 'controller_uid'}
     if (not isinstance(binding, dict) or binding.get('phase') != 'accepted'
-            or set(binding) != {'phase', 'target', 'root_uid', 'project_uid', 'controller_uid'}):
+            or set(binding) not in (fields, fields | {'namespaceGuardContract'})
+            or ('namespaceGuardContract' in binding and (type(binding['namespaceGuardContract']) is not int
+                or binding['namespaceGuardContract'] != 1))):
         raise RuntimeError('Data requires the accepted identity binding')
     objects = {}
     for key, kind, name in (('root_uid', 'application.argoproj.io', 'cloudlab-public-root'),

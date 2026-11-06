@@ -35,11 +35,15 @@ class VerificationTests(unittest.TestCase):
 
     def test_checkout_preload_replaces_stale_composition_code_without_executing_catalog_data(self):
         from playbooks.services import files
+        from playbooks.admission import files as admission_files
         name = 'playbooks.services.files.composition_verify'
+        native_name = 'playbooks.admission.files.namespace_guard'
         paths = ('/workspace/ansible/playbooks/services/files/composition_verify.py',
+                 '/workspace/ansible/playbooks/admission/files/namespace_guard.py',
                  '/workspace/ansible/playbooks/admission/files/verify.py')
         sources = {paths[0]: "assert __package__ == 'playbooks.services.files'\nassert __file__ == '/opt/cloudlab/playbooks/services/files/composition_verify.py'\nmarker = 'fresh'\n",
-                   paths[1]: "from playbooks.services.files import composition_verify\nassert composition_verify.marker == 'fresh'\nimport json,sys\nassert json.load(sys.stdin)['verificationSources'] == 'raise RuntimeError()'\n"}
+                   paths[1]: "marker = 'fresh'\n",
+                   paths[2]: "from playbooks.admission.files import namespace_guard\nassert namespace_guard.marker == 'fresh'\nfrom playbooks.services.files import composition_verify\nassert composition_verify.marker == 'fresh'\nimport json,sys\nassert json.load(sys.stdin)['verificationSources'] == 'raise RuntimeError()'\n"}
         playbook = yaml.safe_load((Path(__file__).parents[1] / 'verify.yml').read_text())
         task = next(row for row in playbook[0]['tasks'] if row.get('register') == 'admission_verified')
         script = task['ansible.builtin.command']['argv'][2]
@@ -56,7 +60,11 @@ class VerificationTests(unittest.TestCase):
             rendered = environment.from_string(script).render(lookup=lookup)
             stale = types.ModuleType(name)
             stale.marker = 'stale'
-            with patch.dict(sys.modules, {name: stale}), patch.object(files, 'composition_verify', stale, create=True), \
+            stale_native = types.ModuleType(native_name)
+            stale_native.marker = 'stale'
+            with patch.dict(sys.modules, {name: stale, native_name: stale_native}), \
+                    patch.object(files, 'composition_verify', stale, create=True), \
+                    patch.object(admission_files, 'namespace_guard', stale_native, create=True), \
                     patch.object(sys, 'stdin', io.StringIO('{"verificationSources":"raise RuntimeError()"}')), \
                     patch.object(sys, 'path', list(sys.path)):
                 if broken:

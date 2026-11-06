@@ -75,7 +75,8 @@ def native_argo(values):
                             if private_enabled else None)
         result = {'target': {'valuesRepository': values['PRIVATE_CONFIG_REPOSITORY'], 'valuesRevision': revision},
                 'configuration': contract['helm'], 'client': contract['client'],
-                'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog),
+                'serviceActivation': prepare(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, catalog,
+                    namespace_declaration=yaml.safe_load((ROOT / 'platform/delivery/admission/policies/templates/workload-namespace.yaml').read_text())),
                 'privateActivation': prepare_private(public, values['PRIVATE_CONFIG_REPOSITORY'], revision,
                                                      private_registry, acceptance=acceptance),
                 'accessActivation': prepare_access(public, values['PRIVATE_CONFIG_REPOSITORY'], revision, client),

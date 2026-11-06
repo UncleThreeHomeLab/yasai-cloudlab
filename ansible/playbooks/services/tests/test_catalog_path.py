@@ -35,13 +35,21 @@ class CatalogPathTests(unittest.TestCase):
             self.assertTrue(catalog.converged(new))
             self.assertFalse(catalog.converged(legacy))
         # A legacy receipt with no path can attest only the legacy source.
-        evidence = dict(new, required=True, catalog=new['values'])
-        evidence.pop('values')
         target = {'valuesRepository': new['private_repository'], 'valuesRevision': new['private_revision']}
-        checked = service_activation.guard(evidence, target, lambda kind, name: app if name == 'cloudlab-services' else None)
-        app['spec']['sources'][0]['helm']['valueFiles'][0] = '$values/services/catalog.json'
-        with self.assertRaises(RuntimeError):
-            service_activation.guard(checked, target, lambda kind, name: app if name == 'cloudlab-services' else None)
+        evidence = service_activation.prepare({'repository': new['repository'], 'services': {
+            'enabled': True, 'revision': new['revision'], 'catalogPath': new['catalogPath']},
+            'observability': {'enabled': new['telemetry']}}, target['valuesRepository'], target['valuesRevision'], new['values'])
+        from playbooks.admission.files.namespace_guard import authority, namespace_guard_desired
+        documents = namespace_guard_desired(evidence['namespaceGuard'])
+        for obj in documents:
+            obj['metadata'].update(uid=obj['kind'] + '-uid', generation=1)
+        with patch('playbooks.admission.files.namespace_guard.qualify', return_value=authority(documents)):
+            checked = service_activation.guard(evidence, target,
+                lambda kind, name: app if name == 'cloudlab-services' else None, probe=lambda obj: (0, ''))
+            app['spec']['sources'][0]['helm']['valueFiles'][0] = '$values/services/catalog.json'
+            with self.assertRaises(RuntimeError):
+                service_activation.guard(checked, target,
+                    lambda kind, name: app if name == 'cloudlab-services' else None, probe=lambda obj: (0, ''))
 
     def test_publisher_cannot_update_an_inactive_catalog(self):
         api = Mock()

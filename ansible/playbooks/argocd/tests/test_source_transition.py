@@ -112,6 +112,23 @@ class SourceTransitionTests(unittest.TestCase):
                 migration.accepted_identity_binding(**dict(arguments, **changed))
             read.assert_not_called()
 
+    def test_binding_reader_accepts_exact_versioned_receipt_and_rejects_unknown_contracts(self):
+        for contract in (1, None, True, 0, 2, '1'):
+            objects, receipt, arguments = self.accepted_fixture()
+            receipt['namespaceGuardContract'] = contract
+            with self.subTest(contract=contract), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / 'identity-values-binding.json').write_text(json.dumps(receipt))
+                with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda *key: objects[key]):
+                    if type(contract) is int and contract == 1:
+                        self.assertEqual(migration.accepted_identity_binding(**arguments), receipt['target'])
+                    else:
+                        with self.assertRaises(RuntimeError): migration.accepted_identity_binding(**arguments)
+                receipt['serviceActivation'] = {}
+                (base / 'identity-values-binding.json').write_text(json.dumps(receipt))
+                with patch.object(migration, 'BASE', base), self.assertRaises(RuntimeError):
+                    migration.accepted_identity_binding(**arguments)
+
     def test_identity_binding_resumes_sole_controller_when_root_patch_fails(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)

@@ -7,18 +7,8 @@
   changed_when: (access_policy_result.stdout | from_json).changed
   no_log: true
 
-- name: Create the private access ownership directory
-  ansible.builtin.file:
-    path: /var/lib/cloudlab/connectivity
-    state: directory
-    mode: '0700'
-
-- name: Install the bounded initial seed and read-only access observer
-  ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/access/files/{{ item }}'
-    dest: '/var/lib/cloudlab/connectivity/{{ item }}'
-    mode: '0600'
-  loop: [initial_bootstrap.py, native.py]
+- name: Install the access owner runtime before its consumers
+  ansible.builtin.import_tasks: runtime.yml
 - name: Install the shared administrator guard from its owner
   ansible.builtin.copy:
     src: /workspace/ansible/playbooks/argocd/files/access_activation.py

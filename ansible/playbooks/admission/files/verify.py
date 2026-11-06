@@ -14,7 +14,8 @@ from playbooks.istio.files.kube import application_ready, condition, get, kube, 
 PERMISSIONS_GUARD_NAME = 'cloudlab-permissions-ownership'
 PERMISSIONS_CONTROLLER = 'system:serviceaccount:argocd:argocd-application-controller'
 PERMISSIONS_GUARD_MESSAGE = 'Permission catalog writes require the native Argo owner, exact tracking and an unchanged owned scope.'
-NAMESPACE_GUARD_NAME = 'cloudlab-workload-namespace-native'
+from playbooks.admission.files.namespace_guard import (
+    NAMESPACE_GUARD_NAME, namespace_guard_desired, namespace_guard_validate, namespace_guard_denied)
 
 
 def permission_guard_desired(path=None):
@@ -27,64 +28,6 @@ def permission_input_desired(path=None):
     import yaml
     path = path or Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates/permission-input.yaml'
     return list(yaml.safe_load_all(Path(path).read_text()))
-
-
-def namespace_guard_desired(declaration=None):
-    if declaration is None:
-        import yaml
-        declaration = yaml.safe_load((Path(__file__).resolve().parents[4] /
-            'platform/delivery/admission/policies/templates/workload-namespace.yaml').read_text())
-    if (not isinstance(declaration, dict) or declaration.get('kind') != 'ValidatingPolicy' or
-            declaration.get('metadata', {}).get('name') != 'cloudlab-workload-namespace' or
-            declaration.get('spec', {}).get('failurePolicy') != 'Fail' or
-            declaration['spec'].get('validationActions') != ['Deny'] or
-            not declaration['spec'].get('variables') or not declaration['spec'].get('validations')):
-        raise RuntimeError('Native namespace guard requires its complete declared Namespace contract')
-    policy = {'apiVersion': 'admissionregistration.k8s.io/v1', 'kind': 'ValidatingAdmissionPolicy',
-        'metadata': {'name': NAMESPACE_GUARD_NAME, 'annotations': {
-            'argocd.argoproj.io/sync-wave': '1',
-            'argocd.argoproj.io/sync-options': 'ServerSideApply=true,Prune=false,Delete=false'}},
-        'spec': {'failurePolicy': 'Fail', 'matchConstraints': {
-            'matchPolicy': 'Exact', 'namespaceSelector': {}, 'objectSelector': {}, 'resourceRules': [{
-                'apiGroups': [''], 'apiVersions': ['v1'], 'operations': ['CREATE', 'UPDATE'],
-                'resources': ['namespaces'], 'scope': 'Cluster'}]},
-            'variables': copy.deepcopy(declaration['spec']['variables']),
-            'validations': copy.deepcopy(declaration['spec']['validations'])}}
-    binding = {'apiVersion': 'admissionregistration.k8s.io/v1', 'kind': 'ValidatingAdmissionPolicyBinding',
-        'metadata': {'name': NAMESPACE_GUARD_NAME, 'annotations': {
-            'argocd.argoproj.io/sync-wave': '2',
-            'argocd.argoproj.io/sync-options': 'ServerSideApply=true,Prune=false,Delete=false'}},
-        'spec': {'policyName': NAMESPACE_GUARD_NAME, 'validationActions': ['Deny']}}
-    return [policy, binding]
-
-
-def namespace_guard_validate(documents, declaration=None):
-    expected = namespace_guard_desired(declaration)
-    if not isinstance(documents, list) or len(documents) != 2:
-        raise RuntimeError('Native namespace guard requires its complete policy and binding')
-    for actual, reference in zip(documents, expected, strict=True):
-        kind = reference['kind']
-        marker = 'cloudlab-workload-policy:admissionregistration.k8s.io/' + kind + ':cloudlab-policy/' + NAMESPACE_GUARD_NAME
-        if (not isinstance(actual, dict) or actual.get('apiVersion') != reference['apiVersion'] or
-                actual.get('kind') != kind or actual.get('metadata', {}).get('name') != NAMESPACE_GUARD_NAME or
-                actual.get('spec') != reference['spec'] or
-                any(actual.get('metadata', {}).get('annotations', {}).get(key) != value
-                    for key, value in reference['metadata']['annotations'].items()) or
-                actual.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != marker):
-            raise RuntimeError('Native namespace guard differs from its exact declared owner and scope')
-        if kind == 'ValidatingAdmissionPolicy':
-            status = actual.get('status', {})
-            typing = status.get('typeChecking', {})
-            if (not actual['metadata'].get('generation') or status.get('observedGeneration') != actual['metadata']['generation'] or
-                    not isinstance(typing, dict) or typing.get('expressionWarnings') or
-                    any(row.get('status') == 'False' for row in status.get('conditions', []))):
-                raise RuntimeError('Native namespace guard type-checking is incomplete or has warnings')
-    return True
-
-
-def namespace_guard_denied(diagnostics, message):
-    attribution = "ValidatingAdmissionPolicy '" + NAMESPACE_GUARD_NAME + "' with binding '" + NAMESPACE_GUARD_NAME + "' denied request:"
-    return attribution in diagnostics and message in diagnostics
 
 
 def namespace_guard_create_probe(declaration=None):

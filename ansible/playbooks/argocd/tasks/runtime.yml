@@ -43,3 +43,39 @@
     dest: '/opt/cloudlab/playbooks/argocd/files/{{ item }}'
     mode: '0600'
   loop: [bootstrap.py, source_transition.py, source_revision.py, data_activation.py, source_snapshot.py, github_setup.py, github_app.py, service_activation.py, access_activation.py, private_activation.py, sync_recovery.py, private_sources.py]
+
+- name: Create the bounded GitOps bootstrap tooling directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/gitops
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install the version-controlled GitOps bootstrap implementation
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/argocd/files/{{ item }}'
+    dest: '/opt/cloudlab/gitops/{{ item }}'
+    owner: root
+    group: root
+    mode: '0600'
+  loop: [bootstrap.py, verify.py, private_verify.py, private_retire.py, source_transition.py, source_revision.py, data_activation.py, source_snapshot.py, github_setup.py, github_app.py, service_activation.py, access_activation.py, private_activation.py, private_sources.py, sync_recovery.py, controller_recovery.py]
+
+- name: Install the shared controller stability check from its integration owner
+  ansible.builtin.copy:
+    src: '/workspace/verification/integration/controller_stability.py'
+    dest: /opt/cloudlab/gitops/controller_stability.py
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Create the shared admission verification owner directory
+  ansible.builtin.file:
+    path: /opt/cloudlab/playbooks/admission/files
+    state: directory
+    mode: '0700'
+- name: Install the shared native Namespace qualification helper
+  ansible.builtin.copy:
+    src: /workspace/ansible/playbooks/admission/files/namespace_guard.py
+    dest: /opt/cloudlab/playbooks/admission/files/namespace_guard.py
+    mode: '0600'
