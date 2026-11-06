@@ -1,0 +1,159 @@
+# Access ownership contract: every supported access path with its source, field
+# owner, reconciler, credentials, retention and revocation bounds. Standing rows
+# are the complete explained standing authority; anything else is denied.
+version: cloudlab-access-ownership/v1
+paths:
+  - id: vm-ssh-bootstrap
+    subjects: VM operator accounts
+    source: ignored .env VM credentials
+    fieldOwner: operator
+    reconciler: none (static bootstrap input)
+    credentials: VM passwords in ignored .env only
+    retention: retain
+    revocation: rotate credentials; rebuild host when compromised
+    standing: true
+    notes: Independent recovery access; never in Git or chat.
+  - id: node-bootstrap-secrets
+    subjects: control-plane components
+    source: generated node secrets, preserved across runs
+    fieldOwner: host/k3s bootstrap owner
+    reconciler: none (generated once, preserved)
+    credentials: node-held, root-only paths
+    retention: retain
+    revocation: scoped recovery rotation
+    standing: true
+    notes: Recovery-only; no workload or operator daily use.
+  - id: argo-rbac
+    subjects: Argo UI/API callers
+    source: platform/delivery/argocd values (default no-access, empty policy, admin off, exec off)
+    fieldOwner: delivery/argocd owner
+    reconciler: cloudlab-argocd Application
+    credentials: none granted
+    retention: not-applicable
+    revocation: policy change via reviewed Git
+    standing: false
+    notes: No standing Argo grants; additive mappings remain unqualified.
+  - id: argo-controller
+    subjects: argocd-application-controller ServiceAccount
+    source: pinned upstream chart plus reviewed AppProjects
+    fieldOwner: delivery/argocd owner
+    reconciler: cloudlab-argocd Application
+    credentials: in-cluster ServiceAccount token
+    retention: retain while installed
+    revocation: scoped controller recovery
+    standing: true
+    notes: Scoped by per-project source, destination and resource whitelists.
+  - id: tailnet-administrator
+    subjects: approved tailnet administrator User
+    source: platform/connectivity/access chart with private administrator value
+    fieldOwner: access chart owner
+    reconciler: cloudlab-access Application
+    credentials: administrator identity binding (private value, never in public Git)
+    retention: retain while declared
+    revocation: remove or narrow the binding through reviewed Git
+    standing: true
+    notes: Sole cluster-admin binding; identity comes only from the private values revision.
+  - id: permissions-rbac
+    subjects: private assignments only
+    source: private platform/permissions.yaml at an accepted revision (opaque here)
+    fieldOwner: connectivity/permissions owner
+    reconciler: cloudlab-permissions ApplicationSet once enabled
+    credentials: none; assignments reference existing identities
+    retention: retain owner and roles during retirement
+    revocation: state retired with empty assignments, then binding absence plus fresh denial
+    standing: false
+    notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants.
+  - id: eso-readonly
+    subjects: External Secrets operator
+    source: external-secrets chart plus per-owner ExternalSecrets
+    fieldOwner: secrets owner
+    reconciler: owning Argo Applications
+    credentials: read-only vault service account token
+    retention: retain delivered Secrets under owner deletion policy
+    revocation: remove the ExternalSecret; vault item defaults to Retain
+    standing: true
+    notes: Read-only vault consumer; never creates, rotates or shares items.
+  - id: vault-provisioning-token
+    subjects: local operator only
+    source: ignored .env provisioning token
+    fieldOwner: operator
+    reconciler: none (local custody)
+    credentials: provisioning token, never on hosts or in Kubernetes
+    retention: retain in local custody
+    revocation: rotate in the vault; reissue locally
+    standing: true
+    notes: Only creator of missing approved items; application runners never hold it.
+  - id: workload-identities
+    subjects: per-workload ServiceAccounts
+    source: owning workload charts
+    fieldOwner: owning workload owner
+    reconciler: owning Argo Applications
+    credentials: in-cluster ServiceAccount tokens
+    retention: retain while workload exists
+    revocation: remove the workload binding; held streams can survive until closed
+    standing: true
+    notes: Namespaced and read-mostly; no default cluster bindings; extras need explicit assignment.
+  - id: github-review-boundary
+    subjects: repository administrators (human-gated)
+    source: infra/github-workflows merge and tag guards
+    fieldOwner: repository governance owner
+    reconciler: native provider from reviewed governance YAML
+    credentials: scoped operator credential at apply time
+    retention: prevent-destroy guards on rules
+    revocation: ruleset change through the same reviewed boundary
+    standing: true
+    notes: Release Apps propose only and cannot merge; admins act through a PR.
+  - id: github-workflow-tokens
+    subjects: GitHub Actions workflow runs
+    source: public_platform from reviewed governance YAML via the native provider; private_config from explicit scoped-execution input at apply time
+    fieldOwner: repository governance owner
+    reconciler: native provider from reviewed governance YAML (public); operator-supplied tfvars (private)
+    credentials: ephemeral per-run tokens
+    retention: not-applicable
+    revocation: expiry at run end; public defaults stay read-only without approval rights; private values are set by operator input and reviewed at apply time
+    standing: false
+    notes: No standing workflow credential; public defaults cannot approve PRs. Private defaults are operator-supplied, not reviewed-Git-bound.
+  - id: github-apps
+    subjects: scoped GitHub App installations
+    source: private App bindings (opaque here) plus reviewed repository selection
+    fieldOwner: source owner
+    reconciler: accepted installation; tokens issued per use
+    credentials: App private keys in vault and operator custody
+    retention: retain installation; tokens expire within the hour
+    revocation: uninstall or narrow the installation; revoke outstanding tokens
+    standing: true
+    notes: Single-repository least-privilege tokens; public reads stay disposable and read-only.
+  - id: human-entry
+    subjects: human callers through the private gateway
+    source: access chart proxies with identity-aware entry
+    fieldOwner: access chart owner
+    reconciler: cloudlab-access Application
+    credentials: caller session at the entry point
+    retention: session only
+    revocation: close session; narrow entry policy through reviewed Git
+    standing: false
+    notes: Authenticates callers; grants no Kubernetes or Argo authority by itself.
+  - id: machine-entry
+    subjects: workload OIDC client identities
+    source: approved private client declarations
+    fieldOwner: identity owner
+    reconciler: identity owner
+    credentials: audience-bound short-lived credentials
+    retention: credential lifetime only
+    revocation: remove the client declaration; deny at the backend
+    standing: false
+    notes: No standing Kubernetes grants; incomplete credentials never activate workloads.
+  - id: emergency-recovery
+    subjects: independently held recovery identities
+    source: out-of-band custody, separate from daily identities
+    fieldOwner: platform maintainers
+    reconciler: none (manual, explicitly scoped)
+    credentials: independently held; never ambient
+    retention: retain custody records
+    revocation: rotate after use
+    standing: true
+    notes: Opaque by design; use is exceptional and separately reviewed.
+unsupported:
+  - Temporary grants: no access portal is selected; no temporary-grant mechanism exists.
+  - Private assignment content: opaque private Git; bounded by acceptance, admission and zero active assignments.
+  - Live corroboration: this contract is verified against declarations only; cluster reads need a separate scoped check.

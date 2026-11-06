@@ -81,6 +81,23 @@
           "pattern": "^([a-f0-9]{64})?$"
         }
       }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "configuration": {
+          "type": "object",
+          "required": [
+            "acceptanceCommitment"
+          ],
+          "properties": {
+            "acceptanceCommitment": {
+              "type": "string",
+              "pattern": "^([a-f0-9]{64})?$"
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -1,0 +1,10 @@
+repository: example/public-gitops
+repositoryId: 100
+governance:
+  profile: public-gitops
+  workflowTokenPermissions: read-only
+  workflowsMayApprovePullRequests: false
+  releaseAppsMayMerge: false
+  forcePushes: false
+  branchDeletion: false
+  reviewBoundary: public-pr-merge-guard
