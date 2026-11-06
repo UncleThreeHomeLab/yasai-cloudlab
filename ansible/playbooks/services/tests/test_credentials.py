@@ -9,15 +9,15 @@ import yaml
 from playbooks.services.tests.fixtures import data_secret_values, data_secret_render, data_secret_documents
 
 
-def prices_values():
-    return data_secret_values('cloudlab-app-prices', data={
-        'database': {'name': 'prices', 'credentialReference': 'prices-database', 'retention': 'retain'},
-        'bucket': {'name': 'prices-history', 'credentialReference': 'prices-storage', 'retention': 'retain'}},
+def playground_values():
+    return data_secret_values('cloudlab-app-playground', data={
+        'database': {'name': 'playground', 'credentialReference': 'playground-database', 'retention': 'retain'},
+        'bucket': {'name': 'playground-history', 'credentialReference': 'playground-storage', 'retention': 'retain'}},
         data_approvals={
-            'prices-database': {'kind': 'database', 'service': 'prices', 'name': 'prices',
-                                'item': 'cnpg-prices-production', 'migrationItem': 'cnpg-prices-migration'},
-            'prices-storage': {'kind': 'bucket', 'service': 'prices', 'name': 'prices-history',
-                               'item': 's3-prices-production'}})
+            'playground-database': {'kind': 'database', 'service': 'playground', 'name': 'playground',
+                                'item': 'cnpg-playground-production', 'migrationItem': 'cnpg-playground-migration'},
+            'playground-storage': {'kind': 'bucket', 'service': 'playground', 'name': 'playground-history',
+                               'item': 's3-playground-production'}})
 
 
 class CredentialTests(unittest.TestCase):
@@ -99,44 +99,44 @@ class CredentialTests(unittest.TestCase):
                             self.assertNotIn('<nil>', invalid.stdout)
                             self.assertNotIn('<no value>', invalid.stdout)
 
-    def test_prices_data_secrets_render_with_approved_items(self):
-        values = prices_values()
+    def test_playground_data_secrets_render_with_approved_items(self):
+        values = playground_values()
         entry = values['catalog'][0]
-        self.assertEqual(entry['approval']['name'], 'prices')
-        self.assertEqual(entry['approval']['namespace'], 'cloudlab-app-prices')
-        self.assertEqual(entry['approval']['secretReferences'], ['prices-database', 'prices-storage'])
+        self.assertEqual(entry['approval']['name'], 'playground')
+        self.assertEqual(entry['approval']['namespace'], 'cloudlab-app-playground')
+        self.assertEqual(entry['approval']['secretReferences'], ['playground-database', 'playground-storage'])
         self.assertEqual(entry['definition']['data'], {
-            'database': {'name': 'prices', 'credentialReference': 'prices-database', 'retention': 'retain'},
-            'bucket': {'name': 'prices-history', 'credentialReference': 'prices-storage', 'retention': 'retain'}})
-        selected = data_secret_documents('cloudlab-app-prices', values)
+            'database': {'name': 'playground', 'credentialReference': 'playground-database', 'retention': 'retain'},
+            'bucket': {'name': 'playground-history', 'credentialReference': 'playground-storage', 'retention': 'retain'}})
+        selected = data_secret_documents('cloudlab-app-playground', values)
         secrets = selected['documents']
-        self.assertEqual({obj['metadata']['name'] for obj in secrets}, {'prices-database', 'prices-storage'})
-        self.assertEqual({obj['metadata']['namespace'] for obj in secrets}, {'cloudlab-app-prices'})
-        items = {'prices-database': 'cnpg-prices-production', 'prices-storage': 's3-prices-production'}
+        self.assertEqual({obj['metadata']['name'] for obj in secrets}, {'playground-database', 'playground-storage'})
+        self.assertEqual({obj['metadata']['namespace'] for obj in secrets}, {'cloudlab-app-playground'})
+        items = {'playground-database': 'cnpg-playground-production', 'playground-storage': 's3-playground-production'}
         for obj in secrets:
             name = obj['metadata']['name']
             self.assertEqual(obj['spec']['target']['name'], name)
             self.assertEqual(obj['spec']['target']['deletionPolicy'], 'Retain')
             self.assertEqual(obj['spec']['dataFrom'], [{'extract': {'key': items[name]}}])
 
-    def test_prices_data_templates_refuse_each_missing_or_empty_value(self):
-        result = data_secret_render(prices_values())
+    def test_playground_data_templates_refuse_each_missing_or_empty_value(self):
+        result = data_secret_render(playground_values())
         self.assertEqual(result.returncode, 0, result.stderr)
         objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'ExternalSecret']
         self.assertEqual(len(objects), 2)
-        fields = {'prices-database': ('username', 'password'),
-                  'prices-storage': ('BUCKET', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY', 'ENDPOINT', 'REGION')}
+        fields = {'playground-database': ('username', 'password'),
+                  'playground-storage': ('BUCKET', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY', 'ENDPOINT', 'REGION')}
         with tempfile.TemporaryDirectory() as temporary:
             chart = Path(temporary)
             (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: secret-template-check\nversion: 0.0.0\n')
             (chart / 'templates').mkdir()
-            (chart / 'templates/secret.yaml').write_text('apiVersion: v1\nkind: Secret\nmetadata: {name: prices}\nstringData:\n'
+            (chart / 'templates/secret.yaml').write_text('apiVersion: v1\nkind: Secret\nmetadata: {name: playground}\nstringData:\n'
                 '{{- range $key, $template := .Values.templates }}\n'
                 '  {{ $key | quote }}: {{ tpl $template (merge (dict "Template" $.Template) $.Values.input) | quote }}\n'
                 '{{- end }}\n')
             for obj in objects:
                 name, spec = obj['metadata']['name'], obj['spec']
-                self.assertEqual(obj['metadata']['namespace'], 'cloudlab-app-prices')
+                self.assertEqual(obj['metadata']['namespace'], 'cloudlab-app-playground')
                 self.assertEqual(set(spec['target']['template']['data']), set(fields[name]))
                 source = {field: '0' if index == 0 else 'synthetic\nvalue\n'
                           for index, field in enumerate(fields[name])}
@@ -160,13 +160,13 @@ class CredentialTests(unittest.TestCase):
                             self.assertNotEqual(invalid.returncode, 0)
                             self.assertIn('Required data secret field is missing or empty', invalid.stderr)
 
-    def test_prices_data_scope_mismatch_stays_blocked(self):
+    def test_playground_data_scope_mismatch_stays_blocked(self):
         for reference, field, wrong in (
-                ('prices-database', 'service', 'foreign'), ('prices-database', 'name', 'foreign'),
-                ('prices-database', 'kind', 'bucket'), ('prices-storage', 'service', 'foreign'),
-                ('prices-storage', 'name', 'foreign'), ('prices-storage', 'kind', 'database')):
+                ('playground-database', 'service', 'foreign'), ('playground-database', 'name', 'foreign'),
+                ('playground-database', 'kind', 'bucket'), ('playground-storage', 'service', 'foreign'),
+                ('playground-storage', 'name', 'foreign'), ('playground-storage', 'kind', 'database')):
             with self.subTest(reference=reference, field=field):
-                invalid = copy.deepcopy(prices_values())
+                invalid = copy.deepcopy(playground_values())
                 invalid['dataApprovals'][reference][field] = wrong
                 result = data_secret_render(invalid)
                 self.assertNotEqual(result.returncode, 0)
