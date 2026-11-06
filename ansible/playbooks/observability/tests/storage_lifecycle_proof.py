@@ -2017,6 +2017,14 @@ def cleanup(receipt, payload, deadline):
                 if 'replicas' not in row:
                     row['replicas'] = capture_replicas(row['identity'])
                     receipt.save()
+            fresh_app = app_current(receipt, receipt.value.get('appPhase', 'running'))
+            for value in (app, fresh_app):
+                require(not value['metadata'].get('ownerReferences') and not value['metadata'].get('deletionTimestamp'),
+                        'Application acquired an owner or began deletion')
+            require(all((key in app['metadata']) == (key in fresh_app['metadata'])
+                        and canonical(app['metadata'].get(key)) == canonical(fresh_app['metadata'].get(key))
+                        for key in ('labels', 'annotations')), 'Application ownership metadata changed during cleanup')
+            app = fresh_app
             request_delete(receipt, 'delete-app', app, {'source': payload['source'], 'app': object_id(app)}, deadline=deadline)
             finish_delete(receipt, 'delete-app', deadline)
         else:

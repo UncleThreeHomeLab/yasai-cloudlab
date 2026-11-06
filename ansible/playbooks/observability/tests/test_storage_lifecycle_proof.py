@@ -957,6 +957,70 @@ class StorageProofTests(unittest.TestCase):
                     self.assertEqual([call.args[1] for call in storage.call_args_list], ['loki', 'tempo', 'grafana'])
                     self.assertTrue(receipt.value['cleanupComplete'])
 
+    def test_cleanup_revalidates_application_after_all_guards_without_adopting_metadata_changes(self):
+        class DeleteBoundary(Exception):
+            pass
+        for mutation in ('none', 'labels', 'annotations', 'presence', 'spec', 'uid', 'owner', 'deleting'):
+            with self.subTest(mutation=mutation):
+                receipt = MemoryReceipt()
+                namespace, project, anchor = proof.root_documents(receipt.operation)
+                for index, (key, value) in enumerate((('namespace', namespace), ('project', project), ('app', anchor)), 80):
+                    value['metadata'].update(uid=uid(index), resourceVersion='8')
+                    receipt.value['objects'][key] = proof.object_id(value)
+                anchor['spec']['source']['helm']['valuesObject']['phase'] = 'scaled-down'
+                anchor['metadata']['annotations'] = {}
+                fresh = copy.deepcopy(anchor)
+                fresh['metadata'].update(resourceVersion='9', generation=2)
+                if mutation == 'labels': fresh['metadata']['labels']['unexpected'] = 'writer'
+                if mutation == 'annotations': fresh['metadata']['annotations']['unexpected'] = 'writer'
+                if mutation == 'presence': del fresh['metadata']['annotations']
+                if mutation == 'spec': fresh['spec']['source']['targetRevision'] = 'main'
+                if mutation == 'uid': fresh['metadata']['uid'] = uid(99)
+                if mutation == 'owner': fresh['metadata']['ownerReferences'] = [{'uid': uid(99)}]
+                if mutation == 'deleting': fresh['metadata']['deletionTimestamp'] = '2026-11-05T12:03:00Z'
+                for index, component in enumerate(('loki', 'tempo', 'grafana'), 1):
+                    claim, pv, volume = storage_chain(receipt, component, index)
+                    receipt.value['storage'][component] = {'identity': {'claim': proof.object_id(claim),
+                        'pv': proof.object_id(pv), 'volume': proof.object_id(volume), 'handle': pv['metadata']['name']}}
+                    if component != 'loki': receipt.value['storage'][component]['replicas'] = replica_rows()
+                events, reads = [], {'app': 0}
+                def get(kind, name=None, ns=None, **kwargs):
+                    if kind == 'namespaces': return copy.deepcopy(namespace)
+                    self.assertEqual(kind, 'applications.v1alpha1.argoproj.io')
+                    reads['app'] += 1
+                    events.append('fresh-app' if reads['app'] == 3 else 'anchor')
+                    return copy.deepcopy(fresh if reads['app'] == 3 else anchor)
+                def guard(name, value=None):
+                    def run(*args, **kwargs):
+                        events.append(name)
+                        return value
+                    return run
+                deadline = proof.time.monotonic() + 30
+                def delete(record, key, value, scope, *, deadline):
+                    self.assertEqual(key, 'delete-app')
+                    self.assertEqual(value, fresh)
+                    self.assertEqual(scope, {'source': self.payload['source'], 'app': proof.object_id(anchor)})
+                    self.assertEqual(deadline, expected_deadline)
+                    for step in ('project', 'declared', 'children', 'inventory', 'storage', 'replicas'):
+                        self.assertLess(events.index(step), events.index('fresh-app'))
+                    raise DeleteBoundary()
+                expected_deadline = deadline
+                with patch.object(proof, 'get', side_effect=get), patch.object(proof, 'housekeeping', side_effect=guard('housekeeping')), \
+                     patch.object(proof, 'cleanup_markers', side_effect=guard('markers')), \
+                     patch.object(proof, 'project_guard', side_effect=guard('project')), \
+                     patch.object(proof, 'observe_declared', side_effect=guard('declared')), \
+                     patch.object(proof, 'record_native_children', side_effect=guard('children')), \
+                     patch.object(proof, 'inventory_gate', side_effect=guard('inventory')), \
+                     patch.object(proof, 'bind_storage', side_effect=guard('storage', True)), \
+                     patch.object(proof, 'capture_replicas', side_effect=guard('replicas', replica_rows())), \
+                     patch.object(proof, 'request_delete', side_effect=delete) as deletion:
+                    if mutation == 'none':
+                        with self.assertRaises(DeleteBoundary): proof.cleanup(receipt, self.payload, deadline)
+                        deletion.assert_called_once()
+                    else:
+                        with self.assertRaises(RuntimeError): proof.cleanup(receipt, self.payload, deadline)
+                        deletion.assert_not_called()
+
     def test_surviving_pv_after_native_cascade_is_revalidated_before_delete(self):
         receipt = MemoryReceipt()
         claim, pv, volume = storage_chain(receipt)
@@ -1320,6 +1384,7 @@ class StorageProofTests(unittest.TestCase):
             doc['metadata'].update(uid=uid(index), resourceVersion='8')
             roots[key] = doc
             receipt.value['objects'][key] = proof.object_id(doc)
+        roots['app']['spec']['source']['helm']['valuesObject']['phase'] = 'removed'
         for row in receipt.value['storage'].values(): row['replicas'] = replica_rows()
         state = {'pod': pod}
         def current(identity, *, deadline=None):
@@ -1334,7 +1399,7 @@ class StorageProofTests(unittest.TestCase):
         def delete(record, key, obj, scope, *, deadline):
             if key == 'delete-app': raise RuntimeError('synthetic interruption before App deletion')
             return original_delete(record, key, obj, scope, deadline=deadline)
-        with patch.object(proof, 'marker_claim'), patch.object(proof, 'app_current'), patch.object(proof, 'project_guard'), \
+        with patch.object(proof, 'marker_claim'), patch.object(proof, 'project_guard'), \
              patch.object(proof, 'workload_pods', return_value=[]), patch.object(proof, 'detached', return_value=True), \
              patch.object(proof, 'get', side_effect=lambda kind, *a: state['pod'] if kind == 'pod' else {'kind': 'ServiceAccount'}), \
              patch.object(proof, 'current', side_effect=current), patch.object(proof, 'kubectl', side_effect=native) as client, \
