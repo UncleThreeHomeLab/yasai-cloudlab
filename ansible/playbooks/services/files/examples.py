@@ -37,6 +37,22 @@ def definitions(zone, public_repository, revision, database, bucket):
     return {'catalog':[{'definition':notes,'approval':notes_approval,'publication':'ready'}], 'dataApprovals':grants}
 
 
+def prices_definitions(repository, revision, database='prices', bucket='prices-history'):
+    prices = copy.deepcopy(yaml.safe_load((ROOT / 'apps/synthetic.yaml').read_text()))
+    prices.update(name='prices', owner='platform', exposure={'class': 'none'}, oidc={'enabled': False},
+        data={'database': {'name': database, 'credentialReference': 'prices-database', 'retention': 'retain'},
+              'bucket': {'name': bucket, 'credentialReference': 'prices-storage', 'retention': 'retain'}})
+    validate(prices)
+    approval = {'name': 'prices', 'namespace': 'cloudlab-app-prices', 'repository': repository,
+                'revision': revision, 'valuesPath': 'apps/prices.yaml',
+                'secretReferences': ['prices-database', 'prices-storage'], 'configMaps': [], 'visibility': 'public', 'egress': []}
+    grants = {
+        'prices-database': {'kind': 'database', 'service': 'prices', 'name': database,
+                            'item': 'cnpg-prices-production', 'migrationItem': 'cnpg-prices-migration'},
+        'prices-storage': {'kind': 'bucket', 'service': 'prices', 'name': bucket, 'item': 's3-prices-production'}}
+    return {'catalog': [{'definition': prices, 'approval': approval, 'publication': 'ready'}], 'dataApprovals': grants}
+
+
 def prepare():
     environment = dotenv_values(ROOT / '.env', interpolate=False)
     os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = environment.get('OP_SERVICE_ACCOUNT_TOKEN') or ''
