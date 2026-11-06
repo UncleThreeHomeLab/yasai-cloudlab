@@ -1,6 +1,7 @@
 """Offline fixed-scope proof procedure tests; these do not qualify a controller."""
 import base64
 import copy
+from contextlib import nullcontext
 import hashlib
 import json
 from pathlib import Path
@@ -28,6 +29,8 @@ class SourceAcceptanceProofTests(unittest.TestCase):
         cls.public = yaml.safe_load(cls.root_files['values.yaml'])
 
     def setUp(self):
+        session = patch.object(proof.native, 'public_metadata', side_effect=lambda *a, **k: nullcontext(proof.native.source_snapshot.request))
+        session.start(); self.addCleanup(session.stop)
         self.profile = proof.REGISTRY_PROFILE
         self.config = {'version': proof.VERSION, 'attempt': '1' * 32, 'publicRevision': 'f' * 40,
             'privateRepository': 'https://github.com/example/private.git', 'privateBranch': 'proof/prices-source-' + '2' * 32,
@@ -739,8 +742,12 @@ class SourceAcceptanceProofTests(unittest.TestCase):
                 'sha': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
             for path, chart in charts.items() for name, data in chart.items()]}
         real_chart_files = proof.native.source_snapshot.chart_files
+        raw_deadlines = []
+        def raw_file(source, name, size, deadline):
+            raw_deadlines.append(deadline)
+            return charts[source['path']][name]
         def chart_snapshot(source, **kwargs):
-            return real_chart_files(source, read_file=lambda source, name, size, deadline: charts[source['path']][name], **kwargs)
+            return real_chart_files(source, read_file=raw_file, **kwargs)
         def metadata_request(path, deadline):
             if path == commit_path: return commit
             if path == tree_path: return tree
@@ -780,4 +787,11 @@ class SourceAcceptanceProofTests(unittest.TestCase):
             lock_file['sha'] = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
             controller['spec']['template']['spec']['containers'][0]['args'][-1] = '--enable-policy-override=true'
             with self.assertRaises(proof.ProofError): self.call(proof.context, self.config)
+            controller['spec']['template']['spec']['containers'][0]['args'][-1] = '--enable-policy-override=false'
+            raw_deadlines.clear(); metadata_request.deadline = 150
+            with patch.object(proof.native, 'public_metadata', side_effect=lambda *a, **k: nullcontext(metadata_request)), \
+                    patch.object(proof.time, 'monotonic', return_value=0):
+                self.call(proof.context, self.config)
+            self.assertTrue(raw_deadlines)
+            self.assertEqual(set(raw_deadlines), {150})
         self.assertEqual(self.writes, [])

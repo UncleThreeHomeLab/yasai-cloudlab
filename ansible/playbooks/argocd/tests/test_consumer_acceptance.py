@@ -1,6 +1,7 @@
 """Consumer proof validation and exact native gate; no controller qualification."""
 import base64
 import copy
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import os
@@ -116,6 +117,7 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         baseline = {'configuration_revision': 'a' * 40}
         with patch('playbooks.argocd.files.github_app.configuration_revision', side_effect=lambda *args, **kwargs: baseline.copy()), \
                 patch('playbooks.services.files.source.read_consumer', return_value=evidence) as read, \
+                patch('playbooks.services.files.source.public_source_metadata', side_effect=lambda *a, **k: nullcontext(Mock())), \
                 patch('playbooks.data.files.native.source_snapshot.chart_files', return_value=files) as snapshot:
             result = verification_payload(values, public)
             read.assert_called_once_with(values, 'permissions', public=public)
@@ -128,6 +130,56 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             public['permissions']['enabled'] = False
             self.assertEqual(verification_payload(values, public), baseline)
             read.assert_not_called(); snapshot.assert_not_called()
+
+    def test_verification_payload_authenticates_chart_metadata_and_revokes_before_render(self):
+        from private_sources import verification_payload, acceptance_spec
+        from playbooks.services.files import source
+        public, receipt = fixture('permissions')
+        private = 'https://github.com/UncleThreeHomeLab/private.git'
+        public['repository'] = source.PUBLIC_REPOSITORY
+        public['permissions']['acceptanceCommitment'] = hashlib.sha256(('\n'.join([
+            receipt['version'], receipt['consumer'], private, '1', *receipt['paths'], receipt['revision'], receipt['nonce'], ''])).encode()).hexdigest()
+        chart = ROOT / 'gitops/roots/public'
+        files = {path.relative_to(chart).as_posix(): path.read_bytes() for path in chart.rglob('*') if path.is_file()}
+        public = yaml.safe_load(files['values.yaml']) | {'repository': public['repository'], 'permissions': public['permissions']}
+        files['values.yaml'] = yaml.safe_dump(public).encode()
+        evidence = {'publicRevision': 'c' * 40, 'acceptedRevision': receipt['revision'],
+            'acceptanceCommitment': public['permissions']['acceptanceCommitment'], 'acceptanceReceipt': receipt}
+        tree_sha = 'e' * 40
+        tree = {'sha': tree_sha, 'truncated': False, 'tree': [{'path': 'gitops/roots/public/' + name,
+            'type': 'blob', 'mode': '100644', 'size': len(raw), 'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()}
+            for name, raw in files.items()]}
+        events = []
+        def fetch(path, deadline):
+            events.append('metadata')
+            if '/git/commits/' in path: return {'sha': 'c' * 40, 'tree': {'sha': tree_sha}}
+            self.assertTrue(path.endswith('/git/trees/' + tree_sha + '?recursive=1')); return tree
+        fetch.deadline = 60
+        @contextmanager
+        def session(credentials, *, deadline):
+            self.assertEqual(credentials, {'synthetic': True}); events.append('issued')
+            yield fetch
+            events.append('revoked')
+        def render(*args, **kwargs):
+            self.assertEqual(events[-1], 'revoked')
+            return acceptance_spec(*args, **kwargs)
+        import playbooks.argocd.files.source_snapshot as snapshot
+        real_chart_files = snapshot.chart_files
+        def chart_files(selected, **kwargs):
+            def raw(source, name, size, deadline):
+                self.assertEqual(deadline, 60); return files[name]
+            return real_chart_files(selected, read_file=raw, **kwargs)
+        with patch('playbooks.argocd.files.github_app.configuration_revision', return_value={'configuration_revision': 'a' * 40}), \
+                patch.object(source, 'read_consumer', return_value=evidence), \
+                patch.object(source, 'fields', return_value={'synthetic': True}) as fields, \
+                patch.object(source, 'public_metadata', side_effect=session), \
+                patch.object(source.time, 'monotonic', return_value=0), \
+                patch.object(snapshot, 'request', side_effect=AssertionError('Anonymous metadata unavailable')), \
+                patch.object(snapshot, 'chart_files', side_effect=chart_files), patch('private_sources.acceptance_spec', side_effect=render):
+            result = verification_payload({'PRIVATE_CONFIG_REPOSITORY': private}, public)
+        fields.assert_called_once_with('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+        self.assertEqual(events, ['issued', 'metadata', 'metadata', 'revoked'])
+        self.assertEqual(result['permissions']['acceptedRevision'], receipt['revision'])
 
     def test_both_consumers_match_exact_native_effective_input_and_alternate_catalog_paths(self):
         for consumer, path in (('observability', 'services/catalog.json'), ('observability', 'services/catalog-selected.yaml'), ('permissions', 'services/catalog.json')):

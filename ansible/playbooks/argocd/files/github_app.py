@@ -1,5 +1,7 @@
 """Verify the scoped Argo GitHub App without exposing credentials or repo names."""
 import base64
+from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -20,6 +22,10 @@ ROOT = next((parent for parent in Path(__file__).resolve().parents if (parent / 
 ITEM = 'github-argocd'
 FIELDS = ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')
 REPOSITORIES = ('PRIVATE_CONFIG_REPOSITORY',)
+PUBLIC_READER = 'UncleThreeHomeLab/yasai-cloudlab'
+PUBLIC_REPOSITORY = 'https://github.com/' + PUBLIC_READER + '.git'
+PUBLIC_CLEANUP_SECONDS = 30
+PUBLIC_METADATA_BYTES = 8 * 1024 * 1024
 
 
 def app_token(credentials):
@@ -64,8 +70,94 @@ def verify_repositories(document, targets):
             'designated_repositories_verified': len(targets)}
 
 
+def public_metadata_path(path):
+    """Accept only fixed-repository metadata, never URLs or symbolic file refs."""
+    prefix = 'repos/' + PUBLIC_READER + '/'
+    if not isinstance(path, str) or not path.startswith(prefix):
+        raise ValueError('Public metadata endpoint is outside the trusted reader role')
+    suffix = path[len(prefix):]
+    if not (suffix == 'branches/main' or
+            re.fullmatch(r'git/commits/[a-f0-9]{40}', suffix) or
+            re.fullmatch(r'git/trees/[a-f0-9]{40}[?]recursive=1', suffix) or
+            re.fullmatch(r'contents/[A-Za-z0-9_./-]+[?]ref=[a-f0-9]{40}', suffix)):
+        raise ValueError('Public metadata endpoint is outside the trusted reader role')
+    if any(part in ('', '.', '..') for part in suffix.split('?')[0].split('/')):
+        raise ValueError('Public metadata endpoint contains an unsafe path')
+    return path
+
+
+@contextmanager
+def public_metadata(credentials, *, deadline):
+    """One explicit fixed-role acquisition; successful cleanup precedes caller writes."""
+    work_deadline = deadline - PUBLIC_CLEANUP_SECONDS
+    token, client, stage, active = None, None, 'credentials', False
+    try:
+        try:
+            if time.monotonic() >= work_deadline:
+                raise RuntimeError('Public metadata acquisition expired')
+            api = GitHub(app_token(credentials), deadline=work_deadline, max_response=PUBLIC_METADATA_BYTES)
+            path = 'app/installations/' + credentials['INSTALLATION_ID']
+            stage = 'installation'
+            verify_installation(api.request('GET', path), credentials['APP_ID'])
+            stage = 'issuance; token cleanup: issuance-unconfirmed'
+            issued = api.request('POST', path + '/access_tokens', {
+                'repositories': [PUBLIC_READER.split('/')[1]], 'permissions': {'contents': 'read'}})
+            token = issued.get('token')
+            if not isinstance(token, str) or not token or any(char in token for char in ('\n', '\r')):
+                raise RuntimeError('Invalid public reader token')
+            stage = 'token scope'
+            expires = datetime.strptime(issued.get('expires_at', ''), '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+            if (issued.get('permissions') != {'contents': 'read', 'metadata': 'read'} or
+                    issued.get('repository_selection') != 'selected' or
+                    not time.time() + max(0, work_deadline - time.monotonic()) < expires <= time.time() + 3660):
+                raise RuntimeError('Public reader token scope or expiry differs')
+            client = GitHub(token, deadline=work_deadline, max_response=PUBLIC_METADATA_BYTES)
+            stage = 'public repository prerequisite'
+            inventory = client.request('GET', 'installation/repositories?per_page=100')
+            entries = inventory.get('repositories')
+            if type(inventory.get('total_count')) is not int or inventory['total_count'] != 1 or not isinstance(entries, list) or len(entries) != 1:
+                raise RuntimeError('Public reader requires exactly its trusted repository')
+            entry = entries[0]
+            if (not isinstance(entry, dict) or entry.get('full_name') != PUBLIC_READER or
+                    any(entry.get(field) is not False for field in ('private', 'fork', 'archived', 'disabled')) or
+                    entry.get('default_branch') != 'main'):
+                raise RuntimeError('Public reader repository identity differs')
+            active = True
+        except Exception:
+            raise RuntimeError('Public metadata acquisition failed at ' + stage +
+                '; select the public repository in the existing read App before native handoff') from None
+        def fetch(path, read_deadline):
+            if not active:
+                raise RuntimeError('Public metadata session is closed')
+            path = public_metadata_path(path)
+            client.deadline = min(work_deadline, read_deadline)
+            try:
+                return client.request('GET', path)
+            except Exception:
+                raise RuntimeError('Public metadata read failed; private diagnostics withheld') from None
+        fetch.deadline = work_deadline
+        yield fetch
+        if time.monotonic() >= work_deadline:
+            raise RuntimeError('Public metadata acquisition exceeded its deadline')
+    finally:
+        active = False
+        if client is not None:
+            client.token = ''
+        if isinstance(token, str) and token:
+            try:
+                revoked = GitHub(token, deadline=min(deadline, time.monotonic() + PUBLIC_CLEANUP_SECONDS),
+                    max_response=PUBLIC_METADATA_BYTES).request('DELETE', 'installation/token')
+                if revoked is not None:
+                    raise RuntimeError('Revocation was not acknowledged')
+            except Exception:
+                raise RuntimeError('Public metadata token cleanup: unconfirmed; writes blocked') from None
+            if time.monotonic() > deadline:
+                raise RuntimeError('Public metadata acquisition exceeded its deadline; token cleanup: revoked')
+
+
 def verify(credentials, values):
     targets = {field: repository(values.get(field)) for field in REPOSITORIES}
+    targets['PUBLIC_PLATFORM_REPOSITORY'] = PUBLIC_READER
     if len(set(value.lower() for value in targets.values())) != len(targets):
         raise RuntimeError('Private configuration repository inputs must be distinct')
     api = GitHub(app_token(credentials))

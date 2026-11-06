@@ -73,6 +73,8 @@ def chart_files(source, *, fetch=request, read_file=download, deadline=None, req
     if not re.fullmatch('[a-f0-9]{40}', revision or ''):
         raise ValueError('Git owner requires an immutable commit')
     deadline = deadline if deadline is not None else time.monotonic() + 90
+    session_deadline = getattr(fetch, 'deadline', None)
+    if type(session_deadline) in (int, float): deadline = min(deadline, session_deadline)
     prefix = 'repos/' + repo + '/git/'
     def read(path):
         if time.monotonic() >= deadline:

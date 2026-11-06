@@ -1,9 +1,11 @@
 import copy
+from contextlib import nullcontext
 import base64
 import json
 import hashlib
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -11,7 +13,100 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'verification/integ
 from private_verify import healthy, configuration_healthy, credential_owner, controller_items, run
 from private_activation import APP, OWNER, TRACKING
 from controller_stability import fingerprint
-from fixtures import source_approval
+from fixtures import source_approval, first_binding_observation
+
+
+class FirstBindingVerificationTests(unittest.TestCase):
+    def test_run_explicitly_derives_anonymous_first_binding_before_permissions_reads(self):
+        from playbooks.data.files import native
+        from playbooks.argocd.files import github_app, source_transition
+        for patched, replicas, phase in ((False, 0, 'paused'), (True, 0, 'paused'), (True, 1, 'resumed')):
+            public, objects, binding = first_binding_observation(patched=patched, replicas=replicas)
+            binding['phase'] = phase
+            repository = binding['target']['valuesRepository']
+            permissions = {'contract': {'context': {'repository': public['repository']}}}
+            payload = {'configuration_repository': repository, 'configuration_revision': 'a' * 40, 'permissions': permissions}
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); path = base / 'identity-values-binding.json'; path.write_text(json.dumps(binding))
+                def declaration(evidence, selected, *, first_binding, recovery):
+                    self.assertIsNone(recovery)
+                    self.assertEqual(selected, repository); self.assertEqual(first_binding['checkpoint'], binding)
+                    self.assertEqual(first_binding['sourceState'], 'patched' if patched else 'original')
+                    with native.public_metadata({'publicSource': {'repository': public['repository'], 'branch': 'main'}},
+                            deadline=280, first_binding=first_binding) as fetch:
+                        self.assertIs(fetch, native.source_snapshot.request)
+                    source_transition.pending_root_context(first_binding, public, first_binding=True)
+                    raise RuntimeError('first binding checked')
+                with patch.object(source_transition, 'BASE', base), patch.object(native, 'BINDING', path), \
+                        patch.object(native, 'receipt', side_effect=lambda path, **kwargs: json.loads(path.read_text())), \
+                        patch.object(source_transition, 'get', side_effect=lambda *key: objects.get(key)), \
+                        patch.object(native, 'kube', return_value='{"items": []}'), \
+                        patch.object(native, 'source_credentials') as credentials, patch.object(github_app, 'public_metadata') as mint, \
+                        patch('private_verify.kube', return_value='{"items": []}'), \
+                        patch('private_verify.permissions_declaration', side_effect=declaration) as declared:
+                    with self.assertRaisesRegex(RuntimeError, 'first binding checked'): run(payload)
+                    declared.assert_called_once(); credentials.assert_not_called(); mint.assert_not_called()
+
+    def test_run_derives_established_pending_recovery_and_uses_original_reader(self):
+        from playbooks.data.files import native
+        from playbooks.argocd.files import github_app, source_transition
+        for patched, replicas in ((False, 0), (True, 0), (True, 1)):
+            public, objects, binding = first_binding_observation(patched=patched, replicas=replicas)
+            old = dict(binding['target'], valuesRevision='c' * 40)
+            binding['originalSource']['helm']['valuesObject']['identity']['argo'] = old
+            root = objects['application.argoproj.io', 'cloudlab-public-root']
+            root['spec']['source'] = copy.deepcopy(binding['patchedSource'] if patched else binding['originalSource'])
+            repository = binding['target']['valuesRepository']
+            payload = {'configuration_repository': repository, 'configuration_revision': 'a' * 40,
+                'permissions': {'contract': {'context': {'repository': public['repository']}}}}
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); path = base / 'identity-values-binding.json'; path.write_text(json.dumps(binding))
+                def declaration(evidence, selected, *, first_binding, recovery):
+                    self.assertIsNone(first_binding); self.assertEqual(recovery['checkpoint'], binding)
+                    self.assertEqual(recovery['sourceState'], 'patched' if patched else 'original')
+                    coordinates = {'publicSource': {'repository': public['repository'], 'branch': 'main'}}
+                    with self.assertRaises(RuntimeError), native.public_metadata(coordinates, deadline=280, first_binding=recovery): pass
+                    credentials.assert_not_called(); mint.assert_not_called()
+                    with native.public_metadata(coordinates, deadline=280, recovery=recovery) as fetch:
+                        self.assertEqual(fetch, 'authenticated-fetch')
+                    credentials.assert_called_once_with(old['valuesRepository'])
+                    source_transition.pending_root_context(recovery, public)
+                    raise RuntimeError('established recovery checked')
+                with patch.object(source_transition, 'BASE', base), patch.object(native, 'BINDING', path), \
+                        patch.object(native, 'receipt', side_effect=lambda path, **kwargs: json.loads(path.read_text())), \
+                        patch.object(source_transition, 'get', side_effect=lambda *key: objects.get(key)), \
+                        patch.object(native, 'kube', return_value='{"items": []}'), \
+                        patch.object(native, 'source_credentials', return_value={'synthetic': True}) as credentials, \
+                        patch.object(github_app, 'public_metadata', side_effect=lambda *a, **k: nullcontext('authenticated-fetch')) as mint, \
+                        patch('private_verify.kube', return_value='{"items": []}'), \
+                        patch('private_verify.permissions_declaration', side_effect=declaration) as declared:
+                    with self.assertRaisesRegex(RuntimeError, 'established recovery checked'): run(payload)
+                    declared.assert_called_once(); mint.assert_called_once_with({'synthetic': True}, deadline=280)
+
+    def test_first_binding_refuses_changed_authority_sources_and_unconfirmed_quiescence(self):
+        from playbooks.data.files import native
+        from playbooks.argocd.files import github_app, source_transition
+        from private_verify import pending_verification_context
+        for change in ('patch', 'uid', 'target-ref', 'public-ref', 'pods', 'foreign-target', 'source'):
+            public, objects, binding = first_binding_observation(patched=True, replicas=0)
+            repository = binding['target']['valuesRepository']
+            if change == 'patch': binding['patchedSource']['helm']['valuesObject']['foreign'] = True
+            if change == 'uid': objects['statefulset', 'argocd-application-controller']['metadata']['uid'] = 'changed'
+            if change == 'target-ref': binding['target']['valuesRevision'] = 'main'
+            if change == 'public-ref': binding['publicRevision'] = 'main'
+            if change == 'foreign-target': binding['target']['valuesRepository'] = 'https://github.com/other/private.git'
+            if change == 'source': objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source']['path'] = 'other'
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory); path = base / 'identity-values-binding.json'; path.write_text(json.dumps(binding))
+                pods = {'items': [{'metadata': {'ownerReferences': [{'uid': 'controller'}]}}]} if change == 'pods' else {'items': []}
+                with patch.object(source_transition, 'BASE', base), patch.object(native, 'BINDING', path), \
+                        patch.object(native, 'receipt', side_effect=lambda path, **kwargs: json.loads(path.read_text())), \
+                        patch.object(source_transition, 'get', side_effect=lambda *key: objects.get(key)), \
+                        patch.object(native, 'kube', return_value=json.dumps(pods)), \
+                        patch.object(native, 'source_credentials') as credentials, patch.object(github_app, 'public_metadata') as mint:
+                    with self.assertRaises((RuntimeError, ValueError)):
+                        pending_verification_context({'contract': {'context': {'repository': public['repository']}}}, repository)
+                    credentials.assert_not_called(); mint.assert_not_called()
 
 
 class PermissionsConvergenceTests(unittest.TestCase):
@@ -38,7 +133,8 @@ class PermissionsConvergenceTests(unittest.TestCase):
         cls.evidence = {'publicRevision': 'c' * 40, 'acceptedRevision': receipt['revision'],
             'acceptanceCommitment': commitment, 'acceptanceReceipt': receipt,
             'contract': consumer_contract(cls.public, 'permissions'), 'applicationSet': cls.spec}
-        with patch('playbooks.data.files.native.published_source', return_value=(cls.public, 'c' * 40)), \
+        with patch('playbooks.data.files.native.public_metadata', side_effect=lambda *a, **k: nullcontext()), \
+                patch('playbooks.data.files.native.published_source', return_value=(cls.public, 'c' * 40)), \
                 patch('playbooks.data.files.native.source_snapshot.chart_files', side_effect=lambda source, **kwargs: cls.snapshots[source['path']]):
             cls.guard = permissions_declaration(cls.evidence, cls.repository)
 
@@ -108,12 +204,33 @@ class PermissionsConvergenceTests(unittest.TestCase):
 
     def test_declaration_authenticates_current_public_intent_and_native_snapshots(self):
         from private_verify import permissions_declaration
-        with patch('playbooks.data.files.native.published_source', return_value=(self.public, 'c' * 40)), \
+        with patch('playbooks.data.files.native.public_metadata', side_effect=lambda *a, **k: nullcontext()), \
+                patch('playbooks.data.files.native.published_source', return_value=(self.public, 'c' * 40)), \
                 patch('playbooks.data.files.native.source_snapshot.chart_files', side_effect=lambda source, **kwargs: self.snapshots[source['path']]):
             self.assertEqual(permissions_declaration(self.evidence, self.repository), self.guard)
             for field, value in (('publicRevision', 'e' * 40), ('acceptedRevision', 'e' * 40), ('applicationSet', {})):
                 with self.subTest(field=field), self.assertRaises((RuntimeError, ValueError)):
                     permissions_declaration(dict(self.evidence, **{field: value}), self.repository)
+
+    def test_first_binding_declaration_revalidates_fresh_public_compatibility_before_return(self):
+        from private_verify import permissions_declaration
+        envelope = {'checkpoint': {'phase': 'resumed'}}
+        with patch('playbooks.data.files.native.public_metadata', side_effect=lambda *a, **k: nullcontext()) as session, \
+                patch('playbooks.data.files.native.published_source', return_value=(self.public, 'c' * 40)), \
+                patch('playbooks.data.files.native.source_snapshot.chart_files', side_effect=lambda source, **kwargs: self.snapshots[source['path']]), \
+                patch('playbooks.argocd.files.source_transition.pending_root_context') as guard:
+            self.assertEqual(permissions_declaration(self.evidence, self.repository, first_binding=envelope), self.guard)
+            self.assertEqual(guard.call_count, 2)
+            guard.assert_called_with(envelope, self.public, first_binding=True)
+            self.assertIs(session.call_args.kwargs['first_binding'], envelope)
+            guard.reset_mock()
+            self.assertEqual(permissions_declaration(self.evidence, self.repository, recovery=envelope), self.guard)
+            self.assertEqual(guard.call_count, 2)
+            guard.assert_called_with(envelope, self.public, first_binding=False)
+            self.assertIs(session.call_args.kwargs['recovery'], envelope)
+            guard.side_effect = RuntimeError('changed public authority')
+            with self.assertRaisesRegex(RuntimeError, 'changed public authority'):
+                permissions_declaration(self.evidence, self.repository, first_binding=envelope)
 
     def test_root_alternative_helm_inputs_cannot_override_authenticated_values(self):
         from private_verify import permissions_healthy

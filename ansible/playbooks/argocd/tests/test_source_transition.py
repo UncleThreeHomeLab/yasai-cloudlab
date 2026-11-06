@@ -26,6 +26,42 @@ class SourceTransitionTests(unittest.TestCase):
                      'private_repository': target['valuesRepository']}
         return objects, receipt, arguments
 
+    def test_pending_pre_public_authority_preserves_both_profiles_and_quiescence(self):
+        from playbooks.data.files import native
+        from private_activation import prepare
+        objects, _, arguments = self.accepted_fixture()
+        root = objects['application.argoproj.io', migration.ROOT_APP]
+        old = copy.deepcopy(root['spec']['source']['helm']['valuesObject']['identity']['argo'])
+        new = dict(old, valuesRevision='c' * 40)
+        root['spec']['source']['helm']['releaseName'] = 'cloudlab-public-root'
+        root['spec']['destination'] = {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
+        root['spec']['ignoreDifferences'] = native.delegations()
+        root['spec']['syncPolicy'] = {'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']}
+        objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 0
+        original = copy.deepcopy(root['spec']['source'])
+        patched = copy.deepcopy(original); patched['helm']['valuesObject']['identity']['argo'] = new
+        recorded = {'phase': 'paused', 'target': new, 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project',
+            'publicRevision': 'b' * 40, 'originalSource': original, 'patchedSource': patched,
+            'privateActivation': prepare({'repository': arguments['repository']}, new['valuesRepository'], new['valuesRevision'])}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); path = base / 'identity-values-binding.json'; path.write_text(json.dumps(recorded))
+            with patch.object(migration, 'BASE', base), patch.object(migration, 'get', side_effect=lambda *key: objects[key]), \
+                    patch.object(native, 'receipt', side_effect=lambda path: json.loads(path.read_text())), \
+                    patch.object(native, 'kube', return_value='{"items": []}') as pods, \
+                    patch.object(native, 'source_credentials', side_effect=AssertionError('Pre-public authority cannot read credentials')):
+                for state, source in (('original', original), ('patched', patched)):
+                    root['spec']['source'] = copy.deepcopy(source)
+                    recovery = {'checkpoint': recorded, 'sourceState': state, 'rootSource': source}
+                    self.assertEqual(migration.pending_root_authority(recovery, arguments['repository']), (root, [old, new]))
+                    public = {'repository': arguments['repository'], 'identity': {'enabled': True, 'argo': old}}
+                    self.assertEqual(migration.pending_root_context(recovery, public), (root, [old, new]))
+                    pods.return_value = json.dumps({'items': [{'metadata': {'ownerReferences': [{'uid': 'controller'}]}}]})
+                    with self.assertRaisesRegex(RuntimeError, 'quiesced'):
+                        migration.pending_root_authority(recovery, arguments['repository'])
+                    pods.return_value = '{"items": []}'
+                    changed = copy.deepcopy(recovery); changed['checkpoint']['originalSource']['helm']['valuesObject']['identity'].pop('argo')
+                    with self.assertRaises(RuntimeError): migration.pending_root_authority(changed, arguments['repository'])
+
     def test_accepted_binding_reader_is_read_only_and_does_not_require_current_private_catalog_head(self):
         objects, receipt, arguments = self.accepted_fixture()
         with tempfile.TemporaryDirectory() as directory:

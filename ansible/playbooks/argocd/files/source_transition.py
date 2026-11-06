@@ -503,7 +503,7 @@ def run(payload):
 
 
 
-def pending_root_context(recovery, public):
+def pending_root_authority(recovery, repository, *, first_binding=False):
     """Reload the pending operation; caller context alone grants no authority."""
     from playbooks.data.files import native
     if not isinstance(recovery, dict) or set(recovery) != {'checkpoint', 'sourceState', 'rootSource'}:
@@ -526,32 +526,35 @@ def pending_root_context(recovery, public):
         raise RuntimeError('Identity installation recovery requires both recorded Root sources')
     old = original.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo')
     targets = [old, recorded.get('target')]
-    for target in targets:
+    if type(first_binding) is not bool or (first_binding and (old is not None or
+            'argo' in original.get('helm', {}).get('valuesObject', {}).get('identity', {}))):
+        raise RuntimeError('First identity binding requires its originally unbound Root')
+    for target in targets[1:] if first_binding else targets:
         if (not isinstance(target, dict) or set(target) != {'valuesRepository', 'valuesRevision'}
                 or not re.fullmatch('[a-f0-9]{40}', target.get('valuesRevision') or '')):
             raise RuntimeError('Identity installation recovery requires two immutable bound sources')
         repo = native.repository(target['valuesRepository'])
-        public_repo = native.repository(public['repository'])
+        public_repo = native.repository(repository)
         if repo.lower() == public_repo.lower() or repo.split('/')[0].lower() != public_repo.split('/')[0].lower():
             raise RuntimeError('Identity installation recovery private repository changed')
-    if targets[0]['valuesRepository'] != targets[1]['valuesRepository']:
+    if not first_binding and targets[0]['valuesRepository'] != targets[1]['valuesRepository']:
         raise RuntimeError('Identity installation recovery cannot change its registered repository')
     proposed = copy.deepcopy(original)
-    proposed['helm']['valuesObject']['identity'].update(enabled=True, argo=targets[1])
+    proposed.setdefault('helm', {}).setdefault('valuesObject', {}).setdefault('identity', {}).update(enabled=True, argo=targets[1])
     spec = root.get('spec', {}); source = spec.get('source', {})
     state = binding_source(recorded, root)
     if (proposed != patched or source not in (original, patched) or recovery['sourceState'] != state
             or recovery['rootSource'] != source or spec.get('project') != 'cloudlab-root' or spec.get('sources')
             or spec.get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
-            or source.get('repoURL') != public['repository'] or source.get('targetRevision') != 'main'
+            or source.get('repoURL') != repository or source.get('targetRevision') != 'main'
             or source.get('path') != 'gitops/roots/public'
             or source.get('helm', {}).get('releaseName') != 'cloudlab-public-root'
             or set(source.get('helm', {})) - {'releaseName', 'valuesObject'}
             or spec.get('syncPolicy', {}).get('automated', {}).get('prune', False)
             or spec.get('ignoreDifferences') != native.delegations()
             or spec.get('syncPolicy', {}).get('syncOptions') != ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']
-            or controller.get('spec', {}).get('replicas') not in (0, 1)
-            or project.get('spec', {}).get('sourceRepos') != [public['repository']]
+            or type(controller.get('spec', {}).get('replicas')) is not int or controller['spec']['replicas'] not in (0, 1)
+            or project.get('spec', {}).get('sourceRepos') != [repository]
             or project.get('spec', {}).get('namespaceResourceWhitelist') != native.identity_project_rules(project)):
         raise RuntimeError('Identity installation recovery Root, topology or project changed')
     if controller['spec']['replicas'] == 0:
@@ -561,8 +564,20 @@ def pending_root_context(recovery, public):
                 (owner.get('kind') == 'StatefulSet' and owner.get('name') == 'argocd-application-controller')
                 for owner in pod.get('metadata', {}).get('ownerReferences', [])) for pod in pods):
             raise RuntimeError('Identity installation recovery controller has not quiesced')
+    return root, targets
+
+
+def pending_root_context(recovery, public, *, first_binding=False):
+    from playbooks.data.files import native
+    root, targets = pending_root_authority(recovery, public.get('repository') if isinstance(public, dict) else None, first_binding=first_binding)
+    source = root['spec']['source']
+    recorded = recovery['checkpoint']
+    state = binding_source(recorded, root)
     approved = copy.deepcopy(public)
-    approved['identity']['argo'] = targets[0 if state == 'original' else 1]
+    if first_binding and state == 'original':
+        approved['identity'].pop('argo', None)
+    else:
+        approved['identity']['argo'] = targets[0 if state == 'original' else 1]
     overrides = copy.deepcopy(source['helm'].get('valuesObject', {}))
     native.root_flags(root)
     config = overrides.get('data', {}).get('configuration', {})

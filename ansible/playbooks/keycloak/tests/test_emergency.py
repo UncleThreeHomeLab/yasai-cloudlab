@@ -1,4 +1,5 @@
 import copy
+from contextlib import nullcontext
 import json
 import io
 from pathlib import Path
@@ -66,7 +67,8 @@ class EmergencyTests(unittest.TestCase):
                 if kind == 'appproject.argoproj.io': return project
                 if kind == 'application.argoproj.io': return app if name == bootstrap.APP else root
                 return None
-            with patch.object(ownership, 'installation_context', side_effect=lambda **kwargs: (public, 'c' * 40, target, {}, desired,
+            with patch.object(native, 'public_metadata', side_effect=lambda *a, **k: nullcontext()), \
+                    patch.object(ownership, 'installation_context', side_effect=lambda **kwargs: (public, 'c' * 40, target, {}, desired,
                     root, project, clock() + 180)), patch.object(ownership.time, 'monotonic', clock), \
                     patch.object(ownership, 'get', side_effect=observe), \
                     patch.object(ownership, 'application_ready', return_value=True), patch.object(native, 'matches_revision', return_value=True), \
@@ -141,7 +143,8 @@ class EmergencyTests(unittest.TestCase):
                 if kind.startswith('applicationset.'): return parent
                 if kind == 'application.argoproj.io': return app
                 return {'metadata': {'uid': 'reader' if kind.startswith('externalsecret.') else 'secret'}}
-            with patch.object(ownership, 'installation_context', return_value=(public, 'c' * 40, {'valuesRepository': 'https://github.com/example/private.git'}, {}, desired,
+            with patch.object(native, 'public_metadata', side_effect=lambda *a, **k: nullcontext()), \
+                    patch.object(ownership, 'installation_context', return_value=(public, 'c' * 40, {'valuesRepository': 'https://github.com/example/private.git'}, {}, desired,
                     {'metadata': {'uid': 'root'}}, project, 999)) as context, patch.object(ownership, 'get', side_effect=read), \
                     patch.object(native, 'receipt', side_effect=lambda path: json.loads(path.read_text())), \
                     patch.object(native, 'source_credentials') as credentials, patch.object(ownership, 'application_ready', return_value=True):
