@@ -16,7 +16,10 @@ SEAWEED = 'cloudlab-seaweedfs'
 
 
 def binding_fence(target):
-    from playbooks.data.files.handoff import binding_target
+    try:
+        from playbooks.data.files.handoff import binding_target
+    except ImportError:
+        raise RuntimeError('Data binding fence requires its data-owner restoration') from None
     binding_target(target)
 
 
@@ -105,16 +108,22 @@ def exclusion(*, held=False):
     if held:
         yield
     else:
-        from playbooks.data.files.control import locked
+        try:
+            from playbooks.data.files.control import locked
+        except ImportError:
+            raise RuntimeError('Data operation exclusion requires its data-owner restoration') from None
         with locked():
             yield
 
 
 def guard(evidence, target, read, root=None, *, patched=False, held=False, binding=None):
     evidence = validate(evidence, target, root)
-    from playbooks.data.files import control
-    from playbooks.data.files import native as owner
-    from playbooks.data.files.native import native_application, quiet, quiet_operation, legacy_guard, value_files
+    try:
+        from playbooks.data.files import control
+        from playbooks.data.files import native as owner
+        from playbooks.data.files.native import native_application, quiet, quiet_operation, legacy_guard, value_files
+    except ImportError:
+        raise RuntimeError('Data activation guard requires its data-owner restoration') from None
     with exclusion(held=held):
         binding_fence(target)
         app = read('application.argoproj.io', APP)

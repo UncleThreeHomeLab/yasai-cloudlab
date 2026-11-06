@@ -45,7 +45,8 @@ For a confidential client, add the same `secretReference` to both objects, its
 approved `secretReferences` entry and scoped `definition.secrets` mount. Existing
 1Password credentials must be complete; missing approved service items are created
 empty by the control-machine credential reconciler after the catalog merge, while
-shared OIDC keys stay user-supplied.
+shared OIDC keys stay user-supplied. Secret, identity and data bindings live only
+in the accepted private catalog; per-service `secrets.yaml` files do not exist.
 Public references have no credential. Notes and composition adapters require the
 legacy profile and reject references. Do not mix reference and legacy settings.
 

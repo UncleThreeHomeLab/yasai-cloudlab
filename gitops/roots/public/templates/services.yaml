@@ -39,37 +39,61 @@ spec:
     - {group: argoproj.io, kind: ApplicationSet}
 {{- end }}
 
+{{- $servicesAcceptance := .Values.services.acceptanceCommitment }}
+{{- if and (hasKey .Values.services "acceptanceCommitment") (not (kindIs "string" $servicesAcceptance)) }}
+{{- fail "Service source acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
+{{- if and $servicesAcceptance (not (regexMatch "^[a-f0-9]{64}$" $servicesAcceptance)) }}
+{{- fail "Service source acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
 {{- if and .Values.services.enabled (hasKey .Values.identity "argo") }}
 {{- $catalogPath := include "cloudlab.serviceCatalogPath" . }}
 {{- if not (regexMatch "^[a-f0-9]{40}$" (.Values.services.revision | default "")) }}
 {{- fail "Service catalog requires its reviewed immutable platform revision" }}
 {{- end }}
+{{- if not (regexMatch "^[a-f0-9]{64}$" ($servicesAcceptance | default "")) }}
+{{- fail "Enabled bound service catalog requires a reviewed acceptance commitment" }}
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: ApplicationSet
 metadata:
   name: cloudlab-services
   namespace: argocd
   labels: {cloudlab.io/owner: service-platform}
+  annotations:
+    argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
 spec:
-  project: cloudlab-services
-  sources:
-    - repoURL: {{ .Values.repository | quote }}
-      targetRevision: {{ .Values.services.revision | quote }}
-      path: platform/delivery/services
-      helm:
-        valueFiles: [{{ printf "$values/%s" $catalogPath | quote }}, '$values/identity/argo-values.yaml']
-        valuesObject:
-          repository: {{ .Values.repository | quote }}
-          revision: {{ .Values.services.revision | quote }}
-          telemetry: {{ .Values.observability.enabled }}
-    - repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
-      targetRevision: main
-      ref: values
-  destination: {server: 'https://kubernetes.default.svc', namespace: argocd}
-  syncPolicy:
-    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
-    syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true]
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - merge:
+        mergeKeys: [consumer]
+        generators:
+          - list:
+              elements: [{consumer: services}]
+          - git:
+              repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              files: [{path: platform/acceptance/services.yaml}]
+  syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
+  template:
+    metadata:
+      name: cloudlab-services
+      labels: {cloudlab.io/owner: service-platform}
+      annotations:
+        argocd.argoproj.io/compare-options: IgnoreExtraneous
+        argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
+        argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-services
+    spec:
+{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("services" | toJson) | replace "@@PRIVATE_REPOSITORY@@" (.Values.identity.argo.valuesRepository | toJson) | replace "@@COMMITMENT@@" ($servicesAcceptance | toJson) | replace "@@PATHS_LF@@" ((printf "%s\nidentity/argo-values.yaml" $catalogPath) | toJson) | trim }}
+{{- $spec := dict "project" "cloudlab-services" "sources" (list
+  (dict "repoURL" .Values.repository "targetRevision" .Values.services.revision "path" "platform/delivery/services" "helm" (dict "valueFiles" (list (printf "$values/%s" $catalogPath) "$values/identity/argo-values.yaml") "valuesObject" (dict "repository" .Values.repository "revision" .Values.services.revision "telemetry" .Values.observability.enabled)))
+  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $gate "ref" "values"))
+  "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
+  "syncPolicy" (dict "automated" (dict "enabled" true "prune" false "selfHeal" true "allowEmpty" false)
+    "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false")) }}
+{{ toYaml $spec | indent 6 }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

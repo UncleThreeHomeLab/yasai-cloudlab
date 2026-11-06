@@ -31,6 +31,18 @@
         }
       }
     },
+    "services": {
+      "type": "object",
+      "required": [
+        "acceptanceCommitment"
+      ],
+      "properties": {
+        "acceptanceCommitment": {
+          "type": "string",
+          "pattern": "^([a-f0-9]{64})?$"
+        }
+      }
+    },
     "identity": {
       "type": "object",
       "properties": {

@@ -75,7 +75,7 @@ spec:
       allowEmpty: false
     syncOptions:
       - FailOnSharedResource=true
-      - DisableClientSideApplyMigration=true
+      - ClientSideApplyMigration=false
       {{- if and (eq $name "cloudlab-public-root") $dataNative }}
       - RespectIgnoreDifferences=true
       {{- end }}

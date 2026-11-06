@@ -4,13 +4,16 @@ import base64
 import json
 import hashlib
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'verification/integration'))
-from private_verify import healthy, configuration_healthy, credential_owner, controller_items, run
+import private_verify as verify_module
+from private_verify import healthy, configuration_healthy, credential_owner, controller_items, observability_healthy, run
 from private_activation import APP, OWNER, TRACKING
 from controller_stability import fingerprint
 from fixtures import source_approval, first_binding_observation
@@ -249,3 +252,111 @@ class PrivateConvergenceTests(unittest.TestCase):
             changed['status'].update(change)
             with self.subTest(change=change), patch('private_verify.get', return_value=changed):
                 self.assertFalse(healthy('fixture'))
+
+
+class TelemetryConvergenceTests(unittest.TestCase):
+    def telemetry_fixture(self, paused=False):
+        repository = 'https://github.com/example/private.git'
+        target = {'valuesRepository': repository, 'valuesRevision': 'd' * 40}
+        root = Path(__file__).resolve().parents[4]
+        chart = root / 'gitops/roots/public'
+        values = {'identity': {'enabled': True, 'argo': target},
+                  'services': {'acceptanceCommitment': '3' * 64},
+                  'observability': {'configuration': {'enabled': True, 'paused': paused, 'revision': 'e' * 40,
+                                                      'acceptanceCommitment': '1' * 64}}}
+        command = ['helm', 'template', 'cloudlab-public-root', str(chart), '-n', 'argocd',
+                   '--kube-version', '1.36.5', '-f', '-']
+        result = subprocess.run(command, input=yaml.safe_dump(values).encode(), capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parent = next(obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'ApplicationSet'
+                      and obj['metadata']['name'] == 'cloudlab-observability-gitops')
+        declaration = {'parent': parent['spec'], 'paused': paused}
+        evidence = {'acceptedRevision': 'b' * 40}
+        desired = copy.deepcopy(parent['spec']['template']['spec'])
+        for source in desired['sources']:
+            if isinstance(source.get('targetRevision'), str) and 'Consumer source acceptance refused' in source['targetRevision']:
+                source['targetRevision'] = 'b' * 40
+        objects = {
+            ('applicationset.argoproj.io', 'cloudlab-observability-gitops'): {
+                'metadata': {'uid': 'telemetry-parent', 'labels': {'cloudlab.io/owner': 'observability-platform'},
+                             'annotations': {'argocd.argoproj.io/tracking-id':
+                                 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/cloudlab-observability-gitops'}},
+                'spec': copy.deepcopy(parent['spec'])},
+            ('application.argoproj.io', 'cloudlab-observability-gitops'): {
+                'metadata': {'uid': 'telemetry-child', 'labels': {'cloudlab.io/owner': 'observability-platform'},
+                             'annotations': {'argocd.argoproj.io/tracking-id':
+                                 'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-observability-gitops'},
+                             'ownerReferences': [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                                 'name': 'cloudlab-observability-gitops', 'uid': 'telemetry-parent',
+                                 'controller': True, 'blockOwnerDeletion': True}]},
+                'spec': desired,
+                'status': {'health': {'status': 'Healthy'}, 'sync': {'status': 'Synced'}}},
+            ('application.argoproj.io', 'cloudlab-public-root'): {
+                'metadata': {'uid': 'root'},
+                'spec': {'source': {'helm': {'valuesObject': {'identity': {'enabled': True, 'argo': target}}}}}}}
+        return repository, evidence, declaration, objects, target
+
+    def test_telemetry_requires_exact_paused_aware_owner_parent_and_project(self):
+        repository, evidence, declaration, objects, target = self.telemetry_fixture()
+        read = lambda kind, name: copy.deepcopy(objects.get((kind, name)))
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'identity-values-binding.json').write_text(json.dumps({'target': target, 'root_uid': 'root'}))
+            with patch.object(verify_module, 'BASE', base):
+                self.assertTrue(observability_healthy(repository, evidence, declaration, read))
+                child = objects[('application.argoproj.io', 'cloudlab-observability-gitops')]
+                for change in ('owner', 'tracking', 'ownerref', 'spec', 'project', 'operation', 'error', 'health', 'sync', 'parent', 'root'):
+                    objects[('application.argoproj.io', 'cloudlab-observability-gitops')] = copy.deepcopy(child)
+                    if change == 'owner': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
+                    if change == 'tracking': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+                    if change == 'ownerref': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['metadata']['ownerReferences'][0]['uid'] = 'foreign'
+                    if change == 'spec': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['spec']['sources'][1]['targetRevision'] = 'c' * 40
+                    if change == 'project': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['spec']['project'] = 'foreign'
+                    if change == 'operation': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['operation'] = {'sync': {}}
+                    if change == 'error': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['status']['conditions'] = [{'type': 'SyncError'}]
+                    if change == 'health': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['status']['health']['status'] = 'Progressing'
+                    if change == 'sync': objects[('application.argoproj.io', 'cloudlab-observability-gitops')]['status']['sync']['status'] = 'OutOfSync'
+                    if change == 'parent': objects[('applicationset.argoproj.io', 'cloudlab-observability-gitops')]['spec'] = {}
+                    if change == 'root': objects[('application.argoproj.io', 'cloudlab-public-root')]['metadata']['uid'] = 'foreign'
+                    with self.subTest(change=change):
+                        self.assertFalse(observability_healthy(repository, evidence, declaration, read))
+                    objects[('applicationset.argoproj.io', 'cloudlab-observability-gitops')]['spec'] = copy.deepcopy(declaration['parent'])
+                    objects[('application.argoproj.io', 'cloudlab-public-root')]['metadata']['uid'] = 'root'
+
+    def test_paused_telemetry_relaxes_convergence_but_keeps_exact_ownership(self):
+        repository, evidence, declaration, objects, _ = self.telemetry_fixture(paused=True)
+        child = objects[('application.argoproj.io', 'cloudlab-observability-gitops')]
+        child['status'] = {'health': {'status': 'Progressing'}, 'sync': {'status': 'OutOfSync'}}
+        read = lambda kind, name: copy.deepcopy(objects.get((kind, name)))
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'identity-values-binding.json').write_text(json.dumps(
+                {'target': objects[('application.argoproj.io', 'cloudlab-public-root')]['spec']['source']['helm']['valuesObject']['identity']['argo'],
+                 'root_uid': 'root'}))
+            with patch.object(verify_module, 'BASE', base):
+                self.assertTrue(observability_healthy(repository, evidence, declaration, read))
+                child['spec']['sources'][1]['targetRevision'] = 'c' * 40
+                self.assertFalse(observability_healthy(repository, evidence, declaration, read))
+
+    def test_missing_paused_telemetry_contract_converges_as_enabled(self):
+        repository, _, parented, objects, target = self.telemetry_fixture()
+        declaration = {'parent': parented['parent']}
+        observability = {'contract': {'context': {'observability': {'configuration': {'enabled': True}}}},
+                         'acceptedRevision': 'b' * 40}
+        payload = {'configuration_repository': repository, 'configuration_revision': 'd' * 40,
+                   'sources': [], 'observability': observability}
+        def request(*args): return json.dumps({'items': []})
+        read = lambda kind, name: copy.deepcopy(objects.get((kind, name)))
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'identity-values-binding.json').write_text(json.dumps({'target': target, 'root_uid': 'root'}))
+            with patch.object(verify_module, 'BASE', base), \
+                    patch('private_verify.kube', side_effect=request), \
+                    patch('private_verify.get', side_effect=read), \
+                    patch('private_verify.consumer_declaration', return_value=declaration), \
+                    patch('private_verify.credential_owner'), patch('private_verify.foundation_sample', return_value=()), \
+                    patch('private_verify.fingerprint', return_value=()), \
+                    patch('private_verify.wait', side_effect=lambda check, description: self.assertTrue(check())), \
+                    patch('private_verify.time.sleep'), patch('private_verify.time.monotonic', side_effect=[0, 1, 61, 62]):
+                self.assertTrue(run(payload)['private_access_verified'])
+        self.assertFalse(declaration['paused'])

@@ -19,11 +19,30 @@ import re
 import sys
 import time
 import uuid
+import yaml
 
 sys.path.insert(0, '/opt/cloudlab')
-from playbooks.data.files import native
-from playbooks.argocd.files.private_sources import acceptance_spec, validate_acceptance, consumer_contract, validate_consumer_acceptance
-from playbooks.istio.files.kube import get, kube
+from playbooks.argocd.files import source_snapshot
+from playbooks.argocd.files.github_app import public_metadata
+from playbooks.argocd.files.github_setup import repository
+from playbooks.argocd.files.private_sources import (PEM_TEMPLATE, acceptance_spec, validate_acceptance,
+    consumer_contract, validate_consumer_acceptance)
+from playbooks.argocd.files.source_revision import matches_revision
+from playbooks.argocd.files.source_transition import quiet
+from playbooks.istio.files.kube import condition, get, kube
+from playbooks.secrets.files.vault import fields
+
+ESO_FINALIZER = 'externalsecrets.external-secrets.io/externalsecret-cleanup'
+
+
+def reader_spec(repo, name, project):
+    return {'refreshInterval': '24h', 'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
+        'target': {'name': name, 'creationPolicy': 'Owner', 'deletionPolicy': 'Retain',
+            'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace',
+                'metadata': {'labels': {'argocd.argoproj.io/secret-type': 'repository'}},
+                'data': {'type': 'git', 'url': repo, 'project': project,
+                    'githubAppID': '{{ .APP_ID }}', 'githubAppInstallationID': '{{ .INSTALLATION_ID }}',
+                    'githubAppPrivateKey': PEM_TEMPLATE}}}, 'dataFrom': [{'extract': {'key': 'github-argocd'}}]}
 
 VERSION = 'cloudlab-source-acceptance-proof/v1'
 NAME = 'cloudlab-prices-source-proof'
@@ -60,7 +79,8 @@ def _consumer_profile(consumer, name):
 
 
 CONSUMER_PROFILES = {'observability': _consumer_profile('observability', 'cloudlab-prices-observability-proof'),
-    'permissions': _consumer_profile('permissions', 'cloudlab-prices-permissions-proof')}
+    'permissions': _consumer_profile('permissions', 'cloudlab-prices-permissions-proof'),
+    'services': _consumer_profile('services', 'cloudlab-prices-services-proof')}
 
 
 class ProofError(RuntimeError):
@@ -129,8 +149,12 @@ def consumer_public(config, approval, profile):
         'externalSecrets': {'enabled': True, 'reconcile': True}, 'admission': {'enabled': True},
         'services': {'enabled': True, 'revision': config['publicRevision'], 'catalogPath': 'services/catalog-source-proof.yaml'}}
     settings = {'enabled': True, 'revision': config['publicRevision'], 'acceptanceCommitment': commitment(config, approval, profile=profile)}
-    public[profile['consumer']] = ({'enabled': True, 'configuration': dict(settings, paused=False)}
-        if profile['consumer'] == 'observability' else settings)
+    if profile['consumer'] == 'observability':
+        public['observability'] = {'enabled': True, 'configuration': dict(settings, paused=False)}
+    elif profile['consumer'] == 'services':
+        public['services'] = dict(settings, catalogPath='services/catalog-source-proof.yaml')
+    else:
+        public[profile['consumer']] = settings
     return public
 
 
@@ -144,17 +168,20 @@ def selected_profile(config):
 
 def peer_snapshot(profile):
     if profile['consumer'] is None: return None
-    other = CONSUMER_PROFILES['permissions' if profile['consumer'] == 'observability' else 'observability']
     result = {}
-    for key, body in (('Application', 'spec'), ('Retained', 'data')):
-        obj = read(key, profile=other)
-        if obj is None:
-            result[key] = None
-        else:
-            meta = obj.get('metadata', {})
-            if not meta.get('uid'): raise ProofError('Other consumer observation lacks its resource identity')
-            result[key] = {'body': copy.deepcopy(obj.get(body)), 'metadata': {field: copy.deepcopy(meta.get(field))
-                for field in ('uid', 'ownerReferences', 'labels', 'annotations', 'finalizers', 'deletionTimestamp')}}
+    for name, other in CONSUMER_PROFILES.items():
+        if name == profile['consumer']: continue
+        snapshot = {}
+        for key, body in (('Application', 'spec'), ('Retained', 'data')):
+            obj = read(key, profile=other)
+            if obj is None:
+                snapshot[key] = None
+            else:
+                meta = obj.get('metadata', {})
+                if not meta.get('uid'): raise ProofError('Other consumer observation lacks its resource identity')
+                snapshot[key] = {'body': copy.deepcopy(obj.get(body)), 'metadata': {field: copy.deepcopy(meta.get(field))
+                    for field in ('uid', 'ownerReferences', 'labels', 'annotations', 'finalizers', 'deletionTimestamp')}}
+        result[name] = snapshot
     return result
 
 
@@ -171,8 +198,8 @@ def read(key, *, profile=REGISTRY_PROFILE):
 
 def artifact_lock(config, deadline, *, fetch=None):
     path = 'platform/delivery/argocd/artifact.lock.json'
-    fetch = native.source_snapshot.request if fetch is None else fetch
-    document = fetch('repos/' + native.repository(PUBLIC) + '/contents/' + path + '?ref=' + config['publicRevision'], deadline)
+    fetch = source_snapshot.request if fetch is None else fetch
+    document = fetch('repos/' + repository(PUBLIC) + '/contents/' + path + '?ref=' + config['publicRevision'], deadline)
     if (not isinstance(document, dict) or document.get('type') != 'file' or document.get('path') != path
             or document.get('encoding') != 'base64' or type(document.get('size')) is not int
             or not 0 < document['size'] <= 16384 or not isinstance(document.get('sha'), str)
@@ -187,16 +214,14 @@ def artifact_lock(config, deadline, *, fetch=None):
 def context(config, state=None, *, profile=REGISTRY_PROFILE):
     config_guard(config, state, profile=profile)
     deadline = time.monotonic() + 180
-    coordinates = {'publicSource': {'repository': PUBLIC, 'branch': 'main'}}
-    with native.public_metadata(coordinates, deadline=deadline) as public_fetch:
-        if profile['consumer'] is not None:
-            if not isinstance(profile.get('peer'), dict): raise ProofError('Consumer actions require their fixed operation envelope')
-            if public_fetch is native.source_snapshot.request:
-                quota = native.source_snapshot.request('rate_limit', deadline).get('resources', {}).get('core', {})
-                remaining = quota.get('remaining')
-                if type(remaining) is not int or remaining < (4 if profile.get('peer', {}).get('cleanup') else 12):
-                    raise ProofError('Public source API budget reserved for cleanup; retry after reset')
-        public, head = native.published_source({'publicSource': {'repository': PUBLIC, 'branch': 'main'}}, deadline=deadline, fetch=public_fetch)
+    if profile['consumer'] is not None and not isinstance(profile.get('peer'), dict):
+        raise ProofError('Consumer actions require their fixed operation envelope')
+    credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+    with public_metadata(credentials, deadline=deadline) as public_fetch:
+        branch = public_fetch('repos/' + repository(PUBLIC) + '/branches/main', deadline)
+        head = branch.get('commit', {}).get('sha')
+        if branch.get('protected') is not True or not re.fullmatch('[a-f0-9]{40}', head or ''):
+            raise ProofError('Proof requires the independently protected published head')
         if state is None and head != config['publicRevision']:
             raise ProofError('Proof artifact must be the independently protected published head')
         metadata = {}
@@ -204,17 +229,22 @@ def context(config, state=None, *, profile=REGISTRY_PROFILE):
             if path not in metadata: metadata[path] = public_fetch(path, deadline)
             return metadata[path]
         fetch.deadline = getattr(public_fetch, 'deadline', None)
-        snapshot = lambda path: native.source_snapshot.chart_files({'repository': PUBLIC, 'revision': config['publicRevision'], 'path': path}, fetch=fetch, deadline=deadline)
+        snapshot = lambda path: source_snapshot.chart_files({'repository': PUBLIC, 'revision': config['publicRevision'], 'path': path}, fetch=fetch, deadline=deadline)
         files = snapshot('gitops/roots/public')
         fixture = snapshot(profile['chart'])
         images = artifact_lock(config, deadline, fetch=fetch)['images']
+        raw = source_snapshot.read_url('https://raw.githubusercontent.com/' + repository(PUBLIC) + '/' + config['publicRevision'] + '/gitops/roots/public/values.yaml',
+                                       deadline, 65536)
+        public = yaml.safe_load(raw)
+    if not isinstance(public, dict) or public.get('repository') != PUBLIC or public.get('revision') != 'main':
+        raise ProofError('Proof coordinates differ from committed root settings')
     root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
     source = root.get('spec', {}).get('source', {})
     binding = source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo', {})
-    if (not native.quiet(root) or source.get('repoURL') != PUBLIC or source.get('targetRevision') != 'main'
+    if (not quiet(root) or source.get('repoURL') != PUBLIC or source.get('targetRevision') != 'main'
             or source.get('path') != 'gitops/roots/public' or root['spec'].get('project') != 'cloudlab-root'
             or root['spec'].get('sources') or root['spec'].get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
-            or binding.get('valuesRepository') != config['privateRepository'] or not native.matches_revision(root, head)
+            or binding.get('valuesRepository') != config['privateRepository'] or not matches_revision(root, head)
             or root.get('status', {}).get('health', {}).get('status') != 'Healthy'
             or root.get('status', {}).get('sync', {}).get('status') != 'Synced'):
         raise ProofError('Proof requires the accepted designated Root binding')
@@ -266,7 +296,7 @@ def declarations(config, state, public, files, *, profile=REGISTRY_PROFILE):
                     'valueFiles': ['$values/' + path for path in contract['paths']]}},
                     {'repoURL': config['privateRepository'], 'targetRevision': gate, 'ref': 'values'}],
                 'syncPolicy': {'automated': {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': False},
-                    'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PruneLast=true']}}}}
+                    'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false', 'PruneLast=true']}}}}
     branch = config['privateBranch'] if state['sourceAvailable'] else config['privateBranch'] + '-unavailable-' + config['attempt']
     spec['generators'][0]['merge']['generators'][1]['git']['revision'] = branch
     child = spec['template']; child['metadata'] = meta(profile['name'])
@@ -280,7 +310,7 @@ def declarations(config, state, public, files, *, profile=REGISTRY_PROFILE):
     if profile['consumer'] is not None:
         child['spec']['sources'][0]['helm']['parameters'].append({'name': 'consumer', 'value': profile['consumer'], 'forceString': True})
     child['spec']['syncPolicy']['automated']['allowEmpty'] = False
-    secret_spec = native.reader_spec(config['privateRepository'], profile['name'] + '-source', profile['name'])
+    secret_spec = reader_spec(config['privateRepository'], profile['name'] + '-source', profile['name'])
     secret_spec['target']['template']['metadata']['labels'].update(labels)
     parent_meta = meta(profile['name']); parent_meta['annotations'] = {'argocd.argoproj.io/sync-options': 'Prune=false,Delete=false'}
     return {
@@ -298,7 +328,7 @@ def owned(obj, uid, config, *, owners=None, profile=REGISTRY_PROFILE):
     labels = meta.get('labels', {})
     if (not uid or meta.get('uid') != uid or not meta.get('resourceVersion') or meta.get('deletionTimestamp')
             or meta.get('ownerReferences', []) != (owners or [])
-            or meta.get('finalizers', []) not in ([], [native.ESO_FINALIZER])
+            or meta.get('finalizers', []) not in ([], [ESO_FINALIZER])
             or labels.get('cloudlab.io/owner') != OWNER or labels.get('cloudlab.io/proof-attempt') != config['attempt']):
         raise ProofError('Proof resource identity or ownership changed')
     eso_labels = {'reconcile.external-secrets.io/managed', 'reconcile.external-secrets.io/created-by'}
@@ -354,7 +384,7 @@ def controls(config, state, desired, *, profile=REGISTRY_PROFILE):
             or set(secret) - {'apiVersion', 'kind', 'metadata', 'data', 'type'}):
         raise ProofError('Proof repository credential is not ready or exact-scoped')
     state['identities'].setdefault('Secret', secret['metadata']['uid'])
-    return native.condition(external, 'Ready')
+    return condition(external, 'Ready')
 
 
 def child_spec(config, state, desired, approval, marker, *, profile=REGISTRY_PROFILE):
@@ -370,7 +400,7 @@ def quiet_child(app):
     # Call only after validating its exact captured AppSet owner (or scoped orphan).
     current = copy.deepcopy(app)
     current.get('metadata', {}).pop('ownerReferences', None)
-    return native.quiet(current)
+    return quiet(current)
 
 
 def child_metadata(app, desired, *, profile=REGISTRY_PROFILE):
@@ -401,7 +431,7 @@ def child(config, state, desired, approval, marker, *, ready=True, drift=None, p
         raise ProofError('Proof child source or scope differs from accepted intent')
     state['identities'].setdefault('Application', app['metadata']['uid'])
     if pending_owner: return False
-    if ready and (not quiet_child(app) or not native.matches_revision(app, config['publicRevision'])
+    if ready and (not quiet_child(app) or not matches_revision(app, config['publicRevision'])
             or app.get('status', {}).get('sync', {}).get('status') != 'Synced'
             or app.get('status', {}).get('health', {}).get('status') != 'Healthy'
             or any(row.get('type', '').endswith('Error') for row in app.get('status', {}).get('conditions', []))):

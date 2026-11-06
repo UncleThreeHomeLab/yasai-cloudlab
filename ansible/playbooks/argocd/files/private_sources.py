@@ -1,4 +1,5 @@
 """Read and validate the private Git source registry; never log its values."""
+import base64
 import json
 import copy
 import hashlib
@@ -9,17 +10,75 @@ import re
 ACCEPTANCE_PATH = 'platform/acceptance/private-sources.yaml'
 ACCEPTANCE_VERSION = 'cloudlab-private-source-acceptance/v1'
 CONSUMER_ACCEPTANCE_VERSION = 'cloudlab-consumer-source-acceptance/v1'
+CONSUMERS = ('observability', 'permissions', 'services')
+
+
+def decode_contents(document):
+    encoded = document.get('content')
+    if not isinstance(encoded, str) or len(encoded) > 2 * 1024 * 1024:
+        raise RuntimeError('Private source exceeds its bounded content contract')
+    # GitHub's Contents API wraps base64 with line endings; other garbage fails.
+    raw = base64.b64decode(encoded.replace('\r', '').replace('\n', ''), validate=True)
+    if len(raw) > 1024 * 1024:
+        raise RuntimeError('Private source exceeds its bounded content contract')
+    return raw
+
+
+def strict_loader(name):
+    import yaml
+    class StrictLoader(yaml.SafeLoader):
+        def compose_node(self, parent, index):
+            if self.check_event(yaml.AliasEvent):
+                raise ValueError(name)
+            return super().compose_node(parent, index)
+        def construct_mapping(self, node, deep=False):
+            pairs = self.construct_pairs(node, deep=deep)
+            if any(not isinstance(key, str) for key, _ in pairs) or len(dict(pairs)) != len(pairs):
+                raise ValueError(name)
+            return dict(pairs)
+    return StrictLoader
+
+
+def render_objects(files, documents, *, release='cloudlab-public-root', namespace='argocd'):
+    """Render chart bytes with pinned Helm; used for accepted-declaration capture only."""
+    import json
+    import subprocess
+    import tempfile
+    import yaml
+    from pathlib import PurePosixPath
+    if (not isinstance(release, str) or not re.fullmatch('[a-z0-9](?:[a-z0-9-]{0,51}[a-z0-9])?', release)
+            or not isinstance(namespace, str) or not re.fullmatch('[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', namespace)):
+        raise ValueError('Chart rendering requires bounded DNS release and namespace names')
+    with tempfile.TemporaryDirectory(prefix='cloudlab-acceptance-owner-') as directory:
+        root = Path(directory) / 'chart'
+        root.mkdir()
+        for name, raw in files.items():
+            path = root.joinpath(*PurePosixPath(name).parts)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+        command = ['helm', 'template', release, str(root), '-n', namespace, '--kube-version', '1.36.5']
+        for index, document in enumerate(documents):
+            path = Path(directory) / ('input-' + str(index) + '.json')
+            path.write_text(json.dumps(document))
+            path.chmod(0o600)
+            command += ['-f', str(path)]
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(command, stdout=output, stderr=subprocess.DEVNULL, timeout=60)
+            if result.returncode or output.tell() > 2 * 1024 * 1024:
+                raise RuntimeError('Pinned chart rejected its authenticated inputs')
+            output.seek(0)
+            return [obj for obj in yaml.safe_load_all(output) if obj]
 
 
 def consumer_contract(public, consumer):
     """Validate supplied context only; callers must authenticate public authority."""
     from playbooks.argocd.files.github_setup import repository
     from playbooks.argocd.files.service_activation import catalog_path
-    if not isinstance(public, dict) or consumer not in ('observability', 'permissions'):
+    if not isinstance(public, dict) or consumer not in CONSUMERS:
         raise ValueError('Consumer source acceptance refused')
     repository(public.get('repository'))
     if public.get('revision') != 'main': raise ValueError('Consumer source acceptance refused')
-    selected = ('observability', 'services', 'identity', 'externalSecrets', 'admission') if consumer == 'observability' else ('permissions', 'identity', 'externalSecrets', 'admission')
+    selected = ('observability', 'services', 'identity', 'externalSecrets', 'admission') if consumer == 'observability' else (('services', 'identity', 'externalSecrets', 'admission') if consumer == 'services' else ('permissions', 'identity', 'externalSecrets', 'admission'))
     context = {key: copy.deepcopy(public.get(key, {})) for key in selected}
     if any(not isinstance(value, dict) for value in context.values()): raise ValueError('Consumer source acceptance refused')
     context['identity'].pop('argo', None)  # Private identity binding is separate from public input approval.
@@ -33,6 +92,8 @@ def consumer_contract(public, consumer):
         if (not isinstance(settings, dict) or type(settings.get('enabled', False)) is not bool
                 or type(settings.get('paused', False)) is not bool): raise ValueError('Consumer source acceptance refused')
         paths = [catalog_path(context['services'].get('catalogPath', catalog_path())), 'platform/observability.yaml']
+    elif consumer == 'services':
+        paths = [catalog_path(context['services'].get('catalogPath', catalog_path())), 'identity/argo-values.yaml']
     else:
         paths = ['platform/permissions.yaml']
     enabled = settings.get('enabled', False)
@@ -47,7 +108,7 @@ def consumer_contract(public, consumer):
     if enabled and (not re.fullmatch('[a-f0-9]{40}', pin) or not re.fullmatch('[a-f0-9]{64}', commitment)
             or context['identity'].get('enabled') is not True or external.get('enabled') is not True or external.get('reconcile') is not True
             or (consumer == 'observability' and context['observability'].get('enabled') is not True)
-            or (consumer == 'permissions' and context['admission'].get('enabled') is not True)):
+            or (consumer in ('permissions', 'services') and context['admission'].get('enabled') is not True)):
         raise ValueError('Consumer source acceptance refused')
     context.update(repository=public['repository'], revision=public['revision'])
     return {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'enabled': enabled,
@@ -64,6 +125,7 @@ def validate_consumer_acceptance(receipt, repository, contract):
         consumer = contract['consumer']
         paths = contract['paths']
         expected_paths = ([catalog_path(paths[0]), 'platform/observability.yaml'] if consumer == 'observability'
+            else [catalog_path(paths[0]), 'identity/argo-values.yaml'] if consumer == 'services'
             else ['platform/permissions.yaml'] if consumer == 'permissions' else None)
         if (set(contract) != {'version', 'consumer', 'enabled', 'receiptPath', 'paths', 'acceptanceCommitment', 'context'}
                 or contract['version'] != CONSUMER_ACCEPTANCE_VERSION or contract['enabled'] is not True
@@ -87,10 +149,8 @@ def accepted_consumer(client, repository, head, public, consumer):
     """Read a strict receipt against supplied context, never authenticate that context."""
     contract = consumer_contract(public, consumer)
     if not contract['enabled']: return None
-    import base64
     import yaml
     from playbooks.argocd.files.github_setup import repository as repository_name
-    from playbooks.data.files.native import PrivateLoader
     try:
         if not isinstance(head, str) or not re.fullmatch('[a-f0-9]{40}', head): raise ValueError()
         path = contract['receiptPath']
@@ -100,7 +160,7 @@ def accepted_consumer(client, repository, head, public, consumer):
                 or not isinstance(document.get('content'), str) or len(document['content']) > 8192): raise ValueError()
         raw = base64.b64decode(document['content'].replace('\n', '').replace('\r', ''), validate=True)
         if (len(raw) != document['size'] or hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() != document.get('sha')): raise ValueError()
-        receipt = yaml.load(raw, Loader=PrivateLoader)
+        receipt = yaml.load(raw, Loader=strict_loader('Consumer source acceptance refused'))
         validate_consumer_acceptance(receipt, repository, contract)
         return {'acceptanceCommitment': contract['acceptanceCommitment'], 'acceptedRevision': receipt['revision'], 'acceptanceReceipt': receipt}
     except Exception:
@@ -130,24 +190,14 @@ def accepted_source(client, repository, head, public):
     """Authenticate one private receipt; never replace approval with a live child SHA."""
     if not registry_enabled(public): return None
     import yaml
-    from playbooks.keycloak.files.private_source import decode_contents
     from playbooks.argocd.files.github_setup import repository as repository_name
     expected = acceptance_commitment(public)
-    class ReceiptLoader(yaml.SafeLoader):
-        def compose_node(self, parent, index):
-            if self.check_event(yaml.AliasEvent): raise ValueError('Private source acceptance refused')
-            return super().compose_node(parent, index)
-        def construct_mapping(self, node, deep=False):
-            pairs = self.construct_pairs(node, deep=deep)
-            if any(not isinstance(key, str) for key, _ in pairs) or len(dict(pairs)) != len(pairs):
-                raise ValueError('Private source acceptance refused')
-            return dict(pairs)
     try:
         if not isinstance(head, str) or not re.fullmatch('[a-f0-9]{40}', head): raise ValueError()
         document = client.request('GET', 'repos/' + repository_name(repository) + '/contents/' + ACCEPTANCE_PATH + '?ref=' + head)
         if document.get('type') != 'file' or type(document.get('size')) is not int or not 0 < document['size'] <= 4096:
             raise ValueError()
-        receipt = yaml.load(decode_contents(document), Loader=ReceiptLoader)
+        receipt = yaml.load(decode_contents(document), Loader=strict_loader('Private source acceptance refused'))
         validate_acceptance(receipt, repository, expected)
         return {'acceptanceCommitment': expected, 'acceptedRevision': receipt['revision'], 'acceptanceReceipt': receipt}
     except Exception:
@@ -156,9 +206,8 @@ def accepted_source(client, repository, head, public):
 
 def acceptance_spec(public, repository, revision, *, files=None, consumer='private-sources'):
     """Capture the reviewed native contract directly from its owning Root chart."""
-    from playbooks.data.files.native import render_objects
     targets = {'private-sources': 'cloudlab-private-sources', 'permissions': 'cloudlab-permissions',
-               'observability': 'cloudlab-observability-gitops'}
+               'observability': 'cloudlab-observability-gitops', 'services': 'cloudlab-services'}
     if not isinstance(consumer, str) or consumer not in targets:
         raise ValueError('Private source acceptance declaration is unsupported')
     values = copy.deepcopy(public)
@@ -225,7 +274,6 @@ def registry(client, values, public, revision, *, acceptance=None):
         raise ValueError('Private registry requires its immutable private source revision')
     import yaml
     from playbooks.argocd.files.github_setup import repository
-    from playbooks.keycloak.files.private_source import decode_contents
     document = client.request('GET', 'repos/' + repository(values['PRIVATE_CONFIG_REPOSITORY']) +
                               '/contents/platform/sources.yaml?ref=' + revision)
     if (not isinstance(document, dict) or document.get('type') != 'file' or document.get('encoding') != 'base64'
@@ -291,33 +339,86 @@ def verification_payload(values, public):
             result.update(acceptance, applicationSet=acceptance_spec(public, repository, revision))
         return result
     result = configuration_revision(values, read=read)
-    permissions = public.get('permissions', {})
-    if not isinstance(permissions, dict) or type(permissions.get('enabled', False)) is not bool:
-        raise ValueError('Permissions verification requires boolean enablement')
-    if permissions.get('enabled', False):
-        from playbooks.services.files.source import read_consumer, public_source_metadata
-        from playbooks.data.files import native
-        import time
-        evidence = read_consumer(values, 'permissions', public=public)
-        deadline = time.monotonic() + 90
-        with public_source_metadata(values, public['repository'], deadline=deadline) as fetch:
-            files = native.source_snapshot.chart_files({'repository': public['repository'],
-                'revision': evidence['publicRevision'], 'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
-        approved = yaml.safe_load(files['values.yaml'])
-        contract = consumer_contract(approved, 'permissions')
-        if not contract['enabled'] or contract != consumer_contract(public, 'permissions'):
-            raise ValueError('Permissions verification differs from authenticated public intent')
-        validate_consumer_acceptance(evidence['acceptanceReceipt'], repository, contract)
-        if evidence['acceptedRevision'] != evidence['acceptanceReceipt']['revision']:
-            raise ValueError('Permissions verification revision differs from its receipt')
-        result['permissions'] = {key: evidence[key] for key in
-            ('publicRevision', 'acceptedRevision', 'acceptanceCommitment', 'acceptanceReceipt')}
-        result['permissions'].update(contract=contract, applicationSet=acceptance_spec(
-            approved, repository, result['configuration_revision'], files=files, consumer='permissions'))
+    for consumer in CONSUMERS:
+        evidence = consumer_payload(values, public, repository, result['configuration_revision'], consumer)
+        if evidence is not None:
+            result[consumer] = evidence
     return result
 
 
+def consumer_payload(values, public, repository, head, consumer):
+    """Authenticate one consumer receipt and its live public approval; None when disabled."""
+    import time
+    import yaml
+    from playbooks.argocd.files import source_snapshot
+    from playbooks.argocd.files.github_app import PUBLIC_READER, configuration_revision, public_metadata
+    from playbooks.secrets.files.vault import fields
+    contract = consumer_contract(public, consumer)
+    if not contract['enabled']:
+        return None
+    if public['repository'] != 'https://github.com/' + PUBLIC_READER + '.git':
+        raise ValueError('Consumer verification requires the designated public repository')
+    accepted = configuration_revision(values, read=lambda client, revision:
+        accepted_consumer(client, repository, revision, public, consumer))
+    deadline = time.monotonic() + 150
+    credentials = fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
+    with public_metadata(credentials, deadline=deadline) as fetch:
+        branch = fetch('repos/' + PUBLIC_READER + '/branches/main', deadline)
+        if (not isinstance(branch, dict) or branch.get('protected') is not True
+                or not isinstance(branch.get('commit', {}).get('sha'), str)
+                or not re.fullmatch('[a-f0-9]{40}', branch['commit']['sha'])):
+            raise ValueError('Public approval head is invalid')
+        public_revision = branch['commit']['sha']
+        files = source_snapshot.chart_files({'repository': public['repository'], 'revision': public_revision,
+            'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
+    approved = yaml.safe_load(files['values.yaml'])
+    if consumer_contract(approved, consumer) != contract:
+        raise ValueError('Consumer verification differs from authenticated public intent')
+    return {'publicRevision': public_revision, 'acceptedRevision': accepted['acceptedRevision'],
+        'acceptanceCommitment': accepted['acceptanceCommitment'], 'acceptanceReceipt': accepted['acceptanceReceipt'],
+        'contract': contract, 'applicationSet': acceptance_spec(
+            approved, repository, head, files=files, consumer=consumer)}
+
+
+def commitment_receipt(consumer, repository, revision, nonce, catalog='services/catalog.json'):
+    """Compute the generic acceptance commitment and exact receipt for any consumer."""
+    from playbooks.argocd.files.github_setup import repository as repository_name
+    from playbooks.argocd.files.service_activation import catalog_path
+    repository_name(repository)
+    if not re.fullmatch('[a-f0-9]{40}', revision or '') or not re.fullmatch('[a-f0-9]{64}', nonce or ''):
+        raise ValueError('Receipt requires an immutable revision and a fresh 64-hex nonce')
+    if consumer == 'private-sources':
+        receipt = {'version': ACCEPTANCE_VERSION, 'consumer': consumer, 'revision': revision, 'nonce': nonce}
+        preimage = '\n'.join([receipt['version'], consumer, repository, 'platform/sources.yaml', revision, nonce, ''])
+        commitment = hashlib.sha256(preimage.encode()).hexdigest()
+        validate_acceptance(receipt, repository, commitment)
+        return commitment, receipt, ACCEPTANCE_PATH
+    if consumer not in CONSUMERS:
+        raise ValueError('Unsupported acceptance consumer')
+    paths = ([catalog_path(catalog), 'platform/observability.yaml'] if consumer == 'observability'
+             else [catalog_path(catalog), 'identity/argo-values.yaml'] if consumer == 'services'
+             else ['platform/permissions.yaml'])
+    receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'paths': paths,
+               'revision': revision, 'nonce': nonce}
+    preimage = '\n'.join([receipt['version'], consumer, repository, str(len(paths)), *paths, revision, nonce, ''])
+    commitment = hashlib.sha256(preimage.encode()).hexdigest()
+    validate_consumer_acceptance(receipt, repository, {'version': CONSUMER_ACCEPTANCE_VERSION,
+        'consumer': consumer, 'enabled': True, 'receiptPath': 'platform/acceptance/' + consumer + '.yaml',
+        'paths': paths, 'acceptanceCommitment': commitment, 'context': {}})
+    return commitment, receipt, 'platform/acceptance/' + consumer + '.yaml'
+
+
 if __name__ == '__main__':
+    import sys
+    if sys.argv[1:2] == ['commit']:
+        try:
+            _, _, consumer, repository, revision, nonce, *rest = sys.argv
+            if len(rest) > 1: raise ValueError('usage')
+            commitment, receipt, path = commitment_receipt(consumer, repository, revision, nonce, *(rest or ['services/catalog.json']))
+            print(json.dumps({'receiptPath': path, 'acceptanceCommitment': commitment, 'receipt': receipt}, indent=2, sort_keys=True))
+        except (ValueError, RuntimeError) as error:
+            raise SystemExit('usage: private_sources.py commit <consumer> <private-repository> <revision> <nonce> [catalog-path]: ' + str(error)) from None
+        raise SystemExit(0)
     try:
         import os
         from dotenv import dotenv_values

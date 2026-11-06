@@ -21,7 +21,8 @@ REPOSITORY = 'https://github.com/example/private.git'
 
 
 def fixture(consumer='observability', path='services/catalog-v2.yaml'):
-    paths = [path, 'platform/observability.yaml'] if consumer == 'observability' else ['platform/permissions.yaml']
+    paths = ([path, 'platform/observability.yaml'] if consumer == 'observability'
+             else [path, 'identity/argo-values.yaml'] if consumer == 'services' else ['platform/permissions.yaml'])
     receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'paths': paths, 'revision': 'b' * 40, 'nonce': '1' * 64}
     digest = hashlib.sha256(('\n'.join([receipt['version'], consumer, REPOSITORY, str(len(paths)), *paths,
         receipt['revision'], receipt['nonce'], ''])).encode()).hexdigest()
@@ -30,7 +31,8 @@ def fixture(consumer='observability', path='services/catalog-v2.yaml'):
         'services': {'enabled': True, 'revision': 'd' * 40, 'catalogPath': path},
         'observability': {'enabled': True, 'configuration': {'enabled': True, 'paused': False, 'revision': 'e' * 40}},
         'permissions': {'enabled': True, 'revision': 'f' * 40}}
-    settings = public['observability']['configuration'] if consumer == 'observability' else public['permissions']
+    settings = (public['observability']['configuration'] if consumer == 'observability'
+                else public['services'] if consumer == 'services' else public['permissions'])
     settings['acceptanceCommitment'] = digest
     return public, receipt
 
@@ -60,7 +62,8 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             'filenameNormalized': str(receipt['consumer']) + '.yaml', 'segments': ['platform', 'acceptance']})
 
     def test_both_consumers_match_exact_native_effective_input_and_alternate_catalog_paths(self):
-        for consumer, path in (('observability', 'services/catalog.json'), ('observability', 'services/catalog-selected.yaml'), ('permissions', 'services/catalog.json')):
+        for consumer, path in (('observability', 'services/catalog.json'), ('observability', 'services/catalog-selected.yaml'), ('permissions', 'services/catalog.json'),
+                               ('services', 'services/catalog.json'), ('services', 'services/catalog-selected.yaml')):
             public, receipt = fixture(consumer, path); contract = consumer_contract(public, consumer)
             validate_consumer_acceptance(receipt, REPOSITORY, contract)
             result = self.gate(contract, self.params(receipt))
@@ -69,14 +72,14 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             self.assertEqual(contract['receiptPath'], 'platform/acceptance/' + consumer + '.yaml')
 
     def test_python_and_native_refuse_cross_scope_types_replay_and_unknown_effective_fields(self):
-        for consumer in ('observability', 'permissions'):
+        for consumer in ('observability', 'permissions', 'services'):
             public, receipt = fixture(consumer); contract = consumer_contract(public, consumer)
             for case in ('consumer', 'version', 'path', 'order', 'count', 'duplicate', 'path-type', 'paths-type', 'revision', 'nonce', 'unknown', 'revision-type', 'nonce-type'):
                 invalid = copy.deepcopy(receipt)
-                if case == 'consumer': invalid['consumer'] = 'permissions' if consumer == 'observability' else 'observability'
+                if case == 'consumer': invalid['consumer'] = 'observability' if consumer == 'permissions' else 'permissions'
                 if case == 'version': invalid['version'] = 'cloudlab-private-source-acceptance/v1'
                 if case == 'path': invalid['paths'][0] = 'platform/private.yaml'
-                if case == 'order': invalid['paths'] = list(reversed(invalid['paths'])) if consumer == 'observability' else []
+                if case == 'order': invalid['paths'] = list(reversed(invalid['paths'])) if consumer in ('observability', 'services') else []
                 if case == 'count': invalid['paths'].append('platform/extra.yaml')
                 if case == 'duplicate': invalid['paths'] = [invalid['paths'][0]] * (len(invalid['paths']) + 1)
                 if case == 'path-type': invalid['paths'][0] = True
@@ -94,20 +97,22 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             self.assertNotEqual(self.gate(contract, self.params(receipt), repository='https://github.com/example/foreign.git').returncode, 0)
 
     def test_finite_contracts_require_typed_enabled_approval_and_keep_disabled_reads_empty(self):
-        for consumer in ('observability', 'permissions'):
+        for consumer in ('observability', 'permissions', 'services'):
             public, receipt = fixture(consumer)
             for case in ('enabled-type', 'missing-approval', 'pin', 'prerequisite', 'unsafe-path'):
                 invalid = copy.deepcopy(public)
-                settings = invalid['observability']['configuration'] if consumer == 'observability' else invalid['permissions']
+                settings = (invalid['observability']['configuration'] if consumer == 'observability'
+                            else invalid['services'] if consumer == 'services' else invalid['permissions'])
                 if case == 'enabled-type': settings['enabled'] = 1
                 if case == 'missing-approval': settings.pop('acceptanceCommitment')
                 if case == 'pin': settings['revision'] = 'main'
                 if case == 'prerequisite': invalid['externalSecrets']['reconcile'] = False
                 if case == 'unsafe-path':
-                    if consumer == 'observability': invalid['services']['catalogPath'] = 'services/../identity.yaml'
+                    if consumer in ('observability', 'services'): invalid['services']['catalogPath'] = 'services/../identity.yaml'
                     else: settings['enabled'] = 'false'
                 with self.subTest(consumer=consumer, case=case), self.assertRaises(ValueError): consumer_contract(invalid, consumer)
-            settings = public['observability']['configuration'] if consumer == 'observability' else public['permissions']
+            settings = (public['observability']['configuration'] if consumer == 'observability'
+                        else public['services'] if consumer == 'services' else public['permissions'])
             settings['enabled'] = False
             client = Mock(request=Mock(side_effect=AssertionError('Disabled receipt must not read private Git')))
             self.assertIsNone(accepted_consumer(client, '', 'not-a-sha', public, consumer))

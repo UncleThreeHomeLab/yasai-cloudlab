@@ -94,7 +94,7 @@ spec:
       destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
       syncPolicy:
         automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
-        syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true, RespectIgnoreDifferences=true]
+        syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false, RespectIgnoreDifferences=true]
         retry: {limit: 5, backoff: {duration: 30s, factor: 2, maxDuration: 2m}}
   templatePatch: |
 {{ .Files.Get "keycloak-values.tmpl" | indent 4 }}

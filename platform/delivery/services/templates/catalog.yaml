@@ -243,5 +243,5 @@ spec:
       {{- end }}
       syncPolicy:
         automated: {prune: false, selfHeal: true, allowEmpty: false}
-        syncOptions: [FailOnSharedResource=true, DisableClientSideApplyMigration=true{{ if $v.rollouts.enabled }}, RespectIgnoreDifferences=true{{ end }}]
+        syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false{{ if $v.rollouts.enabled }}, RespectIgnoreDifferences=true{{ end }}]
 {{- end }}

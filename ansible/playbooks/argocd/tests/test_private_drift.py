@@ -17,7 +17,7 @@ class PrivateSourceDriftTests(unittest.TestCase):
                 'source': {'repoURL': repository, 'targetRevision': 'main', 'path': proof.SOURCE['path']},
                 'destination': {'server': 'https://kubernetes.default.svc', 'namespace': proof.NAMESPACE},
                 'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
-                    'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true']}}}
+                    'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false']}}}
         manifest = {'apiVersion': 'v1', 'kind': 'ConfigMap',
             'metadata': {'name': proof.NAME, 'namespace': proof.NAMESPACE}, 'data': {'marker': 'v1'}}
         self.envelope = {'verification': {'catalog_enabled': True, 'configuration_repository': repository,

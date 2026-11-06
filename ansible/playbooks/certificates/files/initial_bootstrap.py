@@ -34,7 +34,7 @@ def application(payload, name, production):
             'helm': {'releaseName': APP, 'valuesObject': {'zone': name, 'production': production}}},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'cert-manager'},
             'syncPolicy': {'automated': {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False},
-                'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true'],
+                'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false'],
                 'retry': {'limit': 5, 'backoff': {'duration': '5s', 'factor': 2, 'maxDuration': '1m'}}}}}
 
 

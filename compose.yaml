@@ -83,32 +83,13 @@ services:
     profiles: [infra]
     platform: linux/amd64
     build: *lab-build
-    entrypoint: [python, /opt/runner/run.py, infra]
-    working_dir: /workspace/ansible
+    entrypoint: [python, /workspace/infra/github-workflows/reconcile.py]
+    working_dir: /workspace
+    restart: unless-stopped
     volumes:
       - type: bind
-        source: ./ansible
-        target: /workspace/ansible
-        read_only: true
-      - type: bind
-        source: ./infra
-        target: /workspace/infra
-        read_only: true
-      - type: bind
-        source: ./.git
-        target: /workspace/.git
-        read_only: true
-      - type: bind
-        source: ./.gitignore
-        target: /workspace/.gitignore
-        read_only: true
-      - type: bind
-        source: ./.gitattributes
-        target: /workspace/.gitattributes
-        read_only: true
-      - type: bind
-        source: ./compose.yaml
-        target: /workspace/compose.yaml
+        source: .
+        target: /workspace
         read_only: true
       - type: bind
         source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/github
@@ -117,7 +98,9 @@ services:
       - type: volume
         source: github_infra_work
         target: /infra-work
-    command: [check, github]
+    environment:
+      GOVERNANCE_INTERVAL: ${GOVERNANCE_INTERVAL:-300}
+    command: [loop]
 
   infra-harbor:
     profiles: [infra]
@@ -173,6 +156,7 @@ services:
     build: *lab-build
     entrypoint: [python, -m, playbooks.secrets.files.reconcile]
     working_dir: /workspace/ansible
+    restart: unless-stopped
     volumes:
       - type: bind
         source: .

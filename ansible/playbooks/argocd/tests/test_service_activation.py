@@ -58,56 +58,75 @@ class ServiceActivationTests(unittest.TestCase):
         for extra in ({'namespaceGuard': None}, {'namespaceAuthority': None}, {'namespaceAuthority': [{}]}):
             with self.subTest(extra=extra), self.assertRaises(RuntimeError):
                 validate(dict(self.evidence, **extra), self.target)
+        for field, value in [('acceptanceCommitment', '0' * 64), ('acceptedRevision', 'd' * 40)]:
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                validate(dict(self.evidence, **{field: value}), self.target)
+        dropped = dict(self.evidence); dropped.pop('applicationSet')
+        with self.assertRaises(RuntimeError): validate(dropped, self.target)
 
-    def test_existing_catalog_requires_exact_uid_source_owner_and_idle_state(self):
-        from service_activation import APP, OWNER
+    def test_prepare_without_acceptance_is_refused(self):
+        from service_activation import prepare
+        root = Path(__file__).resolve().parents[4]
+        public = yaml.safe_load((root / 'gitops/roots/public/values.yaml').read_text())
+        public['repository'] = 'https://github.com/example/platform.git'
+        with self.assertRaisesRegex(RuntimeError, 'authenticated receipt'):
+            prepare(public, self.target['valuesRepository'], self.target['valuesRevision'],
+                    {'catalog': [], 'dataApprovals': {}})
+
+    def catalog_objects(self):
+        from service_activation import APP, OWNER, TRACKING
         evidence = self.evidence
+        parent = {'metadata': {'uid': 'services-parent', 'labels': {'cloudlab.io/owner': OWNER},
+                               'annotations': {'argocd.argoproj.io/tracking-id':
+                                   'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + APP}},
+                  'spec': copy.deepcopy(evidence['applicationSet'])}
         app = {'metadata': {'uid': 'catalog', 'labels': {'cloudlab.io/owner': OWNER},
-                           'managedFields': [{'manager': OWNER, 'operation': 'Apply',
-                                             'fieldsV1': {'f:spec': {'f:sources': {}}}}]},
+                            'annotations': {'argocd.argoproj.io/tracking-id': TRACKING},
+                            'ownerReferences': [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                                'name': APP, 'uid': 'services-parent', 'controller': True, 'blockOwnerDeletion': True}]},
                'spec': {'project': APP, 'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
                         'syncPolicy': {'automated': {'prune': False}}, 'sources': [
                     {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'],
                      'path': 'platform/delivery/services', 'helm': {
                          'valueFiles': ['$values/services/catalog.json', '$values/identity/argo-values.yaml'],
-                         'valuesObject': {'repository': evidence['repository'], 'revision': evidence['revision'], 'telemetry': False}}},
-                    {'repoURL': evidence['private_repository'], 'targetRevision': 'main', 'ref': 'values'}]},
+                         'valuesObject': {'repository': evidence['repository'], 'revision': evidence['revision'],
+                                          'telemetry': evidence['telemetry']}}},
+                    {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'}]},
                'status': {'health': {'status': 'Healthy'}, 'sync': {'status': 'Synced'}}}
+        return parent, app
+
+    def test_existing_catalog_requires_exact_uid_source_owner_and_idle_state(self):
+        from service_activation import APP
+        parent, app = self.catalog_objects()
+        self.objects['applicationset.argoproj.io', APP] = parent
         self.objects['application.argoproj.io', APP] = app
-        captured = self.guard(evidence, self.target, self.read)
+        captured = self.guard(self.evidence, self.target, self.read)
         self.assertEqual(captured['existing']['uid'], 'catalog')
-        for change in ('uid', 'source', 'owner', 'manager', 'operation', 'finalizer', 'deleting', 'health'):
+        self.assertEqual(captured['existing']['sources'], app['spec']['sources'])
+        for change in ('uid', 'source', 'values', 'owner', 'operation', 'running', 'finalizer', 'deleting',
+                       'health', 'tracking', 'ownerref', 'parentspec'):
             current = copy.deepcopy(app)
             if change == 'uid': current['metadata']['uid'] = 'replaced'
             if change == 'source': current['spec']['sources'][0]['targetRevision'] = 'd' * 40
+            if change == 'values': current['spec']['sources'][1]['targetRevision'] = 'd' * 40
             if change == 'owner': current['metadata']['labels']['cloudlab.io/owner'] = 'foreign'
-            if change == 'manager': current['metadata']['managedFields'][0]['operation'] = 'Update'
             if change == 'operation': current['operation'] = {'sync': {}}
+            if change == 'running': current['status']['operationState'] = {'phase': 'Running'}
             if change == 'finalizer': current['metadata']['finalizers'] = ['foreign']
             if change == 'deleting': current['metadata']['deletionTimestamp'] = 'synthetic'
             if change == 'health': current['status']['health']['status'] = 'Progressing'
+            if change == 'tracking': current['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'foreign'
+            if change == 'ownerref': current['metadata']['ownerReferences'][0]['uid'] = 'foreign'
+            if change == 'parentspec': self.objects['applicationset.argoproj.io', APP]['spec'] = {}
             self.objects['application.argoproj.io', APP] = current
             with self.subTest(change=change), self.assertRaises(RuntimeError): self.guard(captured, self.target, self.read)
+            self.objects['applicationset.argoproj.io', APP] = copy.deepcopy(parent)
 
-        from service_activation import TRACKING
-        progressing = copy.deepcopy(app)
-        progressing['metadata']['annotations'] = {'argocd.argoproj.io/tracking-id': TRACKING}
-        progressing['status'] = {'health': {'status': 'Progressing'}, 'sync': {'status': 'OutOfSync'},
-                                 'conditions': [{'type': 'ComparisonError'}]}
-        self.objects['application.argoproj.io', APP] = progressing
-        tracked = self.guard(evidence, self.target, self.read)
-        self.assertFalse(tracked['existing']['adoption'])
-        with self.assertRaises(RuntimeError): self.guard(captured, self.target, self.read)
-        for change in ('operation', 'running', 'uid', 'source', 'deleting'):
-            current = copy.deepcopy(progressing)
-            if change == 'operation': current['operation'] = {'sync': {'revision': 'foreign'}}
-            if change == 'running': current['status']['operationState'] = {'phase': 'Running'}
-            if change == 'uid': current['metadata']['uid'] = 'foreign'
-            if change == 'source': current['spec']['sources'][0]['targetRevision'] = 'd' * 40
-            if change == 'deleting': current['metadata']['deletionTimestamp'] = 'synthetic'
-            self.objects['application.argoproj.io', APP] = current
-            with self.subTest(tracked_change=change), self.assertRaises(RuntimeError):
-                self.guard(tracked, self.target, self.read)
+    def test_catalog_without_native_parent_is_refused(self):
+        from service_activation import APP
+        _, app = self.catalog_objects()
+        self.objects['application.argoproj.io', APP] = app
+        with self.assertRaises(RuntimeError): self.guard(self.evidence, self.target, self.read)
 
     def test_both_installed_source_transition_paths_include_activation_guard(self):
         root = Path(__file__).resolve().parents[4]

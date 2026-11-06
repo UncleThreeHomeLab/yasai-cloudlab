@@ -26,6 +26,22 @@ ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
 
 
+def quiet(obj):
+    meta = (obj or {}).get('metadata', {})
+    return bool(obj and meta.get('uid') and not meta.get('deletionTimestamp') and
+                not meta.get('ownerReferences') and not meta.get('finalizers') and obj.get('operation') is None and
+                str(meta.get('annotations', {}).get('argocd.argoproj.io/skip-reconcile', '')).lower() != 'true' and
+                obj.get('status', {}).get('operationState', {}).get('phase') in (None, 'Succeeded'))
+
+
+def binding_receipt_guard(evidence, target):
+    """The binding revision must be Git-accepted; host input alone never retargets it."""
+    if not isinstance(evidence, dict) or not evidence.get('required'):
+        return
+    if evidence.get('acceptanceReceipt', {}).get('revision') != target['valuesRevision']:
+        raise RuntimeError('Identity binding revision differs from its Git-accepted receipt')
+
+
 def _namespace_version(state):
     if 'namespaceGuardContract' not in state:
         return False
@@ -185,19 +201,33 @@ def binding_source(state, root):
 
 
 def capture_public_revision(payload):
-    from playbooks.data.files.native import published_source
-    _, revision = published_source({'publicSource': {'repository': payload['repository'], 'branch': payload['branch']}},
-        deadline=time.monotonic() + 120)
-    if revision != payload['revision']:
+    try:
+        from .github_app import PUBLIC_READER, public_metadata
+    except ImportError:
+        from github_app import PUBLIC_READER, public_metadata
+    from playbooks.secrets.files.vault import fields
+    if payload['repository'] != 'https://github.com/' + PUBLIC_READER + '.git' or payload['branch'] != 'main':
+        raise RuntimeError('Pending binding requires the designated public main source')
+    deadline = time.monotonic() + 120
+    with public_metadata(fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')), deadline=deadline) as fetch:
+        branch = fetch('repos/' + PUBLIC_READER + '/branches/main', deadline)
+    if (not isinstance(branch, dict) or branch.get('protected') is not True
+            or not isinstance(branch.get('commit', {}).get('sha'), str)
+            or not re.fullmatch('[a-f0-9]{40}', branch['commit']['sha'])):
+        raise RuntimeError('Independently protected public main is invalid')
+    if branch['commit']['sha'] != payload['revision']:
         raise RuntimeError('Pending binding public revision differs from independently protected main')
-    return revision
+    return payload['revision']
 
 
 def check_activation(state, root, read, *, data_held=False):
     versioned = namespace_contract(state)
     data_binding_fence(state['target'])
     validate_private(state.get('privateActivation'), state['target'], root)
-    from playbooks.harbor.files.native import binding_guard
+    try:
+        from playbooks.harbor.files.native import binding_guard
+    except ImportError:
+        raise RuntimeError('Identity binding harbor leg requires its registry-owner restoration') from None
     binding_guard(state, root, read=read)
     evidence = state.get('serviceActivation')
     if evidence is None:
@@ -235,7 +265,10 @@ def safe_identity_resume(state, read, *, data_held=False):
     identity_project_rules(project)
     if project['spec'].get('sourceRepos') != [root.get('spec', {}).get('source', {}).get('repoURL')]:
         raise RuntimeError('Identity handoff project source changed; controller remains paused')
-    from playbooks.data.files.handoff import active
+    try:
+        from playbooks.data.files.handoff import active
+    except ImportError:
+        raise RuntimeError('Identity binding data leg requires its data-owner restoration') from None
     if versioned or binding_source(state, root) == 'patched' or active() or state['privateActivation']['required']:
         check_activation(state, root, read, data_held=data_held)
     else:
@@ -261,6 +294,7 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     if checkpoint['target'] != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
     validate_private(checkpoint.get('privateActivation'), target)
+    binding_receipt_guard(checkpoint.get('privateActivation'), target)
     for key, kind, name in (('root_uid', 'application.argoproj.io', ROOT_APP),
                            ('controller_uid', 'statefulset', CONTROLLER),
                            ('project_uid', 'appproject.argoproj.io', 'cloudlab-root')):
@@ -357,7 +391,6 @@ def pending_identity_target(target):
 
 def pending_private_target(binding, evidence, root):
     """Authorize only the durable, paused first identity binding's original source."""
-    from playbooks.data.files.native import quiet
     if not isinstance(binding, dict):
         raise RuntimeError('Unbound private sources require their durable pending identity operation')
     target = {'valuesRepository': evidence['private_repository'], 'valuesRevision': evidence['private_revision']}
@@ -440,6 +473,7 @@ def bind_identity_locked(payload, target):
     except ImportError:
         from private_activation import preflight
     preflight(payload.get('argo', {}).get('privateActivation'), target, get, get('application.argoproj.io', ROOT_APP))
+    binding_receipt_guard(payload.get('argo', {}).get('privateActivation'), target)
     access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
     if checkpoint and checkpoint.get('phase') != 'accepted':
         hydrate_binding(path, checkpoint, payload, target, data_held=True)
@@ -591,13 +625,21 @@ def run(payload):
 
 def pending_root_authority(recovery, repository, *, first_binding=False):
     """Reload the pending operation; caller context alone grants no authority."""
-    from playbooks.data.files import native
+    try:
+        from .github_setup import repository as repository_name
+        from .source_revision import identity_project_rules
+    except ImportError:
+        from github_setup import repository as repository_name
+        from source_revision import identity_project_rules
     if not isinstance(recovery, dict) or set(recovery) != {'checkpoint', 'sourceState', 'rootSource'}:
         raise RuntimeError('Identity installation recovery requires its exact pending context')
     supplied = recovery.get('checkpoint')
     if not isinstance(supplied, dict):
         raise RuntimeError('Identity installation recovery lacks its recorded binding')
-    recorded = native.receipt(BASE / 'identity-values-binding.json')
+    try:
+        recorded = json.loads((BASE / 'identity-values-binding.json').read_text())
+    except (OSError, ValueError):
+        recorded = {}
     if (recorded != supplied or pending_identity_checkpoint(recorded.get('target')) != recorded
             or not re.fullmatch('[a-f0-9]{40}', recorded.get('publicRevision') or '')):
         raise RuntimeError('Identity installation recovery differs from the durable pending binding')
@@ -605,7 +647,7 @@ def pending_root_authority(recovery, repository, *, first_binding=False):
     controller = get('statefulset', 'argocd-application-controller') or {}
     project = get('appproject.argoproj.io', 'cloudlab-root') or {}
     for key, obj in (('root_uid', root), ('controller_uid', controller), ('project_uid', project)):
-        if not native.quiet(obj) or obj['metadata']['uid'] != recorded.get(key):
+        if not quiet(obj) or obj['metadata']['uid'] != recorded.get(key):
             raise RuntimeError('Identity installation recovery authority changed')
     original, patched = recorded.get('originalSource'), recorded.get('patchedSource')
     if not isinstance(original, dict) or not isinstance(patched, dict):
@@ -619,8 +661,8 @@ def pending_root_authority(recovery, repository, *, first_binding=False):
         if (not isinstance(target, dict) or set(target) != {'valuesRepository', 'valuesRevision'}
                 or not re.fullmatch('[a-f0-9]{40}', target.get('valuesRevision') or '')):
             raise RuntimeError('Identity installation recovery requires two immutable bound sources')
-        repo = native.repository(target['valuesRepository'])
-        public_repo = native.repository(repository)
+        repo = repository_name(target['valuesRepository'])
+        public_repo = repository_name(repository)
         if repo.lower() == public_repo.lower() or repo.split('/')[0].lower() != public_repo.split('/')[0].lower():
             raise RuntimeError('Identity installation recovery private repository changed')
     if not first_binding and targets[0]['valuesRepository'] != targets[1]['valuesRepository']:
@@ -637,14 +679,20 @@ def pending_root_authority(recovery, repository, *, first_binding=False):
             or source.get('helm', {}).get('releaseName') != 'cloudlab-public-root'
             or set(source.get('helm', {})) - {'releaseName', 'valuesObject'}
             or spec.get('syncPolicy', {}).get('automated', {}).get('prune', False)
-            or spec.get('ignoreDifferences') != native.delegations()
-            or spec.get('syncPolicy', {}).get('syncOptions') != ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']
+            or spec.get('ignoreDifferences') != [
+                {'group': 'argoproj.io', 'kind': 'Application', 'namespace': 'argocd', 'name': 'cloudlab-public-root',
+                 'jsonPointers': ['/spec/source/helm/valuesObject/data/configuration/maintenance',
+                                  '/spec/source/helm/valuesObject/data/configuration/hibernated']},
+                {'group': 'argoproj.io', 'kind': 'Application', 'namespace': 'argocd', 'name': 'cloudlab-seaweedfs',
+                 'jsonPointers': ['/spec/source/helm/valuesObject/seaweedfs/' + name + '/replicas'
+                                  for name in ('master', 'volume', 'filer', 's3')]}]
+            or spec.get('syncPolicy', {}).get('syncOptions') != ['FailOnSharedResource=true', 'ClientSideApplyMigration=false', 'RespectIgnoreDifferences=true']
             or type(controller.get('spec', {}).get('replicas')) is not int or controller['spec']['replicas'] not in (0, 1)
             or project.get('spec', {}).get('sourceRepos') != [repository]
-            or project.get('spec', {}).get('namespaceResourceWhitelist') != native.identity_project_rules(project)):
+            or project.get('spec', {}).get('namespaceResourceWhitelist') != identity_project_rules(project)):
         raise RuntimeError('Identity installation recovery Root, topology or project changed')
     if controller['spec']['replicas'] == 0:
-        pods = json.loads(native.kube('get', 'pods', '-n', 'argocd', '-o', 'json')).get('items')
+        pods = json.loads(kube('get', 'pods', '-n', 'argocd', '-o', 'json')).get('items')
         if not isinstance(pods, list) or len(pods) > 10000 or any(any(
                 owner.get('uid') == recorded['controller_uid'] or
                 (owner.get('kind') == 'StatefulSet' and owner.get('name') == 'argocd-application-controller')
@@ -654,7 +702,6 @@ def pending_root_authority(recovery, repository, *, first_binding=False):
 
 
 def pending_root_context(recovery, public, *, first_binding=False):
-    from playbooks.data.files import native
     root, targets = pending_root_authority(recovery, public.get('repository') if isinstance(public, dict) else None, first_binding=first_binding)
     source = root['spec']['source']
     recorded = recovery['checkpoint']
@@ -665,7 +712,10 @@ def pending_root_context(recovery, public, *, first_binding=False):
     else:
         approved['identity']['argo'] = targets[0 if state == 'original' else 1]
     overrides = copy.deepcopy(source['helm'].get('valuesObject', {}))
-    native.root_flags(root)
+    flags = {key: source.get('helm', {}).get('valuesObject', {}).get('data', {}).get('configuration', {}).get(key, False)
+             for key in ('maintenance', 'hibernated')}
+    if any(type(value) is not bool for value in flags.values()):
+        raise RuntimeError('Data Root operational flags require exact booleans')
     config = overrides.get('data', {}).get('configuration', {})
     for field in ('maintenance', 'hibernated'): config.pop(field, None)
     def compatible(actual, expected):

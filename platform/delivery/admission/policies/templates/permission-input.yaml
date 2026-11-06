@@ -90,7 +90,7 @@ spec:
       size(variables.oldOperation) > 0 && variables.operation == variables.oldOperation
   - name: syncOptions
     expression: |-
-      ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PrunePropagationPolicy=background']
+      ['FailOnSharedResource=true', 'ClientSideApplyMigration=false', 'PrunePropagationPolicy=background']
   - name: sameStatusExceptOperationState
     expression: |-
       variables.status.all(k, k == 'operationState' || (k in variables.oldStatus && variables.status[k] == variables.oldStatus[k])) && variables.oldStatus.all(k, k == 'operationState' || (k in variables.status && variables.oldStatus[k] == variables.status[k]))

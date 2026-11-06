@@ -55,7 +55,7 @@ def payload(inputs, secret_only=False):
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'longhorn-system'},
             'syncPolicy': {'automated': {'enabled': settings['reconcile'], 'prune': False,
                                        'selfHeal': True, 'allowEmpty': False},
-                'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true'],
+                'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false'],
                 'retry': {'limit': 5, 'backoff': {'duration': '5s', 'factor': 2, 'maxDuration': '1m'}}}}}
     inventory = [{'apiVersion': version, 'kind': kind, 'metadata': {'name': name, 'namespace': 'longhorn-system'}}
                  for version, kind, name in [('external-secrets.io/v1', 'ExternalSecret', policy['external_secret_name']),

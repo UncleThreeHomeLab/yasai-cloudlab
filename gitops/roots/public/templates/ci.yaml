@@ -116,7 +116,7 @@ spec:
         namespace: {{ if eq $component "controller" }}cloudlab-ci-system{{ else }}cloudlab-ci-private{{ end }}
       syncPolicy:
         automated: {prune: false, selfHeal: true, allowEmpty: false}
-        syncOptions: [FailOnSharedResource=true, ServerSideApply=true, DisableClientSideApplyMigration=true]
+        syncOptions: [FailOnSharedResource=true, ServerSideApply=true, ClientSideApplyMigration=false]
 {{- end }}
 {{- end }}
 {{- range $component := list "controller" "runner" "publisher" }}
@@ -158,7 +158,7 @@ spec:
         namespace: {{ if eq $component "controller" }}cloudlab-ci-system{{ else }}'{{ "{{ .namespace }}" }}'{{ end }}
       syncPolicy:
         automated: {prune: false, selfHeal: true, allowEmpty: false}
-        syncOptions: [FailOnSharedResource=true, ServerSideApply=true, DisableClientSideApplyMigration=true]
+        syncOptions: [FailOnSharedResource=true, ServerSideApply=true, ClientSideApplyMigration=false]
 {{- end }}
 {{- end }}
 {{- end }}

@@ -139,8 +139,11 @@ def catalog_parent(evidence, read):
 
 def _declaration_intent(evidence, root, *, proposed=None):
     """Compare declarations with fresh public intent; grant no source-effect authority."""
-    from playbooks.data.files import native
     from playbooks.argocd.files.private_sources import acceptance_spec, validate_acceptance
+    from playbooks.argocd.files.github_app import PUBLIC_READER, public_metadata
+    from playbooks.argocd.files import source_snapshot
+    from playbooks.secrets.files.vault import fields
+    import yaml
     source = root.get('spec', {}).get('source', {})
     identity = source.get('helm', {}).get('valuesObject', {}).get('identity', {})
     if (not root.get('metadata', {}).get('uid') or root.get('metadata', {}).get('deletionTimestamp')
@@ -149,8 +152,19 @@ def _declaration_intent(evidence, root, *, proposed=None):
             or source.get('repoURL') != evidence['repository'] or source.get('targetRevision') != 'main'
             or source.get('path') != 'gitops/roots/public' or not isinstance(identity, dict)):
         raise RuntimeError('Private source acceptance requires the current designated Root binding')
+    if evidence['repository'] != 'https://github.com/' + PUBLIC_READER + '.git':
+        raise RuntimeError('Private source acceptance requires the designated public repository')
     deadline = time.monotonic() + 120
-    public, revision = native.published_source({'publicSource': {'repository': evidence['repository'], 'branch': 'main'}}, deadline=deadline)
+    with public_metadata(fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')), deadline=deadline) as fetch:
+        branch = fetch('repos/' + PUBLIC_READER + '/branches/main', deadline)
+        if (not isinstance(branch, dict) or branch.get('protected') is not True
+                or not isinstance(branch.get('commit', {}).get('sha'), str)
+                or not re.fullmatch('[a-f0-9]{40}', branch['commit']['sha'])):
+            raise RuntimeError('Protected public main is invalid')
+        revision = branch['commit']['sha']
+        files = source_snapshot.chart_files({'repository': evidence['repository'], 'revision': revision,
+            'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
+    public = yaml.safe_load(files['values.yaml'])
     settings = public.get('privateSources', {})
     enabled = evidence.get('required', True)
     if type(settings.get('enabled')) is not bool or settings['enabled'] != enabled:
@@ -171,7 +185,6 @@ def _declaration_intent(evidence, root, *, proposed=None):
             or target['valuesRepository'] != evidence['private_repository']
             or not isinstance(target['valuesRevision'], str) or not re.fullmatch('[a-f0-9]{40}', target['valuesRevision'])):
         raise RuntimeError('Private source acceptance requires the current designated Root binding')
-    files = native.source_snapshot.chart_files({'repository': evidence['repository'], 'revision': revision, 'path': 'gitops/roots/public'}, deadline=deadline)
     if acceptance_spec(public, evidence['private_repository'], target['valuesRevision'], files=files) != evidence.get('applicationSet'):
         raise RuntimeError('Private source acceptance parent differs from the authenticated public declaration')
 
@@ -191,7 +204,10 @@ def preflight(evidence, target, read, root=None):
             raise RuntimeError('Incoming private source intent cannot invent captured operation authority')
     identity = root.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject', {}).get('identity', {})
     if checked['required'] and isinstance(identity, dict) and 'argo' not in identity:
-        from playbooks.data.files.native import quiet
+        try:
+            from .source_transition import quiet
+        except ImportError:
+            from source_transition import quiet
         if not quiet(root):
             raise RuntimeError('First native private binding requires a quiet original Root before stopping its controller')
     _declaration_intent(checked, root, proposed=target)
@@ -373,7 +389,7 @@ def guard(evidence, target, read, root=None, probe=None, *, binding=None):
                 or spec.get('syncPolicy', {}).get('automated') !=
                     {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': True}
                 or spec.get('syncPolicy', {}).get('syncOptions') !=
-                    ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'PruneLast=true']
+                    ['FailOnSharedResource=true', 'ClientSideApplyMigration=false', 'PruneLast=true']
                 or app.get('operation') or status.get('operationState', {}).get('phase') in ('Running', 'Terminating')):
             raise RuntimeError('Private activation requires its exact idle root-owned catalog')
         evidence['existing'] = {'uid': meta['uid'], 'sources': copy.deepcopy(spec['sources'])}

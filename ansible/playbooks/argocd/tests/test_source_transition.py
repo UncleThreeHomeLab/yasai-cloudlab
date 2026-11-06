@@ -93,6 +93,16 @@ class SourceTransitionTests(unittest.TestCase):
                 with patch.object(migration, 'BASE', base), self.assertRaises(RuntimeError):
                     migration.accepted_identity_binding(**arguments)
 
+    def test_binding_revision_must_match_its_git_accepted_receipt(self):
+        target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'a' * 40}
+        migration.binding_receipt_guard(None, target)
+        migration.binding_receipt_guard({'required': False}, target)
+        migration.binding_receipt_guard({'required': True, 'acceptanceReceipt': {'revision': 'a' * 40}}, target)
+        for evidence in ({'required': True}, {'required': True, 'acceptanceReceipt': {'revision': 'b' * 40}},
+                         {'required': True, 'acceptanceReceipt': {}}):
+            with self.subTest(evidence=evidence), self.assertRaisesRegex(RuntimeError, 'Git-accepted receipt'):
+                migration.binding_receipt_guard(evidence, target)
+
     def fixtures(self):
         return {
             ('application.argoproj.io', migration.ROOT_APP): {

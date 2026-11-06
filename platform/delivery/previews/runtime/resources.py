@@ -176,7 +176,7 @@ def resources(row, settings, platform_repository, state_uid):
                        'helm': {'releaseName': n['name'], 'valuesObject': definition}},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': ns},
             'syncPolicy': {'automated': {'enabled': True, 'prune': True, 'selfHeal': True, 'allowEmpty': False},
-                           'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true']}}}}, namespace='argocd')
+                           'syncOptions': ['FailOnSharedResource=true', 'ClientSideApplyMigration=false']}}}}, namespace='argocd')
     return objects
 
 
