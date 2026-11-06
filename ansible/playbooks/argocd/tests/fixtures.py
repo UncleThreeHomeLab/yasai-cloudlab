@@ -20,6 +20,34 @@ import urllib.request
 import yaml
 
 
+def first_binding_observation(*, patched=True, replicas=1):
+    from playbooks.data.files import native
+    from playbooks.argocd.files.private_activation import prepare
+    public = {'repository': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git',
+        'identity': {'enabled': True}, 'data': {'configuration': {}}}
+    target = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private.git', 'valuesRevision': 'a' * 40}
+    original = {'repoURL': public['repository'], 'targetRevision': 'main', 'path': 'gitops/roots/public',
+        'helm': {'releaseName': 'cloudlab-public-root', 'valuesObject': {'identity': {'enabled': True}}}}
+    proposed = copy.deepcopy(original); proposed['helm']['valuesObject']['identity']['argo'] = target
+    root = {'metadata': {'uid': 'root'}, 'spec': {'project': 'cloudlab-root', 'source': copy.deepcopy(proposed if patched else original),
+        'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
+        'ignoreDifferences': native.delegations(), 'syncPolicy': {'syncOptions': [
+            'FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']}}}
+    project = {'metadata': {'uid': 'project'}, 'spec': {'sourceRepos': [public['repository']],
+        'destinations': [{'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}],
+        'clusterResourceWhitelist': [{'group': '', 'kind': 'Namespace'}],
+        'namespaceResourceWhitelist': [{'group': 'argoproj.io', 'kind': kind} for kind in ('Application', 'AppProject', 'ApplicationSet')]
+            + [{'group': 'external-secrets.io', 'kind': 'ExternalSecret'}]}}
+    objects = {('application.argoproj.io', 'cloudlab-public-root'): root,
+        ('appproject.argoproj.io', 'cloudlab-root'): project,
+        ('statefulset', 'argocd-application-controller'): {'metadata': {'uid': 'controller'}, 'spec': {'replicas': replicas}}}
+    binding = {'phase': 'resumed' if patched and replicas == 1 else 'paused', 'target': target, 'publicRevision': 'b' * 40,
+        'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project',
+        'originalSource': original, 'patchedSource': proposed,
+        'privateActivation': prepare(public, target['valuesRepository'], target['valuesRevision'])}
+    return public, objects, binding
+
+
 def source_approval(public, repository, revision='d' * 40):
     receipt = {'version': 'cloudlab-private-source-acceptance/v1', 'consumer': 'private-sources',
         'revision': revision, 'nonce': '1' * 64}

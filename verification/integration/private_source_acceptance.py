@@ -169,9 +169,10 @@ def read(key, *, profile=REGISTRY_PROFILE):
     return get(kind, name, namespace)
 
 
-def artifact_lock(config, deadline):
+def artifact_lock(config, deadline, *, fetch=None):
     path = 'platform/delivery/argocd/artifact.lock.json'
-    document = native.source_snapshot.request('repos/' + native.repository(PUBLIC) + '/contents/' + path + '?ref=' + config['publicRevision'], deadline)
+    fetch = native.source_snapshot.request if fetch is None else fetch
+    document = fetch('repos/' + native.repository(PUBLIC) + '/contents/' + path + '?ref=' + config['publicRevision'], deadline)
     if (not isinstance(document, dict) or document.get('type') != 'file' or document.get('path') != path
             or document.get('encoding') != 'base64' or type(document.get('size')) is not int
             or not 0 < document['size'] <= 16384 or not isinstance(document.get('sha'), str)
@@ -186,15 +187,27 @@ def artifact_lock(config, deadline):
 def context(config, state=None, *, profile=REGISTRY_PROFILE):
     config_guard(config, state, profile=profile)
     deadline = time.monotonic() + 180
-    if profile['consumer'] is not None:
-        if not isinstance(profile.get('peer'), dict): raise ProofError('Consumer actions require their fixed operation envelope')
-        quota = native.source_snapshot.request('rate_limit', deadline).get('resources', {}).get('core', {})
-        remaining = quota.get('remaining')
-        if type(remaining) is not int or remaining < (4 if profile.get('peer', {}).get('cleanup') else 12):
-            raise ProofError('Public source API budget reserved for cleanup; retry after reset')
-    public, head = native.published_source({'publicSource': {'repository': PUBLIC, 'branch': 'main'}}, deadline=deadline)
-    if state is None and head != config['publicRevision']:
-        raise ProofError('Proof artifact must be the independently protected published head')
+    coordinates = {'publicSource': {'repository': PUBLIC, 'branch': 'main'}}
+    with native.public_metadata(coordinates, deadline=deadline) as public_fetch:
+        if profile['consumer'] is not None:
+            if not isinstance(profile.get('peer'), dict): raise ProofError('Consumer actions require their fixed operation envelope')
+            if public_fetch is native.source_snapshot.request:
+                quota = native.source_snapshot.request('rate_limit', deadline).get('resources', {}).get('core', {})
+                remaining = quota.get('remaining')
+                if type(remaining) is not int or remaining < (4 if profile.get('peer', {}).get('cleanup') else 12):
+                    raise ProofError('Public source API budget reserved for cleanup; retry after reset')
+        public, head = native.published_source({'publicSource': {'repository': PUBLIC, 'branch': 'main'}}, deadline=deadline, fetch=public_fetch)
+        if state is None and head != config['publicRevision']:
+            raise ProofError('Proof artifact must be the independently protected published head')
+        metadata = {}
+        def fetch(path, deadline):
+            if path not in metadata: metadata[path] = public_fetch(path, deadline)
+            return metadata[path]
+        fetch.deadline = getattr(public_fetch, 'deadline', None)
+        snapshot = lambda path: native.source_snapshot.chart_files({'repository': PUBLIC, 'revision': config['publicRevision'], 'path': path}, fetch=fetch, deadline=deadline)
+        files = snapshot('gitops/roots/public')
+        fixture = snapshot(profile['chart'])
+        images = artifact_lock(config, deadline, fetch=fetch)['images']
     root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
     source = root.get('spec', {}).get('source', {})
     binding = source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo', {})
@@ -205,14 +218,6 @@ def context(config, state=None, *, profile=REGISTRY_PROFILE):
             or root.get('status', {}).get('health', {}).get('status') != 'Healthy'
             or root.get('status', {}).get('sync', {}).get('status') != 'Synced'):
         raise ProofError('Proof requires the accepted designated Root binding')
-    metadata = {}
-    def fetch(path, deadline):
-        if path not in metadata: metadata[path] = native.source_snapshot.request(path, deadline)
-        return metadata[path]
-    snapshot = lambda path: native.source_snapshot.chart_files({'repository': PUBLIC, 'revision': config['publicRevision'], 'path': path}, fetch=fetch, deadline=deadline)
-    files = snapshot('gitops/roots/public')
-    fixture = snapshot(profile['chart'])
-    images = artifact_lock(config, deadline)['images']
     images = [name + '@' + digest for name, digest in images.items() if name.startswith('quay.io/argoproj/argocd:')]
     controller = get('deployment', 'argocd-applicationset-controller', 'argocd') or {}
     containers = controller.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])

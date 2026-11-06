@@ -2,13 +2,13 @@
 import base64
 import copy
 import hashlib
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext, contextmanager
 import io
 import json
 import os
 import traceback
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 import yaml
 
 from playbooks.argocd.files import github_setup
@@ -30,9 +30,9 @@ class SourceReadTests(unittest.TestCase):
         paths = ['services/catalog-selected.yaml', 'platform/observability.yaml'] if consumer == 'observability' else ['platform/permissions.yaml']
         receipt = {'version': 'cloudlab-consumer-source-acceptance/v1', 'consumer': consumer, 'paths': paths,
             'revision': 'b' * 40, 'nonce': '1' * 64}
-        commitment = hashlib.sha256(('\n'.join([receipt['version'], consumer, 'https://github.com/example/private.git',
+        commitment = hashlib.sha256(('\n'.join([receipt['version'], consumer, 'https://github.com/UncleThreeHomeLab/private.git',
             str(len(paths)), *paths, receipt['revision'], receipt['nonce'], ''])).encode()).hexdigest()
-        public = {'repository': 'https://github.com/example/platform.git', 'revision': 'main',
+        public = {'repository': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git', 'revision': 'main',
             'identity': {'enabled': True}, 'externalSecrets': {'enabled': True, 'reconcile': True}, 'admission': {'enabled': True},
             'services': {'enabled': True, 'revision': 'd' * 40, 'catalogPath': paths[0] if consumer == 'observability' else 'services/catalog.json'},
             'observability': {'enabled': True, 'configuration': {'enabled': True, 'paused': False, 'revision': 'e' * 40}},
@@ -60,9 +60,23 @@ class SourceReadTests(unittest.TestCase):
             if failure == 'integrity' and path == paths[-1]: result['sha'] = '0' * 40
             return Response(result)
         clock, calls, clients, fields = self.fixture(stack, effect=effect)
+        stack.enter_context(patch.object(source, 'public_metadata', side_effect=lambda *a, **k: nullcontext(Mock())))
         stack.enter_context(patch('playbooks.services.files.owner.configuration', return_value={'repository': public['repository'], 'catalogPath': paths[0]}))
         authority = stack.enter_context(patch.object(native, 'published_source', return_value=(public, 'c' * 40)))
         return public, receipt, documents, clock, calls, clients, fields, authority
+
+    def test_public_cleanup_failure_blocks_private_token_acquisition(self):
+        @contextmanager
+        def unconfirmed(*args, **kwargs):
+            yield Mock()
+            raise RuntimeError('Public metadata token cleanup: unconfirmed; writes blocked')
+        with ExitStack() as stack:
+            self.consumer_fixture(stack)
+            stack.enter_context(patch.object(source, 'public_metadata', side_effect=unconfirmed))
+            private = stack.enter_context(patch.object(source, '_read'))
+            with self.assertRaisesRegex(RuntimeError, 'Public metadata token cleanup: unconfirmed'):
+                source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, 'observability')
+            private.assert_not_called()
 
     def test_consumer_reads_complete_bundle_at_one_approved_revision_and_revokes(self):
         for consumer in ('observability', 'permissions'):
@@ -71,14 +85,14 @@ class SourceReadTests(unittest.TestCase):
                 if consumer == 'permissions':
                     documents = {path: {'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest(), 'size': len(raw)}
                         for path, value in documents.items() for raw in [yaml.safe_dump(value).encode()]}
-                result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, consumer, public=public)
+                result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, consumer, public=public)
                 self.assertEqual(result, {'consumer': consumer, 'publicRevision': 'c' * 40, 'proposalRevision': 'a' * 40,
                     'acceptedRevision': 'b' * 40, 'acceptanceCommitment': (public['observability']['configuration'] if consumer == 'observability' else public['permissions'])['acceptanceCommitment'],
                     'acceptanceReceipt': receipt, 'inputs': documents})
                 self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
                 self.assertEqual(json.loads(next(row[2] for row in calls if row[0] == 'POST')),
                     {'repositories': ['private'], 'permissions': {'contents': 'read'}})
-                authority.assert_called_once_with({'publicSource': {'repository': public['repository'], 'branch': 'main'}}, deadline=250)
+                authority.assert_called_once_with({'publicSource': {'repository': public['repository'], 'branch': 'main'}}, deadline=250, fetch=ANY)
                 self.assertTrue(all(client.deadline is not None for client in clients))
 
     def test_permission_body_is_opaque_but_integrity_and_token_cleanup_remain_required(self):
@@ -87,9 +101,9 @@ class SourceReadTests(unittest.TestCase):
                 public, _, _, _, calls, _, _, _ = self.consumer_fixture(stack, consumer='permissions', failure=failure)
                 if failure == 'integrity':
                     with self.assertRaises(RuntimeError):
-                        source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, 'permissions', public=public)
+                        source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, 'permissions', public=public)
                 else:
-                    result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, 'permissions', public=public)
+                    result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, 'permissions', public=public)
                     self.assertEqual(set(result['inputs']['platform/permissions.yaml']), {'sha', 'size'})
                 self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
 
@@ -97,7 +111,7 @@ class SourceReadTests(unittest.TestCase):
         for case in ('enabled', 'paused', 'pin', 'commitment', 'path', 'service-pin', 'identity', 'external', 'missing-approval', 'missing-repo', 'same-repo-alias', 'source-failure'):
             with self.subTest(case=case), ExitStack() as stack:
                 public, _, _, _, calls, _, fields, authority = self.consumer_fixture(stack)
-                supplied = copy.deepcopy(public); values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}
+                supplied = copy.deepcopy(public); values = {'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}
                 if case == 'enabled': supplied['observability']['configuration']['enabled'] = False
                 if case == 'paused': supplied['observability']['configuration']['paused'] = True
                 if case == 'pin': supplied['observability']['configuration']['revision'] = 'a' * 40
@@ -108,12 +122,14 @@ class SourceReadTests(unittest.TestCase):
                 if case == 'external': supplied['externalSecrets']['reconcile'] = False
                 if case == 'missing-approval': public['observability']['configuration'].pop('acceptanceCommitment')
                 if case == 'missing-repo': values = {}
-                if case == 'same-repo-alias': values['PRIVATE_CONFIG_REPOSITORY'] = 'https://github.com/EXAMPLE/PLATFORM.git'
+                if case == 'same-repo-alias': values['PRIVATE_CONFIG_REPOSITORY'] = 'https://github.com/UNCLETHREEHOMELAB/YASAI-CLOUDLAB.git'
                 if case == 'source-failure': authority.side_effect = RuntimeError('private-input-sentinel')
                 with self.assertRaisesRegex(RuntimeError, 'configuration; token cleanup: not-issued') as caught:
                     source.read_consumer(values, 'observability', public=supplied)
                 self.assertNotIn('private-input-sentinel', ''.join(traceback.format_exception(caught.exception)))
-                fields.assert_not_called(); self.assertEqual(calls, [])
+                if case in ('missing-repo', 'same-repo-alias'): fields.assert_not_called()
+                else: fields.assert_called_once()
+                self.assertEqual(calls, [])
 
     def test_disabled_consumer_authenticates_current_public_but_never_reads_private_inputs(self):
         for consumer in ('observability', 'permissions'):
@@ -121,16 +137,16 @@ class SourceReadTests(unittest.TestCase):
                 public, _, _, _, calls, _, fields, authority = self.consumer_fixture(stack, consumer=consumer)
                 settings = public['observability']['configuration'] if consumer == 'observability' else public['permissions']
                 settings['enabled'] = False
-                result = source.read_consumer({}, consumer, public=public)
+                result = source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, consumer, public=public)
                 self.assertEqual(result['inputs'], {}); self.assertIsNone(result['acceptedRevision']); self.assertIsNone(result['proposalRevision'])
-                authority.assert_called_once(); fields.assert_not_called(); self.assertEqual(calls, [])
+                authority.assert_called_once(); fields.assert_called_once(); self.assertEqual(calls, [])
 
     def test_consumer_failure_never_returns_partial_bundle_and_retires_known_token(self):
         for failure in ('receipt', 'replay', 'unavailable', 'incomplete', 'malformed', 'integrity', 'expired'):
             with self.subTest(failure=failure), ExitStack() as stack:
                 _, _, _, _, calls, _, _, _ = self.consumer_fixture(stack, failure=failure)
                 with self.assertRaisesRegex(RuntimeError, 'catalog; token cleanup: revoked') as caught:
-                    source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, 'observability')
+                    source.read_consumer({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, 'observability')
                 self.assertEqual(sum(row[0] == 'DELETE' for row in calls), 1)
                 self.assertNotIn('private-input-sentinel', ''.join(traceback.format_exception(caught.exception)))
 
@@ -168,7 +184,7 @@ class SourceReadTests(unittest.TestCase):
         return clock, calls, clients, fields
 
     def read(self, **options):
-        return source.read({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git'}, **options)
+        return source.read({'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git'}, **options)
 
     def test_real_bounded_transport_preserves_selected_path_revision_scope_and_caller(self):
         with ExitStack() as stack:
@@ -185,7 +201,7 @@ class SourceReadTests(unittest.TestCase):
                                 for client in clients))
             fields.assert_called_with('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY'))
             with patch.object(inputs, 'dotenv_values', return_value={
-                    'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/example/private.git',
+                    'PRIVATE_CONFIG_REPOSITORY': 'https://github.com/UncleThreeHomeLab/private.git',
                     'OP_SERVICE_ACCOUNT_TOKEN': 'synthetic'}), \
                     patch.dict(os.environ, {'OP_SERVICE_ACCOUNT_TOKEN': 'synthetic-before'}), \
                     patch.object(inputs, 'validate_catalog', side_effect=lambda value, public: value):
@@ -203,7 +219,7 @@ class SourceReadTests(unittest.TestCase):
                 self.assertEqual(sum(row[0] == 'DELETE' for row in calls), int(target == '/contents/'))
 
     def test_trusted_public_context_selects_the_same_private_catalog_path(self):
-        chosen = {'repository': 'https://github.com/example/platform.git',
+        chosen = {'repository': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git',
                   'services': {'revision': 'a' * 40, 'catalogPath': 'services/catalog-selected.yaml'}}
         with ExitStack() as stack:
             _, calls, _, _ = self.fixture(stack)
