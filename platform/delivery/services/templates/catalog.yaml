@@ -35,6 +35,10 @@
 {{- range $v.secrets }}
 {{- if not (has .name $a.secretReferences) }}{{ fail "Unapproved service credential" }}{{- end }}
 {{- end }}
+{{- range $a.secretBindings }}
+{{- if or (hasKey $a "composition") (ne ($a.chartPath | default "charts/service") "charts/service") }}{{ fail "Secret bindings require the ordinary service profile" }}{{- end }}
+{{- if not (has .name $a.secretReferences) }}{{ fail "Unapproved service credential" }}{{- end }}
+{{- end }}
 {{- range $v.configMaps }}
 {{- if not (has .name $a.configMaps) }}{{ fail "Unapproved service configuration" }}{{- end }}
 {{- end }}

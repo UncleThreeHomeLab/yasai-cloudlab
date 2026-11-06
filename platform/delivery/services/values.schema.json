@@ -62,6 +62,34 @@
                     "egress"
                   ]
                 }
+              },
+              {
+                "if": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "composition"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "chartPath"
+                      ],
+                      "properties": {
+                        "chartPath": {
+                          "const": "apps/notes"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "secretBindings"
+                    ]
+                  }
+                }
               }
             ],
             "required": [
@@ -113,6 +141,38 @@
                 "items": {
                   "type": "string",
                   "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                }
+              },
+              "secretBindings": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "item",
+                    "fields"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                    },
+                    "item": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "maxProperties": 32,
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                      }
+                    }
+                  }
                 }
               },
               "visibility": {

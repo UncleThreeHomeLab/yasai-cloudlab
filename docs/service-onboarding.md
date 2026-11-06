@@ -844,10 +844,8 @@ fall back to the legacy catalog. Validate the complete selected catalog at its
 accepted private revision before switching paths. Do not substitute a service playbook.
 
 For application SQL schemas, export reviewed, repeatable SQL from the application
-source and record its SHA-256. After scoped database provisioning, run
-`docker compose run -T --rm --entrypoint python lab -m playbooks.data.files.schema --service example-app --sql-file /workspace/.infra-private/onboarding/schema.sql --sha256 REVIEWED_SQL_SHA256`.
-The data owner verifies the current service scope and ready migration credential,
-then executes one TLS-verified transaction as that migration role. No migration
+source and record its SHA-256. Versioned migration execution currently has no
+supported executor; do not run ad-hoc SQL against shared data. No migration
 credential reaches application pods. Configure the application to check its schema
 version instead of changing schemas at runtime. Reapply only reviewed SQL;
 destructive migrations require a separate explicit data scope.
@@ -862,17 +860,26 @@ destructive migrations require a separate explicit data scope.
    `approval.secretReferences`; never grant application pods privileged data credentials.
 3. **User/Agent:** keep secret values in 1Password's CloudLab vault.
    Use the [service contract](../charts/service/README.md) for required item fields
-   and credential provisioning. The local secret helper supports explicitly scoped
-   empty placeholders; it preserves existing items and reports pending field names.
-   **User:** fill pending fields in 1Password. Automatic creation from Git has no
-   supported executor. External Secrets remains the sole synchronizer. Guarded
-   composition and SQL/S3 secret templates reject missing or empty required fields
-   and preserve valid deployed credentials. Completing those fields lets External
-   Secrets resume delivery on its refresh interval. Other consumers must not adopt
-   placeholders until their delivery and retention guards are verified.
+   and credential provisioning. After merging the catalog PR, the control-machine
+   credential reconciler creates missing approved items with empty required fields;
+   keep its private checkout at reviewed main and the same active catalog path as
+   public `services.catalogPath`. Ordinary secrets need an `approval.secretBindings`
+   entry binding the approved name to its vault item and fields. The reconciler
+   preserves existing items and reports pending field names.
+   **User:** fill pending fields in 1Password. External Secrets remains the sole
+   synchronizer. Guarded ordinary, composition and SQL/S3 secret templates reject
+   missing or empty required fields and preserve valid deployed credentials.
+   Completing those fields lets External Secrets resume delivery on its refresh
+   interval. Other consumers must not adopt placeholders until their delivery and
+   retention guards are verified.
 4. **Agent:** configure optional login through section 6.5 before publication.
-5. **Agent:** confirm backup coverage before storing important data.
-   Service PVCs require separate verified backup coverage; declaring storage is not a backup.
+5. **Agent:** declare protection in private `services/example-app/protection.yaml`
+   with the `coordinated-monthly` profile, protected database/bucket/PVC references
+   and the approved destination reference. The credential reconciler validates the
+   binding and reports coverage: shared SQL/S3 volumes are covered by the data owner
+   monthly export, while service PVCs report uncovered until separately verified.
+   Declaring storage or protection is not a backup; protection claims need isolated
+   restore evidence.
 
 **Done when:** dependency requests, scoped references and secret custody are declared.
 
@@ -926,8 +933,10 @@ explicit service-access choice.
    shared `charts/service/` code or the catalog Application.
    Routine application onboarding uses the designated private service catalog;
    it does not require an optional private GitOps root installer.
-5. **Agent:** use `lab data-credentials` and `lab setup` through Compose only when
-   prerequisites need provisioning or convergence. Initial native identity binding
+5. **Agent:** use `lab setup` through Compose only when
+   prerequisites need convergence. Missing approved credential items are provisioned
+   as empty placeholders by the credential reconciler after the catalog merge; fill
+   them in 1Password. Initial native identity binding
    validates the complete catalog at the same immutable private revision before
    activating its source. Foreign namespaces, projects or ApplicationSets block
    activation; composition admission must already be ready. Existing installations
@@ -967,8 +976,9 @@ retirement before exposure changes; rotation/removal/recovery remain independent
    The identity owner keeps their secret in `keycloak-client-secrets/client_secrets`
    in CloudLab, at `client_secrets[realm][client-id]`; never put the value in Git.
    Confidential enrollment requires an existing string of at least 32 characters.
-   Automatic missing-item creation is not supported; missing or incomplete credentials
-   block reconciliation.
+   The user supplies that value in 1Password; the reconciler reports a missing client
+   key as pending but never writes the shared identity item. Missing or incomplete
+   credentials block reconciliation.
    Guarded delivery requires a nonempty string at the selected realm/client and
    retains the last valid Secret until completion resumes through normal ESO refresh.
 2. **Agent:** check exact HTTPS callbacks derived from declared exposure hosts
@@ -1489,22 +1499,17 @@ Shared Access protection is retained; do not delete it to retire one service.
 
 ### 9.3 Retire the OIDC client, if enabled — Agent, then User
 
-First propose client disablement:
-
-```sh
-gh auth token | docker compose --profile services run --build -T --rm service identity-retire BUNDLE
-```
+Propose client disablement through a private identity PR: set the client's
+`enabled: false` in `identity/configmap.yaml` and keep its revocation tombstone.
 
 **User:** review and merge the scoped identity PR.
-**Agent:** run `docker compose run --build --rm lab identity-scoped` and verify
-the client is disabled before proposing removal:
-
-```sh
-gh auth token | docker compose --profile services run --build -T --rm service identity-remove BUNDLE
-```
+**Agent:** wait for the accepted `cloudlab-identity-private` Application to sync and
+the normal leased writer to converge, then verify the provider client is disabled
+before proposing removal. Propose removal through a second private identity PR that
+drops the declaration while keeping the persistent tombstone.
 
 **User:** review and merge the removal-tombstone PR.
-**Agent:** converge the scoped identity source again.
+**Agent:** verify the scoped identity source converges again.
 The identity owner prepares these changes in private `identity/configmap.yaml`;
 preserve `identity/argo-values.yaml` unless its owner explicitly proposes a change.
 The next retirement run enforces the token/session grace period before actual client

@@ -206,9 +206,33 @@ services:
         target: /recovery
     command: [check]
 
+  credential-reconciler:
+    profiles: [credentials]
+    platform: linux/amd64
+    build: *lab-build
+    entrypoint: [python, -m, playbooks.secrets.files.reconcile]
+    working_dir: /workspace/ansible
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ${PRIVATE_CONFIG_DIR:-../cloudlab-config}
+        target: /private-config
+        read_only: true
+      - type: volume
+        source: reconciler_state
+        target: /reconciler-state
+    environment:
+      PRIVATE_CONFIG_DIR: /private-config
+      CLOUDLAB_STATE_DIR: /reconciler-state
+    command: [--interval, '600']
+
 volumes:
   harbor_infra_work:
   infra_work:
   github_infra_work:
   ssh_known_hosts:
   recovery_outputs:
+  reconciler_state:

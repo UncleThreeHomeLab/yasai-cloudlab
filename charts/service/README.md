@@ -43,7 +43,9 @@ These are fields within a complete catalog entry. Client settings belong only in
 private `identity/configmap.yaml`; its leased Keycloak writer owns convergence.
 For a confidential client, add the same `secretReference` to both objects, its
 approved `secretReferences` entry and scoped `definition.secrets` mount. Existing
-1Password credentials must be complete; automatic missing-item creation is unsupported.
+1Password credentials must be complete; missing approved service items are created
+empty by the control-machine credential reconciler after the catalog merge, while
+shared OIDC keys stay user-supplied.
 Public references have no credential. Notes and composition adapters require the
 legacy profile and reject references. Do not mix reference and legacy settings.
 
@@ -154,7 +156,8 @@ Privileged data credentials and migration credentials never reach application po
    platform commit for its root-owned catalog Application. Initial identity binding
    checks catalog ownership collisions and composition admission before activation.
    Existing catalog adoption requires the same read-only guard before handoff.
-   Provision missing data items with `lab data-credentials`; existing values persist.
+   Missing approved data items are provisioned as empty placeholders by the
+   credential reconciler; existing values persist.
    Run `lab setup` when prerequisites need convergence. Argo reads
    `services/catalog.json` directly from the protected private branch and deploys
    supported definition changes without a local catalog apply or VM lookup.
