@@ -86,8 +86,9 @@ profile. Root follows this public setting without retaining a private feature
 override. Its ApplicationSet reads the exact approved identity revision's
 `identity/keycloak-values.yaml`: installationRevision, loginHost, adminHost,
 database, databaseRole, databaseHost, databasePort, databaseCA,
-trustedProxyAddresses and retiredEmergencyItem. The installation revision is
-fixed to `526891f62eb9b9a50a0ffaf6ef020269d09e7746`; other pins are refused.
+trustedProxyAddresses and retiredEmergencyItem. The private enrollment marker is
+fixed to `526891f62eb9b9a50a0ffaf6ef020269d09e7746`; other private pins are refused.
+Public `identity.application.installationRevision` selects the supported active chart.
 The existing retained task's `keycloak_native_handoff=true` prepares the accepted
 idle installation before activation. Preparation requires a separate equality
 check of the approved private file and current installation; the host handoff
@@ -933,6 +934,8 @@ Keep private settings in their accepted inputs and secret values in 1Password.
    `definition.secrets` mount and `approval.secretReferences` entry.
    The identity owner keeps their secret in `keycloak-client-secrets/client_secrets`
    in CloudLab; never put the value in the catalog.
+   Guarded delivery requires a nonempty string at the selected realm/client and
+   retains the last valid Secret until completion resumes through normal ESO refresh.
 2. **Agent:** check exact HTTPS callbacks derived from declared exposure hosts
    and `callbackPaths`; public-client web origins derive from those same hosts.
    Never use wildcard callbacks or unrelated origins.
