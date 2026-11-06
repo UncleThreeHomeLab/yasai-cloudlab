@@ -22,7 +22,7 @@ spec:
       mergePolicy: Replace
       data:
         {{- range $fields }}
-        {{ . }}: {{ printf "{{ .%s }}" . | quote }}
+        {{ . }}: {{ printf "{{- $value := index . %q -}}{{- if not $value -}}{{- fail \"Required data secret field is missing or empty\" -}}{{- end -}}{{ $value }}" . | quote }}
         {{- end }}
   dataFrom:
     - extract: {key: {{ $scope.item }}}

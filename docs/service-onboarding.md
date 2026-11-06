@@ -842,9 +842,10 @@ destructive migrations require a separate explicit data scope.
    empty placeholders; it preserves existing items and reports pending field names.
    **User:** fill pending fields in 1Password. Automatic creation from Git has no
    supported executor. External Secrets remains the sole synchronizer. Guarded
-   composition secret delivery rejects empty fields and preserves valid deployed
-   credentials. Other consumers, including SQL/S3, must not adopt placeholders
-   until their delivery and retention guards are verified.
+   composition and SQL/S3 secret templates reject missing or empty required fields
+   and preserve valid deployed credentials. Completing those fields lets External
+   Secrets resume delivery on its refresh interval. Other consumers must not adopt
+   placeholders until their delivery and retention guards are verified.
 4. **Agent:** configure optional login through section 6.5 before publication.
 5. **Agent:** confirm backup coverage before storing important data.
    Service PVCs require separate verified backup coverage; declaring storage is not a backup.
