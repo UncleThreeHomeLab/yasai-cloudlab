@@ -666,6 +666,30 @@ class IdentityTests(unittest.TestCase):
         self.assertNotIn('y' * 64, json.dumps(saved))
         self.assertFalse(run()['browser_and_credential_acceptance'])
 
+    def test_access_readiness_separates_identity_target_from_argo_platform_revision(self):
+        from playbooks.keycloak.files import access_provider, maintenance, ownership
+        active = ownership.SUPPORTED_INSTALLATION_REVISIONS[1]
+        platform = 'c' * 40
+        binding = {'phase': 'accepted', 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'project'}
+        app = {'metadata': {'uid': 'identity', 'labels': {'cloudlab.io/owner': maintenance.OWNER}},
+            'spec': {'source': {'helm': {'valuesObject': {}}}}}
+        def read(kind, name, *args):
+            if name == maintenance.APP: return app
+            if name == 'cloudlab-public-root': return {'metadata': {'uid': 'root'}, 'status': {'sync': {'revision': platform}}}
+            return {'metadata': {'uid': 'controller' if name == 'argocd-application-controller' else 'project'}}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'identity', 'revision': ownership.INSTALLATION_REVISION}))
+            target = base / 'binding.json'; target.write_text(json.dumps(binding))
+            with patch.object(maintenance, 'BASE', base), patch.object(access_provider, 'Path', return_value=target), \
+                    patch.object(ownership, 'accepted_application', return_value=active), \
+                    patch('playbooks.istio.files.kube.get', side_effect=read), \
+                    patch('playbooks.istio.files.kube.application_ready', side_effect=lambda name, revision: name != 'cloudlab-argocd') as ready:
+                with self.assertRaisesRegex(RuntimeError, 'Native Argo must converge'):
+                    access_provider.snapshot('fixture')
+                self.assertEqual(ready.call_args_list[0].args, (maintenance.APP, active))
+                self.assertEqual(ready.call_args_list[-1].args, ('cloudlab-argocd', platform))
+
     def test_access_provider_refuses_foreign_lost_and_ambiguous_creation(self):
         from playbooks.access.tests.fixtures import Provider
         api, state = Provider(), {}

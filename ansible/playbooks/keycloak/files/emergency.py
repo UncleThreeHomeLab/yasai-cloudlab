@@ -141,7 +141,7 @@ def owner():
     receipt = json.loads((BASE / 'ownership.json').read_text())
     app = get('application.argoproj.io', APP, 'argocd') or {}
     from playbooks.keycloak.files.ownership import accepted_application
-    accepted_application(app, revision=receipt.get('revision'), base=BASE)
+    receipt['revision'] = accepted_application(app, base=BASE) or receipt.get('revision')
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
     if (receipt.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != receipt.get('uid') or
             app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER):

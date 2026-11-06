@@ -362,9 +362,9 @@ def prepare(*, initial=False):
         return False
     if snapshot['enabled']: raise RuntimeError('Harbor native activation requires its prior protected intent')
     from playbooks.harbor.files.configuration import client
-    from playbooks.keycloak.files.ownership import accepted_application, INSTALLATION_REVISION
+    from playbooks.keycloak.files.ownership import accepted_application, public_installation_revision
     identity_revision = accepted_application(get('application.argoproj.io', 'cloudlab-identity', 'argocd') or {})
-    if snapshot['public']['identity']['application']['enabled'] and identity_revision != INSTALLATION_REVISION:
+    if snapshot['public']['identity']['application']['enabled'] and identity_revision != public_installation_revision(snapshot['public']):
         raise RuntimeError('Harbor preparation requires the accepted native identity installation')
     identity = get('configmap', 'identity-private-state', 'cloudlab-identity') or {}
     desired = json.loads(identity.get('data', {}).get('desired_state', '{}'))

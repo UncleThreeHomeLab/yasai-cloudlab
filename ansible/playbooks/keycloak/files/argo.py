@@ -65,9 +65,8 @@ def run(payload):
             prerequisites(payload)
         receipt = json.loads((BASE / 'ownership.json').read_text())
         current = get('application.argoproj.io', APP, 'argocd') or {}
-        from playbooks.keycloak.files.ownership import accepted_application, installation_revision
-        identity_revision = installation_revision(payload['revision'], base=BASE)
-        accepted_application(current, revision=identity_revision, base=BASE, recovery=recovery)
+        from playbooks.keycloak.files.ownership import accepted_application
+        identity_revision = accepted_application(current, base=BASE, recovery=recovery) or payload['revision']
         if (receipt.get('phase') != 'scoped' or current.get('metadata', {}).get('uid') != receipt.get('uid') or
                 current.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 not application_ready(APP, identity_revision)):

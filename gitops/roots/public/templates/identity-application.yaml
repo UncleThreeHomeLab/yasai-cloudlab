@@ -1,3 +1,7 @@
+{{- $installation := .Values.identity.application }}
+{{- $supported := list "526891f62eb9b9a50a0ffaf6ef020269d09e7746" "a0a42ac02b0d351a4c56cf40e88f697f3537f19a" }}
+{{- if or (not (kindIs "string" $installation.installationRevision)) (not (has $installation.installationRevision $supported)) (not (kindIs "slice" $installation.supportedInstallationRevisions)) }}{{ fail "Unsupported identity installation revision" }}{{ end }}
+{{- if or (ne (len $installation.supportedInstallationRevisions) 2) (not (has (index $supported 0) $installation.supportedInstallationRevisions)) (not (has (index $supported 1) $installation.supportedInstallationRevisions)) }}{{ fail "Unsupported identity installation revisions" }}{{ end }}
 {{- if and .Values.identity.enabled .Values.identity.application.enabled (hasKey .Values.identity "argo") }}
 {{- if or (not .Values.externalSecrets.enabled) (not .Values.externalSecrets.reconcile) }}{{ fail "Native identity installation requires External Secrets" }}{{ end }}
 {{- $target := .Values.identity.argo }}
@@ -72,7 +76,7 @@ spec:
       project: cloudlab-identity
       source:
         repoURL: https://github.com/UncleThreeHomeLab/yasai-cloudlab.git
-        targetRevision: 526891f62eb9b9a50a0ffaf6ef020269d09e7746
+        targetRevision: {{ $installation.installationRevision | quote }}
         path: platform/identity/keycloak
         helm:
           releaseName: cloudlab-identity

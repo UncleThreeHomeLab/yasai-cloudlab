@@ -79,10 +79,10 @@ def run(payload):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         receipt = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
-        from playbooks.keycloak.files.ownership import accepted_application, installation_revision
-        identity_revision = installation_revision(payload['revision'], base=BASE)
-        accepted_application(app, revision=identity_revision, base=BASE)
-        if (receipt.get('phase') != 'scoped' or receipt.get('revision') != identity_revision
+        from playbooks.keycloak.files.ownership import accepted_application
+        native_revision = accepted_application(app, base=BASE)
+        identity_revision = native_revision or payload['revision']
+        if (receipt.get('phase') != 'scoped' or (native_revision or receipt.get('revision')) != identity_revision
                 or app.get('metadata', {}).get('uid') != receipt.get('uid')
                 or app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or not reconciled(identity_revision, receipt['uid'])

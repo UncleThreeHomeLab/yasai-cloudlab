@@ -63,6 +63,27 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(parent['syncPolicy'], {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
         invalid_binding = copy.deepcopy(public); invalid_binding['identity']['argo']['valuesRevision'] = 'main'
         with self.assertRaises(subprocess.CalledProcessError): render(invalid_binding)
+        for active in ownership.SUPPORTED_INSTALLATION_REVISIONS:
+            selected = copy.deepcopy(public)
+            selected['identity']['application']['installationRevision'] = active
+            self.assertEqual(ownership.public_installation_revision(selected), active)
+            owner = next(obj for obj in render(selected) if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-identity')['spec']
+            self.assertEqual(owner['template']['spec']['source']['targetRevision'], active)
+            self.assertEqual(owner['generators'][0]['merge']['generators'][0]['list']['elements'],
+                [{'installationRevision': ownership.INSTALLATION_REVISION}])
+            self.assertEqual(owner['syncPolicy'], parent['syncPolicy'])
+        for change in ('missing', 'mutable', 'unsupported', 'supported-set', 'override'):
+            invalid = copy.deepcopy(public)
+            declaration = invalid['identity']['application']
+            if change == 'missing': declaration.pop('installationRevision')
+            if change == 'mutable': declaration['installationRevision'] = 'main'
+            if change == 'unsupported': declaration['installationRevision'] = 'b' * 40
+            if change == 'supported-set': declaration['supportedInstallationRevisions'][1] = 'b' * 40
+            if change == 'override': declaration['targetRevision'] = 'b' * 40
+            with self.assertRaises(RuntimeError): ownership.public_installation_revision(invalid)
+            # Helm merges missing keys with chart defaults; null explicitly removes one.
+            if change == 'missing': declaration['installationRevision'] = None
+            with self.assertRaises(subprocess.CalledProcessError): render(invalid)
         document = {'installationRevision': ownership.INSTALLATION_REVISION, 'loginHost': 'login.example.invalid',
             'adminHost': 'identity-admin.internal.example.invalid', 'database': 'keycloak', 'databaseRole': 'keycloak',
             'databaseHost': 'cloudlab-postgres-rw.cloudlab-data.svc.cluster.local', 'databasePort': 5432,
@@ -71,10 +92,11 @@ class DeploymentTests(unittest.TestCase):
             chart = Path(directory); (chart / 'templates').mkdir()
             (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: identity-patch-proof\nversion: 1.0.0\n')
             (chart / 'templates/patch.yaml').write_text('apiVersion: v1\nkind: ConfigMap\nmetadata: {name: proof}\ndata:\n  patch: {{ tpl .Values.policy .Values.input | quote }}\n')
-            for case in ('valid', 'missing-file', 'pin', 'metadata', 'cidr', 'port', 'reserved-database'):
+            for case in ('valid', 'missing-file', 'pin', 'active-private-pin', 'metadata', 'cidr', 'port', 'reserved-database'):
                 candidate = copy.deepcopy(document)
                 if case == 'missing-file': candidate = generators[0]['list']['elements'][0]
                 if case == 'pin': candidate['installationRevision'] = 'b' * 40
+                if case == 'active-private-pin': candidate['installationRevision'] = ownership.SUPPORTED_INSTALLATION_REVISIONS[1]
                 if case == 'metadata': candidate['metadata'] = {'name': 'foreign'}
                 if case == 'cidr': candidate['trustedProxyAddresses'] = ['10.42.0.1/24']
                 if case == 'port': candidate['databasePort'] = '5432'
@@ -130,6 +152,7 @@ class DeploymentTests(unittest.TestCase):
                 'assert bootstrap.ROOT == __import__("pathlib").Path(sys.argv[1]); '
                 'assert isolated_restore.CONFIGURATION_SOURCE.read_bytes() == '
                 '(__import__("pathlib").Path(sys.argv[1]) / "playbooks/keycloak/files/configuration.py").read_bytes(); '
+                'assert callable(ownership.public_installation_revision); assert callable(ownership.installation_revision); '
                 'assert callable(recovery.verify_restored); assert callable(bootstrap.run)', str(base)],
                 cwd=base, env=environment, capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
