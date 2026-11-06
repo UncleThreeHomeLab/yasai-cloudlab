@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import traceback
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 PROFILE = 'observability-storage-lifecycle-v1'
@@ -40,6 +41,8 @@ LIMIT = 4 * 1024 * 1024
 ROOT = Path('/var/lib/cloudlab/proofs')
 RECOVERY_PROFILE = 'observability-storage-empty-recovery-v1'
 STORAGE_RECOVERY_PROFILE = 'observability-storage-cleanup-recovery-v1'
+MARKER_RECOVERY_CASE = 'verified-marker-first-claim-released-v1'
+MARKER_PREDECESSOR_DRIVER = '2d4b0c37a274d0de4498ee743f31067b0f94223ce4374def8a7b88686d6b2930'
 STORAGE_PREDECESSOR_OPERATION = 'ceca2d4d362732f5'
 STORAGE_PREDECESSOR_DRIVER = '8e95a60df775c6a9e66bc06c809114ede7bc6c4b45f8f58f005ce95296845204'
 STORAGE_PREDECESSOR_INPUT = 'a68e858bbcd16783f94c5d871a89378db493453243f147d465f0b9ce25741cd5'
@@ -1626,7 +1629,41 @@ def recorded_grafana_replicasets(receipt):
     return result
 
 
-def paired_intents(receipt, component, pv, volume):
+def validate_standalone_marker_history(receipt, payload, component, entry):
+    require(type(entry) is dict and set(entry) == {'podName', 'podStatus', 'workloadName', 'workloadType'}
+            and entry['podName'] == receipt.namespace + '-marker' and entry['podStatus'] == 'Succeeded'
+            and entry['workloadName'] == '' and entry['workloadType'] == '', 'Unsupported standalone marker history')
+    require(payload is not None, 'Authenticated fixture input required for marker history')
+    validate_input(payload, receipt.operation)
+    runs = receipt.value.get('markerRuns')
+    require(type(runs) is list and 1 <= len(runs) <= 6, 'Marker history is incomplete')
+    identities, components = set(), set()
+    for index, record in enumerate(runs):
+        require(type(record) is dict and record.get('component') in ('loki', 'tempo', 'grafana')
+                and record['component'] in receipt.value['markers'] and record.get('mode') in ('write', 'read')
+                and record.get('accepted') is True and record.get('complete') is True, 'Unverified marker history')
+        identity = receipt.value['objects'].get('marker-' + str(index))
+        require(type(identity) is dict and set(identity) == {'apiVersion', 'kind', 'name', 'namespace', 'uid'}
+                and identity['apiVersion'] == 'v1' and identity['kind'] == 'Pod'
+                and identity['name'] == entry['podName'] and identity['namespace'] == receipt.namespace
+                and type(identity['uid']) is str and UID.fullmatch(identity['uid'])
+                and identity['uid'] not in identities, 'Marker creator identity differs')
+        document = marker_document(receipt, payload, record['component'], record['mode'])
+        require(type(record.get('admittedSpec')) is dict and record.get('document') == digest(canonical(document))
+                and admission_source(record.get('admittedSpec'), document['spec']), 'Marker execution source differs')
+        require_marker_verification(receipt, record, identity)
+        scope = {'profile': PROFILE, 'marker': identity, 'document': record['document']}
+        deletion = receipt.value['intents'].get('delete-marker-' + str(index), {})
+        require(deletion.get('identity') == identity and deletion.get('scope') == digest(canonical(scope))
+                and deletion.get('accepted') is True and deletion.get('complete') is True, 'Marker deletion history differs')
+        identities.add(identity['uid'])
+        components.add(record['component'])
+    known = {obj['uid'] for obj in receipt.value['objects'].values()
+             if obj.get('kind') == 'Pod' and obj.get('name') == entry['podName'] and obj.get('namespace') == receipt.namespace}
+    require(identities == known and component in components, 'Marker history does not bind this component')
+
+
+def paired_intents(receipt, component, pv, volume, *, payload=None):
     row = receipt.value['storage'][component]
     identity = row['identity']
     validate_replica_rows(row['replicas'])
@@ -1646,10 +1683,22 @@ def paired_intents(receipt, component, pv, volume):
             and link.get('namespace') == receipt.namespace and link.get('lastPVCRefAt')
             and (not link.get('workloadsStatus') or link.get('lastPodRefAt')), 'Released Longhorn linkage differs')
     known_workloads = {(o['kind'], o['name']) for o in receipt.value['objects'].values()
-                       if o['namespace'] == receipt.namespace and o['kind'] in ('Pod', 'StatefulSet', 'Deployment')}
+                       if o['namespace'] == receipt.namespace and o['kind'] in ('Pod', 'StatefulSet', 'Deployment')
+                       and not (o['kind'] == 'Pod' and o['name'] == receipt.namespace + '-marker')}
     known_workloads |= recorded_grafana_replicasets(receipt)
-    require(all((w.get('workloadType'), w.get('workloadName')) in known_workloads for w in link.get('workloadsStatus', [])),
-            'Released volume has an unknown workload')
+    standalone = False
+    for workload_status in link.get('workloadsStatus', []):
+        require(type(workload_status) is dict, 'Released volume has an unknown workload')
+        pair = (workload_status.get('workloadType'), workload_status.get('workloadName'))
+        if workload_status.get('podName') == receipt.namespace + '-marker' or pair in (
+                ('Pod', receipt.namespace + '-marker'), ('', '')):
+            validate_standalone_marker_history(receipt, payload, component, workload_status)
+            standalone = True
+        else:
+            require(pair in known_workloads, 'Released volume has an unknown workload')
+    if standalone:
+        root_current(receipt, 'namespace')
+        require(not listed('pods', receipt.namespace), 'Current namespace consumers block marker history')
     keys = ('delete-pv-' + component, 'delete-volume-' + component)
     previous = [receipt.value['intents'].get(k) for k in keys]
     require(bool(previous[0]) == bool(previous[1]), 'Unpaired backing intent cannot be repaired retrospectively')
@@ -1685,7 +1734,7 @@ def verify_no_storage_dependents(identity):
                 'CSI attachment still exists')
 
 
-def cleanup_storage(receipt, component, deadline):
+def cleanup_storage(receipt, component, deadline, *, payload=None):
     row = receipt.value['storage'][component]
     identity, replicas = row['identity'], row['replicas']
     validate_replica_rows(replicas)
@@ -1710,7 +1759,7 @@ def cleanup_storage(receipt, component, deadline):
     if pv is not None and volume is not None:
         wait('released native PV', lambda: current(identity['pv']).get('status', {}).get('phase') == 'Released', deadline)
         pv, volume = current(identity['pv']), current(identity['volume'])
-        scope = paired_intents(receipt, component, pv, volume)
+        scope = paired_intents(receipt, component, pv, volume, payload=payload)
         # Validate original inspector/filesystem identity before granting a native backing deletion.
         for replica in replicas:
             now = directory_state(replica)
@@ -1885,7 +1934,7 @@ def cleanup(receipt, payload, deadline):
                     'Foreign claim appeared during resumed cleanup')
         inventory_gate(receipt)
         for component in ('loki', 'tempo', 'grafana'):
-            cleanup_storage(receipt, component, deadline)
+            cleanup_storage(receipt, component, deadline, payload=payload)
         require(not listed('pvc', receipt.namespace), 'Claims remain after exact cleanup')
         inventory_gate(receipt)
         ns_obj = root_current(receipt, 'namespace')
@@ -2367,15 +2416,26 @@ def empty_recovery(envelope, directory, raw, deadline):
 
 
 def storage_recovery_input(value, operation):
-    require(type(value) is dict and set(value) == {'version', 'profile', 'operation', 'predecessor', 'dataScope'}
+    marker = type(value) is dict and value.get('case') == MARKER_RECOVERY_CASE
+    fields = {'version', 'profile', 'operation', 'predecessor', 'dataScope'}
+    require(type(value) is dict and set(value) == fields | ({'case', 'scopeWitnessSHA256'} if marker else set())
             and type(value['version']) is int and value['version'] == 1
             and value['profile'] == STORAGE_RECOVERY_PROFILE and value['operation'] == operation,
             'Invalid storage cleanup recovery envelope')
     namespace(operation)
     previous = value['predecessor']
-    require(type(previous) is dict and set(previous) == {'operation', 'driverSHA256', 'inputSHA256', 'receiptSHA256', 'namespaceUID'}
-            and previous['operation'] == STORAGE_PREDECESSOR_OPERATION and previous['operation'] != operation
-            and previous['driverSHA256'] == STORAGE_PREDECESSOR_DRIVER and previous['inputSHA256'] == STORAGE_PREDECESSOR_INPUT
+    if marker:
+        require(type(previous) is dict and set(previous) == {'operation', 'driverSHA256', 'inputSHA256', 'receiptSHA256',
+                'namespaceUID', 'treeSHA256'} and previous['driverSHA256'] == MARKER_PREDECESSOR_DRIVER
+                and all(type(item) is str and re.fullmatch(r'[a-f0-9]{64}', item) for item in
+                        (previous['inputSHA256'], previous['receiptSHA256'], previous['treeSHA256'], value['scopeWitnessSHA256']))
+                and type(previous['namespaceUID']) is str and UID.fullmatch(previous['namespaceUID'])
+                and previous['operation'] != operation, 'Unapproved marker cleanup predecessor')
+        namespace(previous['operation'])
+    else:
+        require(type(previous) is dict and set(previous) == {'operation', 'driverSHA256', 'inputSHA256', 'receiptSHA256', 'namespaceUID'}
+                and previous['operation'] == STORAGE_PREDECESSOR_OPERATION and previous['operation'] != operation
+                and previous['driverSHA256'] == STORAGE_PREDECESSOR_DRIVER and previous['inputSHA256'] == STORAGE_PREDECESSOR_INPUT
             and type(previous['receiptSHA256']) is str and re.fullmatch(r'[a-f0-9]{64}', previous['receiptSHA256'])
             and type(previous['namespaceUID']) is str and UID.fullmatch(previous['namespaceUID']), 'Unapproved storage predecessor')
     scope = value['dataScope']
@@ -2407,6 +2467,8 @@ def storage_predecessor(envelope, buffers):
         require(digest(buffers[path]) == previous[key], 'Original storage artifact differs from envelope')
     payload = validate_input(parsed(buffers['input.json']), previous['operation'])
     value = parsed(buffers['state/receipt.json'])
+    if envelope.get('case') == MARKER_RECOVERY_CASE:
+        return marker_storage_predecessor(envelope, payload, value)
     require(value.get('context') == {'version': 1, 'profile': PROFILE, 'operation': previous['operation'],
                 'driver': STORAGE_PREDECESSOR_DRIVER, 'input': STORAGE_PREDECESSOR_INPUT}
             and value.get('phase') == 'drift-repaired' and value.get('pendingStep') == 'scaled-down-qualified'
@@ -2456,12 +2518,66 @@ def storage_predecessor(envelope, buffers):
     return payload, value
 
 
+def marker_storage_predecessor(envelope, payload, value):
+    previous = envelope['predecessor']
+    require(value.get('context') == {'version': 1, 'profile': PROFILE, 'operation': previous['operation'],
+                'driver': MARKER_PREDECESSOR_DRIVER, 'input': digest(canonical(payload))}
+            and value.get('cleanupStarted') is True and value.get('cleanupComplete', False) is False
+            and value.get('evidence', {}).get('qualified', False) is False and value.get('appPhase') == 'scaled-down'
+            and not value.get('pendingAdvance') and value.get('phase') == 'marker-written-tempo'
+            and value.get('pendingStep') == 'marker-written-grafana', 'Unsupported marker cleanup predecessor state')
+    objects, roots, intents = value.get('objects', {}), value.get('roots', {}), value.get('intents', {})
+    require(type(objects) is dict and len(objects) <= 128 and type(intents) is dict and len(intents) <= 256
+            and type(roots) is dict and set(roots) == {'namespace', 'project', 'app'}
+            and type(value.get('baseline')) is dict and type(value.get('admission')) is dict and value['admission']
+            and set(value.get('storage', {})) == {'loki', 'tempo', 'grafana'},
+            'Incomplete marker predecessor ownership')
+    for key, document in zip(('namespace', 'project', 'app'), root_documents(previous['operation'])):
+        identity = objects[key]
+        require(roots[key] == {'accepted': True, 'documentHash': digest(canonical(document))}
+                and identity['apiVersion'] == document['apiVersion'] and identity['kind'] == document['kind']
+                and identity['name'] == document['metadata']['name'] and identity['namespace'] == document['metadata'].get('namespace')
+                and UID.fullmatch(identity['uid']), 'Marker predecessor root differs')
+    require(objects['namespace']['uid'] == previous['namespaceUID'], 'Marker predecessor namespace differs')
+    def completed(key, identity, scope):
+        item = intents.get(key, {})
+        require(item.get('identity') == identity and item.get('scope') == digest(canonical(scope))
+                and item.get('accepted') is True and item.get('complete') is True, 'Marker predecessor deletion differs')
+    completed('delete-app', objects['app'], {'source': payload['source'], 'app': objects['app']})
+    require(len(value.get('markerRuns', [])) == 3 and [r.get('component') for r in value['markerRuns']] == ['loki', 'tempo', 'grafana']
+            and all(r.get('mode') == 'write' for r in value['markerRuns']), 'Marker predecessor histories differ')
+    view = SimpleNamespace(value=value, operation=previous['operation'], namespace=namespace(previous['operation']))
+    for component, scope in envelope['dataScope'].items():
+        row = value['storage'][component]
+        identity = row['identity']
+        require(identity == scope['identity'] and objects.get('claim-' + component) == identity['claim']
+                and digest(canonical(row['replicas'])) == scope['replicasSHA256'] and not row.get('cleaned'),
+                'Marker predecessor data scope differs')
+        validate_replica_rows(row['replicas'])
+        require(all(re.fullmatch('/var/lib/longhorn/replicas/' + re.escape(identity['handle']) + r'-[a-f0-9]{8}', r['path'])
+                    for r in row['replicas']), 'Marker predecessor path escaped backing')
+        require(not any('delete-' + kind + '-' + component in intents for kind in ('pv', 'volume')),
+                'Marker predecessor already granted backing deletion')
+        if component == 'loki':
+            completed('delete-claim-loki', identity['claim'], identity)
+        else:
+            require('delete-claim-' + component not in intents, 'Unexpected remaining-claim deletion intent')
+        validate_standalone_marker_history(view, payload, component,
+            {'podName': view.namespace + '-marker', 'podStatus': 'Succeeded', 'workloadName': '', 'workloadType': ''})
+    require(set(intents) == {'replica-drift', 'phase-0', 'delete-app', 'delete-claim-loki',
+            'delete-marker-0', 'delete-marker-1', 'delete-marker-2'}, 'Unexpected marker predecessor mutation')
+    return payload, value
+
+
 class StorageRecoveryReceipt(Receipt):
     def __init__(self, directory, envelope, raw, tree, original, unchanged):
         self.directory, self.path = Path(directory), Path(directory) / 'recovery.json'
         self.operation = envelope['predecessor']['operation']
         self.namespace = namespace(self.operation)
         self.envelope, self.tree, self.unchanged = envelope, tree, unchanged
+        self.original_markers = {key: copy.deepcopy(original.get(key)) for key in ('markers', 'markerRuns')}
+        self.original_identities = {key: copy.deepcopy(value) for key, value in original['objects'].items()
+                                    if key in ('namespace', 'project', 'app') or key.startswith(('marker-', 'claim-'))}
         self.context = {'version': 1, 'profile': STORAGE_RECOVERY_PROFILE, 'operation': envelope['operation'],
                         'driver': digest(Path(__file__).read_bytes()), 'input': digest(raw), 'predecessor': envelope['predecessor']}
         if self.directory.exists():
@@ -2483,6 +2599,11 @@ class StorageRecoveryReceipt(Receipt):
             row = self.value['storage'][component]
             require(row['identity'] == scope['identity'] and digest(canonical(row['replicas'])) == scope['replicasSHA256'],
                     'Recovery data scope changed')
+        if self.envelope.get('case') == MARKER_RECOVERY_CASE:
+            require(all(self.value.get(key) == value for key, value in self.original_markers.items()),
+                    'Original marker provenance changed in recovery')
+            require(all(self.value['objects'].get(key) == identity for key, identity in self.original_identities.items()),
+                    'Original recovery ownership identities changed')
 
     def save(self):
         self.validate()
@@ -2507,6 +2628,14 @@ def storage_recovery_alias_gate(receipt, *, deadline):
         require(project['metadata'].get('labels', {}).get(LABEL) != operation and ns not in project['metadata']['name']
                 and all(d.get('namespace') != ns for d in project.get('spec', {}).get('destinations', [])), 'Foreign project aliases recovery data')
     for claim in all_namespaced('pvc', deadline=deadline):
+        if getattr(receipt, 'envelope', {}).get('case') == MARKER_RECOVERY_CASE:
+            own = next((row['identity']['claim'] for row in receipt.value['storage'].values()
+                        if object_id(claim) == row['identity']['claim']), None)
+            if own:
+                component = next(c for c, row in receipt.value['storage'].items() if row['identity']['claim'] == own)
+                require(not receipt.value['intents'].get('delete-claim-' + component, {}).get('complete'),
+                        'Completed claim reappeared')
+                continue
         require(claim['metadata'].get('namespace') != ns and claim['metadata'].get('labels', {}).get(LABEL) != operation,
                 'Claim appeared after completed original claim deletions')
     for kind, key in [('pv', 'pv'), ('volumes.longhorn.io', 'volume')]:
@@ -2522,7 +2651,9 @@ def storage_recovery_alias_gate(receipt, *, deadline):
                     and handle not in {r['identity']['handle'] for r in receipt.value['storage'].values()}, 'Foreign backing aliases recovery data')
 
 
-def storage_recovery_preflight(receipt, *, deadline):
+def storage_recovery_preflight(receipt, *, deadline, payload=None):
+    if getattr(receipt, 'envelope', {}).get('case') == MARKER_RECOVERY_CASE:
+        return marker_storage_recovery_preflight(receipt, payload, deadline)
     storage_recovery_alias_gate(receipt, deadline=deadline)
     require(current(receipt.value['objects']['app']) is None, 'Original Application reappeared')
     require(storage_class() == receipt.value['baseline']['class'], 'Original StorageClass changed')
@@ -2559,6 +2690,95 @@ def storage_recovery_preflight(receipt, *, deadline):
             require(recorded_grafana_replicasets(receipt), 'Original Grafana ReplicaSet provenance missing')
 
 
+def marker_storage_recovery_preflight(receipt, payload, deadline):
+    storage_recovery_alias_gate(receipt, deadline=deadline)
+    require(current(receipt.value['objects']['app']) is None, 'Original Application reappeared')
+    require(storage_class() == receipt.value['baseline']['class'], 'Original StorageClass changed')
+    ns = current(receipt.value['objects']['namespace'])
+    if ns is None:
+        require(receipt.value['intents'].get('delete-namespace', {}).get('accepted') is True,
+                'Namespace absent without acknowledged recovery deletion')
+    else:
+        root_current(receipt, 'namespace')
+        require(not receipt.value['intents'].get('delete-namespace', {}).get('complete')
+                and not listed('pods', receipt.namespace), 'Recovery namespace has current consumers or reappeared')
+    replicas = listed('replicas.longhorn.io', 'longhorn-system')
+    identities = [row['identity'] for row in receipt.value['storage'].values()]
+    for attachment in listed('volumeattachments.storage.k8s.io'):
+        require(attachment.get('spec', {}).get('source', {}).get('persistentVolumeName')
+                not in {identity['pv']['name'] for identity in identities}, 'Recovery CSI attachment remains')
+    for attachment in listed('volumeattachments.longhorn.io', 'longhorn-system'):
+        if attachment.get('spec', {}).get('volume') in {identity['handle'] for identity in identities}:
+            require(not attachment['spec'].get('attachmentTickets'), 'Recovery native attachment remains')
+    def intent(key, identity, scope):
+        item = receipt.value['intents'].get(key)
+        if item is not None:
+            require(item.get('identity') == identity and item.get('scope') == digest(canonical(scope))
+                    and type(item.get('accepted')) is bool and type(item.get('complete')) is bool,
+                    'Recovery progress intent changed')
+        return item or {}
+    for component, row in receipt.value['storage'].items():
+        identity = row['identity']
+        claim = current(identity['claim'])
+        deletion = intent('delete-claim-' + component, identity['claim'], identity)
+        if claim is None:
+            require(deletion.get('accepted') is True, 'Claim absent without acknowledged recovery deletion')
+        else:
+            require(not deletion.get('complete') and fresh_identity(receipt, claim, healthy=False) == identity,
+                    'Original remaining claim changed or reappeared')
+        scope = {'profile': PROFILE, 'operation': receipt.operation, 'component': component,
+                 'identity': identity, 'replicas': row['replicas']}
+        pv_intent = intent('delete-pv-' + component, identity['pv'], scope)
+        volume_intent = intent('delete-volume-' + component, identity['volume'], scope)
+        require(bool(pv_intent) == bool(volume_intent), 'Unpaired recovery backing intent')
+        pv, volume = current(identity['pv']), current(identity['volume'])
+        if claim is not None:
+            require(pv is not None and volume is not None and pv.get('status', {}).get('phase') == 'Bound',
+                    'Remaining claim backing is not bound')
+        if pv is None or volume is None:
+            require(volume_intent.get('accepted') is True, 'Backing absent without acknowledged paired deletion')
+        if pv_intent.get('complete'):
+            require(pv is None and (pv_intent.get('accepted') is True
+                    or pv_intent.get('cascade') is True and volume_intent.get('accepted') is True), 'Completed PV reappeared')
+        if volume_intent.get('complete'):
+            require(volume is None and volume_intent.get('accepted') is True, 'Completed volume reappeared')
+        if pv is not None and claim is None:
+            released_pv(receipt, identity, pv)
+        if volume is not None:
+            no_restore(volume)
+            require(volume['spec'].get('numberOfReplicas') == 2, 'Recovery replica policy changed')
+            link = volume.get('status', {}).get('kubernetesStatus', {})
+            if not volume_intent.get('accepted'):
+                require(link.get('pvName') == identity['pv']['name'] and link.get('pvcName') == identity['claim']['name']
+                        and link.get('namespace') == receipt.namespace
+                        and link.get('pvStatus') == ('Bound' if claim is not None else 'Released'),
+                        'Recovery native claim linkage changed')
+                backing_deletion_gate(identity, volume)
+                require(not volume['metadata'].get('deletionTimestamp') and not pv['metadata'].get('deletionTimestamp'),
+                        'Backing deletion began without acknowledgement')
+                for entry in link.get('workloadsStatus', []):
+                    if entry.get('podName') == receipt.namespace + '-marker' or not entry.get('workloadType'):
+                        validate_standalone_marker_history(receipt, payload, component, entry)
+        actual = [obj for obj in replicas if obj.get('spec', {}).get('volumeName') == identity['handle']]
+        current_uids, recorded_uids = {obj['metadata']['uid'] for obj in actual}, {r['replicaUID'] for r in row['replicas']}
+        require(current_uids <= recorded_uids and (volume_intent.get('accepted') or current_uids == recorded_uids),
+                'Recovery native replica identities changed')
+        for obj in actual:
+            replica = next(r for r in row['replicas'] if r['replicaUID'] == obj['metadata']['uid'])
+            require(obj['spec'].get('nodeID') == replica['node'] and obj['spec'].get('diskPath') == replica['disk']
+                    and obj['spec'].get('dataDirectoryName') == Path(replica['path']).name,
+                    'Recovery native replica backing changed')
+        for replica in row['replicas']:
+            now = directory_state(replica)
+            require(now['disk'] == replica['context']['disk'] and now['parent'] == replica['context']['parent'],
+                    'Recovery backing parent changed')
+            require(now == replica['context'] if now['present'] else volume_intent.get('accepted') is True,
+                    'Backing changed or disappeared without acknowledged deletion')
+            require(not row.get('cleaned') or not now['present'], 'Cleaned backing reappeared')
+        if row.get('cleaned'):
+            require(claim is None and pv is None and volume is None, 'Cleaned storage reappeared')
+
+
 def storage_cleanup_recovery(envelope, directory, raw, deadline):
     import fcntl
     storage_recovery_input(envelope, envelope['operation'])
@@ -2581,12 +2801,14 @@ def storage_cleanup_recovery(envelope, directory, raw, deadline):
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and not info.st_mode & 0o077, 'Unsafe predecessor lock')
         fcntl.flock(old_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         tree, buffers = original_tree(old)
+        if envelope.get('case') == MARKER_RECOVERY_CASE:
+            require(digest(canonical(tree)) == envelope['predecessor']['treeSHA256'], 'Approved predecessor tree changed')
         def unchanged():
             require(original_tree(old)[0] == tree, 'Original storage artifacts changed; recovery retained')
         try:
             payload, original = storage_predecessor(envelope, buffers)
             receipt = StorageRecoveryReceipt(expected, envelope, raw, tree, original, unchanged)
-            storage_recovery_preflight(receipt, deadline=deadline)
+            storage_recovery_preflight(receipt, deadline=deadline, payload=payload)
             unchanged()
             cleanup(receipt, payload, deadline)
             storage_recovery_alias_gate(receipt, deadline=deadline)
@@ -2612,6 +2834,10 @@ def host_preflight(directory, operation, driver_hash, mode, envelope=None):
         require(envelope is not None, 'Recovery envelope required before staging')
         supplied = parsed(envelope)
         (storage_recovery_input if supplied.get('profile') == STORAGE_RECOVERY_PROFILE else recovery_input)(supplied, operation)
+        if supplied.get('case') == MARKER_RECOVERY_CASE:
+            tree, buffers = original_tree(ROOT / ('observability-storage-' + supplied['predecessor']['operation']))
+            require(digest(canonical(tree)) == supplied['predecessor']['treeSHA256'], 'Approved predecessor tree changed')
+            storage_predecessor(supplied, buffers)
     expected = ROOT / (('observability-storage-recovery-' if recovery else 'observability-storage-') + operation)
     require(Path(directory) == expected, 'Host operation path differs')
     if mode in ('fresh', 'recovery-fresh'):

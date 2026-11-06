@@ -253,6 +253,52 @@ class StorageProofTests(unittest.TestCase):
         del receipt.value['objects']['workload-grafana']
         with self.assertRaisesRegex(RuntimeError,'Unqualified'):proof.recorded_grafana_replicasets(receipt)
 
+    def test_standalone_history_requires_component_bound_marker_provenance_and_no_consumers(self):
+        for mutation in ('none', 'pod-name', 'other-component', 'claim', 'uid', 'source', 'delete', 'typed-marker', 'consumer', 'payload'):
+            with self.subTest(mutation=mutation):
+                receipt = MemoryReceipt()
+                claim, pv, volume = storage_chain(receipt)
+                identity = {'claim': proof.object_id(claim), 'pv': proof.object_id(pv),
+                            'volume': proof.object_id(volume), 'handle': pv['metadata']['name']}
+                receipt.value['storage']['loki'] = {'identity': identity, 'replicas': replica_rows()}
+                component = 'tempo' if mutation == 'other-component' else 'loki'
+                content = proof.marker_content(receipt, component)
+                receipt.value['markers'][component] = {'content': content, 'sha256': proof.digest(content.encode()),
+                    'claimUID': receipt.value['storage'][component]['identity']['claim']['uid']}
+                document = proof.marker_document(receipt, self.payload, component, 'write')
+                marker = proof.object_id(document | {'metadata': document['metadata'] | {'uid': uid(81), 'resourceVersion': '8'}})
+                receipt.value['objects']['marker-0'] = marker
+                record = {'component': component, 'mode': 'write', 'accepted': True, 'complete': True,
+                    'document': proof.digest(proof.canonical(document)), 'admittedSpec': native_marker_spec(document['spec'])}
+                record['verifiedIO'] = {'identity': copy.deepcopy(marker), 'document': record['document'], 'mode': 'write',
+                    'claimUID': receipt.value['markers'][component]['claimUID'],
+                    'sha256': receipt.value['markers'][component]['sha256'], 'finishedAt': '2026-11-05T12:01:00Z'}
+                receipt.value['markerRuns'] = [record]
+                scope = {'profile': proof.PROFILE, 'marker': marker, 'document': record['document']}
+                receipt.value['intents']['delete-marker-0'] = {'identity': marker, 'scope': proof.digest(proof.canonical(scope)),
+                    'accepted': True, 'complete': True}
+                history = {'podName': receipt.namespace + '-marker', 'podStatus': 'Succeeded', 'workloadName': '', 'workloadType': ''}
+                if mutation == 'pod-name': history['podName'] = receipt.namespace + '-unknown'
+                if mutation == 'claim': record['verifiedIO']['claimUID'] = uid(99)
+                if mutation == 'uid': record['verifiedIO']['identity']['uid'] = uid(99)
+                if mutation == 'source': record['admittedSpec']['containers'][0]['command'] = ['python', '-c', 'pass']
+                if mutation == 'delete': receipt.value['intents']['delete-marker-0']['accepted'] = False
+                if mutation == 'typed-marker': history.update(workloadType='Pod', workloadName=receipt.namespace + '-marker')
+                volume['status']['kubernetesStatus'].update(lastPodRefAt='now', workloadsStatus=[history])
+                with patch.object(proof, 'current', return_value=None), patch.object(proof, 'backing_deletion_gate'), \
+                     patch.object(proof, 'capture_replicas', return_value=replica_rows()), \
+                     patch.object(proof, 'root_current'), patch.object(proof, 'listed', return_value=
+                         [{'kind': 'Pod'}] if mutation == 'consumer' else []):
+                    if mutation == 'none':
+                        proof.paired_intents(receipt, 'loki', pv, volume, payload=self.payload)
+                        self.assertTrue(all('delete-' + kind + '-loki' in receipt.value['intents'] for kind in ('pv', 'volume')))
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            proof.paired_intents(receipt, 'loki', pv, volume,
+                                payload=None if mutation == 'payload' else self.payload)
+                        self.assertNotIn('delete-pv-loki', receipt.value['intents'])
+                        self.assertNotIn('delete-volume-loki', receipt.value['intents'])
+
     def test_cleanup_cleaned_flag_survives_paired_intent_value_replacement(self):
         receipt=MemoryReceipt();claim,pv,volume=storage_chain(receipt)
         identity={'claim':proof.object_id(claim),'pv':proof.object_id(pv),'volume':proof.object_id(volume),'handle':pv['metadata']['name']}
@@ -274,6 +320,76 @@ class StorageProofTests(unittest.TestCase):
         restored=json.loads(proof.canonical(receipt.saves[-1]))
         self.assertTrue(restored['storage']['loki']['cleaned'])
         self.assertTrue(restored['intents']['delete-pv-loki']['cascade'])
+
+    def test_verified_marker_recovery_adopts_exact_state_and_resumes_only_acknowledged_progress(self):
+        producer = proof.digest(b'# synthetic storage predecessor\n')
+        with tempfile.TemporaryDirectory(dir='/root') as temporary, \
+             patch.object(proof, 'MARKER_PREDECESSOR_DRIVER', producer):
+            envelope, old, new, buffers, value, chains, docs = stage_storage_recovery(Path(temporary), self.payload)
+            value.update(context={'version': 1, 'profile': proof.PROFILE, 'operation': OPERATION,
+                'driver': producer, 'input': proof.digest(proof.canonical(self.payload))}, appPhase='scaled-down',
+                phase='marker-written-tempo', pendingStep='marker-written-grafana')
+            value['intents'] = {k: v for k, v in value['intents'].items()
+                               if not k.startswith(('delete-pv-', 'delete-volume-', 'delete-claim-tempo', 'delete-claim-grafana'))}
+            value['intents']['phase-0'] = {'accepted': True, 'complete': True}
+            view = MemoryReceipt()
+            view.value = value
+            value['markerRuns'] = []
+            for index, component in enumerate(('loki', 'tempo', 'grafana')):
+                content = proof.marker_content(view, component)
+                value['markers'][component] = {'content': content, 'sha256': proof.digest(content.encode()),
+                    'claimUID': value['storage'][component]['identity']['claim']['uid']}
+                document = proof.marker_document(view, self.payload, component, 'write')
+                identity = proof.object_id(document | {'metadata': document['metadata'] | {'uid': uid(600 + index), 'resourceVersion': '8'}})
+                value['objects']['marker-' + str(index)] = identity
+                record = {'component': component, 'mode': 'write', 'accepted': True, 'complete': True,
+                    'document': proof.digest(proof.canonical(document)), 'admittedSpec': native_marker_spec(document['spec'])}
+                record['verifiedIO'] = {'identity': identity, 'document': record['document'], 'mode': 'write',
+                    'claimUID': value['markers'][component]['claimUID'], 'sha256': value['markers'][component]['sha256'],
+                    'finishedAt': '2026-11-05T12:01:00Z'}
+                value['markerRuns'].append(record)
+                scope = {'profile': proof.PROFILE, 'marker': identity, 'document': record['document']}
+                value['intents']['delete-marker-' + str(index)] = {'identity': identity,
+                    'scope': proof.digest(proof.canonical(scope)), 'accepted': True, 'complete': True}
+            buffers['state/receipt.json'] = proof.canonical(value)
+            (old / 'state/receipt.json').write_bytes(buffers['state/receipt.json'])
+            tree = proof.original_tree(old)[0]
+            envelope.update(case=proof.MARKER_RECOVERY_CASE, scopeWitnessSHA256='9' * 64)
+            envelope['predecessor'].update(driverSHA256=producer,
+                inputSHA256=proof.digest(buffers['input.json']), receiptSHA256=proof.digest(buffers['state/receipt.json']),
+                treeSHA256=proof.digest(proof.canonical(tree)))
+            proof.storage_recovery_input(envelope, envelope['operation'])
+            proof.storage_predecessor(envelope, buffers)
+            bad = copy.deepcopy(value)
+            bad['intents']['delete-claim-tempo'] = {'accepted': False, 'complete': False}
+            with self.assertRaisesRegex(RuntimeError, 'remaining-claim'):
+                proof.marker_storage_predecessor(envelope, self.payload, bad)
+            def unchanged():
+                self.assertEqual(proof.original_tree(old)[0], tree)
+            journal = proof.StorageRecoveryReceipt(new, envelope, proof.canonical(envelope), tree, value, unchanged)
+            self.assertEqual(journal.value['context']['predecessor']['driverSHA256'], producer)
+            self.assertEqual(journal.value['context']['driver'], proof.digest(Path(proof.__file__).read_bytes()))
+            for component, row in journal.value['storage'].items():
+                identity = row['identity']
+                scope = {'profile': proof.PROFILE, 'operation': OPERATION, 'component': component,
+                         'identity': identity, 'replicas': row['replicas']}
+                for kind, target in (('claim', identity['claim']), ('pv', identity['pv']), ('volume', identity['volume'])):
+                    journal.intention('delete-' + kind + '-' + component, target, identity if kind == 'claim' else scope)
+                    journal.value['intents']['delete-' + kind + '-' + component].update(accepted=True, complete=True)
+                row['cleaned'] = True
+            namespace_id = journal.value['objects']['namespace']
+            journal.intention('delete-namespace', namespace_id, {'namespace': namespace_id, 'storageCleaned': True})
+            journal.value['intents']['delete-namespace'].update(accepted=True, complete=True)
+            journal.save()
+            absent = lambda row: row['context'] | {'present': False, 'replica': None}
+            with patch.object(proof, 'storage_recovery_alias_gate'), patch.object(proof, 'current', return_value=None), \
+                 patch.object(proof, 'storage_class', return_value=value['baseline']['class']), \
+                 patch.object(proof, 'listed', return_value=[]), patch.object(proof, 'directory_state', side_effect=absent):
+                proof.storage_recovery_preflight(journal, deadline=proof.time.monotonic() + 1, payload=self.payload)
+                journal.value['intents']['delete-volume-loki']['accepted'] = False
+                with self.assertRaisesRegex(RuntimeError, 'acknowledged'):
+                    proof.storage_recovery_preflight(journal, deadline=proof.time.monotonic() + 1, payload=self.payload)
+            unchanged()
 
     def test_storage_recovery_scope_and_original_provenance_reject_tampering(self):
         with tempfile.TemporaryDirectory(dir='/root') as temporary, patch.object(proof,'STORAGE_PREDECESSOR_OPERATION',OPERATION), \
@@ -824,7 +940,7 @@ class StorageProofTests(unittest.TestCase):
                 return next((obj for key, obj in roots.items() if key != 'app' and proof.object_id(obj) == identity), None)
             def delete_intent(record, key, obj, scope):
                 record.value['intents'][key] = {'accepted': True, 'complete': False, 'identity': proof.object_id(obj)}
-            def cleaned(record, component, deadline):
+            def cleaned(record, component, deadline, *, payload):
                 if component == 'grafana': remaining.clear()
             with self.subTest(foreign=foreign), patch.object(proof, 'current', side_effect=native_current), \
                  patch.object(proof, 'root_current', side_effect=lambda r, k: roots[k]), patch.object(proof, 'cleanup_markers'), \
