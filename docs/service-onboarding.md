@@ -819,8 +819,10 @@ Maintenance and hibernation use two scoped Root inputs; Root alone converges the
 data Application's complete source array. Seaweed replica operations remain scoped
 to its single source. Operational overrides must agree before source-owner migration.
 Initial bootstrap does not replay accepted workloads or generate a desired-value cache. Routine private
-catalog request changes and `services.catalogPath` support still require their
-scoped platform implementation; do not substitute a service playbook.
+catalog request advancement retains its scoped source and no-adoption gates.
+Data reads the reviewed `services.catalogPath`; unavailable selected inputs never
+fall back to the legacy catalog. Validate the complete selected catalog at its
+accepted private revision before switching paths. Do not substitute a service playbook.
 
 For application SQL schemas, export reviewed, repeatable SQL from the application
 source and record its SHA-256. After scoped database provisioning, run

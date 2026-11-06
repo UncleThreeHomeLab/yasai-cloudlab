@@ -75,11 +75,11 @@ def private_probe(evidence, document):
     return 1, 'admission webhook denied the request: ' + name + ': ' + message
 
 
-def binding_fixture(required=True):
+def binding_fixture(required=True, *, repository='https://github.com/example/platform.git',
+                    private_repository='https://github.com/example/private.git'):
     from service_activation import prepare
     from private_activation import prepare as prepare_private
-    repository = 'https://github.com/example/platform.git'
-    target = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
+    target = {'valuesRepository': private_repository, 'valuesRevision': 'b' * 40}
     public = {'repository': repository, 'services': {'enabled': required, 'revision': 'c' * 40}}
     evidence = prepare(public, target['valuesRepository'], target['valuesRevision'],
                        {'catalog': [], 'dataApprovals': {}} if required else None)

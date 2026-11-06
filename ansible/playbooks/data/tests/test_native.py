@@ -145,6 +145,14 @@ class NativeDataTests(unittest.TestCase):
         self.assertIsNone(config['spec']['source'])
         self.assertEqual(config['spec']['sources'][1], {'repoURL': 'https://github.com/example/private.git', 'targetRevision': 'b' * 40, 'ref': 'values'})
         self.assertEqual(config['spec']['sources'][0]['helm']['valueFiles'], ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/services/catalog.json'])
+        selected = self.root_values()
+        selected['services'] = {'enabled': False, 'catalogPath': 'services/catalog-v2.yaml'}
+        alternate = next(o for o in self.render('gitops/roots/public', selected)
+                         if o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-data-configuration')
+        self.assertEqual(alternate['spec']['sources'][0]['helm']['valueFiles'],
+            ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/services/catalog-v2.yaml'])
+        selected['services']['catalogPath'] = 'services/../identity.yaml'
+        self.render('gitops/roots/public', selected, valid=False)
         self.assertEqual(config['spec']['sources'][0]['helm']['valuesObject'], {'sharedInputs': True, 'maintenance': False, 'hibernated': False})
         self.assertEqual(seaweed['spec']['source']['targetRevision'], 'c' * 40)
         rules = root['spec']['ignoreDifferences']

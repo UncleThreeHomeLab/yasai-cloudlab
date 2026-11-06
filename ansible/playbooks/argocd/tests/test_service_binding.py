@@ -629,8 +629,55 @@ class ServiceBindingTests(unittest.TestCase):
                 self.assertEqual(locked.call_count, 2)
 
     def test_hydration_and_bootstrap_resume_reuse_durable_native_creation_evidence(self):
+        from contextlib import contextmanager
+        from playbooks.argocd.files import github_app, source_transition as packaged_transition
+        self.objects, self.payload, self.target, self.checkpoint = binding_fixture(
+            repository=github_app.PUBLIC_REPOSITORY, private_repository='https://github.com/UncleThreeHomeLab/private.git')
+        root = self.objects['application.argoproj.io', migration.ROOT_APP]
+        root['spec'].update(ignoreDifferences=data_native.delegations(), syncPolicy={'syncOptions': [
+            'FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']})
+        original = self.checkpoint['originalSource']
+        original['helm']['releaseName'] = 'cloudlab-public-root'
+        original['helm']['valuesObject']['identity'] = {'enabled': True,
+            'argo': dict(self.target, valuesRevision='e' * 40)}
+        self.checkpoint['patchedSource'] = copy.deepcopy(original)
+        self.checkpoint['patchedSource']['helm']['valuesObject']['identity']['argo'] = copy.deepcopy(self.target)
+        self.checkpoint['publicRevision'] = self.payload['revision']
+        root['spec']['source'] = copy.deepcopy(original)
+        project = self.objects['appproject.argoproj.io', 'cloudlab-root']
+        project['spec']['namespaceResourceWhitelist'] = data_native.identity_project_rules(project)
+        reader = 'cloudlab-argocd-identity-source'
+        external = {'metadata': {'uid': 'reader-uid', 'annotations': {'argocd.argoproj.io/tracking-id':
+            'cloudlab-public-root:external-secrets.io/ExternalSecret:argocd/' + reader}},
+            'spec': data_native.reader_spec(self.target['valuesRepository']),
+            'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        credentials = {'APP_ID': '1', 'INSTALLATION_ID': '2', 'PRIVATE_KEY': 'synthetic-private-key'}
+        secret = {'metadata': {'uid': 'reader-secret-uid', 'labels': {'argocd.argoproj.io/secret-type': 'repository'},
+            'ownerReferences': [{'uid': 'reader-uid', 'kind': 'ExternalSecret', 'name': reader,
+                                'apiVersion': 'external-secrets.io/v1', 'controller': True}]},
+            'data': {key: base64.b64encode(value.encode()).decode() for key, value in {
+                'type': 'git', 'url': self.target['valuesRepository'], 'project': 'cloudlab-platform',
+                'githubAppID': '1', 'githubAppInstallationID': '2', 'githubAppPrivateKey': credentials['PRIVATE_KEY']}.items()}}
+        self.objects['externalsecret.external-secrets.io', reader] = external
+        self.objects['secret', reader] = secret
+        self.objects['secrets', None] = {'items': [secret]}
+        events = []
+        fetch = unittest.mock.Mock(return_value={'protected': True, 'commit': {'sha': self.payload['revision']}})
+        @contextmanager
+        def session(actual, **kwargs):
+            self.assertEqual(actual, credentials)
+            events.append('open')
+            try: yield fetch
+            finally: events.append('closed')
+        published_source = data_native.published_source
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory); current = self.data_owner(base, native=True)
+            owner = json.loads((base / 'ownership.json').read_text())
+            owner['publicSource'] = {'repository': self.payload['repository'], 'branch': 'main'}
+            (base / 'ownership.json').write_text(json.dumps(owner))
+            selected = 'services/catalog-v2.yaml'
+            self.payload['argo']['dataActivation']['catalogPath'] = selected
+            self.objects['application.argoproj.io', data_activation.APP]['spec']['sources'][0]['helm']['valueFiles'][-1] = '$values/' + selected
             snapshot = unittest.mock.Mock(); snapshot.settings.return_value = current
             with self.contexts(base), patch.object(data_control, 'operation', return_value=snapshot), \
                     patch.object(data_control, 'sql', return_value='0'):
@@ -651,18 +698,49 @@ class ServiceBindingTests(unittest.TestCase):
             database['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = data_activation.APP + ':postgresql.cnpg.io/Database:cloudlab-data/synthetic'
             database['status'] = {'applied': True, 'observedGeneration': 1}
             namespaces = []
-            def get(kind, name, namespace=None):
+            def get(kind, name=None, namespace=None):
                 namespaces.append((kind, name, namespace))
                 if kind == 'configmap': return cm
                 if kind == 'database.postgresql.cnpg.io': return database
                 return self.read(kind, name)
+            published = {'repository': self.payload['repository'], 'revision': 'main',
+                         'privateSources': {'enabled': False}, 'services': {'catalogPath': selected}}
             with self.contexts(base), patch.object(data_control, 'get', side_effect=get), \
                     patch.object(data_control, 'sql', return_value='1'), \
-                    patch.object(data_control, 'operation', side_effect=AssertionError('Must reuse durable authority')):
+                    patch.object(data_control, 'operation', side_effect=AssertionError('Must reuse durable authority')), \
+                    patch.object(data_native, 'BINDING', base / 'identity-values-binding.json'), \
+                    patch.object(data_native, 'get', side_effect=get), \
+                    patch.object(data_native, 'kube', return_value='{"items":[]}'), \
+                    patch.object(packaged_transition, 'BASE', base), patch.object(packaged_transition, 'get', side_effect=self.read), \
+                    patch.object(github_app, 'public_metadata', side_effect=session), \
+                    patch.object(data_native, 'published_source', wraps=published_source), \
+                    patch.object(data_native.source_snapshot, 'request', return_value={'protected': True,
+                        'commit': {'sha': self.payload['revision']}}), \
+                    patch.object(data_native.source_snapshot, 'read_url', return_value=json.dumps(published).encode()) as raw:
                 migration.hydrate_binding(base / 'identity-values-binding.json', state, self.payload, self.target)
                 self.assertTrue(bootstrap.resume_identity_binding())
                 self.assertIn(('database.postgresql.cnpg.io', 'synthetic', 'cloudlab-data'), namespaces)
                 self.assertEqual(state['dataActivation']['authority'], captured['authority'])
+                checkpoint_bytes = (base / 'identity-values-binding.json').read_bytes()
+                for unavailable in (False, True):
+                    self.objects['statefulset', migration.CONTROLLER]['spec']['replicas'] = 1
+                    before = len(self.calls)
+                    before_events, before_fetch = len(events), fetch.call_count
+                    if unavailable: fetch.side_effect = RuntimeError('Protected public source unavailable')
+                    else: raw.return_value = json.dumps(dict(published, services={'catalogPath': 'services/catalog-v3.yaml'})).encode()
+                    with self.subTest(unavailable=unavailable), self.assertRaisesRegex(RuntimeError, 'protected public selection|Protected public source unavailable'):
+                        bootstrap.resume_identity_binding()
+                    self.assertEqual(self.calls[before:], [('pause',)])
+                    self.assertEqual((base / 'identity-values-binding.json').read_bytes(), checkpoint_bytes)
+                    sessions = events[before_events:]
+                    self.assertGreater(fetch.call_count, before_fetch)
+                    self.assertTrue(sessions)
+                    self.assertEqual(sessions, ['open', 'closed'] * (len(sessions) // 2))
+                fetch.side_effect = None
+                raw.return_value = json.dumps(published).encode()
+                changed = copy.deepcopy(state['dataActivation']); changed['catalogPath'] = 'services/catalog-v3.yaml'
+                with self.assertRaisesRegex(RuntimeError, 'captured source'):
+                    data_activation.guard(changed, self.target, self.read, patched=True)
                 for change in ('foreign-cluster', 'unapplied', 'deleting'):
                     invalid = copy.deepcopy(database)
                     if change == 'foreign-cluster': database['spec']['cluster']['name'] = 'foreign'
@@ -682,10 +760,12 @@ class ServiceBindingTests(unittest.TestCase):
                     base / 'identity-values-binding.json', state, self.payload, self.target)
                 sql.assert_not_called()
 
-    def armed_first_binding(self, base):
+    def armed_first_binding(self, base, catalog_path=None):
         current = self.data_owner(base)
         evidence = self.payload['argo']['dataActivation']
         evidence.update(required=True, settings=current)
+        if catalog_path is not None:
+            evidence['catalogPath'] = catalog_path
         owner = json.loads((base / 'ownership.json').read_text())
         owner['publicSource'] = {'repository': self.payload['repository'], 'branch': 'main'}
         self.objects['application.argoproj.io', migration.ROOT_APP]['spec']['destination'] = {
@@ -711,15 +791,20 @@ class ServiceBindingTests(unittest.TestCase):
     def test_bootstrap_resume_allows_only_armed_partial_native_rollout_without_registering(self):
         for both in (False, True):
             self.setUp()
+            selected = 'services/catalog-v2.yaml'
+            self.private_public = {'repository': self.payload['repository'], 'privateSources': {'enabled': False},
+                'services': {'catalogPath': selected}, 'data': {'enabled': True, 'configuration': {
+                    'enabled': True, 'revision': 'c' * 40, 'seaweedfsRevision': 'd' * 40}}}
             with self.subTest(both_native=both), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
                 with self.contexts(base), patch.object(data_native, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
                         patch.object(data_control, 'get', side_effect=lambda kind, name=None, namespace=None: self.read(kind, name)), \
                         patch.object(data_handoff, 'resources', return_value={'preserved': {'uid': 'original'}}), \
                         patch.object(data_control, 'sql') as sql, patch.object(data_control, 'grants') as grants:
-                    state = self.armed_first_binding(base)
+                    state = self.armed_first_binding(base, catalog_path=selected)
                     journal = data_handoff.state()['handoff']
-                    public = {'repository': self.payload['repository'], 'data': {'configuration': journal['pins']}}
+                    public = {'repository': self.payload['repository'], 'data': {'configuration': journal['pins']},
+                              'services': {'catalogPath': selected}}
                     for name in (data_native.APP, data_native.SEAWEED) if both else (data_native.APP,):
                         obj = self.objects['application.argoproj.io', name]
                         obj['spec'].update(data_native.application_sources(name, public, self.target,
@@ -733,6 +818,12 @@ class ServiceBindingTests(unittest.TestCase):
                     self.assertTrue(bootstrap.resume_identity_binding())
                     self.assertEqual(self.calls[-1][-1], '--replicas=1')
                     self.assertNotIn('settings_uid', data_handoff.state())
+                    self.private_public['services']['catalogPath'] = 'services/catalog-v3.yaml'
+                    before = len(self.calls)
+                    with self.assertRaisesRegex(RuntimeError, 'protected public scope'):
+                        bootstrap.resume_identity_binding()
+                    self.assertEqual(self.calls[before:], [('pause',)])
+                    self.private_public['services']['catalogPath'] = selected
                     sql.assert_not_called(); grants.assert_not_called()
                     obj = self.objects['application.argoproj.io', data_native.APP]
                     obj['spec']['sources'][0]['path'] = 'foreign'
