@@ -57,6 +57,7 @@ observability:
     enabled: false
     paused: true
     revision: ''
+    acceptanceCommitment: ''
 harbor:
   enabled: true
   installation:

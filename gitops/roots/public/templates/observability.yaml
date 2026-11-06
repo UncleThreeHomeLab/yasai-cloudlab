@@ -1,9 +1,9 @@
 {{- $configuration := .Values.observability.configuration }}
-{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) (not (kindIs "bool" $configuration.paused)) (not (kindIs "string" $configuration.revision)) }}
-{{- fail "Observability configuration requires YAML boolean enabled and paused settings and a string revision" }}
+{{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) (not (kindIs "bool" $configuration.paused)) (not (kindIs "string" $configuration.revision)) (not (kindIs "string" $configuration.acceptanceCommitment)) }}
+{{- fail "Observability configuration requires YAML boolean enabled and paused settings and string revision and acceptance commitment" }}
 {{- end }}
 {{- range $key, $_ := $configuration }}
-{{- if not (has $key (list "enabled" "paused" "revision")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
+{{- if not (has $key (list "enabled" "paused" "revision" "acceptanceCommitment")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
 {{- end }}
 {{- if $configuration.enabled }}
 {{- $binding := .Values.identity.argo | default dict }}
