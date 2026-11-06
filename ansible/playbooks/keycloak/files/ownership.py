@@ -74,19 +74,20 @@ def installation_context(*, preparing=False, recovery=None):
     from playbooks.data.files import native
     deadline = time.monotonic() + 180
     coordinates = {'publicSource': {'repository': PUBLIC_REPOSITORY, 'branch': 'main'}}
-    public, revision = native.published_source(coordinates, deadline=deadline)
+    with native.public_metadata(coordinates, deadline=deadline, recovery=recovery) as fetch:
+        public, revision = native.published_source(coordinates, deadline=deadline, fetch=fetch)
+        public_installation_revision(public)
+        if type(public.get('identity', {}).get('application', {}).get('enabled')) is not bool:
+            raise RuntimeError('Identity installation owner requires explicit public intent')
+        if not preparing and not public['identity']['application']['enabled']:
+            raise RuntimeError('Native identity installation owner is disabled')
+        files = native.source_snapshot.chart_files({'repository': PUBLIC_REPOSITORY, 'revision': revision, 'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
     if recovery is None:
         target = native.root_guard(coordinates, public, revision)
         targets = [target]
     else:
         if preparing: raise RuntimeError('Pending identity recovery cannot prepare a new installation owner')
         _, targets = pending_root_context(recovery, public)
-    public_installation_revision(public)
-    if type(public.get('identity', {}).get('application', {}).get('enabled')) is not bool:
-        raise RuntimeError('Identity installation owner requires explicit public intent')
-    if not preparing and not public['identity']['application']['enabled']:
-        raise RuntimeError('Native identity installation owner is disabled')
-    files = native.source_snapshot.chart_files({'repository': PUBLIC_REPOSITORY, 'revision': revision, 'path': 'gitops/roots/public'}, deadline=deadline)
     contracts = []
     for target in targets:
         values = copy.deepcopy(public); values['identity']['argo'] = target
@@ -222,10 +223,12 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
     resolved = head if source['targetRevision'] == 'main' else INSTALLATION_REVISION
     if not application_ready(APP, resolved) or not native.matches_revision(current, resolved):
         raise RuntimeError('Identity installation must converge before its source freeze')
-    pinned = native.source_snapshot.chart_files({'repository': PUBLIC_REPOSITORY, 'revision': INSTALLATION_REVISION, 'path': 'platform/identity/keycloak'}, deadline=deadline, require_schema=False)
-    if resolved != INSTALLATION_REVISION and pinned != native.source_snapshot.chart_files(
-            {'repository': PUBLIC_REPOSITORY, 'revision': resolved, 'path': 'platform/identity/keycloak'}, deadline=deadline, require_schema=False):
-        raise RuntimeError('Identity installation chart changed; source freeze cannot upgrade code')
+    coordinates = {'publicSource': {'repository': PUBLIC_REPOSITORY, 'branch': 'main'}}
+    with native.public_metadata(coordinates, deadline=deadline) as fetch:
+        pinned = native.source_snapshot.chart_files({'repository': PUBLIC_REPOSITORY, 'revision': INSTALLATION_REVISION, 'path': 'platform/identity/keycloak'}, fetch=fetch, deadline=deadline, require_schema=False)
+        if resolved != INSTALLATION_REVISION and pinned != native.source_snapshot.chart_files(
+                {'repository': PUBLIC_REPOSITORY, 'revision': resolved, 'path': 'platform/identity/keycloak'}, fetch=fetch, deadline=deadline, require_schema=False):
+            raise RuntimeError('Identity installation chart changed; source freeze cannot upgrade code')
     before = [copy.deepcopy(obj) for obj in (current, root, project, server)]
     wait(writer_idle, 'identity native handoff writer completion and lease expiry', timeout=300)
     refreshed = [(get(kind, name, namespace) or {}) for kind, name, namespace in (
@@ -241,7 +244,9 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
             raise RuntimeError('Identity handoff scope changed while waiting for its writer')
     current, root, project, server = refreshed
     coordinates = {'publicSource': {'repository': PUBLIC_REPOSITORY, 'branch': 'main'}}
-    fresh_public, fresh_head = native.published_source(coordinates, deadline=time.monotonic() + 120)
+    fresh_deadline = time.monotonic() + 120
+    with native.public_metadata(coordinates, deadline=fresh_deadline) as fetch:
+        fresh_public, fresh_head = native.published_source(coordinates, deadline=fresh_deadline, fetch=fetch)
     if fresh_head != head or fresh_public != public or native.root_guard(coordinates, fresh_public, fresh_head, root=root) != target:
         raise RuntimeError('Identity handoff public authority or private binding changed during writer wait')
     if (native.receipt(base / 'ownership.json') != state or native.receipt(base / 'retirement.json') != retirement

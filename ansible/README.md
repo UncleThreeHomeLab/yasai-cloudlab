@@ -34,6 +34,11 @@ writer release. Argo then reconciles workloads; ESO alone writes generated
 Secrets. Bounded ownership transactions retain durable checkpoints, identity
 checks and exclusive locks. Recovery requires the declared Argo writer suspended;
 ordinary setup preserves its accepted ownership and existing data.
+The existing read-only `github-argocd` App must select both the public platform
+repository and private configuration repository before native handoff. Public
+metadata reads use a disposable token restricted to the public repository.
+First-binding reads remain anonymous under their durable operation; failed
+acquisition or unconfirmed revocation blocks changes.
 
 [Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.

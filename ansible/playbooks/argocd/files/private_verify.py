@@ -123,7 +123,28 @@ def controller_items(items):
     return result
 
 
-def permissions_declaration(evidence, repository):
+def pending_verification_context(evidence, repository):
+    """Derive explicit recovery mode only from the protected pending operation."""
+    from playbooks.data.files import native
+    from playbooks.argocd.files import source_transition
+    binding = native.receipt(native.BINDING, missing=True)
+    if not binding or binding.get('phase') == 'accepted':
+        return None, False
+    public = (evidence or {}).get('contract', {}).get('context', {}).get('repository')
+    if binding.get('target', {}).get('valuesRepository') != repository:
+        raise RuntimeError('Pending verification private repository changed')
+    root = source_transition.get('application.argoproj.io', 'cloudlab-public-root') or {}
+    context = {'checkpoint': binding, 'sourceState': source_transition.binding_source(binding, root),
+        'rootSource': copy.deepcopy(root.get('spec', {}).get('source'))}
+    identity = binding.get('originalSource', {}).get('helm', {}).get('valuesObject', {}).get('identity', {})
+    if not isinstance(identity, dict):
+        raise RuntimeError('Pending verification original identity source is malformed')
+    initial = 'argo' not in identity
+    source_transition.pending_root_authority(context, public, first_binding=initial)
+    return context, initial
+
+
+def permissions_declaration(evidence, repository, *, first_binding=None, recovery=None):
     """Authenticate current approval once; polling never reads credentials or Git."""
     from playbooks.data.files import native
     from playbooks.argocd.files.private_sources import consumer_contract, validate_consumer_acceptance, acceptance_spec
@@ -132,26 +153,31 @@ def permissions_declaration(evidence, repository):
     deadline = time.monotonic() + 120
     contract = evidence.get('contract', {})
     public_repository = contract.get('context', {}).get('repository')
-    public, revision = native.published_source({'publicSource': {'repository': public_repository, 'branch': 'main'}}, deadline=deadline)
-    current = consumer_contract(public, 'permissions')
-    if (not current['enabled'] or current != contract or revision != evidence.get('publicRevision')
-            or evidence.get('acceptanceCommitment') != current['acceptanceCommitment']):
-        raise RuntimeError('Permissions approval differs from current protected public intent')
-    validate_consumer_acceptance(evidence.get('acceptanceReceipt'), repository, current)
-    if evidence.get('acceptedRevision') != evidence['acceptanceReceipt']['revision']:
-        raise RuntimeError('Permissions revision differs from its approved receipt')
-    files = native.source_snapshot.chart_files({'repository': public_repository, 'revision': revision,
-        'path': 'gitops/roots/public'}, deadline=deadline)
+    with native.public_metadata({'publicSource': {'repository': public_repository, 'branch': 'main'}}, deadline=deadline, first_binding=first_binding, recovery=recovery) as fetch:
+        public, revision = native.published_source({'publicSource': {'repository': public_repository, 'branch': 'main'}}, fetch=fetch, deadline=deadline)
+        current = consumer_contract(public, 'permissions')
+        if (not current['enabled'] or current != contract or revision != evidence.get('publicRevision')
+                or evidence.get('acceptanceCommitment') != current['acceptanceCommitment']):
+            raise RuntimeError('Permissions approval differs from current protected public intent')
+        validate_consumer_acceptance(evidence.get('acceptanceReceipt'), repository, current)
+        if evidence.get('acceptedRevision') != evidence['acceptanceReceipt']['revision']:
+            raise RuntimeError('Permissions revision differs from its approved receipt')
+        files = native.source_snapshot.chart_files({'repository': public_repository, 'revision': revision,
+            'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
+        profile_files = native.source_snapshot.chart_files({'repository': public_repository,
+            'revision': current['context']['permissions']['revision'], 'path': 'platform/connectivity/permissions'}, fetch=fetch, deadline=deadline)
+        policy_files = native.source_snapshot.chart_files({'repository': public_repository,
+            'revision': revision, 'path': 'platform/delivery/admission/policies'}, fetch=fetch, deadline=deadline)
+    pending = first_binding if first_binding is not None else recovery
+    if pending is not None:
+        from playbooks.argocd.files.source_transition import pending_root_context
+        pending_root_context(pending, public, first_binding=first_binding is not None)
     expected = acceptance_spec(public, repository, evidence['acceptedRevision'], files=files, consumer='permissions')
     if expected != evidence.get('applicationSet'):
         raise RuntimeError('Permissions parent differs from its authenticated native declaration')
-    profile_files = native.source_snapshot.chart_files({'repository': public_repository,
-        'revision': current['context']['permissions']['revision'], 'path': 'platform/connectivity/permissions'}, deadline=deadline)
     projection = native.render_objects(profile_files, [{'mode': 'profiles', 'context': {
         'repository': public_repository, 'revision': current['context']['permissions']['revision'],
         'commitment': current['acceptanceCommitment'], 'namespace': 'argocd'}}])
-    policy_files = native.source_snapshot.chart_files({'repository': public_repository,
-        'revision': revision, 'path': 'platform/delivery/admission/policies'}, deadline=deadline)
     policies = [row for row in native.render_objects(policy_files, [])
         if row['kind'] in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')
         and row['metadata']['name'] in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')]
@@ -165,6 +191,7 @@ def permissions_declaration(evidence, repository):
     profile_apps = [row for row in roots if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions-profiles']
     if len(profile_apps) != 1:
         raise RuntimeError('Permissions public profile owner is missing')
+    if pending is not None: pending_root_context(pending, public, first_binding=first_binding is not None)
     return {'parent': expected, 'projection': projection[0], 'policies': policies, 'profileApplication': profile_apps[0]}
 
 
@@ -278,6 +305,8 @@ def run(payload):
     repository = payload.get('configuration_repository')
     if not repository:
         raise RuntimeError('Private verification requires the actual configuration repository')
+    permissions = payload.get('permissions')
+    pending, initial = pending_verification_context(permissions, repository) if permissions is not None else (None, False)
     applications = json.loads(kube('get', 'applications.argoproj.io', '-n', 'argocd', '-o', 'json'))['items']
     consumers = [app for app in applications if any(source.get('repoURL') == repository for source in
                  app['spec'].get('sources', [app['spec'].get('source', {})]))]
@@ -285,13 +314,12 @@ def run(payload):
     symbolic_revisions = payload.get('symbolic_revisions')
     if not revision:
         raise RuntimeError('Private verification requires an authenticated configuration revision')
-    permissions = payload.get('permissions')
     if permissions is None and (any(app.get('metadata', {}).get('name') == 'cloudlab-permissions' for app in applications)
             or (get('applicationset.argoproj.io', 'cloudlab-permissions') or {}).get('metadata', {}).get('name') == 'cloudlab-permissions'):
         raise RuntimeError('Active permissions require authenticated consumer approval evidence')
     if not consumers and permissions is None:
         raise RuntimeError('Actual private configuration source has no reconciled consumers')
-    permission_spec = permissions_declaration(permissions, repository) if permissions is not None else None
+    permission_spec = permissions_declaration(permissions, repository, first_binding=pending if initial else None, recovery=pending if not initial else None) if permissions is not None else None
     if permission_spec is not None:
         wait(lambda: permissions_healthy(permissions, repository, permission_spec), 'permissions approval convergence')
     secrets = json.loads(kube('get', 'secrets', '-n', 'argocd', '-o', 'json'))['items']

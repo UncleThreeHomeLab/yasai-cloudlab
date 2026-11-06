@@ -1,5 +1,5 @@
 """Prepared handoff authority, real entrypoint fences and recoverable registration."""
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import copy
 import json
 from pathlib import Path
@@ -427,3 +427,72 @@ class RotationLocalFenceTests(unittest.TestCase):
                 self.assertEqual(vault.call_count, 1)
                 self.assertEqual(vault.call_args.args[0][:2], ['item', 'list'])
             self.assertFalse(pending.exists())
+
+
+class PublicMetadataAuthorityTests(unittest.TestCase):
+    def test_vm_custody_requires_existing_binding_before_original_private_reader(self):
+        from playbooks.argocd.files import github_app, source_transition
+        coordinates = {'publicSource': {'repository': github_app.PUBLIC_REPOSITORY, 'branch': 'main'}}
+        old = {'valuesRepository': 'https://github.com/UncleThreeHomeLab/private.git', 'valuesRevision': 'a' * 40}
+        new = dict(old, valuesRevision='c' * 40)
+        events = []
+        @contextmanager
+        def session(credentials, **kwargs):
+            events.append('session')
+            yield 'fetch'
+            events.append('revoked')
+        for pending in (False, True):
+            events.clear()
+            checkpoint = {'phase': 'paused' if pending else 'accepted', 'target': new if pending else old}
+            recovery = {'checkpoint': checkpoint} if pending else None
+            def accepted(**kwargs):
+                events.append('authority')
+                self.assertEqual(kwargs, {'repository': github_app.PUBLIC_REPOSITORY, 'branch': 'main',
+                    'revision': 'b' * 40, 'private_repository': old['valuesRepository']})
+                return old
+            def pending_authority(*args):
+                events.append('authority')
+                self.assertEqual(args, (recovery, github_app.PUBLIC_REPOSITORY))
+                return {}, [old, new]
+            def credentials(repo):
+                events.append('credentials'); self.assertEqual(repo, old['valuesRepository']); return {'synthetic': True}
+            with patch.object(native, 'receipt', return_value=checkpoint), \
+                    patch.object(native, 'get', return_value={'status': {'sync': {'revision': 'b' * 40}}}), \
+                    patch.object(source_transition, 'accepted_identity_binding', side_effect=accepted), \
+                    patch.object(source_transition, 'pending_root_authority', side_effect=pending_authority), \
+                    patch.object(native, 'source_credentials', side_effect=credentials), \
+                    patch.object(github_app, 'public_metadata', side_effect=session):
+                with native.public_metadata(coordinates, deadline=280, recovery=recovery) as fetch:
+                    self.assertEqual(fetch, 'fetch'); events.append('read')
+            self.assertEqual(events, ['authority', 'credentials', 'session', 'read', 'revoked'])
+
+    def test_absence_is_anonymous_but_changed_binding_never_downgrades(self):
+        from playbooks.argocd.files import github_app, source_transition
+        coordinates = {'publicSource': {'repository': github_app.PUBLIC_REPOSITORY, 'branch': 'main'}}
+        with patch.object(native, 'receipt', return_value={}), patch.object(native, 'authority_path', return_value=None), \
+                patch.object(native, 'get', return_value={}), patch.object(native, 'source_credentials') as credentials:
+            with native.public_metadata(coordinates, deadline=280) as fetch:
+                self.assertIs(fetch, native.source_snapshot.request)
+            with self.assertRaises(RuntimeError), native.public_metadata(coordinates, deadline=280, recovery={}): pass
+            credentials.assert_not_called()
+            with patch.object(native, 'get', return_value={'spec': {'source': {'helm': {'valuesObject': {'identity': {'argo': {}}}}}}}):
+                with self.assertRaises(RuntimeError), native.public_metadata(coordinates, deadline=280): pass
+            credentials.assert_not_called()
+        for binding in ({'phase': 'paused'}, {'phase': 'accepted', 'target': {'valuesRepository': 'original'}}):
+            with patch.object(native, 'receipt', return_value=binding), patch.object(native, 'get', return_value={}), \
+                    patch.object(source_transition, 'accepted_identity_binding', side_effect=RuntimeError('changed authority')), \
+                    patch.object(native, 'source_credentials') as credentials:
+                with self.assertRaises(RuntimeError), native.public_metadata(coordinates, deadline=280): pass
+                credentials.assert_not_called()
+
+    def test_published_source_injects_only_metadata_and_raw_stays_anonymous(self):
+        from playbooks.argocd.files import github_app
+        coordinates = {'publicSource': {'repository': github_app.PUBLIC_REPOSITORY, 'branch': 'main'}}
+        public = {'repository': github_app.PUBLIC_REPOSITORY, 'revision': 'main'}
+        fetch = Mock(return_value={'protected': True, 'commit': {'sha': 'a' * 40}})
+        fetch.deadline = 250
+        with patch.object(native.source_snapshot, 'read_url', return_value=yaml.safe_dump(public).encode()) as raw:
+            self.assertEqual(native.published_source(coordinates, deadline=280, fetch=fetch), (public, 'a' * 40))
+        fetch.assert_called_once_with('repos/' + github_app.PUBLIC_READER + '/branches/main', 250)
+        raw.assert_called_once_with('https://raw.githubusercontent.com/' + github_app.PUBLIC_READER + '/' + 'a' * 40 +
+            '/gitops/roots/public/values.yaml', 250, 65536)
