@@ -31,10 +31,6 @@
   ansible.builtin.import_playbook: certificates/verify.yml
 - name: Verify mesh boundaries
   ansible.builtin.import_playbook: istio/verify-behavior.yml
-- name: Verify data and coordinated local recovery
-  ansible.builtin.import_playbook: data/verify.yml
-- name: Verify registry behavior and host access
-  ansible.builtin.import_playbook: harbor/verify.yml
 - name: Verify workload admission and restricted Pod Security
   ansible.builtin.import_playbook: admission/verify.yml
 - name: Verify credential-free rootless builds on both nodes

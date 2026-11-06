@@ -3,34 +3,16 @@
   ansible.builtin.apt:
     name: [python3-yaml, python3-cryptography]
     state: present
-- name: Create the data recovery and Kubernetes reader owner directories
+- name: Create the Kubernetes reader owner directory
   ansible.builtin.file:
-    path: '{{ item }}'
+    path: /opt/cloudlab/playbooks/istio/files
     state: directory
     mode: '0700'
-  loop: [/opt/cloudlab/playbooks/data/files, /opt/cloudlab/playbooks/istio/files]
-- name: Install the data handoff fence before public binding recovery consumers
-  ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/data/files/{{ item }}'
-    dest: '/opt/cloudlab/playbooks/data/files/{{ item }}'
-    mode: '0600'
-  loop: [handoff.py, native.py, control.py, s3.py, requests.py, volumes.py]
 - name: Install the shared Kubernetes reader before recovery consumers
   ansible.builtin.copy:
     src: /workspace/ansible/playbooks/istio/files/kube.py
     dest: /opt/cloudlab/playbooks/istio/files/kube.py
     mode: '0600'
-- name: Create the Harbor binding recovery owner directory
-  ansible.builtin.file:
-    path: /opt/cloudlab/playbooks/harbor/files
-    state: directory
-    mode: '0700'
-- name: Install the Harbor native binding guard and its local recovery closure
-  ansible.builtin.copy:
-    src: '/workspace/ansible/playbooks/harbor/files/{{ item }}'
-    dest: '/opt/cloudlab/playbooks/harbor/files/{{ item }}'
-    mode: '0600'
-  loop: [recovery.py, native.py, configuration.py]
 - name: Create the packaged public source owner directory
   ansible.builtin.file:
     path: /opt/cloudlab/playbooks/argocd/files
