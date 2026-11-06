@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Registry settings binding",
+  "description": "Supported user declarations for Harbor API settings. A binding names only existing projects and approved membership profiles; robot accounts stay vault/manual-owned outside binding scope. It authorizes no new project, credential, import, or deletion. Executed by the agreed trusted provider executor; this schema plus registry.py only validate and compile.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projects"],
+  "properties": {
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "quotaGiB", "artifactPolicy", "immutableTags", "members"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["cloudlab-public", "cloudlab-private"]
+          },
+          "quotaGiB": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "artifactPolicy": {
+            "const": "retain-all"
+          },
+          "immutableTags": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "string",
+              "enum": ["release-*", "deploy-*", "rollback-*"]
+            }
+          },
+          "members": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["group", "role"],
+              "properties": {
+                "group": {
+                  "type": "string",
+                  "enum": ["/platform-admin", "/developer", "/viewer"]
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["projectadmin", "developer", "guest"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
