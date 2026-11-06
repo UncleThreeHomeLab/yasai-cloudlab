@@ -32,3 +32,5 @@
   ansible.builtin.import_playbook: certificates/010-bootstrap.yml
 - name: Run istio/010-bootstrap.yml
   ansible.builtin.import_playbook: istio/010-bootstrap.yml
+- name: Run access/010-resolvers.yml
+  ansible.builtin.import_playbook: access/010-resolvers.yml
