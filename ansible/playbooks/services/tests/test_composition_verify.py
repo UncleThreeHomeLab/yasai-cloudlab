@@ -161,12 +161,17 @@ class CompositionVerificationTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, int(bool(denied)), '', 'cloudlab-composition-synthetic' if denied else '')
         alternate = ('cloudlab-workload-namespace: Application namespaces require Restricted Pod Security '
                      'or their explicitly approved composition profile.')
-        for namespace_denial in (NAMESPACE_DENIAL, alternate):
+        native = ("ValidatingAdmissionPolicy 'cloudlab-workload-namespace-native' with binding "
+                  "'cloudlab-workload-namespace-native' denied request: " + alternate.split(': ', 1)[1])
+        for namespace_denial in (NAMESPACE_DENIAL, alternate, native):
             result = verification.admission(entry, get, condition, kube)
             self.assertEqual(result['workloads_created'], 0)
             self.assertTrue(result['ephemeral_denied'])
         for namespace_denial, namespace_code in ((alternate, 0), (alternate.replace('namespace:', 'namespace-forged:'), 1),
-                ('cloudlab-workload-namespace', 1), (alternate.replace('Application namespaces', 'Unrelated namespaces'), 1)):
+                ('cloudlab-workload-namespace', 1), (alternate.replace('Application namespaces', 'Unrelated namespaces'), 1),
+                (native, 0), (native.replace("with binding 'cloudlab-workload-namespace-native'", "with binding 'foreign'"), 1),
+                (native.replace("ValidatingAdmissionPolicy 'cloudlab-workload-namespace-native'", "ValidatingAdmissionPolicy 'foreign'"), 1),
+                (native.replace('Application namespaces', 'Unrelated namespaces'), 1)):
             with self.subTest(denial=namespace_denial, code=namespace_code), self.assertRaises(RuntimeError):
                 verification.admission(entry, get, condition, kube)
         with self.assertRaises(RuntimeError):

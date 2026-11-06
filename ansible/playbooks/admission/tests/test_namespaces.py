@@ -11,6 +11,7 @@ import yaml
 
 from playbooks.admission.files.chart import render
 from playbooks.admission.tests.fixtures import namespace
+from playbooks.admission.files.verify import namespace_guard_desired, NAMESPACE_GUARD_NAME
 
 POLICY = 'cloudlab-workload-namespace'
 
@@ -133,3 +134,19 @@ class NamespacePolicyTests(unittest.TestCase):
             self.assertNotIn('namespaceSelector', policy['spec']['matchConstraints'])
             self.assertEqual(policy['spec']['matchConstraints']['resourceRules'], [{
                 'apiGroups': [''], 'apiVersions': ['v1'], 'operations': ['CREATE', 'UPDATE'], 'resources': ['namespaces']}])
+
+    def test_native_companion_reuses_the_exact_namespace_contract_and_retains_legacy_guards(self):
+        for actions in (['Deny'], ['Audit', 'Warn']):
+            documents = render(True, {'validationActions': actions})
+            native = [next(row for row in documents if row['kind'] == kind and
+                row['metadata']['name'] == NAMESPACE_GUARD_NAME) for kind in
+                ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')]
+            self.assertEqual(native, namespace_guard_desired())
+            self.assertEqual(native[0]['spec']['variables'], self.policy['spec']['variables'])
+            self.assertEqual(native[0]['spec']['validations'], self.policy['spec']['validations'])
+            base = Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates'
+            for name in ('workload-namespace', 'composition-namespace'):
+                source = yaml.safe_load((base / (name + '.yaml')).read_text())
+                actual = next(row for row in documents if row['kind'] == 'ValidatingPolicy' and
+                              row['metadata']['name'] == 'cloudlab-' + name)
+                self.assertEqual(actual, source)

@@ -122,6 +122,9 @@ def admission(entry, get, condition, kube):
         for name, message in (
             ('cloudlab-composition-namespace', 'Composition namespace privileges require their ready fail-closed workload policy first.'),
             ('cloudlab-workload-namespace', 'Application namespaces require Restricted Pod Security or their explicitly approved composition profile.')))
+    namespace_denial = namespace_denial or (
+        "ValidatingAdmissionPolicy 'cloudlab-workload-namespace-native' with binding 'cloudlab-workload-namespace-native' denied request:" in guard.stderr and
+        'Application namespaces require Restricted Pod Security or their explicitly approved composition profile.' in guard.stderr)
     if not guard.returncode or not namespace_denial:
         raise RuntimeError('Composition namespace guard did not deny unreviewed security settings')
     target = pods[0]
