@@ -838,7 +838,13 @@ destructive migrations require a separate explicit data scope.
    `approval.secretReferences`; never grant application pods privileged data credentials.
 3. **User/Agent:** keep secret values in 1Password's CloudLab vault.
    Use the [service contract](../charts/service/README.md) for required item fields
-   and credential provisioning. Preserve existing secrets on repeat runs.
+   and credential provisioning. The local secret helper supports explicitly scoped
+   empty placeholders; it preserves existing items and reports pending field names.
+   **User:** fill pending fields in 1Password. Automatic creation from Git has no
+   supported executor. External Secrets remains the sole synchronizer. Guarded
+   composition secret delivery rejects empty fields and preserves valid deployed
+   credentials. Other consumers, including SQL/S3, must not adopt placeholders
+   until their delivery and retention guards are verified.
 4. **Agent:** configure optional login through section 6.5 before publication.
 5. **Agent:** confirm backup coverage before storing important data.
    Service PVCs require separate verified backup coverage; declaring storage is not a backup.
