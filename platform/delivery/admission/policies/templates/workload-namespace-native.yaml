@@ -1,0 +1,35 @@
+{{- $namespace := include (print $.Template.BasePath "/workload-namespace.yaml") . | fromYaml -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-workload-namespace-native
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Exact
+    namespaceSelector: {}
+    objectSelector: {}
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+        scope: Cluster
+  variables:
+{{ toYaml $namespace.spec.variables | indent 4 }}
+  validations:
+{{ toYaml $namespace.spec.validations | indent 4 }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-workload-namespace-native
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  policyName: cloudlab-workload-namespace-native
+  validationActions: [Deny]
