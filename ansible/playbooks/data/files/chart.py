@@ -59,6 +59,19 @@ def check():
                 for container in pod['containers'] + pod.get('initContainers', []):
                     if not container.get('resources', {}).get('limits'):
                         raise ValueError('Data container lacks resource limits')
+    gateways = [obj for obj in records['seaweedfs'] if obj['kind'] == 'Deployment'
+                and obj['metadata']['name'] == 'cloudlab-seaweedfs-s3']
+    accounts = [obj for obj in records['seaweedfs'] if obj['kind'] == 'ServiceAccount'
+                and obj['metadata']['name'] == 'seaweedfs']
+    if len(gateways) != 1 or len(accounts) != 1:
+        raise ValueError('S3 gateway requires its declared SeaweedFS ServiceAccount')
+    pod = gateways[0]['spec']['template']['spec']
+    automount = pod.get('automountServiceAccountToken')
+    if (pod.get('serviceAccountName') != 'seaweedfs' or accounts[0].get('automountServiceAccountToken') is not False
+            or (automount is not None and automount is not False)
+            or any('serviceAccountToken' in source for volume in pod.get('volumes', [])
+                   for source in volume.get('projected', {}).get('sources', []))):
+        raise ValueError('S3 gateway must use its tokenless SeaweedFS ServiceAccount')
     claims = [claim for obj in records['seaweedfs'] if obj['kind'] == 'StatefulSet'
               for claim in obj['spec'].get('volumeClaimTemplates', [])]
     if len(claims) != 3 or any(claim['spec'].get('storageClassName') != 'cloudlab-data' for claim in claims):

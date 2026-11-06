@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import copy
 import hashlib
 from lz4.frame import compress
 import json
@@ -325,6 +326,28 @@ class DataChartTests(unittest.TestCase):
         result = chart.check()
         self.assertEqual(result['persistent_seaweedfs_claims'], 3)
         self.assertEqual(result['helm_hooks'], 0)
+
+    def test_s3_gateway_rejects_api_token_delivery(self):
+        rendered = {name: chart.render(name) for name in ('cnpg', 'seaweedfs', 'configuration')}
+        for change in ('missing-account', 'default-account', 'missing-service-account', 'account-automount',
+                       'pod-automount', 'token-projection'):
+            objects = copy.deepcopy(rendered)
+            seaweed = objects['seaweedfs']
+            pod = next(obj for obj in seaweed if obj['kind'] == 'Deployment'
+                       and obj['metadata']['name'] == 'cloudlab-seaweedfs-s3')['spec']['template']['spec']
+            account = next(obj for obj in seaweed if obj['kind'] == 'ServiceAccount'
+                           and obj['metadata']['name'] == 'seaweedfs')
+            if change == 'missing-account': pod.pop('serviceAccountName')
+            if change == 'default-account': pod['serviceAccountName'] = 'default'
+            if change == 'missing-service-account': seaweed.remove(account)
+            if change == 'account-automount': account['automountServiceAccountToken'] = True
+            if change == 'pod-automount': pod['automountServiceAccountToken'] = True
+            if change == 'token-projection':
+                pod['volumes'].append({'name': 'api-token', 'projected': {'sources': [
+                    {'serviceAccountToken': {'path': 'token'}}]}})
+            with self.subTest(change=change), patch.object(chart, 'render', side_effect=lambda name: objects[name]), \
+                    self.assertRaisesRegex(ValueError, 'SeaweedFS ServiceAccount'):
+                chart.check()
 
     def test_maintenance_disables_both_application_writers(self):
         objects = chart.render('configuration', {'maintenance': True})
