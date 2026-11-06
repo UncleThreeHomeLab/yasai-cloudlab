@@ -6,7 +6,7 @@ import signal
 import subprocess
 import time
 
-from playbooks.services.files.contract import validate, artifact_approval
+from playbooks.services.files.contract import validate, artifact_approval, identity_binding
 
 MAX_RENDER_OUTPUT = 8 * 1024 * 1024
 MAX_RENDER_ERROR = 1024 * 1024
@@ -88,6 +88,7 @@ def resources(definition, approval, platform_repository, platform_revision, *, c
     if approval.get('chartPath', 'charts/service') not in ('charts/service', 'apps/notes'):
         raise ValueError('Service chart source is not approved')
     artifact_approval(approval)
+    identity_binding(definition, approval)
     from playbooks.services.files.compositions import validate as composition
     composed = composition(approval)
     if composed:

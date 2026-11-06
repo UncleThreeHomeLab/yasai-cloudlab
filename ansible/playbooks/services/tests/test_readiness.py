@@ -10,6 +10,64 @@ from playbooks.services.tests.fixtures import definition, approval
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_identity_reference_requires_authenticated_inventory_provider_and_retirement_intent(self):
+        import base64
+        from playbooks.keycloak.files.configuration import client
+        value, allowed = definition(), approval()
+        value['oidc'] = {'enabled': True, 'clientReference': 'synthetic'}
+        allowed['identityClient'] = {'realm': 'applications', 'client': 'synthetic'}
+        declared = {'id': 'synthetic', 'audience': 'synthetic-api', 'public': True,
+            'callbacks': ['https://synthetic.example.invalid/callback'], 'scopes': ['profile'], 'roles': [], 'role_groups': {}}
+        configuration = {'realms': {'applications': {'clients': [declared]}}}
+        revocations = {'realms': {'applications': {'clients': [], 'removed_clients': []}}}
+        identity = {'spec': {'source': {'helm': {'valuesObject': {'adminHost': 'identity-admin.internal.example.invalid'}}}}}
+        external = {'metadata': {'uid': 'eso'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        secret = {'metadata': {'ownerReferences': [{'uid': 'eso'}]},
+                  'data': {'client_secret': base64.b64encode(b'x' * 48).decode()}}
+        def get(kind, name=None, namespace=None):
+            if name == 'cloudlab-public-root': return {'status': {'sync': {'revision': 'b' * 40}}}
+            if name == 'cloudlab-identity': return identity
+            if kind == 'secret': return secret
+            if kind == 'externalsecret.external-secrets.io': return external
+            raise AssertionError((kind, name))
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned'}))
+            with patch('playbooks.services.files.remote.get', side_effect=get), \
+                    patch('playbooks.services.files.remote.application_ready', return_value=True), \
+                    patch('playbooks.keycloak.files.bootstrap.BASE', Path(folder)), \
+                    patch('playbooks.keycloak.files.ownership.accepted_application', autospec=True, return_value='c' * 40) as native, \
+                    patch('playbooks.keycloak.files.ownership.accepted_private_inventory', autospec=True,
+                          return_value=(configuration, revocations, 'd' * 40)) as inventory, \
+                    patch('playbooks.keycloak.files.bootstrap.reconciled', return_value=True), \
+                    patch('playbooks.keycloak.files.client_readiness.verify', autospec=True) as provider:
+                request = {'definition': value, 'approval': allowed, 'action': 'identity'}
+                inspect(request)
+                provider.assert_called_once_with('applications', client(declared, {}), 'identity-admin.internal.example.invalid')
+                provider.reset_mock(); inventory.reset_mock(); native.return_value = None
+                with self.assertRaisesRegex(RuntimeError, 'accepted native'): inspect(request)
+                inventory.assert_not_called(); provider.assert_not_called(); native.return_value = 'c' * 40
+                for tombstone in ('clients', 'removed_clients'):
+                    revocations['realms']['applications'][tombstone] = ['synthetic']
+                    with self.assertRaisesRegex(RuntimeError, 'lifecycle intent'): inspect(request)
+                    revocations['realms']['applications'][tombstone] = []
+                retired = dict(request, action='identity-retired')
+                with self.assertRaisesRegex(RuntimeError, 'lifecycle intent'): inspect(retired)
+                declared['enabled'] = False
+                revocations['realms']['applications']['clients'] = ['synthetic']
+                inspect(retired)
+                self.assertFalse(provider.call_args.args[1]['enabled'])
+                declared['enabled'] = True; revocations['realms']['applications']['clients'] = []
+                declared['public'] = False
+                with self.assertRaisesRegex(RuntimeError, 'client type'): inspect(request)
+                value['oidc']['secretReference'] = 'synthetic-oidc'
+                value['secrets'] = [{'name': 'synthetic-oidc', 'mountPath': '/secrets/oidc'}]
+                allowed['identityClient']['secretReference'] = 'synthetic-oidc'; allowed['secretReferences'] = ['synthetic-oidc']
+                inspect(request)
+                external['status']['conditions'][0]['status'] = 'False'
+                provider.reset_mock()
+                with self.assertRaisesRegex(RuntimeError, 'not ready and ESO-owned'): inspect(request)
+                provider.assert_not_called()
+
     def test_identity_follows_current_public_source_without_reusing_bootstrap_revision(self):
         from playbooks.services.files.contract import identity_request
         value = definition()

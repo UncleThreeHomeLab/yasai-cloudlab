@@ -517,6 +517,27 @@
                     }
                   }
                 ]
+              },
+              "identityClient": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "realm": {
+                    "const": "applications"
+                  },
+                  "client": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                  },
+                  "secretReference": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                  }
+                },
+                "required": [
+                  "realm",
+                  "client"
+                ]
               }
             }
           },
@@ -1148,6 +1169,27 @@
                 "audience",
                 "scopes",
                 "roleMapping"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "const": true
+                },
+                "clientReference": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                },
+                "secretReference": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
+                }
+              },
+              "required": [
+                "enabled",
+                "clientReference"
               ]
             }
           ]

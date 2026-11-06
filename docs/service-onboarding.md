@@ -944,6 +944,17 @@ requires the checks below.
 
 Use the existing identity, access, data and admission owners.
 Keep private settings in their accepted inputs and secret values in 1Password.
+After approved catalog-owner promotion and private migration, ordinary services can
+use the [identity reference profile](../charts/service/README.md): `oidc.clientReference`
+matches protected `approval.identityClient`. Keep client settings only in the accepted
+private identity inventory. Existing catalogs retain the legacy fields below;
+Notes/composition adapters reject references. No profile change provisions missing credentials.
+Reference readiness verifies owned provider client fields and scoped secret equality,
+not role resources, realm/group grants, memberships, issued-token roles or application
+authorization. Complete the real browser and allowed/denied checks in section 6.6.
+Before retiring a referenced service, merge its disabled client declaration and durable
+client tombstone, then verify provider disablement. Active shared clients block
+retirement before exposure changes; rotation/removal/recovery remain independently scoped.
 
 1. **User:** decide whether the app needs Keycloak login.
    **Agent:** review `definition.oidc` in private `services/catalog.json`.

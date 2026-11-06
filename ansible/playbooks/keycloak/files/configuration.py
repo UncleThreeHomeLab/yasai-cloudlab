@@ -354,7 +354,7 @@ def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, 
     return documents
 
 
-def private_request(url, token=None, form=None, accepted_statuses=(200,), *, method=None, with_status=False):
+def private_request(url, token=None, form=None, accepted_statuses=(200,), *, method=None, with_status=False, timeout=20):
     import ssl
     import urllib.request
     import urllib.parse
@@ -372,9 +372,11 @@ def private_request(url, token=None, form=None, accepted_statuses=(200,), *, met
         opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            response = opener.open(request, timeout=20)
+            response = opener.open(request, timeout=timeout)
         except urllib.error.HTTPError as error:
-            if error.code not in accepted_statuses: raise
+            if error.code not in accepted_statuses:
+                error.close()
+                raise
             response = error
         with response:
             if response.status not in accepted_statuses: raise ValueError('Unexpected identity status')

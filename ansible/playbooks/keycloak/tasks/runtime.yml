@@ -43,6 +43,7 @@
   loop:
     - bootstrap.py
     - ownership.py
+    - client_readiness.py
     - configuration.py
     - maintenance.py
     - recovery.py

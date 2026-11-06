@@ -17,6 +17,13 @@ class OwnerInputTests(unittest.TestCase):
             for action, timeout in (('identity', 240), ('backend', 90), ('fixture-data', 660), ('fixture-volume', 660)):
                 owner.read(action)
                 self.assertEqual(ssh.call_args.kwargs['timeout'], timeout)
+            owner.definition['oidc'] = {'enabled': True, 'clientReference': 'synthetic'}
+            for action in ('identity', 'identity-retired'):
+                owner.read(action)
+                self.assertEqual(ssh.call_args.kwargs['timeout'], 360)
+            with patch('playbooks.keycloak.files.lifecycle.local') as remove:
+                owner.identity_retire(owner.definition)
+                remove.assert_not_called()
 
     def test_retirement_publishes_git_intent_without_reapplying_catalog(self):
         owner = Owners.__new__(Owners)
