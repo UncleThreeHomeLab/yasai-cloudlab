@@ -67,12 +67,37 @@ def private_policies(evidence):
 
 
 def private_probe(evidence, document):
+    if document.get('kind') == 'Namespace' and document['metadata']['name'] == 'cloudlab-app-native-guard-probe':
+        return namespace_probe(document)
     rejected = (document['metadata']['labels']['cloudlab.io/owner'] == 'foreign' or
                 (document['kind'] == 'Secret' and 'ownerReferences' not in document['metadata']))
     if not rejected: return 0, ''
     name = 'cloudlab-private-source-credentials' if document['kind'] == 'Secret' else 'cloudlab-private-source-ownership'
     message = evidence['policies'][name]['validations'][0]['message']
     return 1, 'admission webhook denied the request: ' + name + ': ' + message
+
+
+def namespace_policies(declaration=None):
+    from playbooks.admission.files.namespace_guard import namespace_guard_desired, NAMESPACE_GUARD_NAME
+    result = {}
+    for obj in namespace_guard_desired(declaration):
+        obj['metadata'].update(uid=obj['kind'] + '-uid', generation=1)
+        obj['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = (
+            'cloudlab-workload-policy:admissionregistration.k8s.io/' + obj['kind'] + ':cloudlab-policy/' + NAMESPACE_GUARD_NAME)
+        if obj['kind'] == 'ValidatingAdmissionPolicy':
+            obj['status'] = {'observedGeneration': 1, 'typeChecking': {'expressionWarnings': []}}
+        kind = ('validatingadmissionpolicy' if obj['kind'] == 'ValidatingAdmissionPolicy'
+                else 'validatingadmissionpolicybinding') + '.admissionregistration.k8s.io'
+        result[kind, NAMESPACE_GUARD_NAME] = obj
+    return result
+
+
+def namespace_probe(document):
+    from playbooks.admission.files.namespace_guard import namespace_guard_desired, NAMESPACE_GUARD_NAME
+    if document['metadata']['labels'].get('cloudlab.io/owner') == 'service-platform':
+        return 0, ''
+    return 1, ("ValidatingAdmissionPolicy '" + NAMESPACE_GUARD_NAME + "' with binding '" +
+        NAMESPACE_GUARD_NAME + "' denied request: " + namespace_guard_desired()[0]['spec']['validations'][0]['message'])
 
 
 def binding_fixture(required=True, *, repository='https://github.com/example/platform.git',
@@ -102,6 +127,8 @@ def binding_fixture(required=True, *, repository='https://github.com/example/pla
                    'accessActivation': access_evidence(repository, target),
                    'dataActivation': data_evidence(repository, target),
                    'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'])}}
+    if required:
+        objects.update(namespace_policies(evidence['namespaceGuard']))
     original = copy.deepcopy(objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'])
     patched = copy.deepcopy(original)
     patched['helm']['valuesObject']['identity'] = {'enabled': True, 'argo': target}

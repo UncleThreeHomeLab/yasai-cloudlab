@@ -128,9 +128,9 @@ def _resume_identity_binding():
     if state.get('phase') not in ('prepared', 'paused', 'source-updated', 'resumed'):
         raise RuntimeError('Unknown identity root handoff checkpoint')
     try:
-        from .source_transition import pause, binding_source, check_activation, safe_identity_resume, record, data_binding_fence
+        from .source_transition import pause, binding_source, check_activation, safe_identity_resume, record, data_binding_fence, activation_preflight, private_server_probe, namespace_contract
     except ImportError:
-        from source_transition import pause, binding_source, check_activation, safe_identity_resume, record, data_binding_fence
+        from source_transition import pause, binding_source, check_activation, safe_identity_resume, record, data_binding_fence, activation_preflight, private_server_probe, namespace_contract
     data_binding_fence(state.get('target'))
     objects = {key: get(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', 'cloudlab-public-root'),
@@ -149,12 +149,17 @@ def _resume_identity_binding():
             pause()
         raise
     if source_state == 'original':
+        versioned = namespace_contract(state)
         if state.get('target'):
             try:
                 from .private_activation import preflight
             except ImportError:
                 from private_activation import preflight
             preflight(state.get('privateActivation'), state['target'], get, root)
+            if versioned:
+                state['serviceActivation'] = activation_preflight(state.get('serviceActivation'), state['target'], get, root,
+                                                             probe=private_server_probe)
+                namespace_contract(state)
             expected_root = copy.deepcopy(root['spec'])
             expected_project = copy.deepcopy(project['spec'])
             expected_controller = copy.deepcopy(controller['spec'])
@@ -189,6 +194,7 @@ def _resume_identity_binding():
             raise RuntimeError('Interrupted identity root handoff source changed')
         check_activation(state, current, get, data_held=True)
         record(path, state)
+        namespace_contract(state)
         grant_identity_source(latest)
     finally:
         if safe_identity_resume(state, get, data_held=True):

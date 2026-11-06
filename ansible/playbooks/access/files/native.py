@@ -62,7 +62,10 @@ def binding(payload):
             or not isinstance(target['valuesRevision'], str) or not re.fullmatch('[a-f0-9]{40}', target['valuesRevision'])):
         raise RuntimeError('Access private binding is malformed or foreign')
     receipt = binding_receipt()
-    if (not isinstance(receipt, dict) or set(receipt) != {'phase', 'target', 'root_uid', 'project_uid', 'controller_uid'}
+    fields = {'phase', 'target', 'root_uid', 'project_uid', 'controller_uid'}
+    if (not isinstance(receipt, dict) or set(receipt) not in (fields, fields | {'namespaceGuardContract'})
+            or ('namespaceGuardContract' in receipt and (type(receipt['namespaceGuardContract']) is not int
+                or receipt['namespaceGuardContract'] != 1))
             or receipt['phase'] != 'accepted' or receipt['target'] != target
             or receipt['root_uid'] != root['metadata'].get('uid')):
         raise RuntimeError('Access private binding is not the accepted identity approval')

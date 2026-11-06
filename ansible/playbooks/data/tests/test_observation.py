@@ -93,6 +93,20 @@ class ObservationTests(unittest.TestCase):
         self.assertIn(('GET', 'repos/example/private/contents/' + selected + '?ref=' + 'b' * 40), reads)
         self.assertFalse(any('/contents/services/catalog.json?' in args[1] for args in reads))
 
+    def test_root_guard_accepts_only_legacy_or_exact_versioned_identity_receipt(self):
+        original = copy.deepcopy(self.fixture['binding'])
+        self.assertEqual(native.root_guard(self.fixture['state'], self.fixture['public'], 'd' * 40), original['target'])
+        for value in (1, None, True, 0, 2, '1'):
+            self.fixture['binding'] = dict(copy.deepcopy(original), namespaceGuardContract=value)
+            with self.subTest(value=value):
+                if type(value) is int and value == 1:
+                    self.assertEqual(native.root_guard(self.fixture['state'], self.fixture['public'], 'd' * 40), original['target'])
+                else:
+                    with self.assertRaises(RuntimeError):
+                        native.root_guard(self.fixture['state'], self.fixture['public'], 'd' * 40)
+        self.fixture['binding'] = dict(original, namespaceGuardContract=1, unexpected=True)
+        with self.assertRaises(RuntimeError): native.root_guard(self.fixture['state'], self.fixture['public'], 'd' * 40)
+
     def test_public_metadata_failure_prevents_private_acquisition_and_writes(self):
         for failure in ('read', 'cleanup'):
             self.public_events.clear(); self.head.reset_mock(); self.chart.reset_mock()

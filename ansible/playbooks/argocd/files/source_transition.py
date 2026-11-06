@@ -11,19 +11,48 @@ try:
     from .bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
     from .data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion, binding_fence as data_binding_fence
     from .source_revision import matches_revision
-    from .service_activation import validate as validate_activation, guard as activation_guard
+    from .service_activation import validate as validate_activation, guard as activation_guard, authority_guard as service_authority_guard, namespace_preflight as activation_preflight
     from .access_activation import validate as validate_access, guard as access_guard
     from .private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 except ImportError:
     from bootstrap import BASE, get, kube, wait_application, resume_identity_binding, identity_project_rules, grant_identity_source
     from data_activation import validate as validate_data, guard as data_guard, exclusion as data_exclusion, binding_fence as data_binding_fence
     from source_revision import matches_revision
-    from service_activation import validate as validate_activation, guard as activation_guard
+    from service_activation import validate as validate_activation, guard as activation_guard, authority_guard as service_authority_guard, namespace_preflight as activation_preflight
     from access_activation import validate as validate_access, guard as access_guard
     from private_activation import validate as validate_private, guard as private_guard, server_probe as private_server_probe
 
 ROOT_APP = 'cloudlab-public-root'
 CONTROLLER = 'argocd-application-controller'
+
+
+def _namespace_version(state):
+    if 'namespaceGuardContract' not in state:
+        return False
+    if type(state['namespaceGuardContract']) is not int or state['namespaceGuardContract'] != 1:
+        raise RuntimeError('Unknown Namespace activation contract')
+    return True
+
+
+def namespace_contract(state):
+    """Fence runtime-only qualification against its durable pending operation."""
+    versioned = _namespace_version(state)
+    path = BASE / 'identity-values-binding.json'
+    recorded = json.loads(path.read_text()) if path.exists() else {}
+    if _namespace_version(recorded) != versioned:
+        raise RuntimeError('Namespace activation contract differs from its durable operation')
+    if versioned:
+        if state.get('phase') == 'accepted':
+            if state != recorded or set(state) != {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid', 'namespaceGuardContract'}:
+                raise RuntimeError('Accepted Namespace activation receipt differs from its durable operation')
+            return True
+        evidence = validate_activation(state.get('serviceActivation'), state['target'])
+        captured = validate_activation(recorded.get('serviceActivation'), recorded['target'])
+        if (evidence['required'] and 'namespaceAuthority' not in evidence
+                or {key: value for key, value in evidence.items() if key != 'existing'} !=
+                   {key: value for key, value in captured.items() if key != 'existing'}):
+            raise RuntimeError('Namespace activation evidence differs from its durable operation')
+    return versioned
 
 
 def accepted_identity_binding(*, repository, branch, revision, private_repository):
@@ -40,13 +69,15 @@ def accepted_identity_binding(*, repository, branch, revision, private_repositor
         receipt = json.loads((BASE / 'identity-values-binding.json').read_text())
     except (OSError, ValueError):
         raise RuntimeError('Accepted native identity receipt is unavailable') from None
-    if (not isinstance(receipt, dict) or set(receipt) != {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid'} or
+    receipt_fields = {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid'}
+    if (not isinstance(receipt, dict) or set(receipt) not in (receipt_fields, receipt_fields | {'namespaceGuardContract'}) or
             receipt['phase'] != 'accepted' or not isinstance(receipt['target'], dict) or
             set(receipt['target']) != {'valuesRepository', 'valuesRevision'} or
             receipt['target']['valuesRepository'] != private_repository or
             any(not isinstance(receipt[key], str) or not receipt[key] for key in ('root_uid', 'controller_uid', 'project_uid')) or
             not isinstance(receipt['target']['valuesRevision'], str) or not re.fullmatch('[a-f0-9]{40}', receipt['target']['valuesRevision'])):
         raise RuntimeError('Native identity binding is not accepted')
+    _namespace_version(receipt)
     objects = {key: get(kind, name) for key, kind, name in (
         ('root_uid', 'application.argoproj.io', ROOT_APP), ('controller_uid', 'statefulset', CONTROLLER),
         ('project_uid', 'appproject.argoproj.io', 'cloudlab-root'))}
@@ -72,6 +103,22 @@ def accepted_identity_binding(*, repository, branch, revision, private_repositor
 
 
 def record(path, state):
+    if path.name == 'identity-values-binding.json':
+        versioned = _namespace_version(state)
+        previous = json.loads(path.read_text()) if path.exists() else {}
+        if _namespace_version(previous) and not versioned:
+            raise RuntimeError('Namespace activation contract cannot be removed')
+        if versioned and state.get('phase') != 'accepted':
+            evidence = validate_activation(state.get('serviceActivation'), state['target'])
+            if evidence['required'] and 'namespaceAuthority' not in evidence:
+                raise RuntimeError('Versioned Namespace activation requires captured authority')
+            if _namespace_version(previous) and previous.get('phase') != 'accepted':
+                captured = validate_activation(previous.get('serviceActivation'), previous['target'])
+                if ({key: value for key, value in evidence.items() if key != 'existing'} !=
+                        {key: value for key, value in captured.items() if key != 'existing'}):
+                    raise RuntimeError('Namespace activation capture cannot be replaced')
+        elif versioned and set(state) != {'phase', 'target', 'root_uid', 'controller_uid', 'project_uid', 'namespaceGuardContract'}:
+            raise RuntimeError('Versioned Namespace activation receipt has unexpected fields')
     temporary = path.with_suffix('.tmp')
     with temporary.open('w') as stream:
         os.fchmod(stream.fileno(), 0o600)
@@ -126,6 +173,8 @@ def binding_source(state, root):
         return 'original'
     if source == state.get('patchedSource'):
         return 'patched'
+    if 'namespaceGuardContract' in state:
+        raise RuntimeError('Versioned identity handoff source is ambiguous; controller remains paused')
     # Legacy checkpoints recorded only the intended private binding.
     binding = source.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo')
     if 'patchedSource' not in state and state.get('target') and binding == state['target']:
@@ -145,6 +194,7 @@ def capture_public_revision(payload):
 
 
 def check_activation(state, root, read, *, data_held=False):
+    versioned = namespace_contract(state)
     data_binding_fence(state['target'])
     validate_private(state.get('privateActivation'), state['target'], root)
     from playbooks.harbor.files.native import binding_guard
@@ -152,7 +202,8 @@ def check_activation(state, root, read, *, data_held=False):
     evidence = state.get('serviceActivation')
     if evidence is None:
         raise RuntimeError('Pending service activation inputs unavailable; retry identity binding at its recorded private revision')
-    state['serviceActivation'] = activation_guard(evidence, state['target'], read, root)
+    state['serviceActivation'] = (activation_guard(evidence, state['target'], read, root, probe=private_server_probe)
+        if versioned else service_authority_guard(evidence, state['target'], read, root))
     evidence = state.get('privateActivation')
     if evidence is None:
         raise RuntimeError('Pending private activation inputs unavailable; retry identity binding at its recorded private revision')
@@ -163,6 +214,7 @@ def check_activation(state, root, read, *, data_held=False):
 
 
 def safe_identity_resume(state, read, *, data_held=False):
+    versioned = namespace_contract(state)
     data_binding_fence(state['target'])
     validate_private(state.get('privateActivation'), state['target'])
     objects = {key: read(kind, name) for key, kind, name in (
@@ -184,7 +236,7 @@ def safe_identity_resume(state, read, *, data_held=False):
     if project['spec'].get('sourceRepos') != [root.get('spec', {}).get('source', {}).get('repoURL')]:
         raise RuntimeError('Identity handoff project source changed; controller remains paused')
     from playbooks.data.files.handoff import active
-    if binding_source(state, root) == 'patched' or active() or state['privateActivation']['required']:
+    if versioned or binding_source(state, root) == 'patched' or active() or state['privateActivation']['required']:
         check_activation(state, root, read, data_held=data_held)
     else:
         private_guard(state['privateActivation'], state['target'], read, root, probe=private_server_probe)
@@ -192,13 +244,19 @@ def safe_identity_resume(state, read, *, data_held=False):
 
 
 def accept_binding(path, checkpoint):
+    versioned = namespace_contract(checkpoint)
     accepted = {key: checkpoint[key] for key in ('target', 'root_uid', 'controller_uid', 'project_uid')}
     accepted['phase'] = 'accepted'
+    if versioned:
+        accepted['namespaceGuardContract'] = 1
     record(path, accepted)
 
 
 def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     """An explicit retry may supply missing legacy evidence, never retarget it."""
+    if 'namespaceGuardContract' in payload or 'namespaceGuardContract' in payload.get('argo', {}):
+        raise RuntimeError('Namespace activation contract is runtime-only')
+    versioned = namespace_contract(checkpoint)
     data_binding_fence(target)
     if checkpoint['target'] != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
@@ -237,9 +295,24 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
         changed = True
     elif validate_data(checkpoint['dataActivation'], target) != current_data:
         raise RuntimeError('Data activation retry cannot replace its captured authority')
+    if versioned:
+        supplied_service = validate_activation(payload.get('argo', {}).get('serviceActivation'), target)
+        previous_service = validate_activation(checkpoint['serviceActivation'], target)
+        old_scope = {key: value for key, value in previous_service.items()
+                     if key not in ('existing', 'namespaceGuard', 'namespaceAuthority')}
+        new_scope = {key: value for key, value in supplied_service.items()
+                     if key not in ('existing', 'namespaceGuard', 'namespaceAuthority')}
+        if old_scope != new_scope or ('namespaceGuard' in previous_service and
+                previous_service['namespaceGuard'] != supplied_service.get('namespaceGuard')):
+            raise RuntimeError('Service activation retry cannot change its captured public or private authority')
     for key, validator in (('serviceActivation', validate_activation), ('privateActivation', validate_private)):
         if key not in checkpoint:
-            checkpoint[key] = validator(payload.get('argo', {}).get(key), target)
+            checkpoint[key] = (validate_activation(payload.get('argo', {}).get(key), target, allow_missing_namespace_guard=True)
+                               if key == 'serviceActivation'
+                               else validator(payload.get('argo', {}).get(key), target))
+            if key == 'serviceActivation' and not versioned:
+                for field in ('namespaceGuard', 'namespaceAuthority'):
+                    checkpoint[key].pop(field, None)
             changed = True
     current_access = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
     if 'accessActivation' not in checkpoint:
@@ -264,6 +337,7 @@ def pending_identity_checkpoint(target):
     """Authorize an exact recovery target from the durable pending handoff only."""
     path = BASE / 'identity-values-binding.json'
     state = json.loads(path.read_text()) if path.exists() else {}
+    namespace_contract(state)
     if (state.get('phase') not in ('prepared', 'paused', 'source-updated', 'resumed')
             or state.get('target') != target):
         raise RuntimeError('Identity recovery requires its exact pending private binding')
@@ -355,6 +429,12 @@ def bind_identity_locked(payload, target):
     checkpoint = json.loads(path.read_text()) if path.exists() else None
     if checkpoint and checkpoint.get('phase') != 'accepted' and checkpoint.get('target') != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
+    versioned_pending = bool(checkpoint and checkpoint.get('phase') != 'accepted' and 'namespaceGuardContract' in checkpoint)
+    if versioned_pending:
+        resume_identity_binding(data_held=True)
+        checkpoint = json.loads(path.read_text())
+    if 'namespaceGuardContract' in payload or 'namespaceGuardContract' in payload.get('argo', {}):
+        raise RuntimeError('Namespace activation contract is runtime-only')
     try:
         from .private_activation import preflight
     except ImportError:
@@ -363,7 +443,8 @@ def bind_identity_locked(payload, target):
     access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
     if checkpoint and checkpoint.get('phase') != 'accepted':
         hydrate_binding(path, checkpoint, payload, target, data_held=True)
-    resume_identity_binding(data_held=True)
+    if not versioned_pending:
+        resume_identity_binding(data_held=True)
     root = get('application.argoproj.io', ROOT_APP)
     controller = get('statefulset', CONTROLLER)
     project = get('appproject.argoproj.io', 'cloudlab-root')
@@ -391,18 +472,25 @@ def bind_identity_locked(payload, target):
         wait_application(ROOT_APP, payload['revision'])
         wait_application('cloudlab-argocd', payload['revision'])
         changed = checkpoint['phase'] != 'accepted'
+        if changed and namespace_contract(checkpoint):
+            check_activation(checkpoint, get('application.argoproj.io', ROOT_APP), get, data_held=True)
         accept_binding(path, checkpoint)
         return {'changed': changed, 'native_argo_values_bound': True}
     evidence = validate_activation(payload.get('argo', {}).get('serviceActivation'), target, root)
+    if checkpoint and checkpoint['phase'] != 'accepted' and 'existing' in checkpoint.get('serviceActivation', {}):
+        evidence['existing'] = copy.deepcopy(checkpoint['serviceActivation']['existing'])
+    # The public controller must still be running while its guard is qualified.
+    evidence = activation_preflight(evidence, target, get, root, probe=private_server_probe)
     private_evidence = validate_private(payload.get('argo', {}).get('privateActivation'), target, root)
     original = copy.deepcopy(root['spec']['source'])
     values.setdefault('identity', {}).update(enabled=True, argo=target)
     patched = copy.deepcopy(original)
     patched.setdefault('helm', {})['valuesObject'] = values
     checkpoint = dict(identities, target=target, phase='prepared', publicRevision=public_revision, originalSource=original,
-                      patchedSource=patched, serviceActivation=evidence, privateActivation=private_evidence, accessActivation=access_evidence, dataActivation=data_evidence)
+                      patchedSource=patched, namespaceGuardContract=1, serviceActivation=evidence, privateActivation=private_evidence, accessActivation=access_evidence, dataActivation=data_evidence)
     record(path, checkpoint)
     try:
+        namespace_contract(checkpoint)
         pause()
         checkpoint['phase'] = 'paused'
         record(path, checkpoint)
@@ -412,6 +500,7 @@ def bind_identity_locked(payload, target):
             raise RuntimeError('Public root source changed during native identity handoff')
         check_activation(checkpoint, latest, get, data_held=True)
         record(path, checkpoint)
+        namespace_contract(checkpoint)
         annotations = dict(latest['metadata'].get('annotations', {}), **{'argocd.argoproj.io/refresh': 'hard'})
         kube('patch', 'application.argoproj.io', ROOT_APP, '-n', 'argocd', '--type=json', '-p', json.dumps([
             {'op': 'test', 'path': '/metadata/uid', 'value': root['metadata']['uid']},
@@ -424,6 +513,7 @@ def bind_identity_locked(payload, target):
         if (not latest_project or latest_project['metadata']['uid'] != project['metadata']['uid']
                 or latest_project['spec'] != project['spec']):
             raise RuntimeError('Root project changed during identity source handoff')
+        namespace_contract(checkpoint)
         grant_identity_source(latest_project)
     finally:
         if safe_identity_resume(checkpoint, get, data_held=True):
@@ -433,6 +523,7 @@ def bind_identity_locked(payload, target):
     kube('rollout', 'status', 'statefulset/' + CONTROLLER, '-n', 'argocd', '--timeout=300s')
     wait_application(ROOT_APP, payload['revision'])
     wait_application('cloudlab-argocd', payload['revision'])
+    check_activation(checkpoint, get('application.argoproj.io', ROOT_APP), get, data_held=True)
     accept_binding(path, checkpoint)
     return {'changed': True, 'native_argo_values_bound': True}
 

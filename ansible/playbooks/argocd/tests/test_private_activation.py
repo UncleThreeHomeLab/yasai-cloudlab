@@ -168,30 +168,46 @@ class PrivateActivationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[4]
         for relative, packaged in (('tasks/main.yml', False), ('tasks/runtime.yml', True)):
             tasks = yaml.safe_load((root / 'ansible/playbooks/argocd' / relative).read_text())
-            files = next(task['loop'] for task in tasks if 'source_transition.py' in task.get('loop', []))
+            expanded = []
+            for task in tasks:
+                expanded.extend(yaml.safe_load((root / 'ansible/playbooks/argocd/tasks/runtime.yml').read_text())
+                                if task.get('ansible.builtin.import_tasks') == 'runtime.yml' else [task])
+            destination = '/opt/cloudlab/playbooks/argocd/files/{{ item }}' if packaged else '/opt/cloudlab/gitops/{{ item }}'
+            files = next(task['loop'] for task in expanded if 'source_transition.py' in task.get('loop', [])
+                         and task.get('ansible.builtin.copy', {}).get('dest') == destination)
             self.assertIn('private_activation.py', files)
             self.assertIn('access_activation.py', files)
             self.assertIn('data_activation.py', files)
             self.assertIn('private_sources.py', files)
             with self.subTest(packaged=packaged), tempfile.TemporaryDirectory() as directory:
-                target = Path(directory) / 'playbooks/argocd/files' if packaged else Path(directory)
-                target.mkdir(parents=True, exist_ok=True)
-                for name in files:
-                    (target / name).write_bytes((root / 'ansible/playbooks/argocd/files' / name).read_bytes())
+                base = Path(directory)
+                for task in expanded:
+                    asset = task.get('ansible.builtin.copy', {})
+                    if not asset.get('src', '').startswith('/workspace/'):
+                        continue
+                    for item in task.get('loop', [None]):
+                        source = root / Path(Template(asset['src']).render(item=item)).relative_to('/workspace')
+                        target = base / Path(Template(asset['dest']).render(item=item)).relative_to('/opt/cloudlab')
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(source.read_bytes())
                 module = 'playbooks.argocd.files.' if packaged else ''
                 code = ('import importlib; '
                     f'm=importlib.import_module({module + "source_transition"!r}); '
                     f'a=importlib.import_module({module + "private_activation"!r}); '
                     f'p=importlib.import_module({module + "private_sources"!r}); '
                     f'd=importlib.import_module({module + "data_activation"!r}); '
+                    f's=importlib.import_module({module + "service_activation"!r}); '
                     'assert m.data_guard is d.guard; '
+                    'assert m.activation_preflight is s.namespace_preflight; '
+                    'from playbooks.admission.files import namespace_guard; '
+                    'assert namespace_guard.qualify.__module__ == \'playbooks.admission.files.namespace_guard\'; '
                     'assert m.private_server_probe is a.server_probe; '
                     'e=a.prepare({"repository":"https://github.com/example/platform.git"},'
                     '"https://github.com/example/private.git","b"*40); '
                     'assert not a.validate(e,{"valuesRepository":"https://github.com/example/private.git",'
                     '"valuesRevision":"b"*40})["required"]; assert p.PEM_TEMPLATE')
                 result = subprocess.run([sys.executable, '-S', '-c', code], cwd=directory,
-                    env=dict(os.environ, PYTHONPATH=directory), capture_output=True, text=True, timeout=30)
+                    env=dict(os.environ, PYTHONPATH=directory + os.pathsep + str(base / 'gitops')), capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_installed_early_resume_uses_data_fence_before_data_bootstrap(self):
