@@ -78,8 +78,10 @@ Argo origins advance only after that identity revision is approved; changing mai
 alone does not authorize new administrative origins. Controllers reconcile these
 shared inputs; service onboarding does not apply a gateway playbook.
 
-The optional `identity.application.enabled` owner is disabled by default. Its
-native ApplicationSet reads the exact approved identity revision's
+The `identity.application.enabled` native owner is enabled for the accepted
+installation. Initial enrollment requires a separately reviewed bootstrap
+profile. Root follows this public setting without retaining a private feature
+override. Its ApplicationSet reads the exact approved identity revision's
 `identity/keycloak-values.yaml`: installationRevision, loginHost, adminHost,
 database, databaseRole, databaseHost, databasePort, databaseCA,
 trustedProxyAddresses and retiredEmergencyItem. The installation revision is
@@ -92,6 +94,21 @@ recovery retain their four scoped operational fields. Native
 proxy inputs support canonical private IPv4 Pod ranges of /24 or narrower.
 Realm configuration remains a separate owner. Chart promotion requires a
 separately reviewed platform change.
+
+Harbor's native installation owner is enabled for the accepted installation. Its private
+`platform/harbor.yaml` accepts only `installationRevision`, `harborHost`,
+`loginHost` and `gatewayIP` at the accepted identity binding. The supported
+installation revision is `d3d639cf80e8cfecebeb756d666a24db92a6bb74`;
+pin promotion requires a separate guarded platform change. Public server
+defaults stay in `platform/harbor/server/values.json`. The two Applications
+retain data and credentials; coordinated recovery owns only maintenance and
+seven replica fields. Routine setup observes the accepted owner; it does not apply Applications.
+Explicit registration retains the existing host lock and protected adoption intent.
+Fresh enrollment still requires a separately approved disabled bootstrap profile
+and durable absence intent; the enabled default does not qualify empty-VM setup.
+The retained `harbor_native_handoff=true` task registers the reviewed handoff. Registry API
+resources keep their separate native provider owner.
+Validated idle captured monthly recovery is preserved through same-resource handoff; its offsite window and cleanup owner remain unchanged.
 
 Native ApplicationSet catalog ownership requires `privateSources.acceptanceCommitment`
 once `identity.argo` is bound. The reviewed public SHA-256 commitment
@@ -125,11 +142,18 @@ Its receipt fields are `version`, `consumer`, ordered `paths`, `revision` and
 `platform/observability.yaml`; permissions binds `platform/permissions.yaml`.
 `read_consumer` authenticates current protected public approval and reads the
 complete bundle at one accepted commit. Owners still validate their document
-profiles. Permissions verification checks authenticated parent/child ownership,
-approved revisions and health. Validate the exact pinned permission chart and input
-before approval: approved invalid values retain live grants but previous-revision
-drift repair remains unqualified. Production activation stays gated on consumer
-domain validation and qualified repair behavior.
+profiles. Permissions use normalized `cloudlab-permissions-input/v2`: the native
+Git generator extracts `permissions` into fixed inline chart values; unrelated
+root fields are not an authorization interface. One native validating admission policy owns private
+subject/profile/scope validation before Application updates. Public profiles have
+an independent owner at the same immutable chart pin. Start with an empty assignment
+list; converge catalog pin changes before adding IDs. Adding or reusing IDs requires
+complete old-state convergence at the same catalog pin. Missing profile
+projection pauses Application updates until its independent public owner restores it. Remove an ID,
+observe binding absence and fresh denial before reusing it. Production activation
+requires complete native invalid-input repair and separately established evaluator
+effectiveness. Stored declarations, status and admitted-source convergence alone
+do not authorize activation.
 
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
@@ -592,6 +616,8 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
 3. For automatic promotion, confirm the matching release App can propose PRs in the destination below.
    Use the [Harbor installation contract](../ansible/playbooks/harbor/files/contract.json)
    for App fields and grants. Keep App keys in 1Password.
+
+
 4. For automatic promotion, confirm the destination has the required server-enforced release merge guard:
    approved administrators merge through PRs; release Apps cannot merge.
    Use the existing [workflow policy owner](../infra/github-workflows/merge-guard.tf).
@@ -812,7 +838,14 @@ destructive migrations require a separate explicit data scope.
    `approval.secretReferences`; never grant application pods privileged data credentials.
 3. **User/Agent:** keep secret values in 1Password's CloudLab vault.
    Use the [service contract](../charts/service/README.md) for required item fields
-   and credential provisioning. Preserve existing secrets on repeat runs.
+   and credential provisioning. The local secret helper supports explicitly scoped
+   empty placeholders; it preserves existing items and reports pending field names.
+   **User:** fill pending fields in 1Password. Automatic creation from Git has no
+   supported executor. External Secrets remains the sole synchronizer. Guarded
+   composition and SQL/S3 secret templates reject missing or empty required fields
+   and preserve valid deployed credentials. Completing those fields lets External
+   Secrets resume delivery on its refresh interval. Other consumers must not adopt
+   placeholders until their delivery and retention guards are verified.
 4. **Agent:** configure optional login through section 6.5 before publication.
 5. **Agent:** confirm backup coverage before storing important data.
    Service PVCs require separate verified backup coverage; declaring storage is not a backup.

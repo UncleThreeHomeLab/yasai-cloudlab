@@ -7,6 +7,51 @@ import threading
 from playbooks.harbor.files.recovery import CLAIMS, SECRETS, ARTIFACTS
 
 
+def native_installation():
+    """Synthetic current/native declarations using local chart bytes only."""
+    from pathlib import Path
+    import yaml
+    from playbooks.harbor.files import native
+    root = Path(__file__).resolve().parents[4]
+    target = {'valuesRepository': native.PUBLIC.rsplit('/', 1)[0] + '/private-fixture.git', 'valuesRevision': 'a' * 40}
+    document = {'installationRevision': native.REVISION, 'harborHost': 'harbor.internal.example.invalid',
+        'loginHost': 'login.example.invalid', 'gatewayIP': '10.43.0.100'}
+    public = yaml.safe_load((root / 'gitops/roots/public/values.yaml').read_text())
+    public['identity']['argo'] = target; public['harbor']['installation']['enabled'] = True
+    files = {str(path.relative_to(root / 'gitops/roots/public')): path.read_bytes()
+        for path in (root / 'gitops/roots/public').rglob('*') if path.is_file()}
+    objects = native.source.render_objects(files, [public])
+    contracts = {(obj['kind'], obj['metadata']['name']): obj for obj in objects if
+        (obj['kind'], obj['metadata']['name']) in [('AppProject', native.APPS[0]), ('ExternalSecret', native.READER)] +
+        [('ApplicationSet', name) for name in native.APPS]}
+    charts = {name: {str(path.relative_to(root / ('platform/harbor/server' if name == native.APPS[0] else 'platform/harbor'))): path.read_bytes()
+        for path in (root / ('platform/harbor/server' if name == native.APPS[0] else 'platform/harbor')).rglob('*') if path.is_file()} for name in native.APPS}
+    authority = {'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'root-project'}
+    snapshot = {'public': public, 'head': 'c' * 40, 'root': {'metadata': {'uid': 'root'}}, 'targets': [target],
+        'contracts': [contracts], 'profile': document, 'charts': charts, 'enabled': True, 'recovery': None, 'authority': authority}
+    resources = {}
+    for name in native.APPS:
+        parent = copy.deepcopy(contracts[('ApplicationSet', name)])
+        parent['metadata'].update(uid='parent-' + name, annotations={'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + name})
+        parent['status'] = {'conditions': [{'type': 'ParametersGenerated', 'status': 'True'}]}
+        resources[('applicationset.argoproj.io', name)] = parent
+        app = native.expected_app(snapshot, name)
+        app['metadata'].update(uid='app-' + name, resourceVersion='42', ownerReferences=[{'apiVersion': 'argoproj.io/v1alpha1',
+            'kind': 'ApplicationSet', 'name': name, 'uid': parent['metadata']['uid'], 'controller': True, 'blockOwnerDeletion': True}])
+        resources[('application.argoproj.io', name)] = app
+    project = copy.deepcopy(contracts[('AppProject', native.APPS[0])]); project['metadata'].update(uid='project',
+        annotations={'argocd.argoproj.io/tracking-id': 'cloudlab-public-root:argoproj.io/AppProject:argocd/' + native.APPS[0]})
+    resources[('appproject.argoproj.io', native.APPS[0])] = project
+    for kind, uid in (('externalsecret.external-secrets.io', 'reader'), ('secret', 'secret')):
+        resources[(kind, native.READER)] = {'metadata': {'uid': uid}}
+    state = {'version': 'cloudlab-harbor-native/v1', 'phase': 'accepted', 'root_uid': 'root', 'authority': authority,
+        'project_uid': 'project', 'profile': document, 'revision': native.REVISION, 'repository': target['valuesRepository'],
+        'applications': {name: resources[('application.argoproj.io', name)]['metadata']['uid'] for name in native.APPS},
+        'parents': {name: resources[('applicationset.argoproj.io', name)]['metadata']['uid'] for name in native.APPS},
+        'reader_uid': 'reader', 'secret_uid': 'secret'}
+    return snapshot, resources, state
+
+
 @contextmanager
 def unsigned_registry():
     """Loopback-only missing-manifest responses for native offline signing checks."""

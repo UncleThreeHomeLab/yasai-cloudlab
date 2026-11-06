@@ -267,8 +267,11 @@ def private_file(client, repo, revision, path, *, missing=False):
         raise RuntimeError('Data source content, raw schema or Git blob identity is invalid') from None
 
 
-def render_objects(files, documents):
+def render_objects(files, documents, *, release=APP, namespace='cloudlab-data'):
     """Use Helm's pinned schema and normalization without importing runner modules."""
+    if (not isinstance(release, str) or not re.fullmatch('[a-z0-9](?:[a-z0-9-]{0,51}[a-z0-9])?', release)
+            or not isinstance(namespace, str) or not re.fullmatch('[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', namespace)):
+        raise ValueError('Chart rendering requires bounded DNS release and namespace names')
     with tempfile.TemporaryDirectory(prefix='cloudlab-data-owner-') as directory:
         root = Path(directory) / 'chart'
         root.mkdir()
@@ -276,7 +279,7 @@ def render_objects(files, documents):
             path = root.joinpath(*PurePosixPath(name).parts)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
-        command = ['helm', 'template', APP, str(root), '-n', 'cloudlab-data', '--kube-version', '1.36.5']
+        command = ['helm', 'template', release, str(root), '-n', namespace, '--kube-version', '1.36.5']
         for index, document in enumerate(documents):
             path = Path(directory) / ('input-' + str(index) + '.json')
             path.write_text(json.dumps(document)); path.chmod(0o600)

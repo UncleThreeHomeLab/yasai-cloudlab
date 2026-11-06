@@ -4,7 +4,11 @@ kind: AppProject
 metadata: {name: cloudlab-harbor, namespace: argocd}
 spec:
   description: Private registry installation with independent retained data and credentials.
-  sourceRepos: [{{ .Values.repository | quote }}]
+  sourceRepos:
+    - {{ .Values.repository | quote }}
+    {{- if and .Values.harbor.installation.enabled (hasKey .Values.identity "argo") }}
+    - {{ .Values.identity.argo.valuesRepository | quote }}
+    {{- end }}
   destinations: [{server: 'https://kubernetes.default.svc', namespace: cloudlab-harbor}]
   clusterResourceWhitelist:
     - {group: '', kind: Namespace}

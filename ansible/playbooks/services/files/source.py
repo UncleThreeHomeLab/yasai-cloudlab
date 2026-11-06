@@ -115,9 +115,13 @@ def read_consumer(values, consumer, *, public=None):
             raw = base64.b64decode(value['content'].replace('\n', '').replace('\r', ''), validate=True)
             if len(raw) != value['size'] or hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() != value.get('sha'):
                 raise ValueError('Consumer file integrity changed')
-            document = yaml.load(raw, Loader=PrivateLoader)
-            if not isinstance(document, dict): raise ValueError('Consumer input must be a complete document')
-            documents[path] = document
+            if consumer == 'permissions':
+                # Native Git normalization and admission own permission semantics.
+                documents[path] = {'sha': value['sha'], 'size': value['size']}
+            else:
+                document = yaml.load(raw, Loader=PrivateLoader)
+                if not isinstance(document, dict): raise ValueError('Consumer input must be a complete document')
+                documents[path] = document
         return dict(result, proposalRevision=head, inputs=documents, **accepted)
     return _read(values, lambda: None, consume, deadline=deadline)
 

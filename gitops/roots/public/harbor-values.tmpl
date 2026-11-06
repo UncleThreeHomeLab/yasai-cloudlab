@@ -1,0 +1,35 @@
+{{- range $key, $_ := . -}}
+{{- if not (has $key (list "installationRevision" "harborHost" "loginHost" "gatewayIP" "path")) -}}{{ fail "Harbor installation input refused" }}{{- end -}}
+{{- end -}}
+{{- range $key := list "installationRevision" "harborHost" "loginHost" "gatewayIP" -}}
+{{- if not (kindIs "string" (index $ $key)) -}}{{ fail "Harbor installation input refused" }}{{- end -}}
+{{- end -}}
+{{- $dns := "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" -}}
+{{- if or (ne .installationRevision "d3d639cf80e8cfecebeb756d666a24db92a6bb74") (not (hasPrefix "login." .loginHost)) (gt (len .loginHost) 240) (not (regexMatch $dns .loginHost)) (ne .harborHost (printf "harbor.internal.%s" (trimPrefix "login." .loginHost))) (not (regexMatch "^([0-9]{1,3}\\.){3}[0-9]{1,3}$" .gatewayIP)) -}}{{ fail "Harbor installation input refused" }}{{- end -}}
+{{- $octets := splitList "." .gatewayIP -}}
+{{- range $octet := $octets -}}
+{{- if or (not (regexMatch "^(0|[1-9][0-9]{0,2})$" $octet)) (gt (atoi $octet) 255) -}}{{ fail "Harbor installation input refused" }}{{- end -}}
+{{- end -}}
+{{- $first := atoi (index $octets 0) -}}{{- $second := atoi (index $octets 1) -}}
+{{- if not (or (eq $first 10) (and (eq $first 172) (ge $second 16) (le $second 31)) (and (eq $first 192) (eq $second 168))) -}}{{ fail "Harbor installation input refused" }}{{- end -}}
+spec:
+  source:
+    helm:
+      valuesObject:
+{{- if __CONFIGURATION__ }}
+{{ dict "enabled" true "maintenance" false "harborHost" .harborHost "loginHost" .loginHost "gatewayIP" .gatewayIP | toYaml | indent 8 }}
+{{- else }}
+        harbor:
+          externalURL: {{ printf "https://%s" .harborHost | toJson }}
+          core:
+            replicas: 1
+            hostAliases:
+              - ip: {{ .gatewayIP | toJson }}
+                hostnames: [{{ .loginHost | toJson }}]
+          nginx: {replicas: 1}
+          portal: {replicas: 1}
+          jobservice: {replicas: 1}
+          registry: {replicas: 1}
+          database: {internal: {replicas: 1}}
+          redis: {internal: {replicas: 1}}
+{{- end }}

@@ -22,6 +22,12 @@ def permission_guard_desired(path=None):
     return list(yaml.safe_load_all(Path(path).read_text()))
 
 
+def permission_input_desired(path=None):
+    import yaml
+    path = path or Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates/permission-input.yaml'
+    return list(yaml.safe_load_all(Path(path).read_text()))
+
+
 def permission_tracking(kind, name, namespace='argocd'):
     return 'cloudlab-permissions:rbac.authorization.k8s.io/' + kind + ':' + namespace + '/' + name
 

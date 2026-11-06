@@ -1,4 +1,6 @@
 ---
+- name: Install authenticated source and pending binding interfaces from their owner
+  ansible.builtin.import_tasks: /workspace/ansible/playbooks/argocd/tasks/runtime.yml
 - name: Install the parser used for independent Harbor restores
   ansible.builtin.apt:
     name: python3-yaml
@@ -16,7 +18,7 @@
     src: '/workspace/ansible/playbooks/harbor/files/{{ item }}'
     dest: '/opt/cloudlab/playbooks/harbor/files/{{ item }}'
     mode: '0600'
-  loop: [bootstrap.py, recovery.py, restore.py, remote.py, verify.py, values.py, deployments.py]
+  loop: [native.py, configuration.py, recovery.py, restore.py, remote.py, verify.py, values.py, deployments.py]
 
 - name: Retain independent pinned artifacts for isolated Harbor restores
   ansible.builtin.copy:

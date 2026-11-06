@@ -104,6 +104,12 @@ namespace inventory precedes cascading workload/gateway deletion. Unexpected PVC
 secrets, retained objects or foreign ownership leave quarantined resources for
 operator review; route withdrawal and identity retirement continue. Persistent
 applications, private roots, vault items and external data are never removed.
+Secret inventory requests metadata only; RBAC still authorizes full Secret LIST,
+and metadata annotations may contain sensitive values. Unsupported or incomplete
+metadata responses block cleanup without a full-object fallback.
+The privileged native fixture projects its existing full `kubectl --raw` Secret
+read into metadata. It does not verify production Accept negotiation or reduce
+the fixture's Secret access.
 After withdrawing private approvals and removing their ApplicationSets, run
 `lab preview credentials-retire` to revoke and UID-guard deletion of only the
 owned operational discovery Secret. No vault item or App key changes.

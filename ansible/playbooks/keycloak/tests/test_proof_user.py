@@ -166,11 +166,11 @@ class ProofUserTests(unittest.TestCase):
                         self.assertEqual(json.loads(state.read_text())['phase'] if state.exists() else None, phase)
 
     def test_retained_native_owner_is_observed_without_replaying_legacy_application_source(self):
-        from playbooks.keycloak.files.ownership import INSTALLATION_REVISION
+        from playbooks.keycloak.files.ownership import INSTALLATION_REVISION, SUPPORTED_INSTALLATION_REVISIONS
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             current = {'metadata': {'uid': 'owned', 'labels': {'cloudlab.io/owner': bootstrap.OWNER}, 'ownerReferences': [{'uid': 'native-parent'}]},
-                'spec': {'source': {'targetRevision': INSTALLATION_REVISION, 'helm': {'valuesObject': {}}}}}
+                'spec': {'source': {'targetRevision': SUPPORTED_INSTALLATION_REVISIONS[1], 'helm': {'valuesObject': {}}}}}
             (root / 'ownership.json').write_text(json.dumps({'phase': 'scoped', 'uid': 'owned', 'revision': INSTALLATION_REVISION,
                 'private_uids': {}, 'native': {'phase': 'accepted'}}))
             (root / 'retirement.json').write_text(json.dumps({'phase': 'accepted', 'nonce': 'a' * 32,
@@ -182,11 +182,15 @@ class ProofUserTests(unittest.TestCase):
                 return {'metadata': {'uid': 'server'}} if kind.startswith('keycloak.') else current
             with patch.object(bootstrap, 'BASE', root), patch.object(bootstrap, 'application', return_value=desired), \
                     patch.object(bootstrap, 'prerequisites') as prerequisites, patch.object(bootstrap, 'private_resources', return_value=[]), \
-                    patch.object(bootstrap, 'private_inputs'), patch.object(bootstrap, 'accepted_application', return_value=INSTALLATION_REVISION) as accepted, \
+                    patch.object(bootstrap, 'private_inputs'), patch.object(bootstrap, 'accepted_application', return_value=SUPPORTED_INSTALLATION_REVISIONS[1]) as accepted, \
                     patch.object(bootstrap, 'get', side_effect=resource), patch.object(bootstrap, 'wait'), patch.object(bootstrap, 'kube') as write:
                 self.assertFalse(bootstrap.run(payload, 'scoped', retained_only=True)['changed'])
                 prerequisites.assert_called_once_with(payload)
-                accepted.assert_called_once_with(current, base=root, revision=INSTALLATION_REVISION, register=True)
+                accepted.assert_called_once_with(current, base=root, revision=None, register=True)
+                accepted.reset_mock()
+                self.assertFalse(bootstrap.run(payload, 'scoped', retained_only=True)['changed'])
+                self.assertEqual(current['spec']['source']['targetRevision'], SUPPORTED_INSTALLATION_REVISIONS[1])
+                self.assertEqual(json.loads((root / 'ownership.json').read_text())['revision'], INSTALLATION_REVISION)
                 write.assert_not_called()
     def test_resume_after_partial_creation_records_identity_and_removes_null_operation(self):
         self.resume_creation()

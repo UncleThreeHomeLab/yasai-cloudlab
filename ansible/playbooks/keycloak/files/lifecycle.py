@@ -31,7 +31,8 @@ def remove(request):
         app = get('application.argoproj.io', APP, 'argocd') or {}
         state = json.loads((BASE / 'ownership.json').read_text())
         from playbooks.keycloak.files.ownership import accepted_application
-        accepted_application(app, revision=state.get('revision'), base=BASE)
+        ownership_revision = state.get('revision')
+        state['revision'] = accepted_application(app, base=BASE) or ownership_revision
         if (app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER or
                 app['metadata']['uid'] != state['uid'] or state['phase'] != 'scoped'):
             raise RuntimeError('Removal requires the unchanged scoped identity owner')
@@ -65,9 +66,11 @@ def remove(request):
             raise RuntimeError('Removal requires an unambiguous already disabled client')
         receipt = BASE / ('remove-' + realm + '-' + identifier + '.json')
         pending = json.loads(receipt.read_text()) if receipt.exists() else {
-            'request': request, 'application_uid': state['uid'], 'disabled_verified_at': time.time()}
-        if pending['request'] != request or pending['application_uid'] != state['uid']:
+            'request': request, 'application_uid': state['uid'], 'revision': state['revision'], 'disabled_verified_at': time.time()}
+        if (pending['request'] != request or pending['application_uid'] != state['uid']
+                or pending.get('revision', ownership_revision) != state['revision']):
             raise RuntimeError('Removal checkpoint identity changed')
+        pending['revision'] = state['revision']
         atomic(receipt, pending)
         if rows:
             # No new grants while disabled. Let the longest declared client/IdP
@@ -136,7 +139,7 @@ def offboard(request):
         state = json.loads((BASE / 'ownership.json').read_text())
         app = get('application.argoproj.io', APP, 'argocd') or {}
         from playbooks.keycloak.files.ownership import accepted_application
-        accepted_application(app, revision=state.get('revision'), base=BASE)
+        state['revision'] = accepted_application(app, base=BASE) or state.get('revision')
         if (state.get('phase') != 'scoped' or app.get('metadata', {}).get('uid') != state.get('uid')
                 or app.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or not application_ready(APP, state['revision'])):

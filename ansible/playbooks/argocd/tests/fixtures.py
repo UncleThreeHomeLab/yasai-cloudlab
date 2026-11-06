@@ -363,7 +363,7 @@ class NativeAPI:
                  'RoleBinding': 'rolebindings', 'ClusterRole': 'clusterroles', 'ClusterRoleBinding': 'clusterrolebindings',
                  'Deployment': 'deployments', 'StatefulSet': 'statefulsets', 'Job': 'jobs',
                  'CustomResourceDefinition': 'customresourcedefinitions', 'Application': 'applications',
-                 'AppProject': 'appprojects', 'ValidatingAdmissionPolicy': 'validatingadmissionpolicies',
+                 'AppProject': 'appprojects', 'ApplicationSet': 'applicationsets', 'ValidatingAdmissionPolicy': 'validatingadmissionpolicies',
                  'ValidatingAdmissionPolicyBinding': 'validatingadmissionpolicybindings'}
         require(kind in names, 'Unexpected fixture installation kind')
         cluster = kind in {'Namespace', 'ClusterRole', 'ClusterRoleBinding', 'CustomResourceDefinition',

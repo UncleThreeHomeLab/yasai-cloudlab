@@ -35,6 +35,22 @@ class OwnerSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exact Git blob'):
             owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=False)
 
+    def test_json_comparison_defaults_preserve_strict_root_and_blob_integrity(self):
+        files = owner_files(); files.pop('values.schema.json'); files['values.json'] = b'{}'; files.pop('values.yaml')
+        api, raw, _ = owner_api(files)
+        selected = dict(owner.configuration(self.public()), path=owner.CHART)
+        with self.assertRaisesRegex(ValueError, 'chart is missing'):
+            owner.snapshot.chart_files(selected, fetch=api, read_file=raw)
+        self.assertEqual(owner.snapshot.chart_files(selected, fetch=api, read_file=raw,
+            require_schema=False, comparison_defaults='values.json'), files)
+        api.reset_mock()
+        with self.assertRaisesRegex(ValueError, 'approved filename'):
+            owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=False, comparison_defaults='../values.json')
+        api.assert_not_called()
+        raw.side_effect = lambda *args: b'corrupt'
+        with self.assertRaisesRegex(ValueError, 'exact Git blob'):
+            owner.snapshot.chart_files(selected, fetch=api, read_file=raw, require_schema=False, comparison_defaults='values.json')
+
     def test_exact_commit_tree_and_blob_bytes_need_only_two_rest_calls(self):
         files = owner_files()
         api, raw, _ = owner_api(files)

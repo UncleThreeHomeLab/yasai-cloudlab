@@ -10,8 +10,22 @@
 {{- end }}
 {{- end }}
 
+{{- define "identity.kubernetes-credentials" -}}
+- name: kubernetes-api
+  projected:
+    defaultMode: 0440
+    sources:
+      - serviceAccountToken: {path: token, expirationSeconds: 600}
+      - configMap:
+          name: kube-root-ca.crt
+          items: [{key: ca.crt, path: ca.crt}]
+      - downwardAPI:
+          items: [{path: namespace, fieldRef: {apiVersion: v1, fieldPath: metadata.namespace}}]
+{{- end }}
+
 {{- define "identity.pod" }}
 serviceAccountName: identity-writer
+automountServiceAccountToken: false
 restartPolicy: Never
 activeDeadlineSeconds: 210
 terminationGracePeriodSeconds: 20
@@ -68,6 +82,7 @@ initContainers:
       requests: {cpu: 10m, memory: 32Mi}
       limits: {cpu: 100m, memory: 64Mi}
     volumeMounts:
+      - {name: kubernetes-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
       - {name: code, mountPath: /code, readOnly: true}
       - {name: imports, mountPath: /imports}
       {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
@@ -163,6 +178,7 @@ containers:
       {{- end }}
       - {name: temporary, mountPath: /tmp}
 volumes:
+{{ include "identity.kubernetes-credentials" . | indent 2 }}
   - {name: code, configMap: {name: identity-writer-code}}
   - {name: imports, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
   - {name: temporary, emptyDir: {medium: Memory, sizeLimit: 16Mi}}

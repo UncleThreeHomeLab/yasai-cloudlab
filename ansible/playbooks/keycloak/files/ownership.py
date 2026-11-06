@@ -20,9 +20,25 @@ from playbooks.argocd.files.private_sources import PEM_TEMPLATE
 
 PHASES = ('server', 'bootstrap', 'primary', 'scoped')
 INSTALLATION_REVISION = '526891f62eb9b9a50a0ffaf6ef020269d09e7746'
+SUPPORTED_INSTALLATION_REVISIONS = (INSTALLATION_REVISION, 'a0a42ac02b0d351a4c56cf40e88f697f3537f19a')
 PUBLIC_REPOSITORY = 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'
 INSTALLATION_FIELDS = ('loginHost', 'adminHost', 'database', 'databaseRole', 'databaseHost', 'databasePort', 'databaseCA', 'trustedProxyAddresses')
 OPERATION_FIELDS = ('maintenance', 'operation', 'bootstrapAdminEnabled', 'retiredEmergencyItem')
+
+
+def public_installation_revision(public):
+    """Select only reviewed native targets from the public YAML contract."""
+    declaration = public.get('identity', {}).get('application', {})
+    if (not isinstance(declaration, dict)
+            or set(declaration) != {'enabled', 'installationRevision', 'supportedInstallationRevisions'}
+            or type(declaration['enabled']) is not bool
+            or not isinstance(declaration['supportedInstallationRevisions'], list)
+            or len(declaration['supportedInstallationRevisions']) != 2
+            or any(not isinstance(value, str) for value in declaration['supportedInstallationRevisions'])
+            or set(declaration['supportedInstallationRevisions']) != set(SUPPORTED_INSTALLATION_REVISIONS)
+            or declaration['installationRevision'] not in SUPPORTED_INSTALLATION_REVISIONS):
+        raise RuntimeError('Unsupported identity installation revision')
+    return declaration['installationRevision']
 
 
 def installation_values(document, *, telemetry=False):
@@ -44,86 +60,17 @@ def installation_values(document, *, telemetry=False):
             raise RuntimeError('Native identity requires canonical private IPv4 Pod ranges of /24 or narrower')
     if len(set(document['trustedProxyAddresses'])) != len(document['trustedProxyAddresses']):
         raise RuntimeError('Identity proxy ranges must be unique')
-    return application({'values': {key: document[key] for key in INSTALLATION_FIELDS}, 'repository': PUBLIC_REPOSITORY,
-        'branch': INSTALLATION_REVISION, 'telemetry_enabled': telemetry}, 'scoped', retired=True,
-        retired_item=document['retiredEmergencyItem'])['spec']
-
-
-def installation_recovery(recovery, public):
-    """Reload the pending operation; caller context alone grants no authority."""
-    from playbooks.argocd.files import source_transition
-    from playbooks.data.files import native
-    if not isinstance(recovery, dict) or set(recovery) != {'checkpoint', 'sourceState', 'rootSource'}:
-        raise RuntimeError('Identity installation recovery requires its exact pending context')
-    supplied = recovery.get('checkpoint')
-    if not isinstance(supplied, dict):
-        raise RuntimeError('Identity installation recovery lacks its recorded binding')
-    recorded = native.receipt(source_transition.BASE / 'identity-values-binding.json')
-    if (recorded != supplied or source_transition.pending_identity_checkpoint(recorded.get('target')) != recorded
-            or not re.fullmatch('[a-f0-9]{40}', recorded.get('publicRevision') or '')):
-        raise RuntimeError('Identity installation recovery differs from the durable pending binding')
-    root = get('application.argoproj.io', 'cloudlab-public-root', 'argocd') or {}
-    controller = get('statefulset', 'argocd-application-controller', 'argocd') or {}
-    project = get('appproject.argoproj.io', 'cloudlab-root', 'argocd') or {}
-    for key, obj in (('root_uid', root), ('controller_uid', controller), ('project_uid', project)):
-        if not native.quiet(obj) or obj['metadata']['uid'] != recorded.get(key):
-            raise RuntimeError('Identity installation recovery authority changed')
-    original, patched = recorded.get('originalSource'), recorded.get('patchedSource')
-    if not isinstance(original, dict) or not isinstance(patched, dict):
-        raise RuntimeError('Identity installation recovery requires both recorded Root sources')
-    old = original.get('helm', {}).get('valuesObject', {}).get('identity', {}).get('argo')
-    targets = [old, recorded.get('target')]
-    for target in targets:
-        if (not isinstance(target, dict) or set(target) != {'valuesRepository', 'valuesRevision'}
-                or not re.fullmatch('[a-f0-9]{40}', target.get('valuesRevision') or '')):
-            raise RuntimeError('Identity installation recovery requires two immutable bound sources')
-        repo = native.repository(target['valuesRepository'])
-        public_repo = native.repository(public['repository'])
-        if repo.lower() == public_repo.lower() or repo.split('/')[0].lower() != public_repo.split('/')[0].lower():
-            raise RuntimeError('Identity installation recovery private repository changed')
-    if targets[0]['valuesRepository'] != targets[1]['valuesRepository']:
-        raise RuntimeError('Identity installation recovery cannot change its registered repository')
-    proposed = copy.deepcopy(original)
-    proposed['helm']['valuesObject']['identity'].update(enabled=True, argo=targets[1])
-    spec = root.get('spec', {}); source = spec.get('source', {})
-    state = source_transition.binding_source(recorded, root)
-    if (proposed != patched or source not in (original, patched) or recovery['sourceState'] != state
-            or recovery['rootSource'] != source or spec.get('project') != 'cloudlab-root' or spec.get('sources')
-            or spec.get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
-            or source.get('repoURL') != PUBLIC_REPOSITORY or source.get('targetRevision') != 'main'
-            or source.get('path') != 'gitops/roots/public'
-            or source.get('helm', {}).get('releaseName') != 'cloudlab-public-root'
-            or set(source.get('helm', {})) - {'releaseName', 'valuesObject'}
-            or spec.get('syncPolicy', {}).get('automated', {}).get('prune', False)
-            or spec.get('ignoreDifferences') != native.delegations()
-            or spec.get('syncPolicy', {}).get('syncOptions') != ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true', 'RespectIgnoreDifferences=true']
-            or controller.get('spec', {}).get('replicas') not in (0, 1)
-            or project.get('spec', {}).get('sourceRepos') != [PUBLIC_REPOSITORY]
-            or project.get('spec', {}).get('namespaceResourceWhitelist') != native.identity_project_rules(project)):
-        raise RuntimeError('Identity installation recovery Root, topology or project changed')
-    if controller['spec']['replicas'] == 0:
-        pods = json.loads(native.kube('get', 'pods', '-n', 'argocd', '-o', 'json')).get('items')
-        if not isinstance(pods, list) or len(pods) > 10000 or any(any(
-                owner.get('uid') == recorded['controller_uid'] or
-                (owner.get('kind') == 'StatefulSet' and owner.get('name') == 'argocd-application-controller')
-                for owner in pod.get('metadata', {}).get('ownerReferences', [])) for pod in pods):
-            raise RuntimeError('Identity installation recovery controller has not quiesced')
-    approved = copy.deepcopy(public)
-    approved['identity']['argo'] = targets[0 if state == 'original' else 1]
-    overrides = copy.deepcopy(source['helm'].get('valuesObject', {}))
-    native.root_flags(root)
-    config = overrides.get('data', {}).get('configuration', {})
-    for field in ('maintenance', 'hibernated'): config.pop(field, None)
-    def compatible(actual, expected):
-        return (isinstance(expected, dict) and all(key in expected and compatible(value, expected[key]) for key, value in actual.items())
-            if isinstance(actual, dict) else type(actual) is type(expected) and actual == expected)
-    if not compatible(overrides, approved):
-        raise RuntimeError('Identity installation recovery conflicts with current public authority')
-    return root, targets
+    try:
+        return application({'values': {key: document[key] for key in INSTALLATION_FIELDS}, 'repository': PUBLIC_REPOSITORY,
+            'branch': INSTALLATION_REVISION, 'telemetry_enabled': telemetry}, 'scoped', retired=True,
+            retired_item=document['retiredEmergencyItem'])['spec']
+    except ValueError:
+        raise RuntimeError('Identity installation input refused') from None
 
 
 def installation_context(*, preparing=False, recovery=None):
     """Authenticate the current public owner and render its exact native contract."""
+    from playbooks.argocd.files.source_transition import pending_root_context
     from playbooks.data.files import native
     deadline = time.monotonic() + 180
     coordinates = {'publicSource': {'repository': PUBLIC_REPOSITORY, 'branch': 'main'}}
@@ -133,7 +80,8 @@ def installation_context(*, preparing=False, recovery=None):
         targets = [target]
     else:
         if preparing: raise RuntimeError('Pending identity recovery cannot prepare a new installation owner')
-        _, targets = installation_recovery(recovery, public)
+        _, targets = pending_root_context(recovery, public)
+    public_installation_revision(public)
     if type(public.get('identity', {}).get('application', {}).get('enabled')) is not bool:
         raise RuntimeError('Identity installation owner requires explicit public intent')
     if not preparing and not public['identity']['application']['enabled']:
@@ -166,8 +114,9 @@ def installation_profiles(recovery, public, current_values, credentials, deadlin
     """Read only the pending binding's two installation profiles, then revoke."""
     import base64
     import hashlib
+    from playbooks.argocd.files.source_transition import pending_root_context
     from playbooks.data.files import native
-    _, targets = installation_recovery(recovery, public)
+    _, targets = pending_root_context(recovery, public)
     repo = targets[0]['valuesRepository']
     api = native.GitHub(native.app_token(credentials), deadline=deadline, max_response=3 * 1024 * 1024)
     installation = 'app/installations/' + credentials['INSTALLATION_ID']
@@ -208,7 +157,7 @@ def installation_profiles(recovery, public, current_values, credentials, deadlin
         for field in OPERATION_FIELDS: profile['source']['helm']['valuesObject'].pop(field, None)
     if any(profile != expected for profile in profiles):
         raise RuntimeError('Pending identity binding changes the native installation profile')
-    installation_recovery(recovery, public)
+    pending_root_context(recovery, public)
 
 
 def ownership_receipt(base):
@@ -221,7 +170,9 @@ def ownership_receipt(base):
 def installation_revision(platform_revision, *, base=BASE):
     """Select installation readiness separately from current platform prerequisites."""
     state = ownership_receipt(base)
-    return INSTALLATION_REVISION if state.get('native') else platform_revision
+    if state.get('native'):
+        return accepted_application(get('application.argoproj.io', APP, 'argocd') or {}, base=base)
+    return platform_revision
 
 
 def prepare_native(payload, current, state, retirement, *, base=BASE):
@@ -233,9 +184,11 @@ def prepare_native(payload, current, state, retirement, *, base=BASE):
     if native.receipt(base / 'ownership.json') != state or native.receipt(base / 'retirement.json') != retirement:
         raise RuntimeError('Native identity handoff requires unchanged protected ownership receipts')
     if state.get('native', {}).get('phase') == 'accepted':
-        accepted_application(current, revision=INSTALLATION_REVISION, base=base)
+        accepted_application(current, base=base)
         return False
     public, head, target, _, desired, root, project, deadline = installation_context(preparing=True)
+    if public_installation_revision(public) != INSTALLATION_REVISION:
+        raise RuntimeError('Initial native identity handoff requires its historical installation revision')
     source = current.get('spec', {}).get('source', {})
     values = source.get('helm', {}).get('valuesObject', {})
     server = get('keycloak.k8s.keycloak.org', 'cloudlab-keycloak', NAMESPACE) or {}
@@ -350,7 +303,7 @@ def accepted_application(app, *, revision=None, base=BASE, register=False, recov
             or app.get('metadata', {}).get('uid') != captured['application_uid']
             or app['metadata'].get('deletionTimestamp') or app['metadata'].get('finalizers')
             or app['metadata'].get('labels', {}).get('cloudlab.io/owner') != OWNER
-            or (revision is not None and revision != INSTALLATION_REVISION)
+            or (revision is not None and revision not in SUPPORTED_INSTALLATION_REVISIONS)
             or state.get('revision') != INSTALLATION_REVISION):
         raise RuntimeError('Native identity installation owner or requested pin changed')
     retired = native.receipt(base / 'retirement.json')
@@ -361,6 +314,10 @@ def accepted_application(app, *, revision=None, base=BASE, register=False, recov
         raise RuntimeError('Native identity handoff lost its accepted server or retirement identity')
     public, _, target, _, desired, root, project, deadline = installation_context(
         preparing=captured['phase'] == 'prepared' and not owners, recovery=recovery)
+    effective_revision = public_installation_revision(public)
+    if ((revision is not None and revision != effective_revision)
+            or (captured['phase'] != 'accepted' and effective_revision != INSTALLATION_REVISION)):
+        raise RuntimeError('Native identity requested revision differs from its public owner')
     if (root.get('metadata', {}).get('uid') != captured['root_uid'] or project.get('metadata', {}).get('uid') != captured['project_uid']):
         raise RuntimeError('Native identity trusted Root or project was replaced')
     project_spec = copy.deepcopy(desired['AppProject']['spec'])
@@ -373,6 +330,7 @@ def accepted_application(app, *, revision=None, base=BASE, register=False, recov
     document = {key: current_values.get(key) for key in INSTALLATION_FIELDS}
     document.update(installationRevision=INSTALLATION_REVISION, retiredEmergencyItem=current_values.get('retiredEmergencyItem'))
     expected = installation_values(document, telemetry=public['observability']['enabled'])
+    expected['source']['targetRevision'] = effective_revision
     actual = copy.deepcopy(app.get('spec', {}))
     for field in OPERATION_FIELDS:
         expected['source']['helm']['valuesObject'].pop(field, None)
@@ -386,7 +344,7 @@ def accepted_application(app, *, revision=None, base=BASE, register=False, recov
         if {key: value for key, value in current_values.items() if key not in OPERATION_FIELDS} != {
                 key: value for key, value in captured['values'].items() if key not in OPERATION_FIELDS}:
             raise RuntimeError('Prepared identity installation values changed before native adoption')
-        return INSTALLATION_REVISION
+        return effective_revision
     if (not native.quiet(parent) or parent.get('spec') != desired['ApplicationSet']['spec']
             or parent['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') != 'cloudlab-public-root:argoproj.io/ApplicationSet:argocd/' + APP
             or not native.quiet(project) or project.get('spec') != desired['AppProject']['spec']
@@ -407,7 +365,7 @@ def accepted_application(app, *, revision=None, base=BASE, register=False, recov
         if any(captured[key] != uid for key, uid in observed.items()):
             raise RuntimeError('Native identity parent or source credential was replaced')
     elif register:
-        if current_values != captured['values'] or not application_ready(APP, INSTALLATION_REVISION):
+        if current_values != captured['values'] or not application_ready(APP, effective_revision):
             raise RuntimeError('Native identity adoption must preserve the complete prepared installation')
         from playbooks.data.files.control import atomic
         state['native'] = dict(captured, phase='accepted', **observed)
@@ -440,7 +398,7 @@ def accepted_application(app, *, revision=None, base=BASE, register=False, recov
                 raise RuntimeError('Registered native identity scope changed during pending recovery authentication')
         if native.receipt(path) != state or native.receipt(base / 'retirement.json') != retired:
             raise RuntimeError('Registered native identity recovery receipts changed')
-    return INSTALLATION_REVISION
+    return effective_revision
 
 
 def completed_job_retention(job, crons, retired, now):

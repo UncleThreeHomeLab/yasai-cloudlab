@@ -13,10 +13,9 @@ class PayloadTests(unittest.TestCase):
         import shlex
         from unittest.mock import patch
         from playbooks.observability.files import discovery, payload
-        from playbooks.harbor.files import control as harbor_control, payload as harbor_payload
+        from playbooks.harbor.files import control as harbor_control
         self.assertIs(payload.metadata, discovery.metadata)
         self.assertIs(harbor_control.metadata, discovery.metadata)
-        self.assertIs(harbor_payload.metadata, discovery.metadata)
         result = {'loginHost': 'login.example.invalid', 'gatewayIP': '192.0.2.4'}
         with patch.dict(os.environ, {'VM_HOST': 'vm.fixture.invalid'}), \
                 patch('playbooks.access.files.preflight.ssh', return_value=json.dumps(result)) as ssh:

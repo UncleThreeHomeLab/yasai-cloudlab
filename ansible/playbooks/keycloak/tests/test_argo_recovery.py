@@ -70,9 +70,14 @@ class ArgoRecoveryTests(unittest.TestCase):
             'currentSecurityProjection': {'revision': 'd' * 40, 'configuration': contract['helm'], 'client': contract['client']}}}
         checkpoint = {'phase': 'paused', 'target': new, 'publicRevision': 'c' * 40, 'originalSource': original,
             'patchedSource': patched, 'root_uid': 'root', 'controller_uid': 'controller', 'project_uid': 'root-project'}
-        for change in ('equal', 'profile', 'context', 'ordinary', 'revocation'):
+        for change in ('equal', 'profile', 'context', 'ordinary', 'revocation', 'active'):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 base = Path(directory); events = []; requests = []
+                if change == 'active':
+                    active = ownership.SUPPORTED_INSTALLATION_REVISIONS[1]
+                    public['identity']['application']['installationRevision'] = active
+                    app['spec']['source']['targetRevision'] = active
+                    parent['spec']['template']['spec']['source']['targetRevision'] = active
                 state = {'phase': 'scoped', 'uid': 'app', 'revision': ownership.INSTALLATION_REVISION, 'native': {
                     'phase': 'accepted', 'root_uid': 'root', 'project_uid': 'project', 'application_uid': 'app',
                     'keycloak_uid': 'server', 'values': app['spec']['source']['helm']['valuesObject'], 'original_revision': 'main',
@@ -102,7 +107,7 @@ class ArgoRecoveryTests(unittest.TestCase):
                         'content': base64.b64encode(raw).decode(), 'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()}
                 client.request.side_effect = request
                 def read(kind, name, *args): return copy.deepcopy(objects.get((kind, name)))
-                for module in (runtime, ownership):
+                for module in (runtime, ownership, source_transition):
                     stack.enter_context(patch.object(module, 'get', side_effect=read))
                 stack.enter_context(patch.object(runtime, 'BASE', base))
                 stack.enter_context(patch.object(native, 'BINDING', base / 'identity-values-binding.json'))
@@ -126,7 +131,7 @@ class ArgoRecoveryTests(unittest.TestCase):
                 stack.enter_context(patch.object(runtime, 'public_address'))
                 stack.enter_context(patch.object(runtime, 'private_request', return_value={'error': 'invalid_grant'}))
                 bind = stack.enter_context(patch.object(runtime, 'bind_identity', side_effect=lambda *args: events.append('bind') or {'changed': False}))
-                if change == 'equal':
+                if change in ('equal', 'active'):
                     runtime.run(current_payload)
                     self.assertLess(events.index('revoke'), events.index('protocol'))
                     self.assertEqual(events[-1], 'bind')
