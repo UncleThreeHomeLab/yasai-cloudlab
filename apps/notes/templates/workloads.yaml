@@ -1,3 +1,4 @@
+{{- if not $.Values.renderDisabled }}
 {{- range $name := list "web" "api" }}
 {{- $values := deepCopy (index $.Values $name) }}
 {{- $_ := unset $values "renderDisabled" }}
@@ -71,5 +72,6 @@
 {{- if $values.rollouts.enabled }}
 ---
 {{ include "cloudlab.service.analysis" $context }}
+{{- end }}
 {{- end }}
 {{- end }}

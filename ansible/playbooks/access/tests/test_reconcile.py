@@ -17,7 +17,8 @@ def _cluster():
 
 
 class DnsReceiptTests(unittest.TestCase):
-    declared = {'zone': 'internal.example.test', 'names': [], 'platformNames': []}
+    declared = {'zone': 'internal.example.test', 'services': [], 'names': [],
+                'platformNames': []}
     servers = ['100.64.0.1', '100.64.0.2']
     mapping = {'cloudlab': '100.64.0.1', 'cloudlab-worker': '100.64.0.2'}
     digest = '9' * 64
@@ -76,6 +77,17 @@ class PlanScopeTests(unittest.TestCase):
 
 
 class ReviewGuardTests(unittest.TestCase):
-    def test_missing_review_hash_fails_with_usage_error(self):
-        with self.assertRaisesRegex(SystemExit, 'exact reviewed plan hash'):
-            reconcile.main(['once', '--review'])
+    def test_retired_review_flag_fails_with_migration_error(self):
+        with self.assertRaisesRegex(SystemExit, 'retired; approval comes from the merged Git binding'):
+            reconcile.main(['once', '--review', '0' * 64])
+
+    def test_unapproved_private_service_blocks_resolvers(self):
+        declared = dict(DnsReceiptTests.declared,
+                        services=[{'service': 'ghost', 'name': 'ghost', 'backend': 'web',
+                                   'path': '/', 'port': 8080}],
+                        names=['ghost'])
+        with patch.object(reconcile, 'ssh', side_effect=RuntimeError('no SSH in test')):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                with self.assertRaisesRegex(RuntimeError, 'lack approved services'):
+                    reconcile.reconcile_dns(declared, DnsReceiptTests.servers,
+                                            DnsReceiptTests.mapping, _cluster())

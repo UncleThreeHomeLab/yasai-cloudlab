@@ -1,6 +1,9 @@
 {{- if and .Values.enabled .Values.serverEnabled }}
 {{- if not .Values.trustedProxyAddresses }}{{ fail "Resolve explicit gateway proxy addresses before enabling identity" }}{{- end }}
 {{- if not .Values.databaseCA }}{{ fail "Resolve current CNPG public CA before enabling identity" }}{{- end }}
+{{/* Rendered template slot is a string; list serialized with join/split. */}}
+{{- $proxyAddresses := .Values.trustedProxyAddresses }}
+{{- if kindIs "string" $proxyAddresses }}{{ $proxyAddresses = splitList "," $proxyAddresses }}{{ end }}
 {{- $lock := .Files.Get "artifact.lock.json" | fromJson }}
 apiVersion: k8s.keycloak.org/v2beta1
 kind: Keycloak
@@ -45,7 +48,7 @@ spec:
     - {name: metrics-enabled, value: 'false'}
     - {name: db-tls-mode, value: verify-server}
     - {name: db-tls-trust-store-file, value: /opt/keycloak/conf/truststores/configmap-keycloak-database-ca/ca.crt}
-    - {name: proxy-trusted-addresses, value: {{ join "," .Values.trustedProxyAddresses | quote }}}
+    - {name: proxy-trusted-addresses, value: {{ join "," $proxyAddresses | quote }}}
     - {name: log-level, value: WARN}
     - {name: http-management-scheme, value: http}
   truststores:

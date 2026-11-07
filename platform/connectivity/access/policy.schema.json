@@ -92,17 +92,48 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "names"
+        "services"
       ],
       "properties": {
-        "names": {
+        "services": {
+          "$comment": "Per-service private exposures. Each entry binds one DNS label to its approved service and workload backend. Service routes and identity callbacks derive from these entries; the service catalog carries no copy of these fields.",
           "type": "array",
           "maxItems": 20,
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "maxLength": 63,
-            "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "service",
+              "name",
+              "backend",
+              "path",
+              "port"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 63,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+              },
+              "backend": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/[A-Za-z0-9/_-]*$"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            }
           }
         },
         "platformNames": {

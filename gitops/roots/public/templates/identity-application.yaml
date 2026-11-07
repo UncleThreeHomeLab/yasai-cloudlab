@@ -61,10 +61,10 @@ spec:
   syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
   ignoreApplicationDifferences:
     - jsonPointers:
-        - /spec/source/helm/valuesObject/maintenance
-        - /spec/source/helm/valuesObject/operation
-        - /spec/source/helm/valuesObject/bootstrapAdminEnabled
-        - /spec/source/helm/valuesObject/retiredEmergencyItem
+        - /spec/sources/0/helm/valuesObject/maintenance
+        - /spec/sources/0/helm/valuesObject/operation
+        - /spec/sources/0/helm/valuesObject/bootstrapAdminEnabled
+        - /spec/sources/0/helm/valuesObject/retiredEmergencyItem
   template:
     metadata:
       name: cloudlab-identity
@@ -74,23 +74,44 @@ spec:
         argocd.argoproj.io/sync-options: Prune=false,Delete=false
     spec:
       project: cloudlab-identity
-      source:
-        repoURL: https://github.com/UncleThreeHomeLab/yasai-cloudlab.git
-        targetRevision: {{ $installation.installationRevision | quote }}
-        path: platform/identity/keycloak
-        helm:
-          releaseName: cloudlab-identity
-          valuesObject:
-            enabled: true
-            operatorEnabled: false
-            serverEnabled: true
-            reconciliationEnabled: true
-            bootstrapMode: false
-            primaryAdminEnabled: false
-            privateStateEnabled: true
-            bootstrapAdminEnabled: false
-            maintenance: false
-            telemetryEnabled: {{ .Values.observability.enabled }}
+{{- $catalogPath := include "cloudlab.serviceCatalogPath" . }}
+      sources:
+        - repoURL: https://github.com/UncleThreeHomeLab/yasai-cloudlab.git
+          targetRevision: {{ $installation.installationRevision | quote }}
+          path: platform/identity/keycloak
+          helm:
+            releaseName: cloudlab-identity
+            valueFiles:
+              - {{ printf "$identityValues/%s" $catalogPath | quote }}
+              - $identityValues/platform/access/policy.yaml
+              # databaseCA rides its generator file verbatim; quoted slots would fold the PEM newlines.
+              - $identityValues/identity/keycloak-values.yaml
+              - $publicValues/services/exposures.yaml
+            valuesObject:
+              enabled: true
+              operatorEnabled: false
+              serverEnabled: true
+              reconciliationEnabled: true
+              bootstrapMode: false
+              primaryAdminEnabled: false
+              privateStateEnabled: true
+              bootstrapAdminEnabled: false
+              maintenance: false
+              telemetryEnabled: {{ .Values.observability.enabled }}
+              loginHost: '{{ "{{ .loginHost }}" }}'
+              adminHost: '{{ "{{ .adminHost }}" }}'
+              database: '{{ "{{ .database }}" }}'
+              databaseRole: '{{ "{{ .databaseRole }}" }}'
+              databaseHost: '{{ "{{ .databaseHost }}" }}'
+              databasePort: '{{ "{{ .databasePort }}" }}'
+              trustedProxyAddresses: '{{ "{{ join \",\" .trustedProxyAddresses }}" }}'
+              retiredEmergencyItem: '{{ "{{ .retiredEmergencyItem }}" }}'
+        - repoURL: {{ $target.valuesRepository | quote }}
+          targetRevision: {{ $target.valuesRevision | quote }}
+          ref: identityValues
+        - repoURL: {{ .Values.repository | quote }}
+          targetRevision: {{ .Values.revision | quote }}
+          ref: publicValues
       destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
       syncPolicy:
         automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}

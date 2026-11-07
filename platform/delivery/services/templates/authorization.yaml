@@ -34,7 +34,17 @@ rules: {{ if .retired }}[]{{ end }}
 {{- $monitoring := include "cloudlab.service.monitoring" . | fromJson }}
 {{- $namespace := $a.namespace }}
 {{- $retired := eq (.publication | default "ready") "retired" }}
-{{- $exposures := concat (list $v.exposure) ($v.additionalExposures | default list) }}
+{{- $ordinary := and (not (hasKey $a "composition")) (eq ($a.chartPath | default "charts/service") "charts/service") }}
+{{- $exposures := list }}
+{{- if $ordinary }}
+{{- $file := dict }}{{- if hasKey ($.Values.exposures | default dict) $a.name }}{{ $file = index $.Values.exposures $a.name }}{{- end }}
+{{- if and $file (eq ($file.publication | default "") "published") }}{{ $exposures = append $exposures (dict "class" "public" "port" $file.exposure.port) }}{{- end }}
+{{- range ($.Values.privateDNS | default dict).services | default list }}
+{{- if eq .service $a.name }}{{ $exposures = append $exposures (dict "class" "private" "port" .port) }}{{- end }}
+{{- end }}
+{{- else }}
+{{- $exposures = concat (list $v.exposure) ($v.additionalExposures | default list) }}
+{{- end }}
 {{- $classes := list }}
 {{- range $exposures }}{{ if ne .class "none" }}{{ $classes = append $classes .class }}{{ end }}{{ end }}
 {{- $classes = $classes | uniq | sortAlpha }}

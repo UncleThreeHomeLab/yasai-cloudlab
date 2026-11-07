@@ -26,7 +26,8 @@ class BootstrapToolTests(unittest.TestCase):
         self.assertIn('-mod=readonly', dockerfile)
         self.assertNotIn('crane', json.loads((root / 'ansible/runner/tools.lock.json').read_text()))
         services = yaml.safe_load((root / 'compose.yaml').read_text())['services']
-        for name in ('lab', 'connectivity', 'infra-github', 'infra-harbor', 'service'):
+        self.assertNotIn('service', services)
+        for name in ('lab', 'connectivity', 'infra-github', 'infra-harbor'):
             self.assertEqual(services[name]['build']['additional_contexts'],
                              {'ci-source': './platform/delivery/ci'})
 

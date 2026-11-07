@@ -1,9 +1,10 @@
 """Validate public exposure declarations and compile native service inputs.
 
-One file owns one public hostname: services/<service>/exposure.yaml. Hostnames
-must be unique across exposure files and legacy routes, and can never take over
-private, ACME, or foreign names. DNS publication additionally requires a live
-route, a ready certificate, and its resolved protection.
+Public file services/exposures.yaml is the single source for public hostnames
+and access: one entry per service, keyed by service name. Hostnames must be
+unique across entries and legacy routes, and can never take over private,
+ACME, or foreign names. DNS publication additionally requires a live route, a
+ready certificate, and its resolved protection.
 """
 import json
 from pathlib import Path
@@ -14,7 +15,8 @@ import yaml
 from jsonschema import validate
 
 ROOT = Path(__file__).resolve().parents[4]
-SCHEMA = ROOT / 'infra/cloudflare/exposure.schema.json'
+SCHEMA = ROOT / 'infra/cloudflare/exposures.schema.json'
+APPROVAL_SCHEMA = ROOT / 'platform/connectivity/access/approval.schema.json'
 CONTRACT = ROOT / 'platform/connectivity/access/contract.json'
 
 # Stable namespace so compiled policy identities survive recompilation.
@@ -29,24 +31,36 @@ def session_duration():
     return json.loads(CONTRACT.read_text())['sessionDuration']
 
 
-def validate_file(path, zone):
-    """Schema plus filename, zone, and boundary checks; returns the declaration."""
-    text = Path(path).read_text()
-    if len(text.encode()) > 4096:
-        raise ValueError('Exposure declaration exceeds its bound')
+def validate_bundle(text, zone):
+    """Schema plus key, zone, and boundary checks; returns service documents."""
+    if len(text.encode()) > 65536:
+        raise ValueError('Exposure declarations exceed their bound')
     document = yaml.safe_load(text)
     validate(document, json.loads(SCHEMA.read_text()))
-    service = document['service']
-    if Path(path).parent.name != service or Path(path).name != 'exposure.yaml':
-        raise ValueError('Exposure file path must be services/<service>/exposure.yaml')
-    hostname = document['exposure']['hostname']
-    if 'internal' in hostname.split('.') or '_acme-challenge' in hostname.split('.'):
-        raise ValueError('Service exposure must not take over private or ACME names')
-    if not hostname.endswith('.' + zone) or hostname == zone:
-        raise ValueError('Service exposure must stay inside the declared zone')
-    if hostname.split('.')[0] != service:
-        raise ValueError('Service exposure cannot take over another hostname')
-    return document
+    entries = document['exposures']
+    for key in sorted(entries):
+        entry = entries[key]
+        if entry['service'] != key:
+            raise ValueError('Exposure entry key must match its service name')
+        hostname = entry['exposure']['hostname']
+        if 'internal' in hostname.split('.') or '_acme-challenge' in hostname.split('.'):
+            raise ValueError('Service exposure must not take over private or ACME names')
+        if not hostname.endswith('.' + zone) or hostname == zone:
+            raise ValueError('Service exposure must stay inside the declared zone')
+        if hostname.split('.')[0] != key:
+            raise ValueError('Service exposure cannot take over another hostname')
+    return [entries[key] for key in sorted(entries)]
+
+
+def validate_approval(text, revision):
+    """Returns True only when the merged binding approves this exact revision.
+
+    A missing binding is normal (nothing approved yet); a malformed binding is
+    an author error and fails loudly. Stale bindings never apply.
+    """
+    document = yaml.safe_load(text)
+    validate(document, json.loads(APPROVAL_SCHEMA.read_text()))
+    return document['revision'] == revision, document['plan']
 
 
 def service_key(service):
@@ -91,7 +105,7 @@ def application_intent(document, *, human_email, identity_provider, service_toke
 
 def compile_service_exposures(documents, legacy_routes, *, human_email=None,
                               identity_provider=None, service_token_id=None):
-    """Published files to native tfvars; retired files withdraw without residue."""
+    """Published entries to native tfvars; retired entries withdraw without residue."""
     hostnames = [route['hostname'] for route in legacy_routes.values()]
     compiled, applications = {}, {}
     for document in sorted(documents, key=lambda row: row['service']):

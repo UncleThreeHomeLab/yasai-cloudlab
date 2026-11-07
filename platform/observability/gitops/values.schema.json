@@ -382,12 +382,9 @@
                       }
                     },
                     "required": [
-                      "class",
-                      "hostname",
-                      "access",
-                      "path",
-                      "port"
-                    ]
+                      "class"
+                    ],
+                    "description": "Ordinary services declare the class signal only; addresses live in exposure inputs."
                   }
                 ]
               },

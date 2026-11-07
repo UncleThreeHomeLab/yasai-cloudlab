@@ -577,27 +577,6 @@
                     }
                   }
                 ]
-              },
-              "identityClient": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "realm": {
-                    "const": "applications"
-                  },
-                  "client": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]{0,40}$"
-                  },
-                  "secretReference": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]{0,40}$"
-                  }
-                },
-                "required": [
-                  "realm",
-                  "client"
-                ]
               }
             }
           },
@@ -626,6 +605,18 @@
     },
     "argo-cd": {
       "type": "object"
+    },
+    "exposures": {
+      "type": "object",
+      "description": "Public services/exposures.yaml delivered as values; service routes derive from it."
+    },
+    "privateDNS": {
+      "type": "object",
+      "description": "Private policy.yaml privateDNS delivered as values; private routes derive from it."
+    },
+    "tailnet": {
+      "type": "object",
+      "description": "Private policy.yaml tailnet delivered as values; unused by service templates."
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1076,12 +1067,9 @@
                 }
               },
               "required": [
-                "class",
-                "hostname",
-                "access",
-                "path",
-                "port"
-              ]
+                "class"
+              ],
+              "description": "Ordinary services declare the class signal only; hostname, access, path, and port come from exposure inputs. Notes and composition keep explicit addresses."
             }
           ]
         },
@@ -1229,27 +1217,6 @@
                 "audience",
                 "scopes",
                 "roleMapping"
-              ]
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "const": true
-                },
-                "clientReference": {
-                  "type": "string",
-                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
-                },
-                "secretReference": {
-                  "type": "string",
-                  "pattern": "^[a-z][a-z0-9-]{0,40}$"
-                }
-              },
-              "required": [
-                "enabled",
-                "clientReference"
               ]
             }
           ]

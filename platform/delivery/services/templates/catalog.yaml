@@ -7,6 +7,54 @@
 {{- $v := .definition }}
 {{- if or (hasKey $v "routeOnly") (hasKey $v "routeBackends") }}{{ fail "Routing controls belong to the administrator catalog renderer" }}{{ end }}
 {{- $a := .approval }}
+{{- $ordinary := and (not (hasKey $a "composition")) (eq ($a.chartPath | default "charts/service") "charts/service") }}
+{{- $exposureFile := dict }}
+{{- $privateExposures := list }}
+{{- $routeNames := list }}
+{{- $retired := eq (.publication | default "ready") "retired" }}
+{{- if $ordinary }}
+{{- range $field := list "hostname" "access" "path" "port" "backend" }}
+{{- if hasKey $v.exposure $field }}{{ fail "Ordinary service addresses come from exposure inputs, not the catalog" }}{{- end }}
+{{- end }}
+{{- if $v.additionalExposures }}{{ fail "Ordinary private views come from the private policy, not the catalog" }}{{- end }}
+{{- $exposures := $.Values.exposures | default dict }}
+{{- if hasKey $exposures $a.name }}{{ $exposureFile = index $exposures $a.name }}{{- end }}
+{{- $zone := ((($.Values.tailnet | default dict).splitDNS | default dict).zone | default "") }}
+{{- range ($.Values.privateDNS | default dict).services | default list }}
+{{- if eq .service $a.name }}
+{{- if not $zone }}{{ fail "Private exposures require the policy zone" }}{{- end }}
+{{- $privateExposures = append $privateExposures (merge (dict "hostname" (printf "%s.%s" .name $zone)) .) }}
+{{- end }}
+{{- end }}
+{{- if not $retired }}
+{{- if and $exposureFile (eq $exposureFile.publication "published") (ne $v.exposure.class "public") }}{{ fail "Published public exposure requires the public class signal" }}{{- end }}
+{{- if and $privateExposures (eq $v.exposure.class "none") }}{{ fail "Private exposures require an exposed class signal" }}{{- end }}
+{{- end }}
+{{- if $exposureFile }}
+{{- if not (has $exposureFile.publication (list "published" "retired")) }}{{ fail "Public exposure publication must be published or retired" }}{{- end }}
+{{- $pub := $exposureFile.exposure }}
+{{- if or (ne $pub.class "public") (ne $pub.backend $v.name) (not (regexMatch "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$" $pub.hostname)) (not (regexMatch (printf "^%s\\." $a.name) $pub.hostname)) (not (regexMatch "^/[A-Za-z0-9/_-]*$" $pub.path)) (not (has (kindOf $pub.port) (list "float64" "int" "int64"))) (lt ($pub.port | toString | atoi) 1024) (gt ($pub.port | toString | atoi) 65535) }}{{ fail "Public exposure entry is invalid or mismatched" }}{{- end }}
+{{- if eq $pub.access "public" }}{{ if hasKey $pub "accessPolicy" }}{{ fail "Public access takes no access policy" }}{{- end }}
+{{- else if eq $pub.access "human" }}{{ if ne ($pub.accessPolicy | default "") "approved-human" }}{{ fail "Human access requires the approved human policy" }}{{- end }}
+{{- else if eq $pub.access "machine" }}{{ if ne ($pub.accessPolicy | default "") "approved-machine" }}{{ fail "Machine access requires the approved machine policy" }}{{- end }}
+{{- else }}{{ fail "Public access must be public, human, or machine" }}{{- end }}
+{{- end }}
+{{- if not $retired }}
+{{- if and (eq $v.exposure.class "public") (not $exposureFile) }}{{ fail "Public class requires its public exposure entry" }}{{- end }}
+{{- if and (eq $v.exposure.class "private") (not $privateExposures) }}{{ fail "Private class requires its private exposure entries" }}{{- end }}
+{{- end }}
+{{- $seen := list }}
+{{- range $privateExposures }}
+{{- if or (ne .backend $v.name) (not (regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" .name)) (not (regexMatch "^/[A-Za-z0-9/_-]*$" .path)) (not (has (kindOf .port) (list "float64" "int" "int64"))) (lt (.port | toString | atoi) 1024) (gt (.port | toString | atoi) 65535) }}{{ fail "Private exposure entry is invalid or mismatched" }}{{- end }}
+{{- $seen = append $seen .name }}
+{{- end }}
+{{- if ne (len $seen) (len ($seen | uniq)) }}{{ fail "Private exposure names must be unique" }}{{- end }}
+{{- $routeCount := len $privateExposures }}
+{{- if and $exposureFile (eq ($exposureFile.publication | default "") "published") }}{{ $routeCount = add $routeCount 1 }}{{- end }}
+{{- range $index := until (int $routeCount) }}
+{{- $routeNames = append $routeNames (ternary $v.name (printf "%s-extra-%d" $v.name (sub $index 1)) (eq $index 0)) }}
+{{- end }}
+{{- end }}
 {{- $_ := include "cloudlab.service.identity" . | fromJson }}
 {{- $monitoring := include "cloudlab.service.monitoring" . | fromJson }}
 {{- $composition := $a.composition | default dict }}
@@ -25,8 +73,13 @@
 {{- end }}
 {{- if and (eq ($a.chartPath | default "charts/service") "apps/notes") (ne $a.repository $.Values.repository) }}{{ fail "Notes composition requires the administrator-owned application source" }}{{- end }}
 {{- $classes := list }}
+{{- if $ordinary }}
+{{- if ne $v.exposure.class "none" }}{{ $classes = append $classes $v.exposure.class }}{{- end }}
+{{- if $privateExposures }}{{ $classes = append $classes "private" }}{{- end }}
+{{- else }}
 {{- range concat (list $v.exposure) ($v.additionalExposures | default list) }}
 {{- if ne .class "none" }}{{ $classes = append $classes .class }}{{- end }}
+{{- end }}
 {{- end }}
 {{- $classes = $classes | uniq | sortAlpha }}
 {{- if ne $namespace $a.namespace }}
@@ -171,7 +224,7 @@ spec:
         files: [{path: {{ $artifact.releasePath | quote }}}]
     {{- else }}
     - list:
-        elements: {{ if eq (.publication | default "ready") "retired" }}[]{{ else }}[{name: {{ $v.name }}}]{{ end }}
+        elements: [{name: {{ $v.name }}}]
     {{- end }}
   syncPolicy:
     applicationsSync: create-update
@@ -179,7 +232,7 @@ spec:
   template:
     metadata:
       name: {{ if $artifact }}{{ printf "%s-%s" $a.name $v.name | quote }}{{ else }}{{ printf "%s-{{.name}}" $a.name | quote }}{{ end }}
-      {{- if $artifact }}
+      {{- if and $artifact (not $retired) }}
       annotations:
         {{- if $composition }}
         cloudlab.io/artifact-components: '{{ "{{ .components | toJson }}" }}'
@@ -194,14 +247,25 @@ spec:
       {{- $workload := deepCopy $v }}
       {{- $_ := set $workload "routeOnly" false }}
       {{- $_ := set $workload "routeBackends" dict }}
+      {{- if $ordinary }}
+      {{- $_ := set $workload "exposureFile" $exposureFile }}
+      {{- $_ := set $workload "privateExposures" $privateExposures }}
+      {{- $_ := set $workload "renderDisabled" $retired }}
+      {{- $_ := set $workload "routeNames" $routeNames }}
+      {{- end }}
+      {{- if and $retired (not $ordinary) }}
+      {{- $_ := set $workload "renderDisabled" true }}
+      {{- end }}
       {{- if $artifact }}
+      {{- if not $retired }}
       {{- $_ := set $workload "image" (printf "%s@{{ .digest }}" $artifact.repository) }}
+      {{- end }}
       {{- $_ := set $workload "imagePullSecrets" (list (dict "name" "harbor-application-pull")) }}
       {{- $_ := set $workload "artifactPolicyHash" (printf "%s%s" (toJson $artifact) ($.Files.Get "sigstore-fulcio.crt") | sha256sum) }}
       {{- end }}
       {{- $helm := dict "valuesObject" $workload }}
       {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
-      {{- $_ := set $helm "valuesObject" (dict "definition" $workload "issuer" $.Values.issuer "telemetry" $.Values.telemetry) }}
+      {{- $_ := set $helm "valuesObject" (dict "definition" $workload "issuer" $.Values.issuer "telemetry" $.Values.telemetry "renderDisabled" $retired) }}
       {{- $_ := set $helm.valuesObject "web" (dict "routeOnly" false "routeBackends" dict) }}
       {{- $_ := set $helm.valuesObject "api" (dict "routeOnly" false "routeBackends" dict) }}
       {{- if $artifact }}
@@ -210,13 +274,16 @@ spec:
       {{- end }}
       {{- end }}
       {{- $source := dict "repoURL" $.Values.repository "targetRevision" $.Values.revision "path" ($a.chartPath | default "charts/service") "helm" $helm }}
-      {{- if $composition }}
+      {{- if and $composition (not $retired) }}
       {{- $images := include "cloudlab.composition.images" (dict "composition" $composition "artifact" $artifact) | fromJson }}
       {{- if $artifact }}{{ $_ := set $images "imagePullSecrets" (list (dict "name" "harbor-application-pull")) }}{{ end }}
       {{- $_ := set $helm "valuesObject" (dict "routeOnly" true "routeBackends" $composition.backends | mergeOverwrite (deepCopy $workload)) }}
       {{- $appSource := dict "repoURL" $composition.chart.repository "targetRevision" $composition.chart.revision "path" $composition.chart.path "helm" (dict "releaseName" $a.name "valueFiles" (list (printf "$values/%s" $a.valuesPath)) "valuesObject" $images) }}
       sources:
 {{ toYaml (list $source $appSource (dict "repoURL" $a.repository "targetRevision" $a.revision "ref" "values")) | indent 8 }}
+      {{- else if $composition }}
+      source:
+{{ toYaml $source | indent 8 }}
       {{- else if eq $a.repository $.Values.repository }}
       source:
 {{ toYaml $source | indent 8 }}
@@ -242,6 +309,6 @@ spec:
         {{- end }}
       {{- end }}
       syncPolicy:
-        automated: {prune: false, selfHeal: true, allowEmpty: false}
+        automated: {prune: true, selfHeal: true, allowEmpty: false}
         syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false{{ if $v.rollouts.enabled }}, RespectIgnoreDifferences=true{{ end }}]
 {{- end }}

@@ -1,0 +1,5 @@
+# Public service exposure declarations. Single source for public hostnames and
+# access: service routes, Cloudflare DNS/tunnel/Access, and identity callbacks
+# derive from these entries. One entry per service, keyed by service name.
+# The service catalog carries no copy of these fields.
+exposures: {}

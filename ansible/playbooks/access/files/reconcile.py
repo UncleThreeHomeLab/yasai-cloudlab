@@ -1,9 +1,28 @@
 """Control-machine connectivity reconciler: tailnet, private DNS, public DNS.
 
 Reads accepted Git revisions only. Tailnet and private DNS converge
-automatically; Cloudflare plans automatically but applies only with an explicit
-reviewed plan hash. Invalid or unreachable sources retain last-valid state and
-report blocked; they never delete, grant, or publish.
+automatically. Cloudflare plans every cycle and applies the merged revision's
+exact plan with no second operator command once the same merged revision binds
+its digest in platform/access/cloudflare-approval.yaml (merged PR plus exact
+plan-hash binding constitutes approval). Unreviewed or mismatched state never
+applies. Invalid or unreachable sources retain last-valid state and report
+blocked; they never delete, grant, or publish.
+
+Approval ceremony: merge the exposure change; read the pending digest from
+this reconciler's status; merge a second PR binding {revision, plan} for the
+current main SHA; the standing loop applies it and reports convergence. A
+newer main SHA voids the binding until rebound.
+
+Activation ceremony (first private policy): capture the current tailnet ACL
+and split-DNS hashes; merge private platform/access/policy.yaml; run `once`;
+run `verify` and confirm grants, split DNS, resolver answers, and declared
+access tests; rerun `once` for zero-change idempotence; then enable `loop`.
+
+Retirement proof: after an apply withdraws a hostname, the next cycles verify
+authoritative withdrawal (Cloudflare record and tunnel entry absent; both
+private resolvers answer absent) and live route absence. Edge packet
+no-reachability stays a parent-run step: curl the retired hostname from an
+intended client (expect failure) with a live hostname as positive control.
 """
 import base64
 import copy
@@ -36,6 +55,8 @@ ROOT = Path(__file__).resolve().parents[4]
 WORK = Path('/infra-work/connectivity')
 INPUTS = Path('/inputs/cloudflare')
 POLICY_PATH = 'platform/access/policy.yaml'
+EXPOSURES_PATH = 'services/exposures.yaml'
+APPROVAL_PATH = 'platform/access/cloudflare-approval.yaml'
 MAX_FILE_BYTES = 65536
 
 
@@ -127,30 +148,20 @@ class GitHub:
             raise RuntimeError('Git revision is unavailable')
         return document['object']['sha']
 
-    def contents(self, repo, path, ref):
+    def contents(self, repo, path, ref, limit=4096):
         document = self.request('repos/' + repo + '/contents/' + path + '?ref=' + ref)
         if document is None:
             return None
         if (not isinstance(document, dict) or document.get('type') != 'file'
                 or document.get('encoding') != 'base64'
                 or type(document.get('size')) is not int
-                or not 0 < document['size'] <= 4096
+                or not 0 < document['size'] <= limit
                 or not isinstance(document.get('content'), str)):
             raise RuntimeError('Git declaration requires a bounded regular file')
         raw = base64.b64decode(document['content'].replace('\r', '').replace('\n', ''), validate=True)
         if len(raw) != document['size']:
             raise RuntimeError('Git declaration size changed during transfer')
         return raw
-
-    def tree(self, repo, ref):
-        document = self.request('repos/' + repo + '/git/trees/' + ref + '?recursive=1',
-                                limit=1048576)
-        if not document or document.get('truncated'):
-            raise RuntimeError('Git source snapshot is incomplete; refused')
-        entries = document.get('tree', [])
-        if len(entries) > 20000:
-            raise RuntimeError('Git source snapshot exceeds its bound')
-        return [row['path'] for row in entries if row.get('type') == 'blob']
 
 
 def tailnet_addresses(api, resolvers):
@@ -273,6 +284,11 @@ def reconcile_dns(declared, servers, mapping, cluster):
         raise RuntimeError('Private certificate contract changed; resolvers retained')
     if not certificate['ready']:
         raise RuntimeError('Private certificate is not ready; resolvers retained')
+    unapproved = sorted({entry['service'] for entry in declared.get('services', [])}
+                        - set(cluster['services']))
+    if unapproved:
+        raise RuntimeError('Private exposures lack approved services; resolvers retained: '
+                           + ', '.join(unapproved))
     routed = {name[:-len(zone) - 1] for name in cluster['private_routes']
               if name.endswith('.' + zone) and name[:-len(zone) - 1]}
     names = sorted(set(declared['names']) & routed)
@@ -400,6 +416,89 @@ def cloudflare_zone_name(credentials, zone_id):
     raise RuntimeError('Cloudflare zone lookup failed; exposures retained')
 
 
+def cloudflare_get(credentials, path):
+    """Authoritative Cloudflare read; tries the DNS token, then management."""
+    for token in (credentials['TF_VAR_dns_api_token'], credentials['CLOUDFLARE_API_TOKEN']):
+        request = urllib.request.Request(
+            'https://api.cloudflare.com/client/v4/' + path,
+            headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                document = json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code in (401, 403):
+                continue
+            raise RuntimeError('Cloudflare lookup failed; retirement unverified') from None
+        except (urllib.error.URLError, ValueError):
+            continue
+        if document.get('success'):
+            return document.get('result')
+    raise RuntimeError('Cloudflare lookup failed; retirement unverified')
+
+
+def verify_retirement(base, credentials, retired_public, withdrawn_private, cluster):
+    """Authoritative withdrawal proof; live route absence may lag one Argo sync."""
+    proof = {}
+    ingress = None
+    if retired_public:
+        config = cloudflare_get(credentials, 'accounts/%s/cfd_tunnel/%s/configurations'
+                                % (base['account_id'], base['tunnel_id']))
+        wrapped = config.get('config', {}) if isinstance(config, dict) else {}
+        inner = wrapped.get('ingress', []) if isinstance(wrapped, dict) else None
+        ingress = [row.get('hostname') for row in inner if isinstance(row, dict)] \
+            if isinstance(inner, list) else None
+        if not isinstance(ingress, list):
+            raise RuntimeError('Tunnel configuration shape changed; retirement unverified')
+    for hostname in sorted(retired_public):
+        records = cloudflare_get(credentials, 'zones/%s/dns_records?name=%s'
+                                 % (base['zone_id'], hostname))
+        if not isinstance(records, list):
+            raise RuntimeError('DNS lookup shape changed; retirement unverified')
+        dns_gone = records == []
+        tunnel_gone = hostname not in ingress
+        route_gone = hostname not in cluster['public_routes']
+        proof[hostname] = {'dnsWithdrawn': dns_gone, 'tunnelWithdrawn': tunnel_gone,
+                           'routeAbsent': route_gone,
+                           'verified': dns_gone and tunnel_gone and route_gone}
+    if withdrawn_private:
+        confirmed = {}
+        for prefix in ('VM', 'VM2'):
+            try:
+                observed = json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
+                                          'python3 /var/lib/cloudlab/private-dns/dns_host.py absent '
+                                          + ' '.join(sorted(withdrawn_private))))
+            except ValueError:
+                raise RuntimeError('Resolver retirement proof failed; retained generation kept')
+            for name in observed.get('absent', []):
+                confirmed[name] = confirmed.get(name, 0) + 1
+        for hostname in sorted(withdrawn_private):
+            dns_gone = confirmed.get(hostname, 0) == 2
+            route_gone = hostname not in cluster['private_routes']
+            proof[hostname] = {'dnsWithdrawn': dns_gone, 'routeAbsent': route_gone,
+                               'verified': dns_gone and route_gone}
+    return {'verified': all(row['verified'] for row in proof.values()), 'hostnames': proof}
+
+
+def retired_hostnames(state_document, current):
+    """Pre-apply service hostnames absent from current intent.
+
+    Union of service Access-application domains and service DNS-record names:
+    public-access services publish DNS records without an Access application,
+    so domains alone would leave their retirement proof vacuous.
+    """
+    before = set()
+    for resource in state_document.get('values', {}).get('root_module', {}).get('resources', []):
+        address = resource.get('address', '')
+        values = resource.get('values', {}) or {}
+        if address.startswith('cloudflare_zero_trust_access_application.service_application['):
+            if values.get('domain'):
+                before.add(values['domain'])
+        elif address.startswith('cloudflare_dns_record.service_publication['):
+            if values.get('name'):
+                before.add(values['name'])
+    return sorted(before - set(current))
+
+
 def plan_owned_scope(document, compiled_keys, retired_keys):
     """Only service-derived resources may change; shared state is untouchable."""
     for resource in document.get('resource_changes', []):
@@ -422,36 +521,19 @@ def plan_owned_scope(document, compiled_keys, retired_keys):
     return True
 
 
-def reconcile_cloudflare(config, github, cluster, *, review=None):
-    """Compile public exposures; plan always, apply only the reviewed plan."""
+def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
+    """Compile public exposures; plan always, apply only the merged binding."""
     base, backend, credentials, encryption = cloudflare_inputs()
     zone = cloudflare_zone_name(credentials, base['zone_id'])
     repo = public_slug()
     revision = github.ref(repo)
-    paths = [path for path in github.tree(repo, revision)
-             if re.fullmatch(r'services/[a-z][a-z0-9-]+/exposure[.]yaml', path)]
-    if len(paths) > 20:
-        raise RuntimeError('Public exposures exceed their bound')
-    documents = []
-    exposures = WORK / 'exposures'
-    exposures.mkdir(parents=True, exist_ok=True)
-    for stale in exposures.iterdir():
-        if stale.name != revision:
-            shutil.rmtree(stale, ignore_errors=True)
-    with_dir = exposures / revision
-    if with_dir.exists():
-        shutil.rmtree(with_dir)
-    for path in sorted(paths):
-        raw = github.contents(repo, path, revision)
-        if raw is None:
-            raise RuntimeError('Public exposure snapshot is incomplete; refused')
-        target = with_dir / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(raw)
-        try:
-            documents.append(public_exposure.validate_file(str(target), zone))
-        except Exception as error:
-            raise RuntimeError('Public exposure invalid; last-valid state retained') from error
+    raw = github.contents(repo, EXPOSURES_PATH, revision, limit=MAX_FILE_BYTES)
+    if raw is None:
+        raise RuntimeError('Public exposures unavailable; last-valid state retained')
+    try:
+        documents = public_exposure.validate_bundle(raw.decode(), zone)
+    except Exception as error:
+        raise RuntimeError('Public exposure invalid; last-valid state retained') from error
     protected = [row for row in documents
                  if row['publication'] == 'published' and row['exposure']['access'] != 'public']
     if protected and config['free_tier'] != '1':
@@ -519,15 +601,26 @@ def reconcile_cloudflare(config, github, cluster, *, review=None):
             retired_keys.add(match[1])
     plan_owned_scope(document, set(compiled['applications']), retired_keys)
     drifted = planned.returncode == 2
+    published = sorted(compiled['service_exposures'])
+    current = {value['exposure']['hostname'] for value in compiled['service_exposures'].values()}
     if not drifted:
         return {'ready': True, 'changed': False, 'revision': revision, 'plan': digest,
-                'published': sorted(compiled['service_exposures'])}
-    if review is None:
+                'published': published, 'retired': []}
+    # Retired hostnames are pre-apply service hostnames absent from current intent.
+    retired = retired_hostnames(json.loads(tofu(directory, environment, 'show', '-json')), current)
+    approval_raw = github.contents(repo, APPROVAL_PATH, revision)
+    approved = False
+    if approval_raw is not None:
+        try:
+            current_binding, approved_plan = public_exposure.validate_approval(
+                approval_raw.decode(), revision)
+        except Exception as error:
+            raise RuntimeError('Cloudflare approval binding invalid; exposures retained') from error
+        approved = current_binding and approved_plan == digest
+    if not approved or not apply_allowed:
         return {'ready': True, 'changed': False, 'revision': revision, 'plan': digest,
-                'published': sorted(compiled['service_exposures']), 'drifted': True,
-                'pending_review': True}
-    if review != digest:
-        raise RuntimeError('Apply requires the exact reviewed plan')
+                'published': published, 'retired': retired, 'drifted': True,
+                'approved': approved, 'pending_review': True}
     tofu(directory, environment, 'init', '-input=false', '-reconfigure')
     applied = subprocess.run(['tofu', 'apply', '-input=false', '-auto-approve', 'plan'],
                              cwd=directory, env=environment, capture_output=True,
@@ -535,7 +628,7 @@ def reconcile_cloudflare(config, github, cluster, *, review=None):
     if applied.returncode:
         raise RuntimeError('Native Cloudflare apply failed; inspect shared state before retrying')
     return {'ready': True, 'changed': True, 'revision': revision, 'plan': digest,
-            'published': sorted(compiled['service_exposures'])}
+            'published': published, 'retired': retired, 'approved': True}
 
 
 def redact(status):
@@ -559,6 +652,13 @@ def redact(status):
                           'platform': len(dns.get('platform', [])),
                           'unrouted_platform': len(dns.get('unrouted_platform', [])),
                           'hosts': hosts}
+    retirement = trimmed.get('retirement')
+    if isinstance(retirement, dict) and isinstance(retirement.get('hostnames'), dict):
+        pending = sum(not row['verified'] for row in retirement['hostnames'].values())
+        trimmed['retirement'] = {'verified': retirement['verified'],
+                                 'hostnames': len(retirement['hostnames']), 'pending': pending}
+        if retirement.get('error'):
+            trimmed['retirement']['error'] = retirement['error']
     return trimmed
 
 
@@ -570,8 +670,8 @@ def report(status):
     print(json.dumps(redact(status), sort_keys=True), flush=True)
 
 
-def once(config, github, *, review=None):
-    """Converge tailnet and DNS; plan Cloudflare, applying only when reviewed."""
+def once(config, github):
+    """Converge tailnet and DNS; plan Cloudflare, applying only when bound."""
     status, failed = {}, False
     try:
         tailnet = reconcile_tailnet(config, github)
@@ -603,31 +703,136 @@ def once(config, github, *, review=None):
         failed = True
     if cluster:
         try:
-            status['cloudflare'] = reconcile_cloudflare(config, github, cluster, review=review)
+            status['cloudflare'] = reconcile_cloudflare(config, github, cluster)
         except RuntimeError as error:
             failed = True
             status['cloudflare'] = {'ready': False, 'error': str(error)}
     else:
         status['cloudflare'] = {'ready': False, 'skipped': True}
         failed = True
+    retired_public = []
+    withdrawn_private = set()
+    if status.get('cloudflare', {}).get('changed'):
+        retired_public = status['cloudflare'].get('retired', [])
+    if isinstance(status.get('dns'), dict) and isinstance(status['dns'].get('hosts'), dict):
+        zone = (tailnet or {}).get('zone', '')
+        for detail in status['dns']['hosts'].values():
+            withdrawn_private.update(label + '.' + zone for label in detail.get('withdrawn', []))
+    if (retired_public or withdrawn_private) and cluster:
+        try:
+            base = credentials = None
+            if retired_public:
+                base, _, credentials, _ = cloudflare_inputs()
+                base = {'account_id': base['account_id'], 'zone_id': base['zone_id'],
+                        'tunnel_id': base['tunnel_id']}
+            status['retirement'] = verify_retirement(base, credentials, retired_public,
+                                                     withdrawn_private, discover_cluster())
+        except RuntimeError as error:
+            failed = True
+            status['retirement'] = {'verified': False, 'error': str(error)}
+    elif not cluster:
+        status['retirement'] = {'verified': False, 'skipped': True}
+        failed = True
+    else:
+        status['retirement'] = {'verified': True, 'hostnames': {}}
     status['ok'] = not failed
     report(status)
     return status
 
 
-def main(argv):
-    if argv[:1] not in (['once'], ['loop']):
-        raise SystemExit('Connectivity reconciler requires once or loop')
-    review = None
-    if '--review' in argv:
+def verify(config, github):
+    """Read-only proof that live state matches accepted Git intent; never mutates."""
+    proof, failed = {}, False
+    try:
+        repo = repository_slug(config['private_repository'])
+        revision = github.ref(repo)
+        raw = github.contents(repo, POLICY_PATH, revision)
+        if raw is None:
+            proof['tailnet'] = {'verified': False, 'reason': 'no tailnet declaration'}
+            failed = True
+            declared = None
+        else:
+            import yaml
+            try:
+                declared = tailnet_policy.validate_policy(yaml.safe_load(raw))
+            except Exception as error:
+                raise RuntimeError('Tailnet declaration invalid') from error
+            if declared['administrator'] != config['administrator']:
+                raise RuntimeError('Tailnet declaration administrator differs from the approved login')
+            api = TailnetAPI('tailscale-policy')
+            mapping, users = tailnet_addresses(api, declared['resolvers'])
+            servers = [mapping[name] for name in declared['resolvers']]
+            zone = declared['zone']
+            identity_host = 'login.' + zone.removeprefix('internal.')
+            current, _ = api.request('GET', 'tailnet/-/acl')
+            live_dns = api.request('GET', 'tailnet/-/dns/split-dns')[0]
+            desired = tailnet_policy.candidate(
+                current, declared, servers, users - {declared['administrator']})
+            desired_dns = tailnet_policy.split_dns(
+                tailnet_policy.split_dns(live_dns, zone, servers), identity_host, servers)
+            proof['tailnet'] = {
+                'verified': current == desired and all(
+                    live_dns.get(name) == desired_dns[name] for name in (zone, identity_host)),
+                'revision': revision, 'aclConverged': current == desired,
+                'splitDnsConverged': all(live_dns.get(name) == desired_dns[name]
+                                         for name in (zone, identity_host)),
+                'declaredTests': len(declared['accessTests'])}
+            if not proof['tailnet']['verified']:
+                failed = True
+    except RuntimeError as error:
+        failed = True
+        proof['tailnet'] = {'verified': False, 'error': str(error)}
+        declared = None
+    try:
+        cluster = discover_cluster()
+        proof['cluster'] = {'ready': True, 'privateRoutes': len(cluster['private_routes']),
+                            'publicRoutes': len(cluster['public_routes'])}
+    except RuntimeError as error:
+        failed = True
+        proof['cluster'] = {'ready': False, 'error': str(error)}
+        cluster = None
+    if declared is not None and cluster is not None:
         try:
-            review = argv[argv.index('--review') + 1]
-        except IndexError:
-            raise SystemExit('Apply requires the exact reviewed plan hash') from None
-        if not re.fullmatch('[a-f0-9]{64}', review or ''):
-            raise SystemExit('Apply requires the exact reviewed plan hash')
-    if argv[0] == 'loop' and review is not None:
-        raise SystemExit('Standing reconciliation never carries a standing apply review')
+            digests = {}
+            for prefix in ('VM', 'VM2'):
+                observed = json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
+                                          'python3 /var/lib/cloudlab/private-dns/dns_host.py check'))
+                if not observed.get('dns_ready'):
+                    raise RuntimeError('Resolver on ' + prefix + ' is not ready')
+                digests[prefix] = observed['digest']
+            proof['dns'] = {'verified': digests['VM'] == digests['VM2'],
+                            'generationsMatch': digests['VM'] == digests['VM2']}
+            if not proof['dns']['verified']:
+                failed = True
+        except (RuntimeError, ValueError):
+            failed = True
+            proof['dns'] = {'verified': False,
+                            'error': 'Resolver generations differ or are unreadable'}
+    else:
+        proof['dns'] = {'verified': False, 'skipped': True}
+        failed = True
+    if cluster is not None:
+        try:
+            planned = reconcile_cloudflare(config, github, cluster, apply_allowed=False)
+            proof['cloudflare'] = {'verified': True, 'revision': planned['revision'],
+                                   'plan': planned['plan'], 'drifted': bool(planned.get('drifted')),
+                                   'approved': bool(planned.get('approved', False))}
+        except RuntimeError as error:
+            failed = True
+            proof['cloudflare'] = {'verified': False, 'error': str(error)}
+    else:
+        proof['cloudflare'] = {'verified': False, 'skipped': True}
+        failed = True
+    proof['verified'] = not failed
+    report(proof)
+    return proof
+
+
+def main(argv):
+    if argv[:1] not in (['once'], ['loop'], ['verify']):
+        raise SystemExit('Connectivity reconciler requires once, loop, or verify')
+    if '--review' in argv:
+        raise SystemExit('The review flag is retired; approval comes from the merged Git binding')
     os.umask(0o077)
     WORK.mkdir(parents=True, exist_ok=True)
     with (WORK / 'lock').open('a') as lock:
@@ -641,8 +846,11 @@ def main(argv):
                 raise SystemExit('Missing lab connection input: ' + name)
         github = GitHub(config['github_token'])
         if argv[0] == 'once':
-            status = once(config, github, review=review)
+            status = once(config, github)
             raise SystemExit(0 if status['ok'] else 1)
+        if argv[0] == 'verify':
+            proof = verify(config, github)
+            raise SystemExit(0 if proof['verified'] else 1)
         while True:
             try:
                 once(config, github)

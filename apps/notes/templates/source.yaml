@@ -1,3 +1,4 @@
+{{- if not .Values.renderDisabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,3 +10,4 @@ data:
   {{- end }}
 binaryData:
   lib.zip: {{ .Files.Get "lib.zip" | b64enc }}
+{{- end }}
