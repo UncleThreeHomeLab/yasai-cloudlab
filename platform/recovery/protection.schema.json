@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Private backup protection bindings",
+  "$comment": "Private file services/<name>/protection.yaml. Each binding selects one accepted public profile, binds protected database/bucket/PVC references to their catalog requests, and names its approved destination reference. Resource references must match the accepted private service catalog; the destination title must resolve in the vault inventory. No restore action or secret value belongs here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "service",
+    "protection"
+  ],
+  "properties": {
+    "service": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,30}$"
+    },
+    "protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "resources",
+        "destinationReference"
+      ],
+      "properties": {
+        "profile": {
+          "const": "coordinated-monthly"
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "reference"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "database",
+                  "bucket",
+                  "pvc"
+                ]
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              }
+            }
+          }
+        },
+        "destinationReference": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,99}$"
+        }
+      }
+    }
+  }
+}
