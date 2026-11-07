@@ -72,9 +72,9 @@ permissions:
   # Keep verified guard bytes unchanged; enable a reviewed pin and commitment with
   # private active assignments: []. Verify sources/zero bindings before assignment.
   # Initial activation is staged, not an atomic cross-Application dependency.
-  enabled: false
-  revision: ''
-  acceptanceCommitment: ''
+  enabled: true
+  revision: 0613d2cf624d0c9d6c13c328c0fea8e3ea9b0987
+  acceptanceCommitment: '85bdb8db180dc381c5cdb4cd1e03695a84c46e1f63a055c070683ab85d80b933'
 ci:
   enabled: true
   poolEnabled: false
