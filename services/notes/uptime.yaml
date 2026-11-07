@@ -1,0 +1,7 @@
+service: notes
+independentMonitoring:
+  exposureReference: public
+  path: /monitoring-proof/ready
+  expectedStatus: 200
+  intervalSeconds: 300
+  notificationProfile: approved-operator-email
