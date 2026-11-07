@@ -83,3 +83,10 @@ rollouts:
   enabled: true
 previews:
   enabled: true
+  configuration:
+    # Enable only after the accepted identity, DNS and RBAC owners are active,
+    # with a reviewed immutable platform revision and acceptance commitment.
+    enabled: false
+    revision: ''
+    acceptanceCommitment: ''
+    permissionsEnabled: false

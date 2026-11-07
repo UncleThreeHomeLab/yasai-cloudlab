@@ -55,3 +55,65 @@ spec:
   dataFrom: [{extract: {key: github-argocd}}]
 {{- end }}
 {{- end }}
+{{- $previews := .Values.previews.configuration }}
+{{- if or (not (kindIs "map" $previews)) (not (kindIs "bool" $previews.enabled)) }}
+{{- fail "Previews configuration requires a YAML boolean enabled setting" }}
+{{- end }}
+{{- $previewsAcceptance := $previews.acceptanceCommitment }}
+{{- if and (hasKey $previews "acceptanceCommitment") (not (kindIs "string" $previewsAcceptance)) }}
+{{- fail "Preview source acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
+{{- if and $previewsAcceptance (not (regexMatch "^[a-f0-9]{64}$" $previewsAcceptance)) }}
+{{- fail "Preview source acceptance commitment must be an empty string or SHA-256" }}
+{{- end }}
+{{- if and .Values.previews.enabled $previews.enabled (hasKey .Values.identity "argo") }}
+{{- if not (kindIs "bool" $previews.permissionsEnabled) }}
+{{- fail "Previews permissions require a YAML boolean" }}
+{{- end }}
+{{- if not (regexMatch "^[a-f0-9]{40}$" ($previews.revision | default "")) }}
+{{- fail "Preview catalog requires its reviewed immutable platform revision" }}
+{{- end }}
+{{- if not (regexMatch "^[a-f0-9]{64}$" ($previewsAcceptance | default "")) }}
+{{- fail "Enabled preview catalog requires a reviewed acceptance commitment" }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cloudlab-previews
+  namespace: argocd
+  labels: {cloudlab.io/owner: preview-platform}
+  annotations:
+    argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
+spec:
+  goTemplate: true
+  goTemplateOptions: ['missingkey=error']
+  generators:
+    - merge:
+        mergeKeys: [consumer]
+        generators:
+          - list:
+              elements: [{consumer: previews}]
+          - git:
+              repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              files: [{path: platform/acceptance/previews.yaml}]
+  syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
+  template:
+    metadata:
+      name: cloudlab-previews
+      labels: {cloudlab.io/owner: preview-platform}
+      annotations:
+        argocd.argoproj.io/compare-options: IgnoreExtraneous
+        argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
+        argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-previews
+    spec:
+{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("previews" | toJson) | replace "@@PRIVATE_REPOSITORY@@" (.Values.identity.argo.valuesRepository | toJson) | replace "@@COMMITMENT@@" ($previewsAcceptance | toJson) | replace "@@PATHS_LF@@" ("previews/catalog.yaml" | toJson) | trim }}
+{{- $spec := dict "project" "cloudlab-previews" "sources" (list
+  (dict "repoURL" .Values.repository "targetRevision" $previews.revision "path" "platform/delivery/previews" "helm" (dict "valueFiles" (list "$values/previews/catalog.yaml") "valuesObject" (dict "enabled" true "permissionsEnabled" $previews.permissionsEnabled "platformRepository" .Values.repository)))
+  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $gate "ref" "values"))
+  "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
+  "syncPolicy" (dict "automated" (dict "enabled" true "prune" false "selfHeal" true "allowEmpty" false)
+    "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false")) }}
+{{ toYaml $spec | indent 6 }}
+{{- end }}
