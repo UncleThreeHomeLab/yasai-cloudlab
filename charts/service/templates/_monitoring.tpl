@@ -25,11 +25,7 @@
 {{- end -}}
 {{- end -}}
 {{- if not $port }}{{ fail "HTTP collection requires the dedicated http-metrics port" }}{{ end -}}
-{{- range concat (list ($v.exposure | default (dict "class" "none"))) ($v.additionalExposures | default list) -}}
-{{- if ne .class "none" -}}
-{{- if or (not (hasKey . "port")) (eq (int .port) $port) (not (hasKey $numbers (printf "%d" (int .port)))) }}{{ fail "Exposures require explicit declared non-metrics ports" }}{{ end -}}
-{{- end -}}
-{{- end -}}
+{{/* Exposure ports bind to declared non-metrics ports in the services authorization policy. */}}
 {{- range $v.health | default dict -}}
 {{- if or (not (hasKey $ports .port)) (eq (int (get $ports .port)) $port) }}{{ fail "Health probes require declared non-metrics ports" }}{{ end -}}
 {{- end -}}

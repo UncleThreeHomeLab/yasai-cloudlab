@@ -15,45 +15,48 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `environment` | Non-secret strings; secret values belong in 1Password |
 | `secrets`, `configMaps` | Approved names and bounded read-only mount paths |
 | `persistence` | Opt-in replicated storage, at most 4 GiB, retained on removal |
-| `exposure`, `additionalExposures` | One primary exposure plus optional private views; common hostname/class/access/path/port fields |
+| `exposure` | Class signal only (`none`, `public`, `private`); addresses come from exposure inputs, never the catalog |
 | `data` | Optional database/bucket names, scoped credential references and `retain` policy |
-| `oidc` | Optional approved identity client reference; legacy catalogs retain explicit client settings |
+| `oidc` | Optional explicit identity client settings; the identity owner compiles clients from the catalog |
 | `monitoring` | Disabled; application monitoring stays with its accepted telemetry owner |
 | `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
 
 Source visibility (`approval.visibility`) is independent of network exposure.
-The reference profile requires a catalog owner revision that supports it; historical
-owners reject it. Current deployed catalogs remain on their accepted profile until
-owner promotion, network prerequisites and private migration are approved.
 
-For ordinary `charts/service` entries, reference the existing private identity owner:
+Public exposure addresses live only in public `services/exposures.yaml`; private
+exposure addresses live only in private `platform/access/policy.yaml`. Service
+routes, DNS, tunnel/Access protection, and identity callbacks derive from those
+files. Ordinary catalog entries declare only the exposure class; catalog hostname,
+access, path, port, backend, and additional-view fields are retired. Notes and
+composition keep catalog-driven routes with explicit addresses.
+
+For ordinary `charts/service` entries, declare explicit identity settings:
 
 ```yaml
 definition:
   oidc:
     enabled: true
-    clientReference: prices-ui
-approval:
-  identityClient:
     realm: applications
     client: prices-ui
+    public: true
+    callbackPaths: [/oauth/callback]
+    audience: prices-api
+    scopes: [profile, email]
+    roleMapping: {viewer: [viewer]}
 ```
 
-These are fields within a complete catalog entry. Client settings belong only in
-private `identity/configmap.yaml`; its leased Keycloak writer owns convergence.
-For a confidential client, add the same `secretReference` to both objects, its
-approved `secretReferences` entry and scoped `definition.secrets` mount. Existing
-1Password credentials must be complete; missing approved service items are created
-empty by the control-machine credential reconciler after the catalog merge, while
-shared OIDC keys stay user-supplied. Secret, identity and data bindings live only
+These are fields within a complete catalog entry. The identity owner compiles
+applications-realm clients from these settings plus approved exposure hosts; its
+leased Keycloak writer owns convergence. The reference profile (`clientReference`,
+`approval.identityClient`) is retired. For a confidential client, add
+`secretReference`, its approved `secretReferences` entry and scoped
+`definition.secrets` mount. Missing approved service items are created empty by the
+control-machine credential reconciler after the catalog merge, while shared OIDC
+keys stay user-supplied. Confidential clients without a ready vault secret stay
+pending and never block other clients. Secret, identity and data bindings live only
 in the accepted private catalog; per-service `secrets.yaml` files do not exist.
-Public references have no credential. Notes and composition adapters require the
-legacy profile and reject references. Do not mix reference and legacy settings.
 
-Reference readiness checks compiler-owned client fields and the scoped confidential
-secret against the provider. Provider metadata, other attributes/configuration,
-client-role resources, realm roles, group grants, memberships and issued-token roles
-remain unverified. Real browser login and allowed/denied application checks remain required.
+Real browser login and allowed/denied application checks remain required.
 Administrator-approved multi-workload charts use optional `approval.composition` in
 the same private catalog. Its exact chart source, image value paths, rendered pod
 profiles, named backends/selectors, retained claims, aggregate secret item fields and namespace
@@ -130,7 +133,7 @@ overrides it. This avoids conflicting revisions of the same Argo repository.
 Public exposure requires an explicit `public`, `human` or `machine` classification.
 Private exposure requires an `internal` hostname and tailnet protection. Confidential
 OIDC clients require a scoped secret reference; public PKCE clients have no secret.
-Callback URLs and web origins derive from the same exposure hosts. Identity alone
+Callback URLs and web origins derive from approved exposure hosts. Identity alone
 creates, rotates and removes clients. Workload mTLS remains a separate mesh boundary.
 
 Service PVCs use one workload replica and retain two storage replicas. The data
@@ -147,56 +150,44 @@ usernames. Required database fields are `username`, `password`, `database`;
 bucket fields are `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `ENDPOINT`, `REGION`.
 Privileged data credentials and migration credentials never reach application pods.
 
-1. Validate the definition with `docker compose run --rm lab service validate <file>`.
-2. Review the complete catalog, exact source SHA and approved references. Use
-   `docker compose --profile services run --rm service catalog-propose <file>`
-   with the existing GitHub writer supplied through standard input if needed.
-3. For OIDC, merge settings through the accepted private identity inventory and
-   observe normal writer convergence. References bind that client without copying settings.
+1. Write the public exposure entry in public `services/exposures.yaml` and merge
+   its PR; write private exposures in private `platform/access/policy.yaml` and
+   merge its PR. Ordinary catalog entries carry only the exposure class.
+2. Review the complete catalog, exact source SHA and approved references, then
+   merge the private catalog PR and rotate the services acceptance receipt and
+   commitment for the catalog, identity values, and policy paths together.
+3. For OIDC, declare explicit client settings in the catalog entry. The identity
+   owner compiles the client and converges it through the normal leased writer;
+   no identity inventory hand-edit is needed for applications clients.
 4. Enable `services.enabled` in the public root; `services.revision` is the exact
-   platform commit for its root-owned catalog Application. Initial identity binding
-   checks catalog ownership collisions and composition admission before activation.
-   Existing catalog adoption requires the same read-only guard before handoff.
-   Missing approved data items are provisioned as empty placeholders by the
-   credential reconciler; existing values persist.
-   Run `lab setup` when prerequisites need convergence. Argo reads
-   `services/catalog.json` directly from the protected private branch and deploys
-   supported definition changes without a local catalog apply or VM lookup.
-   Data owners reconcile approved requests and grants.
-5. Run `service ready <bundle>`, then `service publish <bundle>`. The bundle contains
-   `definition`, `approval`, `platformRepository`, `platformRevision`, `origin` and
-   `application` (null for public access). Backend, client, scoped credentials and
-   TLS must converge before protection/tunnel checks and DNS publication.
-6. Run `docker compose run --build --rm lab prove` and the service lifecycle checks.
-   Use `service fixture-proof <bundle>` only for the designated disposable fixture;
-   it publishes twice, retires reachability/workload, and verifies retained SQL,
-   S3, volume contents, credentials and shared resource identities.
+   platform commit for its root-owned catalog Application. Missing approved data
+   items are provisioned as empty placeholders by the credential reconciler;
+   existing values persist. Argo deploys supported definition changes and repairs
+   drift without a local catalog apply. Data owners reconcile approved requests
+   and grants.
+5. Merge the exposure PRs, then read readiness from Argo (routes, certificates)
+   and the connectivity reconciler status (DNS, tunnel, protection). For public
+   DNS, merge the plan-approval binding PR the reconciler reports; the standing
+   loop applies the bound plan with no second command. Backend, client, scoped
+   credentials and TLS must converge before protection/tunnel checks and DNS
+   publication.
+6. Run `docker compose run --build --rm lab prove` for setup changes only.
 
-Private catalog reads use the existing scoped GitHub App. A local file under
-`docs/local` may stage a proposal; it is not required by a clean checkout. Missing
-private inputs stop before mutation or live planning. Reviewed Access protection
-must already belong to the platform; an HTTPRoute does not create DNS or Access.
+Private catalog reads use the existing scoped GitHub App. Missing private inputs
+stop before mutation or live planning. An HTTPRoute does not create DNS or Access.
 
-Remove reachability with `service retire <bundle>`. Reference clients must first be
-retained as disabled declarations with persistent client tombstones in private identity
-Git and converge to disabled provider clients. A shared active client blocks service
-retirement before DNS/routes/workloads change; service retirement never disables it.
-Reference provision/retire/remove/rotate commands are rejected; independent identity
-rotation, physical removal, recovery and token/session gates retain their scoped procedures.
-For legacy OIDC, DNS and tunnel/routes withdraw before identity or workload removal.
-Publish `identity-retire`, wait for
-disable convergence, then publish `identity-remove` and rerun retirement. Identity
-enforces its token/session grace period and preserves the vault value. Retired
-catalog entries remain as explicit retention intent. Namespaces, quotas, credentials,
-PVCs, databases, buckets and shared resources are retained; service removal never
-disposes of data. An exposure-class change requires retirement followed by a
-separately reviewed migration, not an ordinary apply.
-
-Rerun an interrupted operation with the same reviewed inputs. Existing client
-credentials persist; each stage observes its owner again. Native OpenTofu state and
-the versioned catalog remain authoritative. A successful tool apply is not a
-distributed transaction; failed native state upload requires the existing protected
-state-recovery procedure before publication resumes.
+Remove reachability through Git: set the public entry to `publication: retired`
+and merge its public PR, then bind the resulting Cloudflare plan if public DNS
+changes. Remove private policy entries only together with the catalog retirement
+in a single atomic private PR; a lone private removal fails closed. Argo
+withdraws the routes while the reconciler withdraws DNS/tunnel/protection and
+verifies authoritative withdrawal plus route absence. Identity tombstones still
+disable clients first through the private revocations registry; service
+retirement never disables a shared active client. Retired catalog entries remain
+as explicit retention intent. Namespaces, quotas, credentials, PVCs, databases,
+buckets and shared resources are retained; service removal never disposes of
+data. An exposure-class change requires retirement followed by a separately
+reviewed migration, not an ordinary apply.
 
 The pinned Kyverno legacy verifier omits Fulcio intermediate certificates. Public artifact policies therefore pin the public Fulcio roots and intermediate from Cosign-verified Sigstore TUF material; `platform/delivery/services/sigstore-fulcio.lock.json` records its source and checksums. Update these anchors with verification before upstream certificate rotation. Exact GitHub issuer, workflow identity, repository, main ref, SCT and Rekor verification remain required.
 

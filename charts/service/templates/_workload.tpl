@@ -68,9 +68,13 @@ spec:
             namespace: {{ .Release.Namespace }}
             disableInProgressLabel: true
             httpRoutes:
-              - {name: {{ .Values.name }}}
+              {{- $routeNames := list .Values.name }}
               {{- range $index, $exposure := .Values.additionalExposures }}
-              - {name: {{ printf "%s-extra-%d" $.Values.name $index }}}
+              {{- $routeNames = append $routeNames (printf "%s-extra-%d" $.Values.name $index) }}
+              {{- end }}
+              {{- if hasKey .Values "routeNames" }}{{ $routeNames = .Values.routeNames }}{{ end }}
+              {{- range $routeNames }}
+              - {name: {{ . }}}
               {{- end }}
       steps:
         - setWeight: 50

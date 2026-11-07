@@ -1,4 +1,10 @@
-"""Compile scoped identity inputs; never accept unrestricted realm imports."""
+"""Compile scoped identity inputs; never accept unrestricted realm imports.
+
+Applications clients compile from the accepted service catalog plus approved
+public and private exposures; memberships and platform clients stay
+hand-managed in the private inventory. Confidential clients without a ready
+vault secret are omitted as pending instead of blocking the realm.
+"""
 import copy
 import json
 from pathlib import Path
@@ -149,6 +155,144 @@ def client(value, secrets):
     if logout_callbacks:
         result['attributes']['post.logout.redirect.uris'] = '##'.join(logout_callbacks)
     return result
+
+
+def load_compiled_inputs(private_directory):
+    """Catalog, policy, and exposures delivered by Argo; every input required."""
+    private = Path(private_directory)
+    try:
+        catalog = json.loads((private / 'catalog').read_text())
+        policy = json.loads((private / 'policy').read_text())
+        exposures = json.loads((private / 'exposures').read_text())
+    except (OSError, ValueError):
+        raise ValueError('Compiled identity inputs are unavailable; private source refused') from None
+    return catalog, policy, exposures
+
+
+def compile_clients(catalog, policy, exposures, credentials, revocations=None):
+    """Catalog oidc plus approved exposures to client inputs.
+
+    Returns (clients, pending, skipped): clients feed client(); pending names
+    confidential clients whose vault secret is not ready yet; skipped names
+    exposure-less entries whose client carries a persistent tombstone.
+    Callbacks derive from exposure hostnames only; unknown exposures and
+    retired-client reuse fail loudly in compile_state.
+    """
+    if not isinstance(catalog, dict) or not isinstance(catalog.get('catalog'), list):
+        raise ValueError('Service catalog requires its entry list')
+    if not isinstance(policy, dict) or not isinstance(exposures, dict):
+        raise ValueError('Compiled identity inputs are unavailable; private source refused')
+    split = policy.get('tailnet', {}).get('splitDNS', {}) if isinstance(
+        policy.get('tailnet'), dict) else {}
+    zone = split.get('zone')
+    if not isinstance(zone, str) or '.' not in zone:
+        raise ValueError('Private policy zone is unavailable; private source refused')
+    private = policy.get('privateDNS', {}).get('services', []) if isinstance(
+        policy.get('privateDNS'), dict) else None
+    if not isinstance(private, list):
+        raise ValueError('Private exposures are unavailable; private source refused')
+    public = exposures.get('exposures', {})
+    if not isinstance(public, dict):
+        raise ValueError('Public exposures are unavailable; private source refused')
+    tombstoned = set()
+    if revocations is not None:
+        realms = revocations.get('realms', {}) if isinstance(revocations, dict) else None
+        denied = realms.get('applications', {}) if isinstance(realms, dict) else None
+        tombstones = denied.get('clients', []) if isinstance(denied, dict) else None
+        if (not isinstance(tombstones, list)
+                or any(not isinstance(entry, str) or not entry for entry in tombstones)
+                or len(set(tombstones)) != len(tombstones)):
+            raise ValueError('Invalid revocation registry')
+        tombstoned = set(tombstones)
+    secrets = credentials.get('applications', {}) if isinstance(credentials, dict) else {}
+    clients, pending, skipped, seen = [], [], [], set()
+    for index, entry in enumerate(catalog['catalog']):
+        if not isinstance(entry, dict):
+            raise ValueError('Catalog entry %d is invalid' % index)
+        approval, definition = entry.get('approval', {}), entry.get('definition', {})
+        service = approval.get('name') if isinstance(approval, dict) else None
+        oidc = definition.get('oidc', {}) if isinstance(definition, dict) else {}
+        if not isinstance(service, str) or not isinstance(oidc, dict):
+            raise ValueError('Catalog entry %d is invalid' % index)
+        if entry.get('publication') == 'retired' or oidc.get('enabled') is not True:
+            continue
+        if 'clientReference' in oidc:
+            raise ValueError('Identity reference profile is retired; '
+                             'declare explicit client settings: ' + service)
+        if (oidc.get('realm') != 'applications' or not isinstance(oidc.get('client'), str)
+                or not isinstance(oidc.get('public'), bool)):
+            raise ValueError('Invalid identity client settings: ' + service)
+        hosts = []
+        published = public.get(service, {})
+        if isinstance(published, dict) and published.get('publication') == 'published':
+            hostname = published.get('exposure', {}).get('hostname')
+            if isinstance(hostname, str) and hostname:
+                hosts.append(hostname)
+        hosts.extend(item['name'] + '.' + zone for item in private
+                     if isinstance(item, dict) and item.get('service') == service
+                     and isinstance(item.get('name'), str))
+        if not hosts:
+            identifier = name(oidc['client'])
+            if identifier not in tombstoned:
+                raise ValueError('Identity client requires an approved exposure: ' + service)
+            skipped.append({'service': service, 'client': identifier})
+            continue
+        identifier = name(oidc['client'])
+        if identifier in seen:
+            raise ValueError('Duplicate managed client: ' + identifier)
+        seen.add(identifier)
+        if not oidc['public']:
+            secret = secrets.get(identifier)
+            if not isinstance(secret, str) or len(secret) < 32:
+                pending.append({'service': service, 'client': identifier})
+                continue
+        callbacks = sorted({'https://%s%s' % (host, path) for host in hosts
+                            for path in oidc.get('callbackPaths', [])})
+        clients.append({'id': identifier, 'callbacks': callbacks,
+                        'audience': oidc.get('audience'), 'public': oidc['public'],
+                        'enabled': True, 'roles': sorted(oidc.get('roleMapping', {})),
+                        'scopes': oidc.get('scopes', ['profile']),
+                        'role_groups': oidc.get('roleMapping', {}),
+                        'web_origins': sorted({'https://' + host for host in hosts})})
+    return (sorted(clients, key=lambda row: row['id']), pending,
+            sorted(skipped, key=lambda row: row['client']))
+
+
+def merge_compiled_source(desired, clients):
+    """Hand-managed memberships and platform clients plus compiled clients."""
+    if (not isinstance(desired, dict) or set(desired) != {'format', 'realms'}
+            or desired.get('format') != 1
+            or set(desired.get('realms', {})) - set(REALMS)):
+        raise ValueError('Unsupported private identity source')
+    if 'clients' in desired.get('realms', {}).get('applications', {}):
+        raise ValueError('Applications clients come from the service catalog; '
+                         'remove them from the private inventory')
+    realms = {}
+    for realm in REALMS:
+        current = desired['realms'].get(realm, {})
+        if set(current) - {'clients', 'memberships'}:
+            raise ValueError('Unsupported private realm fields')
+        realms[realm] = {'clients': list(current.get('clients', [])) if realm == 'platform' else [],
+                         'memberships': list(current.get('memberships', []))}
+    realms['applications']['clients'] = clients
+    return {'format': 1, 'realms': realms}
+
+
+def load_merged_source(private_directory):
+    """Desired memberships plus catalog-compiled clients, pending reported."""
+    private = Path(private_directory)
+    desired = json.loads((private / 'desired_state').read_text())
+    credentials = json.loads((private / 'client_secrets').read_text())
+    revocations = json.loads((private / 'revocations').read_text())
+    catalog, policy, exposures = load_compiled_inputs(private)
+    clients, pending, skipped = compile_clients(catalog, policy, exposures, credentials, revocations)
+    if pending:
+        print('Confidential clients pending vault secrets: '
+              + ', '.join(row['client'] for row in pending), flush=True)
+    if skipped:
+        print('Tombstoned clients skipped without exposures: '
+              + ', '.join(row['client'] for row in skipped), flush=True)
+    return merge_compiled_source(desired, clients)
 
 
 def baseline(realm, rp_id):
@@ -331,9 +475,9 @@ def prepare(directory, rp_id, private_directory=None, bootstrap_directory=None, 
     if private_directory is not None:
         # Missing/unreadable optional source is an error, never an empty import.
         private = Path(private_directory)
-        source = json.loads((private / 'desired_state').read_text())
         credentials = json.loads((private / 'client_secrets').read_text())
         revocations = json.loads((private / 'revocations').read_text())
+        source = load_merged_source(private)
     documents = {realm: restrict_password_grants(compile_state(realm, rp_id, source, credentials, revocations))
                  for realm in REALMS}
     if bootstrap_directory is not None:
@@ -554,7 +698,7 @@ def prepare_proof_user(directory, nonce, admin_host, realm='platform'):
     token = private_request(origin + '/realms/' + realm + '/protocol/openid-connect/token', form={
         'grant_type': 'client_credentials', 'client_id': 'realm-writer',
         'client_secret': Path('/credentials/' + realm + '_client_secret').read_text()})['access_token']
-    source = json.loads(Path('/private/desired_state').read_text())
+    source = load_merged_source('/private')
     revoked = json.loads(Path('/private/revocations').read_text())
     credentials = json.loads(Path('/private/client_secrets').read_text())
     state = compile_state(realm, 'validation.invalid', source, credentials, revoked)
@@ -578,7 +722,7 @@ def prepare_application_owner(directory, nonce, admin_host):
     token = private_request(origin + '/realms/applications/protocol/openid-connect/token', form={
         'grant_type': 'client_credentials', 'client_id': 'realm-writer',
         'client_secret': Path('/credentials/applications_client_secret').read_text()})['access_token']
-    source = json.loads(Path('/private/desired_state').read_text())
+    source = load_merged_source('/private')
     revoked = json.loads(Path('/private/revocations').read_text())
     credentials = json.loads(Path('/private/client_secrets').read_text())
     state = compile_state('applications', 'validation.invalid', source, credentials, revoked)
@@ -614,11 +758,10 @@ def prepare_removal(directory, realm, identifier, private_directory):
         raise ValueError('Removal requires a managed realm')
     identifier = name(identifier)
     private = Path(private_directory)
-    source = json.loads((private / 'desired_state').read_text())
     registry = json.loads((private / 'revocations').read_text())
-    if (source.get('format') != 1 or registry.get('format') != 1 or
-            set(source.get('realms', {})) - set(REALMS) or set(registry.get('realms', {})) - set(REALMS)):
+    if (registry.get('format') != 1 or set(registry.get('realms', {})) - set(REALMS)):
         raise ValueError('Removal requires current complete private inputs')
+    source = load_merged_source(private)
     denied = registry['realms'].get(realm, {})
     if identifier not in denied.get('clients', []) or identifier not in denied.get('removed_clients', []):
         raise ValueError('Removal requires a reviewed persistent tombstone')

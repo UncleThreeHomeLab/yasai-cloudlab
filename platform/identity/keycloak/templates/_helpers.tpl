@@ -210,5 +210,9 @@ volumes:
         - secret:
             name: keycloak-client-secrets
             items: [{key: client_secrets, path: client_secrets}]
+        - configMap:
+            name: identity-compiled-inputs
+            items: [{key: catalog, path: catalog}, {key: policy, path: policy},
+                    {key: exposures, path: exposures}]
   {{- end }}
 {{- end }}

@@ -14,7 +14,7 @@ class ManagedTestPruneTests(unittest.TestCase):
                 'zone': 'internal.example.test', 'resolvers': ['cloudlab', 'cloudlab-worker'],
                 'accessTests': [(self.login, 'dns', 'allow'),
                                 ('tag:cloudlab-denied', 'private-gateway', 'deny')],
-                'names': [], 'platformNames': []}
+                'services': [], 'names': [], 'platformNames': []}
 
     def test_server_rotation_converges_without_stale_dns_tests(self):
         before = policy.candidate({'grants': []}, self.declared(), self.servers)
@@ -39,3 +39,41 @@ class ManagedTestPruneTests(unittest.TestCase):
                                    self.declared(), self.rotated)
         self.assertIn(unmanaged, rotated['tests'])
         self.assertIn(external, rotated['tests'])
+
+
+class PrivateExposureTests(unittest.TestCase):
+    def document(self, services, platform=()):
+        return {'tailnet': {'profile': 'operator-private-access',
+                            'administratorReference': 'owner@example.test',
+                            'splitDNS': {'zone': 'internal.example.test',
+                                         'resolvers': ['cloudlab', 'cloudlab-worker']},
+                            'accessTests': [{'identity': 'owner@example.test',
+                                             'destination': 'dns', 'expected': 'allow'}]},
+                'privateDNS': {'services': services, 'platformNames': list(platform)}}
+
+    def entry(self, service='prices', name='prices'):
+        return {'service': service, 'name': name, 'backend': 'web', 'path': '/', 'port': 8080}
+
+    def test_services_derive_dns_labels(self):
+        declared = policy.validate_policy(self.document([self.entry()]))
+        self.assertEqual(declared['names'], ['prices'])
+        self.assertEqual(declared['services'][0]['backend'], 'web')
+
+    def test_duplicate_labels_refused(self):
+        with self.assertRaisesRegex(ValueError, 'unique'):
+            policy.validate_policy(self.document(
+                [self.entry(), self.entry(service='shop', name='prices')]))
+
+    def test_reserved_service_label_refused(self):
+        with self.assertRaisesRegex(ValueError, 'reserved platform'):
+            policy.validate_policy(self.document([self.entry(name='s3')]))
+
+    def test_service_platform_overlap_refused(self):
+        with self.assertRaisesRegex(ValueError, 'overlap'):
+            policy.validate_policy(self.document([self.entry()], ['prices']))
+
+    def test_retired_names_format_refused(self):
+        document = self.document([])
+        document['privateDNS'] = {'names': ['prices']}
+        with self.assertRaises(Exception):
+            policy.validate_policy(document)

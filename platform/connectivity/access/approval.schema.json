@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cloudflare plan approval binding",
+  "$comment": "Public file platform/access/cloudflare-approval.yaml. A merged PR carrying this binding approves exactly one main revision and one plan digest; the connectivity reconciler applies that plan with no second operator command. Stale or mismatched bindings never apply.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "revision",
+    "plan"
+  ],
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "plan": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

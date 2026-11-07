@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Public service exposure declarations",
+  "$comment": "Public file services/exposures.yaml. Single source for public hostnames and access: service routes, the Cloudflare compiler, and identity callbacks derive from it. The service catalog carries no copy of these fields. One entry per service, keyed by service name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "exposures"
+  ],
+  "properties": {
+    "exposures": {
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,30}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "publication",
+          "exposure"
+        ],
+        "properties": {
+          "service": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,30}$"
+          },
+          "publication": {
+            "enum": [
+              "published",
+              "retired"
+            ]
+          },
+          "exposure": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "class",
+              "hostname",
+              "access",
+              "backend",
+              "path",
+              "port"
+            ],
+            "properties": {
+              "class": {
+                "const": "public"
+              },
+              "hostname": {
+                "type": "string",
+                "maxLength": 253,
+                "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+              },
+              "access": {
+                "enum": [
+                  "public",
+                  "human",
+                  "machine"
+                ]
+              },
+              "accessPolicy": {
+                "enum": [
+                  "approved-human",
+                  "approved-machine"
+                ]
+              },
+              "backend": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/[A-Za-z0-9/_-]*$"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "access": {
+                      "const": "public"
+                    }
+                  }
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "accessPolicy"
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "access": {
+                      "const": "human"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "accessPolicy"
+                  ],
+                  "properties": {
+                    "accessPolicy": {
+                      "const": "approved-human"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "access": {
+                      "const": "machine"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "accessPolicy"
+                  ],
+                  "properties": {
+                    "accessPolicy": {
+                      "const": "approved-machine"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{{- if and .Values.enabled .Values.serverEnabled }}
+{{- if not (hasKey .Values "catalog") }}{{ fail "Compiled identity catalog is required" }}{{- end }}
+{{- if not (hasKey .Values "tailnet") }}{{ fail "Compiled identity policy is required" }}{{- end }}
+{{- if not (hasKey .Values "privateDNS") }}{{ fail "Compiled identity policy is required" }}{{- end }}
+{{- if not (hasKey .Values "exposures") }}{{ fail "Compiled identity exposures are required" }}{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-compiled-inputs
+data:
+  catalog: {{ dict "catalog" .Values.catalog | toJson | quote }}
+  policy: {{ dict "tailnet" .Values.tailnet "privateDNS" .Values.privateDNS | toJson | quote }}
+  exposures: {{ dict "exposures" .Values.exposures | toJson | quote }}
+{{- end }}

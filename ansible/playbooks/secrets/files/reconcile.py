@@ -236,21 +236,8 @@ def collect_oidc(name, approval, definition, references):
         return None
     mounts = [item.get('name') for item in definition.get('secrets', [])
               if isinstance(item, dict)]
-    if 'clientReference' in oidc:
-        expected = {'realm': 'applications', 'client': oidc['clientReference']}
-        if oidc.get('secretReference') is not None:
-            expected['secretReference'] = oidc['secretReference']
-        if approval.get('identityClient') != expected:
-            fail('Identity reference differs from its protected client binding: ' + name)
-        if not isinstance(oidc['clientReference'], str) or \
-                not CLIENT_PATTERN.fullmatch(oidc['clientReference']):
-            fail('Invalid identity client reference: ' + name)
-        if 'secretReference' not in expected:
-            return None
-        secret = expected['secretReference']
-        if secret not in mounts or secret not in references:
-            fail('Identity credential requires its approved scoped secret mount: ' + name)
-        return 'applications', oidc['clientReference']
+    if 'clientReference' in oidc or 'identityClient' in approval:
+        fail('Identity reference profile is retired; declare explicit client settings: ' + name)
     if (oidc.get('realm') != 'applications' or not isinstance(oidc.get('client'), str) or
             not CLIENT_PATTERN.fullmatch(oidc['client']) or
             not isinstance(oidc.get('public'), bool)):

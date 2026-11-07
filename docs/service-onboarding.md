@@ -876,12 +876,15 @@ destructive migrations require a separate explicit data scope.
    or a public primary exposure with additional private views, unless already
    explicitly answered. Wait for the answer before configuring or publishing access.
    Source repo visibility and existing exposure settings are not consent for this choice.
-2. **Agent:** set `definition.exposure` in private `services/catalog.json`.
-   For private access, use class `private`, an `internal` hostname and `tailnet`
-   access. For public access, use class `public` and classify access as `public`,
-   `human` or `machine`. Use class `none` for no ingress.
-3. **Agent:** set the hostname, path and backend port for exposed services.
-   Use `definition.additionalExposures` only for required additional private views.
+2. **Agent:** set only the `definition.exposure.class` signal in private
+   `services/catalog.json`: `private`, `public`, or `none` for no ingress.
+   Ordinary catalog entries carry no hostname, access, path, port, or backend.
+3. **Agent:** write the addresses in their owning files. For public access, add
+   the service entry to public `services/exposures.yaml` with its hostname,
+   `public`/`human`/`machine` access, backend workload name, path, and port.
+   For private access, add entries to private `platform/access/policy.yaml`
+   `privateDNS.services` with the DNS label, service, backend workload, path,
+   and port. Public services may also take private views there.
    Match OIDC callback paths to these hosts.
 4. **Agent:** configure the required identity and access policies through section 6.5.
 
@@ -889,7 +892,7 @@ An HTTPRoute does not create public DNS, tunnel routing or Access protection.
 Do not change an existing exposure class through an ordinary catalog update;
 use the service contract's retirement and migration procedure.
 
-**Done when:** the catalog's exposure hosts and access classes match the user's
+**Done when:** the exposure files and the catalog class signal match the user's
 explicit service-access choice.
 
 ### 6.4 Review deployment configuration — Agent, then User
@@ -940,17 +943,13 @@ requires the checks below.
 
 Use the existing identity, access, data and admission owners.
 Keep private settings in their accepted inputs and secret values in 1Password.
-After approved catalog-owner promotion and private migration, ordinary services can
-use the [identity reference profile](../charts/service/README.md): `oidc.clientReference`
-matches protected `approval.identityClient`. Keep client settings only in the accepted
-private identity inventory. Existing catalogs retain the legacy fields below;
-Notes/composition adapters reject references. No profile change provisions missing credentials.
-Reference readiness verifies owned provider client fields and scoped secret equality,
-not role resources, realm/group grants, memberships, issued-token roles or application
-authorization. Complete the real browser and allowed/denied checks in section 6.6.
-Before retiring a referenced service, merge its disabled client declaration and durable
-client tombstone, then verify provider disablement. Active shared clients block
-retirement before exposure changes; rotation/removal/recovery remain independently scoped.
+Declare identity settings once in the catalog entry; the identity owner compiles
+applications clients from the catalog plus approved exposure hosts. The reference
+profile is retired. No settings change provisions missing credentials. Complete
+the real browser and allowed/denied checks in section 6.6. Before retiring a
+service, persist its client tombstone in the revocations registry, then verify
+provider disablement. Active shared clients block retirement before exposure
+changes; rotation/removal/recovery remain independently scoped.
 
 1. **User:** decide whether the app needs Keycloak login.
    **Agent:** review `definition.oidc` in private `services/catalog.json`.
@@ -964,60 +963,28 @@ retirement before exposure changes; rotation/removal/recovery remain independent
    in CloudLab, at `client_secrets[realm][client-id]`; never put the value in Git.
    Confidential enrollment requires an existing string of at least 32 characters.
    The user supplies that value in 1Password; the reconciler reports a missing client
-   key as pending but never writes the shared identity item. Missing or incomplete
-   credentials block reconciliation.
+   key as pending but never writes the shared identity item. Pending confidential
+   clients stay out of the realm import without blocking other clients.
    Guarded delivery requires a nonempty string at the selected realm/client and
    retains the last valid Secret until completion resumes through normal ESO refresh.
-2. **Agent:** check exact HTTPS callbacks derived from declared exposure hosts
-   and `callbackPaths`; public-client web origins derive from those same hosts.
+2. **Agent:** check exact HTTPS callbacks derived from approved exposure hosts
+   and `callbackPaths`; web origins derive from those same hosts.
    Never use wildcard callbacks or unrelated origins.
    The service adapter does not expose logout callback settings. If the app needs
    registered logout redirects, report this unsupported service field to the identity
    owner and stop that integration. Logout redirects must stay on approved callback origins.
    Submit any changed service settings through the catalog PR flow in section 6.4.
-   Edit the existing private `identity/configmap.yaml`: its `data.desired_state`
-   contains JSON, with client objects under `realms.applications.clients`.
-   For example, this public client object belongs inside that existing list;
-   it is not a replacement ConfigMap:
-
-   ```json
-   {
-     "id": "prices-ui",
-     "audience": "prices-api",
-     "public": true,
-     "callbacks": ["https://prices.example.invalid/oauth/callback"],
-     "web_origins": ["https://prices.example.invalid"],
-     "scopes": ["profile", "email"],
-     "roles": ["viewer"],
-     "role_groups": {"viewer": ["viewer"]}
-   }
-   ```
-
-   Match the client, audience, public flag, callbacks, scopes and role mappings to
-   the reviewed service settings. Replace example URLs with exact approved exposure
-   URLs. The identity compiler validates URL shape, not service exposure ownership;
-   review that binding explicitly. Preserve all existing clients, memberships, both
-   realms and `data.revocations`. Public clients must have no client-secret entry.
-   Service settings and this inventory remain separate inputs; standalone
-   per-service `identity.yaml` enrollment is not supported.
-   **User:** review and merge the private identity PR.
-   **Agent:** require the accepted `cloudlab-identity-private` Application to sync
-   the intended private `main` commit. Then verify a successful subsequent normal
-   Keycloak writer run and the actual client configuration. The leased writer runs
-   every five minutes; routine edits need no `identity-scoped` apply.
+   No hand-edit of the identity inventory is needed for applications clients;
+   memberships and platform-realm clients stay hand-managed in private
+   `identity/configmap.yaml`. Verify a successful subsequent normal Keycloak
+   writer run and the actual client configuration. The leased writer runs every
+   five minutes.
    Keep the accepted identity installation pin; do not repin it to the advancing Root or service catalog revision.
-   To retire a client, keep its declaration with `enabled: false` and persist its
-   ID in `data.revocations` JSON at `realms.applications.clients`. Keep the tombstone;
+   To retire a client, persist its ID in `data.revocations` JSON at
+   `realms.applications.clients` and retire its catalog entry. Keep the tombstone;
    omission alone retains clients. Existing tokens do not become invalid immediately.
    Retain the guarded removal, rotation and recovery procedures in the
    [identity contract](../platform/identity/keycloak/contract.json); vault items are retained.
-   A completed temporary login fixture is not an application dependency. If its
-   vault item was intentionally removed, retire only its credential delivery:
-   pipe `{"nonce":"EXACT_FIXTURE_NONCE","realm":"applications"}` into
-   `docker compose run -T --rm --entrypoint python lab -m playbooks.keycloak.files.session_fixture --retire-delivery`.
-   Use the fixture's recorded realm. The identity owner requires completed enrollment
-   and exact ownership, removes only its ExternalSecret, and retains its Secret,
-   user and checkpoint. Restore missing active credentials instead of replacing them.
 3. **User:** choose allowed application actions for each role.
    **Agent:** review `definition.oidc.roleMapping` and the application's existing
    authorization code; its filename depends on the app.
@@ -1057,21 +1024,19 @@ and their owning configuration has converged for readiness checks.
 
 ### 6.6 Verify, then publish access — Agent, then User
 
-1. **Agent:** use the current approved service lifecycle bundle.
-   See the [service contract](../charts/service/README.md) for its fields and
-   Compose commands. The bundle must match the merged catalog entry.
-2. **Agent:** run `service ready <bundle>` through Compose.
-   Confirm identity, scoped data access, backend health and TLS readiness.
-   Stop publication on failure; report the blocked check and owning configuration.
-   Make only corrections already within the agreed setup scope.
-3. **Agent:** run `service publish <bundle>` through Compose.
-   It verifies protection and routing before DNS publication and reachability checks.
-   Public stages maintain the existing native Cloudflare inputs and state.
-   When private exposures exist, publication also writes catalog
-   `publication: published` through a private PR and attempts its protected merge.
-   If blocked, **User:** review and merge that PR; **Agent:** rerun publication.
-   Public-only publication uses native provider state and does not automatically
-   change the catalog entry to `published`.
+1. **Agent:** merge the exposure PRs from section 6.3 and the catalog PR from
+   section 6.4. Argo renders routes from the exposure files and converges the
+   workload; no publish command exists.
+2. **Agent:** read readiness from the owners: Argo for routes and certificates,
+   the identity writer for client convergence, and the connectivity reconciler
+   status for DNS, tunnel, and protection. Confirm identity, scoped data access,
+   backend health and TLS readiness. Stop on failure; report the blocked check
+   and owning configuration. Make only corrections already within the agreed
+   setup scope.
+3. **Agent:** for public DNS, read the pending plan digest from the connectivity
+   reconciler status and merge the `platform/access/cloudflare-approval.yaml`
+   binding PR for the current main SHA. The standing loop applies the bound plan
+   with no second command. Private DNS converges automatically after merge.
 4. **User/Agent:** open the published hostname from an intended client.
    Verify login and permitted application actions. Check anonymous or unauthorized
    access is denied where required. Test each additional private view from the tailnet.
@@ -1424,9 +1389,10 @@ Check all declared exposure hosts, regardless of source repo visibility.
 
 | Repo or owner | Path | Retirement effect |
 | --- | --- | --- |
+| Public GitOps | `services/exposures.yaml` | Set the entry to `publication: retired`; routes, DNS, and tunnel/Access withdraw |
+| Private GitOps | `platform/access/policy.yaml` | Remove the service entries; private DNS and routes withdraw |
 | Private GitOps | `services/catalog.json` | Keep the entry with `publication: retired`; preserve its definition, approval and data bindings |
-| Private identity owner | `identity/configmap.yaml`, `identity/argo-values.yaml` | Owner prepares disabled-client state and removal tombstones; preserve the shared overlay |
-| Native Cloudflare owner | `${INFRA_PRIVATE_DIR}/cloudflare/desired.tfvars.json` | Withdraw service DNS and tunnel routing through existing operations; keep inputs outside Git |
+| Private identity owner | `identity/configmap.yaml` revocations | Persist the client tombstone; the writer disables the client |
 | Private GitOps | `platform/ci/pools/example-app/` | Runner configuration stays; CI retirement needs a separate explicit decision |
 | Source and owning release repos | Application source, `.github/workflows/ci.yaml`, `apps/releases/example-app.json` | Preserve source, release history and recoverable artifacts; service retirement does not delete them |
 
@@ -1435,75 +1401,57 @@ Check all declared exposure hosts, regardless of source repo visibility.
 1. **User:** name the service to retire, for example `example-app`.
    Retaining data is part of this operation; data disposal requires separate,
    explicit resource and data scope.
-2. **Agent:** read its current private `services/catalog.json` entry and approved
-   lifecycle bundle. Preserve the entry, other services and top-level `dataApprovals`.
-   Record which primary/additional hosts and OIDC client belong to this service.
-3. **Agent:** use the [service contract](../charts/service/README.md) for the
-   bundle fields and existing Compose mounts. Commands below run from the platform
-   checkout. Replace `BUNDLE` with that bundle's container-visible path.
-   Keep the same reviewed definition and approval throughout retirement.
+2. **Agent:** read its current catalog entry and exposure entries. Preserve the
+   entry, other services and top-level `dataApprovals`. Record which public and
+   private hosts and OIDC client belong to this service.
 
 **Done when:** the service, exposure hosts and retained data are unambiguous.
 
 ### 9.2 Withdraw reachability — Agent, then User
 
-Run the existing lifecycle operation with its GitHub writer supplied through stdin:
+No retire command exists; owners converge from merged Git intent.
 
-```sh
-gh auth token | docker compose --profile services run --build -T --rm service retire BUNDLE
-```
+1. **Agent:** set the public entry to `publication: retired` and merge its PR.
+   Keep private `platform/access/policy.yaml` entries until §9.4: remove them
+   only in the single atomic private PR that also retires the catalog entry.
+   For public DNS changes, merge the plan-approval binding PR the
+   connectivity reconciler reports.
+2. **Agent:** confirm Argo withdrew the retired public routes and the reconciler
+   withdrew DNS, tunnel entries, and exposure-specific Access protection, then
+   verified authoritative withdrawal plus route absence in its retirement status.
+   Private withdrawal is confirmed after the §9.4 atomic PR merges.
 
-It withdraws DNS and routing, then checks route absence before identity or workload removal.
-For public access, native operations update
-`${INFRA_PRIVATE_DIR}/cloudflare/desired.tfvars.json`; the default path is
-`../yasai-cloudlab-infra-inputs/cloudflare/desired.tfvars.json`.
-For private access, the owner withdraws private service DNS.
-The lifecycle writes catalog `publication: retired` through a protected private PR.
-**User:** review and merge a blocked catalog PR. **Agent:** rerun the same operation.
-
-An OIDC service can stop here pending the identity stages below.
-A service without OIDC can complete workload retirement in this first call.
 Shared Access protection is retained; do not delete it to retire one service.
 
 **Done when:** DNS/tunnel/HTTPRoute reachability is withdrawn for the retired service.
 
 ### 9.3 Retire the OIDC client, if enabled — Agent, then User
 
-Propose client disablement through a private identity PR: set the client's
-`enabled: false` in `identity/configmap.yaml` and keep its revocation tombstone.
+Persist the client ID in the private revocations registry and merge the scoped
+identity PR. The normal leased writer converges the provider client to disabled.
 
 **User:** review and merge the scoped identity PR.
-**Agent:** wait for the accepted `cloudlab-identity-private` Application to sync and
-the normal leased writer to converge, then verify the provider client is disabled
-before proposing removal. Propose removal through a second private identity PR that
-drops the declaration while keeping the persistent tombstone.
-
-**User:** review and merge the removal-tombstone PR.
-**Agent:** verify the scoped identity source converges again.
-The identity owner prepares these changes in private `identity/configmap.yaml`;
-preserve `identity/argo-values.yaml` unless its owner explicitly proposes a change.
-The next retirement run enforces the token/session grace period before actual client
-deletion. Preparing the removal PR does not skip that wait or revoke issued JWTs instantly.
-The vault value and persistent retirement tombstones remain.
+**Agent:** verify the provider client is disabled before proposing removal.
+Preparing removal does not skip the token/session grace period or revoke issued
+JWTs instantly. The vault value and persistent retirement tombstones remain.
 
 **Done when:** disablement has converged and the reviewed removal intent is available.
 Skip this step when `definition.oidc.enabled` is false.
 
 ### 9.4 Complete workload retirement — Agent
 
-Rerun the same `service retire BUNDLE` Compose command from section 9.2.
-For OIDC, let the identity owner complete its enforced grace and client removal.
-The lifecycle then verifies retired catalog intent and removes only tracked
-service-owned workload resources, including its Deployment/Rollout, Service and routes.
-It removes the scoped Argo Application without cascading into retained resources.
-This is workload removal, not merely scaling replicas to zero.
+Set the catalog entry to `publication: retired`, remove its private policy
+entries in the same atomic private PR, and merge with its rotated acceptance.
+Argo removes only tracked service-owned workload resources, including its
+Deployment/Rollout, Service and routes, without cascading into retained
+resources. This is workload removal, not merely scaling replicas to zero.
 
 Namespaces, quotas, credentials, PVCs, databases, buckets and shared resources remain.
 Runner pools are separate resources; this operation does not retire them.
-If interrupted, rerun with the same reviewed inputs. Preserve existing credentials
+If interrupted, re-merge with the same reviewed inputs. Preserve existing credentials
 and provider state; resolve the reported owner prerequisite before continuing.
 
-**Done when:** the lifecycle reports `operation: retire` and `verified: true`.
+**Done when:** the workload and routes are absent and retained resources remain.
 
 ### 9.5 Verify retirement and retention — Agent, then User
 
@@ -1514,7 +1462,7 @@ and provider state; resolve the reported owner prerequisite before continuing.
    For class `none`, verify the former internal caller cannot reach its removed Service.
 3. **Agent:** confirm the scoped workload and routes are absent, retained claims
    and data resources remain, and unrelated services stay healthy.
-   Use non-destructive owner checks; never run `service fixture-proof` against this service.
+   Use non-destructive owner checks only.
 4. **User:** decide separately whether CI pools, App repo grants or source activity
    should stop. Preserve approved images, signatures and recovery material until
    their separate retention or disposal scope is agreed.

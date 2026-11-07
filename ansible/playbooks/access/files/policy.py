@@ -75,22 +75,26 @@ def validate_policy(document):
         if key in seen:
             raise ValueError('Access tests must be unique')
         seen.add(key)
-    names = private['names']
+    services = private['services']
     # Platform records are operator-declared per owning area; service names can
     # never take them over, and nameserver labels stay reserved everywhere.
+    labels = [entry['name'] for entry in services]
+    if len(set(labels)) != len(labels):
+        raise ValueError('Private DNS service names must be unique')
     platform = private.get('platformNames', [])
-    if RESERVED_NAMES & set(names):
+    if RESERVED_NAMES & set(labels):
         raise ValueError('Private DNS names include reserved platform labels')
-    if {'ns1', 'ns2'} & (set(names) | set(platform)):
+    if {'ns1', 'ns2'} & (set(labels) | set(platform)):
         raise ValueError('Private DNS nameserver labels are reserved')
-    if set(names) & set(platform):
+    if set(labels) & set(platform):
         raise ValueError('Private DNS service and platform names overlap')
-    if len(names) + len(platform) > 20:
+    if len(services) + len(platform) > 20:
         raise ValueError('Private DNS names exceed their bound')
     return {'profile': PROFILE, 'administrator': login, 'zone': zone,
             'resolvers': sorted(tailnet['splitDNS']['resolvers']),
-            'accessTests': sorted(seen), 'names': sorted(names),
-            'platformNames': sorted(platform)}
+            'accessTests': sorted(seen),
+            'services': sorted(services, key=lambda entry: (entry['service'], entry['name'])),
+            'names': sorted(labels), 'platformNames': sorted(platform)}
 
 
 def split_dns(current, zone, nameservers):

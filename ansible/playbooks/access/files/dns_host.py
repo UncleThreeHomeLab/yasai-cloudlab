@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -224,6 +225,28 @@ def check():
     return {'dns_ready': True, 'digest': receipt.read_text(), 'names': len(payload['names'])}
 
 
+def absent(names):
+    """Prove retired names answer absent on both views; never writes."""
+    try:
+        payload = json.loads((STATE / 'inputs.json').read_text())
+    except (OSError, ValueError):
+        raise RuntimeError('No active private DNS generation') from None
+    zone, tailnet = payload.get('zone'), payload.get('tailnet_address')
+    if not zone or not tailnet:
+        raise RuntimeError('No active private DNS generation')
+    confirmed = []
+    for name in names:
+        if (not isinstance(name, str) or not name.endswith('.' + zone) or name == zone
+                or not all(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
+                           for label in name.split('.'))):
+            raise RuntimeError('Retirement proof requires exact zone names')
+        for tcp in (False, True):
+            absent_answer('127.0.0.1', name, tcp=tcp)
+            absent_answer(tailnet, name, source=tailnet, tcp=tcp)
+        confirmed.append(name)
+    return {'absent': confirmed}
+
+
 if __name__ == '__main__':
     try:
         with (STATE / 'lock').open('a') as lock:
@@ -232,6 +255,8 @@ if __name__ == '__main__':
                 print(json.dumps(activate()))
             elif sys.argv[1:] == ['check']:
                 print(json.dumps(check()))
+            elif len(sys.argv) > 2 and sys.argv[1] == 'absent':
+                print(json.dumps(absent(sys.argv[2:])))
             elif not sys.argv[1:]:
                 print(json.dumps(configure(json.load(sys.stdin))))
             else:

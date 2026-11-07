@@ -86,10 +86,11 @@ spec:
         argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
         argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-services
     spec:
-{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("services" | toJson) | replace "@@PRIVATE_REPOSITORY@@" (.Values.identity.argo.valuesRepository | toJson) | replace "@@COMMITMENT@@" ($servicesAcceptance | toJson) | replace "@@PATHS_LF@@" ((printf "%s\nidentity/argo-values.yaml" $catalogPath) | toJson) | trim }}
+{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("services" | toJson) | replace "@@PRIVATE_REPOSITORY@@" (.Values.identity.argo.valuesRepository | toJson) | replace "@@COMMITMENT@@" ($servicesAcceptance | toJson) | replace "@@PATHS_LF@@" ((printf "%s\nidentity/argo-values.yaml\nplatform/access/policy.yaml" $catalogPath) | toJson) | trim }}
 {{- $spec := dict "project" "cloudlab-services" "sources" (list
-  (dict "repoURL" .Values.repository "targetRevision" .Values.services.revision "path" "platform/delivery/services" "helm" (dict "valueFiles" (list (printf "$values/%s" $catalogPath) "$values/identity/argo-values.yaml") "valuesObject" (dict "repository" .Values.repository "revision" .Values.services.revision "telemetry" .Values.observability.enabled)))
-  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $gate "ref" "values"))
+  (dict "repoURL" .Values.repository "targetRevision" .Values.services.revision "path" "platform/delivery/services" "helm" (dict "valueFiles" (list (printf "$values/%s" $catalogPath) "$values/identity/argo-values.yaml" "$values/platform/access/policy.yaml" "$exposures/services/exposures.yaml") "valuesObject" (dict "repository" .Values.repository "revision" .Values.services.revision "telemetry" .Values.observability.enabled)))
+  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $gate "ref" "values")
+  (dict "repoURL" .Values.repository "targetRevision" .Values.revision "ref" "exposures"))
   "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
   "syncPolicy" (dict "automated" (dict "enabled" true "prune" false "selfHeal" true "allowEmpty" false)
     "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false")) }}

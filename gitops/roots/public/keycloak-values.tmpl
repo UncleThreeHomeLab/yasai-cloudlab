@@ -27,8 +27,5 @@
 {{- $block := index (dict "24" 256 "25" 128 "26" 64 "27" 32 "28" 16 "29" 8 "30" 4 "31" 2 "32" 1) (index $parts 1) -}}
 {{- if or (not (or (eq $first 10) (and (eq $first 172) (ge $second 16) (le $second 31)) (and (eq $first 192) (eq $second 168)))) (ne (mod (atoi (index $octets 3)) $block) 0) -}}{{ fail "Identity installation input refused" }}{{- end -}}
 {{- end }}
-spec:
-  source:
-    helm:
-      valuesObject:
-{{ dict "loginHost" .loginHost "adminHost" .adminHost "database" .database "databaseRole" .databaseRole "databaseHost" .databaseHost "databasePort" 5432 "databaseCA" .databaseCA "trustedProxyAddresses" .trustedProxyAddresses "retiredEmergencyItem" .retiredEmergencyItem | toYaml | indent 8 }}
+{{/* Inputs stay validated above; values ride the template. This patch merges nothing. */}}
+{}
