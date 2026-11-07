@@ -129,6 +129,37 @@ services:
       HARBOR_INTERVAL: ${HARBOR_INTERVAL:-300}
     command: [loop]
 
+  infra-uptime:
+    profiles: [infra]
+    platform: linux/amd64
+    build: *lab-build
+    entrypoint: [python, /workspace/platform/observability/reconcile.py]
+    working_dir: /workspace
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/uptime
+        target: /inputs/uptime
+        read_only: true
+      - type: volume
+        source: uptime_infra_work
+        target: /infra-work
+      - type: volume
+        source: infra_work
+        target: /evidence/cloudflare
+        read_only: true
+      - type: volume
+        source: github_infra_work
+        target: /evidence/github
+        read_only: true
+    environment:
+      UPTIME_INTERVAL: ${UPTIME_INTERVAL:-300}
+    command: [loop]
+
   credential-reconciler:
     profiles: [credentials]
     platform: linux/amd64
@@ -157,6 +188,7 @@ volumes:
   harbor_infra_work:
   infra_work:
   github_infra_work:
+  uptime_infra_work:
   ssh_known_hosts:
   recovery_outputs:
   reconciler_state:
