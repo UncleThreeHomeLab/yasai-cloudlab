@@ -39,14 +39,16 @@ resource "harbor_project_member_group" "member" {
   lifecycle { prevent_destroy = true }
 }
 
+# Robot passwords stay vault/manual-owned outside provider scope: a
+# write-only secret binding would dirty every plan (write-only values never
+# persist to state), so the owned scope could never converge. The executor
+# still requires all four durable vault passwords before any plan.
 resource "harbor_robot_account" "robot" {
-  for_each          = local.robots
-  name              = each.value.role
-  description       = "Scoped ${each.value.role} for ${each.value.project}"
-  level             = "project"
-  duration          = -1
-  secret_wo         = var.robot_secrets[each.key]
-  secret_wo_version = 1
+  for_each    = local.robots
+  name        = each.value.role
+  description = "Scoped ${each.value.role} for ${each.value.project}"
+  level       = "project"
+  duration    = -1
   permissions {
     kind      = "project"
     namespace = harbor_project.project[each.value.project].name

@@ -20,7 +20,7 @@
     "harbor_project": ["name", "public", "storage_quota", "vulnerability_scanning", "enable_content_trust", "enable_content_trust_cosign", "auto_sbom_generation"],
     "harbor_group": ["group_name", "group_type"],
     "harbor_project_member_group": ["project_id", "group_id", "group_name", "type", "role"],
-    "harbor_robot_account": ["name", "description", "level", "duration", "permissions", "secret_wo", "secret_wo_version"],
+    "harbor_robot_account": ["name", "description", "level", "duration", "permissions"],
     "harbor_retention_policy": ["scope", "schedule", "rule"],
     "harbor_immutable_tag_rule": ["project_id", "repo_matching", "tag_matching", "disabled"]
   },
