@@ -1,0 +1,40 @@
+# Accepted backup protection profiles. Each profile selects existing coordinated
+# capture, retention, and write windows from its owning contracts; it defines
+# no new schedule and asserts no verified coverage. See profiles.schema.json.
+profiles:
+  coordinated-monthly:
+    controlPlane:
+      calendar: '*-*-01 03:30:00 UTC'
+      freshnessCalendar: hourly
+      maxAgeSeconds: 2764800
+      maxArchiveBytes: 10737418240
+      maxSourceBytes: 21474836480
+      stagingCeilingBytes: 85899345920
+      minimumFreeFraction: 0.25
+      passwordItem: monthly-k3s-b2
+      prefix: k3s-restic/
+      tag: cloudlab-k3s
+    longhorn:
+      job: scheduled-backup
+      cron: '0 3 1 * *'
+      retain: 1
+      concurrency: 1
+      prefix: yasai-cloudlab/
+    data:
+      monthlyCalendar: '*-*-01 03:00:00 UTC'
+      localGenerations: 0
+      remoteGenerations: 1
+      remotePrefix: yasai-cloudlab/application-data/
+      maxGenerationBytes: 17179869184
+      maxDatabaseBytes: 4294967296
+      maxObjectsBytes: 8589934592
+      maxObjects: 10000
+      remoteMaxAgeSeconds: 3456000
+    harbor:
+      monthlyCalendar: '*-*-01 06:00:00 UTC'
+      freshnessCalendar: '*-*-* 07:00:00 UTC'
+      remoteMaxAgeSeconds: 3456000
+      remotePrefix: yasai-cloudlab/harbor/
+      maxGenerationBytes: 68719476736
+      localGenerations: 0
+      remoteGenerations: 1

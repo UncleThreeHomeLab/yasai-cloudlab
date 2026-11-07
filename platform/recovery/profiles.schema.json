@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Accepted backup protection profiles",
+  "$comment": "Public file platform/recovery/profiles.yaml. Each profile selects existing coordinated capture, retention, and write windows from its owning contracts; it defines no new schedule and asserts no verified coverage. Monthly cloud-write calendars stay on day 1 UTC; local-only freshness checks run at least daily; freshness windows span a full monthly cycle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profiles"
+  ],
+  "properties": {
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "coordinated-monthly": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "controlPlane",
+            "longhorn",
+            "data",
+            "harbor"
+          ],
+          "properties": {
+            "controlPlane": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "calendar",
+                "freshnessCalendar",
+                "maxAgeSeconds",
+                "maxArchiveBytes",
+                "maxSourceBytes",
+                "stagingCeilingBytes",
+                "minimumFreeFraction",
+                "passwordItem",
+                "prefix",
+                "tag"
+              ],
+              "properties": {
+                "calendar": {
+                  "type": "string",
+                  "pattern": "^\\*-\\*-01 [0-9]{2}:[0-9]{2}:[0-9]{2} UTC$"
+                },
+                "freshnessCalendar": {
+                  "type": "string",
+                  "pattern": "^(hourly|\\*-\\*-\\* [0-9]{2}:[0-9]{2}:[0-9]{2} UTC)$"
+                },
+                "maxAgeSeconds": {
+                  "type": "integer",
+                  "minimum": 2419200
+                },
+                "maxArchiveBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxSourceBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "stagingCeilingBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minimumFreeFraction": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "passwordItem": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,99}$"
+                },
+                "prefix": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][A-Za-z0-9./-]{0,62}/$"
+                },
+                "tag": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                }
+              }
+            },
+            "longhorn": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "job",
+                "cron",
+                "retain",
+                "concurrency",
+                "prefix"
+              ],
+              "properties": {
+                "job": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+                },
+                "cron": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,2} [0-9]{1,2} 1 \\* \\*$"
+                },
+                "retain": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "concurrency": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "prefix": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][A-Za-z0-9./-]{0,62}/$"
+                }
+              }
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "monthlyCalendar",
+                "localGenerations",
+                "remoteGenerations",
+                "remotePrefix",
+                "maxGenerationBytes",
+                "maxDatabaseBytes",
+                "maxObjectsBytes",
+                "maxObjects",
+                "remoteMaxAgeSeconds"
+              ],
+              "properties": {
+                "monthlyCalendar": {
+                  "type": "string",
+                  "pattern": "^\\*-\\*-01 [0-9]{2}:[0-9]{2}:[0-9]{2} UTC$"
+                },
+                "localGenerations": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "remoteGenerations": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "remotePrefix": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][A-Za-z0-9./-]{0,62}/$"
+                },
+                "maxGenerationBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxDatabaseBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxObjectsBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxObjects": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "remoteMaxAgeSeconds": {
+                  "type": "integer",
+                  "minimum": 2419200
+                }
+              }
+            },
+            "harbor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "monthlyCalendar",
+                "freshnessCalendar",
+                "remoteMaxAgeSeconds",
+                "remotePrefix",
+                "maxGenerationBytes",
+                "localGenerations",
+                "remoteGenerations"
+              ],
+              "properties": {
+                "monthlyCalendar": {
+                  "type": "string",
+                  "pattern": "^\\*-\\*-01 [0-9]{2}:[0-9]{2}:[0-9]{2} UTC$"
+                },
+                "freshnessCalendar": {
+                  "type": "string",
+                  "pattern": "^(hourly|\\*-\\*-\\* [0-9]{2}:[0-9]{2}:[0-9]{2} UTC)$"
+                },
+                "remoteMaxAgeSeconds": {
+                  "type": "integer",
+                  "minimum": 2419200
+                },
+                "remotePrefix": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][A-Za-z0-9./-]{0,62}/$"
+                },
+                "maxGenerationBytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "localGenerations": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "remoteGenerations": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

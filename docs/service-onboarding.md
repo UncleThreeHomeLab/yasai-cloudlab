@@ -867,6 +867,12 @@ destructive migrations require a separate explicit data scope.
    and the approved destination reference. The credential reconciler validates the
    binding and reports coverage: shared SQL/S3 volumes are covered by the data owner
    monthly export, while service PVCs report uncovered until separately verified.
+   The backup-protection reconciler converges the accepted profiles plus bindings
+   onto the recovery owners: host policy and timers apply only with a merged
+   `{binding, plan}` approval in private `platform/recovery/approval.yaml`, and
+   Longhorn coverage is verified by chart parity. Merging protection YAML never
+   runs a restore. Run it with
+   `docker compose --profile protection up -d backup-protection`.
    Declaring storage or protection is not a backup; protection claims need isolated
    restore evidence.
 

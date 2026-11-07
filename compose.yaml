@@ -184,6 +184,34 @@ services:
       CLOUDLAB_STATE_DIR: /reconciler-state
     command: [--interval, '600']
 
+  backup-protection:
+    profiles: [protection]
+    platform: linux/amd64
+    build: *lab-build
+    entrypoint: [python, /workspace/ansible/playbooks/backup/files/reconcile.py]
+    working_dir: /workspace
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ${PRIVATE_CONFIG_DIR:-../cloudlab-config}
+        target: /private-config
+        read_only: true
+      - type: volume
+        source: ssh_known_hosts
+        target: /state
+        read_only: true
+      - type: volume
+        source: protection_work
+        target: /infra-work
+    environment:
+      PRIVATE_CONFIG_DIR: /private-config
+      PROTECTION_INTERVAL: ${PROTECTION_INTERVAL:-600}
+    command: [loop]
+
 volumes:
   harbor_infra_work:
   infra_work:
@@ -192,3 +220,4 @@ volumes:
   ssh_known_hosts:
   recovery_outputs:
   reconciler_state:
+  protection_work:
