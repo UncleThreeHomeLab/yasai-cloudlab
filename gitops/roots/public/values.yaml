@@ -87,5 +87,5 @@ previews:
     # Drill: execution stage (A12 live proof).
     enabled: true
     revision: 5b0c1782ea8dc5fb7f1eea8c4e2a909c5f345605
-    acceptanceCommitment: fe26214e6f8a81b148473e3651f1971464d95ff3d969db9ed7a9e28c51530293
+    acceptanceCommitment: 3e263e9ad5e10e0e097faa827e25b0a49e276070a9e6a7352d21fb3df06b2bc5
     permissionsEnabled: true
