@@ -62,7 +62,7 @@ paths:
     retention: retain roles while declared
     revocation: remove the profile through reviewed Git; bindings referencing it fail closed
     standing: false
-    notes: UID-free; fixed ClusterRole names, labels and revision annotations identify grants, no UID adoption. Roles alone grant nothing; qualified separately from Argo mappings.
+    notes: UID-free; fixed ClusterRole names and labels identify grants; revision tracked at Application/ConfigMap level, no UID adoption. Roles alone grant nothing; qualified separately from Argo mappings.
   - id: permissions-rbac
     subjects: private assignments only
     source: private platform/permissions.yaml at an accepted revision (opaque here)
