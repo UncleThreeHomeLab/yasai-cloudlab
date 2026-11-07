@@ -1186,7 +1186,9 @@ Automatic publication or reviewer-submitted manual promotion changes this file i
 1. **Agent:** check the PR changes only the expected release record.
    Verify `digest` matches the signed image, `source_revision` matches the approved
    application commit, and `workflow_run_id` identifies the successful publishing run.
-   All three fields are strings.
+   All three fields are strings. Validate the record against
+   `platform/delivery/ci/release.schema.json`; the release proposer still
+   enforces primary-component membership and digest equality.
    For component releases, verify every approved component digest and confirm
    `primary_component` selects the image recorded in `digest`.
 2. **User:** review and merge through the repository's configured review process.

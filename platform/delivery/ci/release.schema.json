@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudlab.invalid/platform/ci/release.schema.json",
+  "title": "Application release record",
+  "description": "Declarative contract for apps/releases/<application>.json in the owning GitOps repository. Mirrors release.validate(): an immutable primary digest, the exact published source revision and the publishing workflow run, with optional bounded multi-component digests. JSON Schema cannot express primary-component membership or digest equality; the release proposer still enforces that primary_component names a component whose digest equals digest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["digest", "source_revision", "workflow_run_id"],
+  "properties": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Immutable primary image digest. The deployed image is <repository>@<digest>."
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "description": "Exact application source commit the image was built from."
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$",
+      "description": "Publishing workflow run id, kept as a string."
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 8,
+      "propertyNames": {"pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$"},
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "description": "Bounded named component digests. Requires primary_component."
+    },
+    "primary_component": {
+      "type": "string",
+      "pattern": "^[a-z](?:[a-z0-9-]{0,33}[a-z0-9])?$",
+      "description": "Names the component whose digest equals digest. Requires components."
+    }
+  },
+  "allOf": [
+    {"if": {"required": ["components"]}, "then": {"required": ["primary_component"]}},
+    {"if": {"required": ["primary_component"]}, "then": {"required": ["components"]}}
+  ]
+}
