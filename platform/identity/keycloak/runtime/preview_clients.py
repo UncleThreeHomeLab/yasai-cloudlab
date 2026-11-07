@@ -10,11 +10,11 @@ from urllib.parse import quote
 
 try:
     from playbooks.previews.files.contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
+        approval, stored_approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
     from playbooks.keycloak.files.configuration import client as compile_client
 except ImportError:
     from preview_contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, stored_approval, obsolete, runtime_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
+        approval, stored_approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
     from configuration import client as compile_client
 
 IDENTITY_OWNER = 'cloudlab-preview-identity'
@@ -217,7 +217,7 @@ def run(admin_host):
     settings, input_available = None, False
     try:
         if document and document.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') == OWNER:
-            settings = runtime_catalog(json.loads(document['data']['catalog.json']))
+            settings = runtime_catalog(requested_catalog(json.loads(document['data']['catalog.json'])))
             if admin_host != 'identity-admin.internal.' + settings['hostname'].split('.internal.', 1)[1]:
                 raise ValueError('Preview issuer differs from the accepted identity owner')
             input_available = True
