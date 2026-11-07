@@ -43,7 +43,7 @@ def prepare(values, public, binding, active_revision, *, expected_revision=None)
     import yaml
     from playbooks.argocd.files.github_app import configuration_revision
     from playbooks.argocd.files.github_setup import repository
-    from playbooks.keycloak.files.private_source import decode_contents
+    from playbooks.argocd.files.private_sources import decode_contents
     private = values.get('PRIVATE_CONFIG_REPOSITORY')
     pin = public.get('certificates', {}).get('configuration', {}).get('revision')
     if (not isinstance(binding, dict) or set(binding) != {'valuesRepository', 'valuesRevision'}
