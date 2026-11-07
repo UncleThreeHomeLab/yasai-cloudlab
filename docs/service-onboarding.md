@@ -1294,8 +1294,9 @@ Source repository visibility does not change this path.
    metrics port. Retired entries are excluded from collection.
 2. In private `platform/observability.yaml`, add the `serviceObservability` entry
    keyed by the approved catalog service name: native rule groups (alert names
-   `Svc_<service>_...`, severities `info`/`warning`/`critical`; the owner assigns
-   service/namespace labels and investigation links) and the dashboard model
+   `Svc_<service>_...` and recording rules `svc_<service>:...`, with hyphens as
+   underscores; severities `info`/`warning`/`critical`, default `warning`; the
+   owner assigns service/namespace labels and investigation links) and the dashboard model
    (`uid: svc-<service>`, `editable: false`, at most 96KiB, provisioned data
    sources `metrics`/`logs`/`traces` only — never backend URLs).
 3. Bind every query and
