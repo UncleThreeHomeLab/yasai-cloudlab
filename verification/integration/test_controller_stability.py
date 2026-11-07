@@ -35,6 +35,18 @@ class StabilityTests(unittest.TestCase):
     def test_empty_inventory_is_not_stability(self):
         with self.assertRaises(RuntimeError): fingerprint([])
 
+    def test_job_pod_churn_does_not_change_fingerprint(self):
+        before = fingerprint(self.items)
+        job = {'kind': 'Pod', 'metadata': {'namespace': 'fixture', 'uid': 'job-pod',
+                                           'ownerReferences': [{'kind': 'Job', 'name': 'job'}]},
+               'status': {'phase': 'Running', 'conditions': [{'type': 'Ready', 'status': 'True'}],
+                          'containerStatuses': [{'name': 'main', 'restartCount': 0,
+                                                 'containerID': 'job'}]}}
+        self.assertEqual(fingerprint(self.items + [job]), before)
+        stray = copy.deepcopy(job)
+        del stray['metadata']['ownerReferences']
+        self.assertNotEqual(fingerprint(self.items + [stray]), before)
+
     def test_new_controller_namespaces_are_required_when_selected(self):
         with patch.object(controller_stability.subprocess, 'run', return_value=SimpleNamespace(
                 returncode=0, stdout=json.dumps({'items': self.items}))) as run:

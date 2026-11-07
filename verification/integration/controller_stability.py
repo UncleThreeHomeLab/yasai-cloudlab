@@ -18,6 +18,9 @@ def fingerprint(items):
         if kind == 'Pod':
             if status.get('phase') == 'Succeeded':
                 continue
+            if any(owner.get('kind') == 'Job' for owner in
+                   meta.get('ownerReferences', [])):
+                continue  # run-to-completion workload pods churn by design
             if (status.get('phase') != 'Running' or not any(
                     c['type'] == 'Ready' and c['status'] == 'True' for c in status.get('conditions', []))):
                 raise RuntimeError('Foundation pod is not ready')
