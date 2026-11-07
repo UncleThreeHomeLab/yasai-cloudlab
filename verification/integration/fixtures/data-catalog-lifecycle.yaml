@@ -1,0 +1,27 @@
+# Alternate selected-catalog content for Area 8 lifecycle qualification.
+#
+# Same contract as the default services/catalog.json: a complete catalog plus
+# the top-level dataApprovals that bind each credential reference. Argo merges
+# this file with platform/data.yaml and platform/certificates.yaml, so this
+# fixture merges with those same keys in test_data_request_lifecycle.py.
+catalog:
+  - approval: {name: prices, namespace: cloudlab-app-prices}
+    definition:
+      data:
+        database: {name: prices, credentialReference: prices-db, retention: retain}
+        bucket: {name: prices-history, credentialReference: prices-bucket, retention: retain}
+    publication: ready
+dataApprovals:
+  prices-db:
+    kind: database
+    service: prices
+    name: prices
+    item: cnpg-prices-production
+    migrationItem: cnpg-prices-migration
+    applicationRole: prices_app
+    migrationRole: prices_migration
+  prices-bucket:
+    kind: bucket
+    service: prices
+    name: prices-history
+    item: s3-prices-production

@@ -59,6 +59,17 @@
 {{- $monitoring := include "cloudlab.service.monitoring" . | fromJson }}
 {{- $composition := $a.composition | default dict }}
 {{- if and $composition $v.rollouts.enabled }}{{ fail "Composition canaries require a separate supported contract" }}{{ end }}
+{{- $storageClaims := $composition.claims | default list }}
+{{- if not $composition }}
+{{- if $v.persistence.enabled }}{{ $storageClaims = list (dict "name" $v.name "size" $v.persistence.size) }}{{- end }}
+{{- end }}
+{{- $storageBudget := dict "claims" 2 "storageGi" 4 }}
+{{- if $composition }}{{ $storageBudget = dict "claims" ($composition.budget.persistentvolumeclaims | int) "storageGi" (index $composition.budget "requests.storage" | trimSuffix "Gi" | atoi) }}{{- end }}
+{{- if gt (len $storageClaims) (index $storageBudget "claims") }}{{ fail "Service storage claims exceed their approved claim budget" }}{{- end }}
+{{- $claimNames := list }}{{- $storageGi := 0 }}
+{{- range $storageClaims }}{{ $claimNames = append $claimNames .name }}{{ $storageGi = add $storageGi (.size | trimSuffix "Gi" | atoi) }}{{- end }}
+{{- if ne (len $claimNames) (len ($claimNames | uniq)) }}{{ fail "Service storage claim names must be unique" }}{{- end }}
+{{- if gt $storageGi (index $storageBudget "storageGi") }}{{ fail "Service storage requests exceed their approved storage budget" }}{{- end }}
 {{- $releaseService := $v.name }}
 {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}{{ $releaseService = "notes-web" }}{{- end }}
 {{- $namespace := printf "cloudlab-app-%s" $a.name }}
