@@ -6,3 +6,4 @@ dependencies:
     alias: arc
     version: 0.15.0
     repository: oci://ghcr.io/actions/actions-runner-controller-charts
+    condition: arc.enabled

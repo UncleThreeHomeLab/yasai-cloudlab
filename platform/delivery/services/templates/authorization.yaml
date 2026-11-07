@@ -83,7 +83,7 @@ spec:
   {{- end }}
   action: ALLOW
   {{- if $composition }}
-  {{- if hasKey $composition "connections" }}
+  {{- if or (hasKey $composition "connections") $retired }}
   rules: []
   {{- else }}
   {{- $accounts := list }}

@@ -55,6 +55,9 @@ spec:
     {{- if $native }}
     - {group: '', kind: ConfigMap}
     {{- end }}
+    - {group: '', kind: ServiceAccount}
+    - {group: batch, kind: Job}
+    - {group: batch, kind: CronJob}
     - {group: '', kind: ResourceQuota}
     - {group: postgresql.cnpg.io, kind: Cluster}
     - {group: postgresql.cnpg.io, kind: Database}

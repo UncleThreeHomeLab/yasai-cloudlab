@@ -120,6 +120,8 @@ spec:
 {{- end }}
 {{- end }}
 {{- range $component := list "controller" "runner" "publisher" }}
+{{- $pool := ne $component "controller" }}
+{{- $publishPool := eq $component "publisher" }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -131,17 +133,32 @@ spec:
   goTemplate: true
   goTemplateOptions: ['missingkey=error']
   generators:
-    - git:
-        repoURL: {{ $.Values.identity.argo.valuesRepository | quote }}
-        revision: main
-        files: [{path: 'platform/ci/pools/*/{{ $component }}.json'}]
+    - matrix:
+        generators:
+          - git:
+              repoURL: {{ $.Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              files: [{path: 'platform/ci/applications/*.yaml'}]
+          - git:
+              repoURL: {{ $.Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              pathParamPrefix: platform
+              files: [{path: 'platform/ci/config.json'}]
   syncPolicy:
-    applicationsSync: create-update
-    preserveResourcesOnDeletion: true
+    applicationsSync: sync
+    preserveResourcesOnDeletion: false
   template:
     metadata:
-      name: 'cloudlab-ci-{{ "{{ .name }}" }}-{{ $component }}'
+      name: 'cloudlab-ci-{{ "{{ .application }}" }}-{{ $component }}'
       labels: {cloudlab.io/owner: ci-platform}
+      # Registration removal deletes the Application, and this finalizer then
+      # deletes its owned pool resources. Bounded: the controller app owns only
+      # its watched per-app namespace, pool apps own only namespaced per-app
+      # resources, and no PVs or shared data are in scope. A transient source
+      # failure cannot trigger this path: generator errors fail closed and keep
+      # existing Applications; only a reviewed registration removal converges
+      # to deletion.
+      finalizers: [resources-finalizer.argocd.argoproj.io]
     spec:
       project: cloudlab-ci
       sources:
@@ -149,15 +166,63 @@ spec:
           targetRevision: {{ $.Values.revision | quote }}
           path: platform/delivery/ci/{{ if eq $component "controller" }}controller{{ else }}pool{{ end }}
           helm:
-            releaseName: 'cloudlab-ci-{{ "{{ .name }}" }}-{{ $component }}'
+            releaseName: 'cloudlab-ci-{{ "{{ .application }}" }}-{{ $component }}'
             skipCrds: true
             valueFiles: [values.json]
-            values: '{{ "{{ .values | toYaml }}" }}'
+            values: |
+              component: {{ $component }}
+              registration:
+                application: '{{ "{{ .application }}" }}'
+                source: {{ "{{ .source | toJson }}" }}
+                ci: {{ "{{ .ci | toJson }}" }}
+                {{ "{{ if hasKey . \"testing\" }}" }}testing: {{ "{{ .testing | toJson }}" }}{{ "{{ end }}" }}
+                {{ "{{ if hasKey . \"publishing\" }}" }}publishing: {{ "{{ .publishing | toJson }}" }}{{ "{{ end }}" }}
+              images: {{ "{{ .images | toJson }}" }}
+              {{- if eq $component "controller" }}
+              network: {{ "{{ .network | toJson }}" }}
+              manageSystemNamespace: false
+              {{- else }}
+              arc:
+                enabled: {{ if $publishPool }}{{ "{{ and (hasKey .ci.jobs \"publish\") .ci.jobs.publish }}" }}{{ else }}{{ "{{ or .ci.jobs.test (and (hasKey .ci.jobs \"publish\") .ci.jobs.publish) }}" }}{{ end }}
+              {{- end }}
+            parameters:
+              {{- if eq $component "controller" }}
+              - name: arc.image.repository
+                value: '{{ "{{ index (splitList \"@\" .images.controller) 0 }}" }}'
+                forceString: true
+              - name: arc.image.tag
+                value: '0.15.0@{{ "{{ index (splitList \"@\" .images.controller) 1 }}" }}'
+                forceString: true
+              - name: arc.flags.watchSingleNamespace
+                value: 'cloudlab-ci-{{ "{{ .source.visibility }}" }}-{{ "{{ .application }}" }}'
+                forceString: true
+              {{- else }}
+              - name: arc.githubConfigUrl
+                value: 'https://github.com/{{ "{{ .source.repository }}" }}'
+                forceString: true
+              - name: arc.githubConfigSecret
+                value: '{{ "{{ if eq .source.visibility \"public\" }}" }}github-arc-public{{ "{{ else }}" }}github-arc{{ "{{ end }}" }}'
+                forceString: true
+              - name: arc.runnerScaleSetName
+                value: 'cloudlab-{{ "{{ .application }}" }}{{ if $publishPool }}-publish{{ end }}'
+                forceString: true
+              - name: arc.template.spec.containers[0].image
+                value: '{{ "{{ .images.runner }}" }}'
+                forceString: true
+              - name: arc.template.spec.initContainers[0].image
+                value: '{{ "{{ .images.builder }}" }}'
+                forceString: true
+              {{- if $publishPool }}
+              - name: arc.template.spec.volumes[6].configMap.name
+                value: cloudlab-ci-eligibility-publish
+                forceString: true
+              {{- end }}
+              {{- end }}
       destination:
         server: https://kubernetes.default.svc
-        namespace: {{ if eq $component "controller" }}cloudlab-ci-system{{ else }}'{{ "{{ .namespace }}" }}'{{ end }}
+        namespace: {{ if eq $component "controller" }}cloudlab-ci-system{{ else }}'cloudlab-ci-{{ "{{ .source.visibility }}" }}-{{ "{{ .application }}" }}'{{ end }}
       syncPolicy:
-        automated: {prune: false, selfHeal: true, allowEmpty: false}
+        automated: {prune: {{ $pool }}, selfHeal: true, allowEmpty: {{ $pool }}}
         syncOptions: [FailOnSharedResource=true, ServerSideApply=true, ClientSideApplyMigration=false]
 {{- end }}
 {{- end }}

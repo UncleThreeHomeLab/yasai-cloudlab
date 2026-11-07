@@ -1,3 +1,5 @@
+{{- include "cloudlab.ci.pool.normalize" . -}}
+{{- if .poolEnabled }}
 {{- if .Values.manageSharedResources }}
 {{- $role := ternary "cloudlab-ci-health" (printf "%s-health" .Release.Namespace) (eq .Release.Namespace "cloudlab-ci-private") }}
 apiVersion: v1
@@ -21,4 +23,5 @@ metadata: {name: {{ $role }}}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $role }}}
 subjects:
   - {kind: ServiceAccount, name: cloudlab-ci-health, namespace: {{ .Release.Namespace }}}
+{{- end }}
 {{- end }}

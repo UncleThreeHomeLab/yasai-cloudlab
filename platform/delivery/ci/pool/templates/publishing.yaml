@@ -1,3 +1,5 @@
+{{- include "cloudlab.ci.pool.normalize" . -}}
+{{- if .poolEnabled }}
 {{- with .Values.publishing }}
 {{- $scope := .visibility }}
 {{- $releaseScope := .release_visibility | default $scope }}
@@ -99,5 +101,6 @@ spec:
   dataFrom:
     - extract: {key: ci-private-signer}
     - extract: {key: ci-private-verifier}
+{{- end }}
 {{- end }}
 {{- end }}

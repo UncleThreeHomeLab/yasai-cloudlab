@@ -1,6 +1,7 @@
 {{- range .Values.catalog }}
 {{- $entry := . }}
 {{- $a := .approval }}
+{{- $retired := eq ($entry.publication | default "ready") "retired" }}
 {{- with $a.composition }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -33,6 +34,7 @@ spec:
   {{- range $composition.connections }}
   {{- if eq .destination $destination.name }}{{ $incoming = append $incoming . }}{{ end }}
   {{- end }}
+  {{- if $retired }}{{ $incoming = list }}{{ end }}
   rules: {{ if not $incoming }}[]{{ end }}
   {{- range $incoming }}
     - from:
@@ -58,12 +60,16 @@ metadata: {name: {{ printf "platform-ingress-%s" $name }}, namespace: {{ $a.name
 spec:
   podSelector: {matchLabels: {{ $backend.selector | toJson }}}
   policyTypes: [Ingress]
+  {{- if $retired }}
+  ingress: []
+  {{- else }}
   ingress:
     {{- range $classes }}
     - from:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ printf "cloudlab-gateway-%s" . }}}}
       ports: [{protocol: TCP, port: {{ $backend.port }}}, {protocol: TCP, port: 15008}]
     {{- end }}
+  {{- end }}
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -71,6 +77,9 @@ metadata: {name: {{ printf "platform-gateway-%s" $name }}, namespace: {{ $a.name
 spec:
   selector: {matchLabels: {{ $backend.selector | toJson }}}
   action: ALLOW
+  {{- if $retired }}
+  rules: []
+  {{- else }}
   rules:
     - from:
         - source:
@@ -80,6 +89,7 @@ spec:
               {{- end }}
       to:
         - operation: {ports: [{{ $backend.port | quote }}]}
+  {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

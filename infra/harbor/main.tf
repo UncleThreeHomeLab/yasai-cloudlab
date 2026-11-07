@@ -1,8 +1,9 @@
 locals {
-  policy      = jsondecode(file("${path.module}/contract.json"))
-  projects    = toset(keys(local.policy.projects))
-  groups      = toset([for member in values(local.policy.memberships) : member.group])
-  memberships = local.policy.memberships
+  # Settings come only from the reviewed compiled binding; contract.json
+  # records the accepted inputs for offline comparison, not provider inputs.
+  projects    = toset(keys(var.registry.projects))
+  groups      = toset([for member in values(var.registry.memberships) : member.group])
+  memberships = var.registry.memberships
   robots = merge([for project in local.projects : {
     for role in ["push", "pull"] : "${project}-${role}" => { project = project, role = role }
   }]...)
@@ -12,7 +13,7 @@ resource "harbor_project" "project" {
   for_each                    = local.projects
   name                        = each.key
   public                      = false
-  storage_quota               = local.policy.projects[each.key]
+  storage_quota               = var.registry.projects[each.key]
   vulnerability_scanning      = false
   enable_content_trust        = false
   enable_content_trust_cosign = false
@@ -78,7 +79,7 @@ resource "harbor_immutable_tag_rule" "release" {
   for_each      = local.projects
   project_id    = harbor_project.project[each.key].id
   repo_matching = "**"
-  tag_matching  = local.policy.protected_tags
+  tag_matching  = var.registry.protected_tags
   disabled      = false
   lifecycle { prevent_destroy = true }
 }
