@@ -1,4 +1,16 @@
 ---
+- name: Sync the verification implementation before running it
+  ansible.builtin.copy:
+    src: '{{ item.src }}'
+    dest: '/opt/cloudlab/gitops/{{ item.dest }}'
+    owner: root
+    group: root
+    mode: '0600'
+  loop:
+    - {src: /workspace/ansible/playbooks/argocd/files/verify.py, dest: verify.py}
+    - {src: /workspace/ansible/playbooks/argocd/files/bootstrap.py, dest: bootstrap.py}
+    - {src: /workspace/verification/integration/controller_stability.py,
+      dest: controller_stability.py}
 - name: Render committed GitOps verification inputs
   ansible.builtin.command:
     argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
