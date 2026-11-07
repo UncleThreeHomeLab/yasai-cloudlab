@@ -1335,7 +1335,11 @@ active-alerts, and selectors exclude unrelated workloads.
 
 1. **Agent:** validate the declarations against
    `platform/observability/gitops/values.schema.json` and check PromQL with
-   `promtool`. Confirm the catalog binding is current (not retired), receiver
+   `promtool`. For independent public checks, validate
+   `services/<name>/uptime.yaml` against
+   `platform/observability/uptime.schema.json`; the host derives from the
+   approved public exposure and hosted checks activate through separately
+   authorized trusted execution. Confirm the catalog binding is current (not retired), receiver
    names resolve to declared receivers, and the aggregate stays within the
    chart's 192KiB bound. Preserve flat panels, bounded legends, private scope
    and explicit missing/stale states. Component/pod/container variables are

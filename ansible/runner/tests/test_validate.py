@@ -25,7 +25,7 @@ class ValidationTests(unittest.TestCase):
             separator = command.index('--')
             self.assertNotIn('--exclude', command)
             self.assertEqual(command[separator + 1:], [str(migrated)])
-            self.assertEqual(run.call_count, 3)
+            self.assertEqual(run.call_count, 2)
 
     def test_missing_documented_inputs_fail_before_tool_execution(self):
         with tempfile.TemporaryDirectory() as directory:

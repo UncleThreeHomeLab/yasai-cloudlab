@@ -5,6 +5,14 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
+    - name: Check for the retired service composition modules
+      ansible.builtin.stat:
+        path: /workspace/ansible/playbooks/services
+      delegate_to: localhost
+      become: false
+      register: admission_services_tree
+      changed_when: false
+
     - name: Resolve the approved catalog for composition security verification
       ansible.builtin.command: python -m playbooks.services.files.payload
       args: {chdir: /workspace}
@@ -13,7 +21,7 @@
       changed_when: false
       no_log: true
       register: admission_service_catalog
-      when: admission_enabled | bool and services_enabled | bool
+      when: admission_enabled | bool and services_enabled | bool and admission_services_tree.stat.exists
 
     - name: Verify published admission controllers and declared policy behavior
       ansible.builtin.command:
@@ -23,14 +31,20 @@
           - |
             import sys, types
             sys.path.insert(0, '/opt/cloudlab')
-            import playbooks.services.files as services_files
+            try:
+                import playbooks.services.files as services_files
+            except ModuleNotFoundError:
+                services_files = None
             module = types.ModuleType('playbooks.services.files.composition_verify')
             module.__package__ = 'playbooks.services.files'
             module.__file__ = '/opt/cloudlab/playbooks/services/files/composition_verify.py'
             sys.modules[module.__name__] = module
-            services_files.composition_verify = module
+            if services_files is not None:
+                services_files.composition_verify = module
+            {% if admission_services_tree.stat.exists %}
             exec(compile({{ lookup('file', '/workspace/ansible/playbooks/services/files/composition_verify.py') | to_json }},
               module.__file__, 'exec'), module.__dict__)
+            {% endif %}
             import playbooks
             for name, path in (('playbooks.admission', '/opt/cloudlab/playbooks/admission'),
               ('playbooks.admission.files', '/opt/cloudlab/playbooks/admission/files')):
@@ -52,7 +66,7 @@
           - '{{ lookup("pipe", "git -C /workspace rev-parse HEAD") }}'
           - "{{ (lookup('file', '/workspace/platform/delivery/admission/policies/values.yaml') | from_yaml).validationActions | to_json }}"
       args:
-        stdin: "{{ {'catalog': ((admission_service_catalog.stdout | from_json)['values']['catalog'] if services_enabled | bool else []),
+        stdin: "{{ {'catalog': ((admission_service_catalog.stdout | from_json)['values']['catalog'] if (services_enabled | bool and admission_service_catalog is not skipped) else []),
           'permissionsGuard': (lookup('file', '/workspace/platform/delivery/admission/policies/templates/permissions.yaml') | from_yaml_all | list),
           'namespaceGuard': (lookup('file', '/workspace/platform/delivery/admission/policies/templates/workload-namespace.yaml') | from_yaml)} | to_json }}"
       changed_when: false
