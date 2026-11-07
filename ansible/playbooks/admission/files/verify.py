@@ -124,14 +124,40 @@ def permission_guard_probes(dry_run):
     return True
 
 
-def probe(namespace):
+def workload_source(namespace):
+    """Mirror the namespace's own deployed workload for admission probes.
+
+    Per-namespace artifact pinning admits only each service's own image and
+    the workload contract requires a named service account, so a generic
+    probe can never pass. Resolve both from the namespace's first deployed
+    workload template instead; anything unpinned or unnamed fails closed.
+    Namespaces without deployments (retirement shells) have no workload to
+    exercise and report None so only namespace-level checks apply to them.
+    """
+    deployments = sorted(
+        (get('deployment', namespace=namespace) or {}).get('items', []),
+        key=lambda row: row['metadata']['name'])
+    if not deployments:
+        return None
+    template = deployments[0]['spec']['template']['spec']
+    image = (template.get('containers') or [{}])[0].get('image') or ''
+    account = template.get('serviceAccountName') or ''
+    if not re.fullmatch('.+@sha256:[a-f0-9]{64}', image):
+        raise RuntimeError('Deployed workload image is not a pinned digest')
+    if not account or account == 'default':
+        raise RuntimeError('Deployed workload requires its named service account')
+    return image, account
+
+
+def probe(namespace, image, account):
     return {'apiVersion': 'v1', 'kind': 'Pod',
             'metadata': {'name': 'cloudlab-admission-proof', 'namespace': namespace},
             'spec': {'automountServiceAccountToken': False, 'restartPolicy': 'Never',
+                     'serviceAccountName': account,
                      'securityContext': {'runAsNonRoot': True, 'runAsUser': 65532,
                                          'seccompProfile': {'type': 'RuntimeDefault'}},
                      'containers': [{'name': 'proof',
-                         'image': 'docker.io/library/python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed',
+                         'image': image,
                          'command': ['true'],
                          'securityContext': {'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True,
                                              'capabilities': {'drop': ['ALL']}},
@@ -153,12 +179,12 @@ def digest_result(result, enforce):
     return bool(result.returncode) == enforce and (native or (enforce and artifact))
 
 
-def admission(namespace, enforce):
-    good = probe(namespace)
+def admission(namespace, enforce, image, account):
+    good = probe(namespace, image, account)
     if dry_run(good).returncode:
         raise RuntimeError('Restricted digest workload did not pass server admission')
     mutable = copy.deepcopy(good)
-    mutable['spec']['containers'][0]['image'] = 'docker.io/library/python:3.13-slim-bookworm'
+    mutable['spec']['containers'][0]['image'] = image.split('@')[0]
     unbounded = copy.deepcopy(good)
     unbounded['spec']['containers'][0]['resources']['requests']['cpu'] = '0'
     unbounded['spec']['containers'][0]['resources']['limits']['cpu'] = '0'
@@ -188,16 +214,18 @@ def ephemeral_admission(namespace, enforce):
         return False
     path = ('/api/v1/namespaces/' + urllib.parse.quote(namespace, safe='') + '/pods/' +
             urllib.parse.quote(target['metadata']['name'], safe='') + '/ephemeralcontainers?dryRun=All')
-    container = copy.deepcopy(probe(namespace)['spec']['containers'][0])
+    base = target['spec']['containers'][0]['image']
+    # The hardened skeleton carries the live image: ephemeral containers forbid
+    # the live container's probes and resources, so only the image is mirrored.
+    skeleton = probe(namespace, base, target['spec'].get('serviceAccountName') or 'default')
+    container = copy.deepcopy(skeleton['spec']['containers'][0])
     container.pop('resources')  # Kubernetes forbids per-container resources on this subresource.
     container['name'] = 'cloudlab-admission-proof'
-    container['securityContext'].update(runAsNonRoot=True, runAsUser=65532,
-                                        seccompProfile={'type': 'RuntimeDefault'})
     target = copy.deepcopy(target)
     target['spec'].setdefault('ephemeralContainers', []).append(container)
     for mutable in (False, True):
         if mutable:
-            container['image'] = 'docker.io/library/python:3.13-slim-bookworm'
+            container['image'] = base.split('@')[0]
         result = kube('replace', '--raw', path, '-f', '-', document=target, allow_failure=True)
         warned = 'Workload images must use an immutable SHA-256 digest.' in result.stderr
         if ((mutable and not digest_result(result, enforce)) or
@@ -266,7 +294,9 @@ def namespace_profile(row):
     if (not metadata['name'].startswith('cloudlab-app-') or
             any(labels.get(key) != value for key, value in required.items())):
         raise RuntimeError('Application namespace security labels differ; verify ownership before migration')
-    composition = 'cloudlab.io/composition' in labels
+    if 'cloudlab.io/composition' in labels and labels['cloudlab.io/composition'] != 'approved':
+        raise RuntimeError('Composition namespace approval differs from its approved owner')
+    composition = labels.get('cloudlab.io/composition') == 'approved'
     if composition:
         required = {'cloudlab.io/composition': 'approved', 'pod-security.kubernetes.io/enforce': 'privileged',
                     'pod-security.kubernetes.io/audit': 'restricted', 'pod-security.kubernetes.io/warn': 'restricted'}
@@ -293,30 +323,29 @@ def namespace_admission(row):
 
 
 def namespaces(workloads, enforce, catalog):
-    approved = {}
-    for entry in catalog or []:
-        if entry['approval'].get('composition') and entry['publication'] != 'retired':
-            namespace = entry['approval']['namespace']
-            if namespace in approved: raise RuntimeError('Composition namespace approval is ambiguous')
-            approved[namespace] = entry
+    """Fence every workload namespace; prove workload admission on ordinary ones.
+
+    The retired services runtime used to approve composition namespaces from
+    its catalog and prove their workload admission separately. Composition
+    approval now arrives as the GitOps-owned namespace label (bound to the
+    approved value by namespace_profile) and the namespace guard denies any
+    mutation of that fence; workload admission dry-runs apply to ordinary
+    namespaces only. The catalog argument stays for the evidence contract.
+    """
     ephemeral_checked = 0
     composition_checked = 0
     restricted_checked = 0
-    if set(approved) - {row['metadata']['name'] for row in workloads}:
-        raise RuntimeError('Approved composition namespace has not converged')
     for row in workloads:
         namespace = row['metadata']['name']
         composition = namespace_profile(row)
-        if composition != (namespace in approved):
-            raise RuntimeError('Composition namespace differs from its current catalog approval')
         namespace_admission(row)
         if composition:
-            from playbooks.services.files.composition_verify import admission as composition_admission
-            evidence = composition_admission(approved[namespace], get, condition, kube)
             composition_checked += 1
-            ephemeral_checked += bool(evidence['ephemeral_denied'])
         else:
-            admission(namespace, enforce)
+            source = workload_source(namespace)
+            if source is None:
+                continue
+            admission(namespace, enforce, *source)
             ephemeral_checked += ephemeral_admission(namespace, enforce)
             restricted_checked += 1
     if not ephemeral_checked:
