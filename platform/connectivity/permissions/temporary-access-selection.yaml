@@ -1,0 +1,12 @@
+# Temporary-access backend selection for the permissions path (access plan A3, public part).
+# Desired source: this file. Field owner: connectivity/permissions owner.
+# Reconciler: none until a backend is selected; selection alone installs nothing.
+# Credentials: none. Deletion policy: removing this record removes the selection only; no grants exist to revoke.
+version: cloudlab-temporary-access-selection/v1
+status: unselected
+scope: Backend selection for temporary Kubernetes RBAC grants through reviewed profiles
+selected: none
+blocked: Product decision open; no maintained upstream-only capability or scoped reviewed integration is selected. No speculative installation and no custom IAM.
+acceptance: One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path.
+boundsRef: platform/connectivity/access/temporary-access.json
+notes: Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates.

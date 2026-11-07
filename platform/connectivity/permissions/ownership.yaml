@@ -32,7 +32,7 @@ paths:
     retention: not-applicable
     revocation: policy change via reviewed Git
     standing: false
-    notes: No standing Argo grants; additive mappings remain unqualified.
+    notes: No standing Argo grants; additive mappings remain unqualified. Qualified separately from native RBAC; neither review covers the other.
   - id: argo-controller
     subjects: argocd-application-controller ServiceAccount
     source: pinned upstream chart plus reviewed AppProjects
@@ -53,6 +53,16 @@ paths:
     revocation: remove or narrow the binding through reviewed Git
     standing: true
     notes: Sole cluster-admin binding; identity comes only from the private values revision.
+  - id: permissions-profiles-public
+    subjects: no subjects bound; reviewed profiles only
+    source: public platform/connectivity/permissions profiles.yaml at an accepted revision
+    fieldOwner: connectivity/permissions owner
+    reconciler: cloudlab-permissions-profiles Application
+    credentials: none; roles bind no subjects without a private assignment
+    retention: retain roles while declared
+    revocation: remove the profile through reviewed Git; bindings referencing it fail closed
+    standing: false
+    notes: UID-free; fixed ClusterRole names, labels and revision annotations identify grants, no UID adoption. Roles alone grant nothing; qualified separately from Argo mappings.
   - id: permissions-rbac
     subjects: private assignments only
     source: private platform/permissions.yaml at an accepted revision (opaque here)
@@ -62,7 +72,7 @@ paths:
     retention: retain owner and roles during retirement
     revocation: state retired with empty assignments, then binding absence plus fresh denial
     standing: false
-    notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants.
+    notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants. Qualified separately from Argo mappings.
   - id: eso-readonly
     subjects: External Secrets operator
     source: external-secrets chart plus per-owner ExternalSecrets
@@ -154,6 +164,6 @@ paths:
     standing: true
     notes: Opaque by design; use is exceptional and separately reviewed.
 unsupported:
-  - Temporary grants: no access portal is selected; no temporary-grant mechanism exists.
+  - Temporary grants: no access portal is selected (see temporary-access-selection.yaml); adapter contracts drafted, no backend installed, no temporary-grant mechanism exists.
   - Private assignment content: opaque private Git; bounded by acceptance, admission and zero active assignments.
   - Live corroboration: this contract is verified against declarations only; cluster reads need a separate scoped check.
