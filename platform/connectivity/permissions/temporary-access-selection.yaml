@@ -7,7 +7,7 @@ status: unselected
 scope: Backend selection for temporary Kubernetes RBAC grants through reviewed profiles
 selected: none
 reviewed: 2026-11-07
-blocked: Product decision open after 2026-11-07 offline review of all five plan candidate families; each fails at least one security gate below. No speculative installation and no custom IAM.
+blocked: Owner delegated choice 2026-11-07; k8s-breakglass recommended (see notes), selection withheld pending live qualification. No speculative installation and no custom IAM.
 acceptance: One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path.
 boundsRef: platform/connectivity/access/temporary-access.json
 bounds:
@@ -16,7 +16,7 @@ bounds:
   rotationStartMinutes: 5
   renewal: No automatic renewal; shorter backend limits apply.
   approval: Approval binds immutable requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget. Requester, beneficiary, delegated equivalents and conflicting identities are excluded from approval. Human review is required initially for identity and secret operations.
-notes: Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates; kubectl is unreachable from this lane so all live gates stay pending and fail closed. Inline bounds mirror boundsRef.
+notes: "Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates. Inline bounds mirror boundsRef. Recommendation: k8s-breakglass (telekom) is the only free purpose-built Kubernetes JIT approval path (breakglass tickets, time-bounded sessions, CRD approvers, audit sinks, OIDC including Keycloak, Apache-2.0, active); all other families fail structurally (no free approval path, no Kubernetes connector, orchestrator-only, or enterprise-gated JIT). Qualify before selecting, in lab, against pinned beta: requester/beneficiary exclusion, TTL plus usage-budget enforcement with denial after expiry via one disposable scoped request, per-operation current-authority rechecks, workload-identity binding (or human-only scope), audit sink review."
 candidates:
   - family: breakglass-openbao
     members: telekom/k8s-breakglass; OpenBao
