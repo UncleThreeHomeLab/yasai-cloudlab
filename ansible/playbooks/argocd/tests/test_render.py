@@ -274,6 +274,21 @@ class RenderTests(unittest.TestCase):
         values['identity']['argo']['valuesRevision'] = 'main'
         self.root_with(values, success=False)
 
+    def test_per_application_ci_sets_carry_per_application_controller_identity(self):
+        values = {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+                  'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                         'valuesRevision': 'b' * 40}},
+                  'ci': {'enabled': True, 'poolEnabled': True}}
+        rows = {obj['metadata']['name']: obj for obj in self.root_with(values) if obj['kind'] == 'ApplicationSet'}
+        controller = rows['cloudlab-ci-application-controller']['spec']['template']['spec']['sources'][0]['helm']
+        names = {row['name']: row['value'] for row in controller['parameters']}
+        self.assertEqual(names['arc.fullnameOverride'], 'cloudlab-{{ .application }}-controller')
+        self.assertEqual(names['arc.serviceAccount.name'], 'cloudlab-{{ .application }}-controller')
+        for component in ('runner', 'publisher'):
+            pool = rows['cloudlab-ci-application-' + component]['spec']['template']['spec']['sources'][0]['helm']
+            names = {row['name']: row['value'] for row in pool['parameters']}
+            self.assertEqual(names['arc.controllerServiceAccount.name'], 'cloudlab-{{ .application }}-controller')
+
     def test_public_project_cannot_create_privileged_platform_objects(self):
         project = next(x['spec'] for x in self.data['roots'] if x['kind'] == 'AppProject' and x['metadata']['name'] == 'cloudlab-public')
         self.assertEqual(project['clusterResourceWhitelist'], [])

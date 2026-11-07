@@ -187,6 +187,12 @@ spec:
               {{- end }}
             parameters:
               {{- if eq $component "controller" }}
+              - name: arc.fullnameOverride
+                value: 'cloudlab-{{ "{{ .application }}" }}-controller'
+                forceString: true
+              - name: arc.serviceAccount.name
+                value: 'cloudlab-{{ "{{ .application }}" }}-controller'
+                forceString: true
               - name: arc.image.repository
                 value: '{{ "{{ index (splitList \"@\" .images.controller) 0 }}" }}'
                 forceString: true
@@ -197,6 +203,9 @@ spec:
                 value: 'cloudlab-ci-{{ "{{ .source.visibility }}" }}-{{ "{{ .application }}" }}'
                 forceString: true
               {{- else }}
+              - name: arc.controllerServiceAccount.name
+                value: 'cloudlab-{{ "{{ .application }}" }}-controller'
+                forceString: true
               - name: arc.githubConfigUrl
                 value: 'https://github.com/{{ "{{ .source.repository }}" }}'
                 forceString: true
