@@ -168,7 +168,11 @@ spec:
           helm:
             releaseName: 'cloudlab-ci-{{ "{{ .application }}" }}-{{ $component }}'
             skipCrds: true
-            valueFiles: [values.json]
+            # Publisher pools layer values-publisher.json over values.json:
+            # --set cannot extend lists (it replaces them with sparse nils),
+            # so the publisher volumes and mounts live in a value file. The
+            # chart pins every entry; keep the two files in sync.
+            valueFiles: [values.json{{ if $publishPool }}, values-publisher.json{{ end }}]
             values: |
               component: {{ $component }}
               registration:
@@ -221,11 +225,6 @@ spec:
               - name: arc.template.spec.initContainers[0].image
                 value: '{{ "{{ .images.builder }}" }}'
                 forceString: true
-              {{- if $publishPool }}
-              - name: arc.template.spec.volumes[6].configMap.name
-                value: cloudlab-ci-eligibility-publish
-                forceString: true
-              {{- end }}
               {{- end }}
       destination:
         server: https://kubernetes.default.svc

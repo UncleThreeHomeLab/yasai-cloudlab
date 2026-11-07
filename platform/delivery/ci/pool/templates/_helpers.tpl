@@ -95,15 +95,6 @@
 {{- fail "Publishing requires an explicit component primary" }}
 {{- end }}
 {{- $_ := set .Values "publishing" $out }}
-{{- if $publish }}
-{{/* Publisher runners mount the publishing config plus pull/push credentials. */}}
-{{- $spec := .Values.arc.template.spec }}
-{{- $volumes := append (append (append $spec.volumes (dict "name" "publish-config" "configMap" (dict "name" "cloudlab-publishing" "defaultMode" 288))) (dict "name" "publish-pull" "secret" (dict "secretName" "cloudlab-publish-pull" "defaultMode" 288))) (dict "name" "publish-push" "secret" (dict "secretName" "cloudlab-publish-push" "defaultMode" 288)) }}
-{{- $_ := set $spec "volumes" $volumes }}
-{{- $runner := index $spec.containers 0 }}
-{{- $mounts := append (append (append $runner.volumeMounts (dict "name" "publish-config" "mountPath" "/run/cloudlab-publisher/config" "readOnly" true)) (dict "name" "publish-pull" "mountPath" "/run/cloudlab-publisher/pull" "readOnly" true)) (dict "name" "publish-push" "mountPath" "/run/cloudlab-publisher/push" "readOnly" true) }}
-{{- $_ := set $runner "volumeMounts" $mounts }}
-{{- end }}
 {{- else }}
 {{- if hasKey .Values "publishing" }}{{ $_ := unset .Values "publishing" }}{{- end }}
 {{- end }}
