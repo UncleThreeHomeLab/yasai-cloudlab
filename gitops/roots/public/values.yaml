@@ -46,8 +46,8 @@ identity:
       - a0a42ac02b0d351a4c56cf40e88f697f3537f19a
 services:
   enabled: true
-  revision: b2a2e1174abf88944ea106022d6a03b509431e4a
-  acceptanceCommitment: '5537bc5661b27792df411806fae9c50da13b22cc28417f7eb3489f9e1e3a3a05'
+  revision: 7a1d3c657ff3c8a154cdce000c8572552f7ba5b8
+  acceptanceCommitment: '3e0b12508117e77d1cb0cb6d3837accb049f47bbd3526b8eb14fbb76b23dbea5'
 privateSources:
   enabled: true
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
