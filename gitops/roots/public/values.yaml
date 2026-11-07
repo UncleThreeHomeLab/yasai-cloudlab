@@ -84,9 +84,8 @@ rollouts:
 previews:
   enabled: true
   configuration:
-    # Enable only after the accepted identity, DNS and RBAC owners are active,
-    # with a reviewed immutable platform revision and acceptance commitment.
-    enabled: false
-    revision: ''
-    acceptanceCommitment: ''
+    # Drill: writer stage with execution suspended (A12 live proof).
+    enabled: true
+    revision: f94a2c12f8c09a59342fb0eafcdc3361ab7b1989
+    acceptanceCommitment: a61cdd45c31220c1445e0b0434873d2697574a723d437afd6505073242467271
     permissionsEnabled: false
