@@ -272,7 +272,11 @@ def plan_owned_scope(document):
             if not isinstance(before, dict) or not isinstance(after, dict):
                 raise RuntimeError('Harbor project change is unreadable: ' + address)
             changed = sorted(key for key in after if before.get(key) != after.get(key))
-            if changed != ['storage_quota']:
+            # Imported projects represent the local force_destroy guard as
+            # null; its normalization to explicit false rides along with
+            # quota updates and is never an API write.
+            if changed not in (['storage_quota'],
+                               ['force_destroy', 'storage_quota']):
                 raise RuntimeError('Only project quota may change: ' + address)
             continue
         if address.startswith('harbor_project_member_group.member['):
