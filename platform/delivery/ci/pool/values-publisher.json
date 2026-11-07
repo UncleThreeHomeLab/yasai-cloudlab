@@ -107,6 +107,20 @@
               "secretName": "cloudlab-publish-push",
               "defaultMode": 288
             }
+          },
+          {
+            "name": "signer",
+            "secret": {
+              "secretName": "cloudlab-ci-signing",
+              "defaultMode": 288
+            }
+          },
+          {
+            "name": "github",
+            "secret": {
+              "secretName": "cloudlab-release",
+              "defaultMode": 288
+            }
           }
         ],
         "containers": [
@@ -188,6 +202,16 @@
               {
                 "name": "publish-push",
                 "mountPath": "/run/cloudlab-publisher/push",
+                "readOnly": true
+              },
+              {
+                "name": "signer",
+                "mountPath": "/run/cloudlab-publisher/signer",
+                "readOnly": true
+              },
+              {
+                "name": "github",
+                "mountPath": "/run/cloudlab-publisher/github",
                 "readOnly": true
               }
             ],

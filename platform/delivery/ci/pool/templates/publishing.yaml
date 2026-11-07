@@ -41,21 +41,29 @@
 {{- end }}
 {{- $volumes := $.Values.arc.template.spec.volumes }}
 {{- $mounts := (index $.Values.arc.template.spec.containers 0).volumeMounts }}
-{{- if ne (len $volumes) 12 }}{{ fail "Publisher runners require exactly 12 volumes" }}{{- end }}
-{{- range $i, $want := list "workspace" "builder-state" "builder-run" "builder-tmp" "builder-ids" "health" "eligibility" "testing" "test-pull" "publish-config" "publish-pull" "publish-push" }}
-{{- if ne (index $volumes $i).name $want }}{{ fail "Publisher volume order changed; keep values-publisher.json in sync" }}{{- end }}
+{{- $wantVolumes := list "workspace" "builder-state" "builder-run" "builder-tmp" "builder-ids" "health" "eligibility" "testing" "test-pull" "publish-config" "publish-pull" "publish-push" "signer" "github" }}
+{{- $wantMounts := list "workspace=/home/runner/_work" "health=/var/run/cloudlab-health" "eligibility=/etc/cloudlab-runner" "testing=/run/cloudlab-test/config" "test-pull=/run/cloudlab-test/registry" "publish-config=/run/cloudlab-publisher/config" "publish-pull=/run/cloudlab-publisher/pull" "publish-push=/run/cloudlab-publisher/push" "signer=/run/cloudlab-publisher/signer" "github=/run/cloudlab-publisher/github" }}
+{{- if $manual }}
+{{- $wantVolumes = list "workspace" "builder-state" "builder-run" "builder-tmp" "builder-ids" "health" "eligibility" "testing" "test-pull" "publish-config" "publish-pull" "publish-push" "signer" }}
+{{- $wantMounts = list "workspace=/home/runner/_work" "health=/var/run/cloudlab-health" "eligibility=/etc/cloudlab-runner" "testing=/run/cloudlab-test/config" "test-pull=/run/cloudlab-test/registry" "publish-config=/run/cloudlab-publisher/config" "publish-pull=/run/cloudlab-publisher/pull" "publish-push=/run/cloudlab-publisher/push" "signer=/run/cloudlab-publisher/signer" }}
+{{- end }}
+{{- if ne (len $volumes) (len $wantVolumes) }}{{ fail "Publisher runners require their exact overlay volumes" }}{{- end }}
+{{- range $i, $want := $wantVolumes }}
+{{- if ne (index $volumes $i).name $want }}{{ fail "Publisher volume order changed; keep the publisher overlays in sync" }}{{- end }}
 {{- end }}
 {{- if or (ne (index (index $volumes 6).configMap "name") "cloudlab-ci-eligibility-publish")
     (ne (index (index $volumes 9).configMap "name") "cloudlab-publishing")
     (ne (index (index $volumes 10).secret "secretName") "cloudlab-publish-pull")
-    (ne (index (index $volumes 11).secret "secretName") "cloudlab-publish-push") }}
-{{- fail "Publisher runners require the publish policy, config and credentials volumes" }}
+    (ne (index (index $volumes 11).secret "secretName") "cloudlab-publish-push")
+    (ne (index (index $volumes 12).secret "secretName") "cloudlab-ci-signing") }}
+{{- fail "Publisher runners require the publish policy, config, credentials and signer volumes" }}
 {{- end }}
-{{- if ne (len $mounts) 8 }}{{ fail "Publisher runners require exactly 8 mounts" }}{{- end }}
-{{- range $i, $want := list "workspace=/home/runner/_work" "health=/var/run/cloudlab-health" "eligibility=/etc/cloudlab-runner" "testing=/run/cloudlab-test/config" "test-pull=/run/cloudlab-test/registry" "publish-config=/run/cloudlab-publisher/config" "publish-pull=/run/cloudlab-publisher/pull" "publish-push=/run/cloudlab-publisher/push" }}
+{{- if and (not $manual) (ne (index (index $volumes 13).secret "secretName") "cloudlab-release") }}{{ fail "Automatic publishers require the release App volume" }}{{- end }}
+{{- if ne (len $mounts) (len $wantMounts) }}{{ fail "Publisher runners require their exact overlay mounts" }}{{- end }}
+{{- range $i, $want := $wantMounts }}
 {{- $parts := splitList "=" $want }}
 {{- $mount := index $mounts $i }}
-{{- if or (ne $mount.name (index $parts 0)) (ne $mount.mountPath (index $parts 1)) }}{{ fail "Publisher mount order changed; keep values-publisher.json in sync" }}{{- end }}
+{{- if or (ne $mount.name (index $parts 0)) (ne $mount.mountPath (index $parts 1)) }}{{ fail "Publisher mount order changed; keep the publisher overlays in sync" }}{{- end }}
 {{- end }}
 {{- if $manual }}
 {{- range $.Values.arc.template.spec.volumes }}
