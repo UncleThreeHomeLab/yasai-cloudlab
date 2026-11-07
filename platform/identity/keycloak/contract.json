@@ -57,7 +57,7 @@
   },
   "sessions": {
     "access_token_seconds": 300,
-    "keycloak_session_max_seconds": 600,
+    "keycloak_session_max_seconds": 14400,
     "reconcile_schedule_seconds": 300,
     "private_revocation_convergence_seconds": 900,
     "integrated_offboarding_deadline_seconds": 1500,

@@ -12,6 +12,7 @@ import re
 from urllib.parse import urlsplit
 
 REALMS = ('platform', 'applications')
+SESSION_SECONDS = 4 * 60 * 60
 GROUPS = ('platform-admin', 'developer', 'viewer')
 RESERVED = {'master', 'admin-cli', 'account', 'account-console', 'broker',
             'realm-management', 'security-admin-console', 'admin-permissions', 'realm-writer', 'realm-health'}
@@ -131,7 +132,8 @@ def client(value, secrets):
         'serviceAccountsEnabled': False, 'fullScopeAllowed': False,
         'redirectUris': callbacks, 'webOrigins': origins,
         'attributes': {'pkce.code.challenge.method': 'S256', 'access.token.lifespan': '300',
-                       'client.session.idle.timeout': '600', 'client.session.max.lifespan': '600'},
+                       'client.session.idle.timeout': str(SESSION_SECONDS),
+                       'client.session.max.lifespan': str(SESSION_SECONDS)},
         'defaultClientScopes': ['basic', *scopes], 'optionalClientScopes': [],
         'protocolMappers': [
             {'name': 'api-audience', 'protocol': 'openid-connect', 'protocolMapper': 'oidc-audience-mapper',
@@ -304,7 +306,7 @@ def baseline(realm, rp_id):
         'rememberMe': False, 'loginWithEmailAllowed': False, 'duplicateEmailsAllowed': False,
         'bruteForceProtected': True, 'permanentLockout': False,
         'accessTokenLifespan': 300, 'accessTokenLifespanForImplicitFlow': 300,
-        'ssoSessionIdleTimeout': 600, 'ssoSessionMaxLifespan': 600,
+        'ssoSessionIdleTimeout': SESSION_SECONDS, 'ssoSessionMaxLifespan': SESSION_SECONDS,
         'offlineSessionIdleTimeout': 600, 'offlineSessionMaxLifespanEnabled': True,
         'offlineSessionMaxLifespan': 600, 'revokeRefreshToken': True, 'refreshTokenMaxReuse': 0,
         'eventsEnabled': True, 'eventsExpiration': 604800,
@@ -553,7 +555,8 @@ def prepare_master(directory, admin_host, bootstrap_directory=None):
     attributes = _without_checksums(attributes)
     value = {'realm': 'master', 'sslRequired': 'all', 'registrationAllowed': False,
              'resetPasswordAllowed': False, 'attributes': dict(attributes, frontendUrl=private_origin),
-             'accessTokenLifespan': 300, 'ssoSessionIdleTimeout': 600, 'ssoSessionMaxLifespan': 600,
+             'accessTokenLifespan': 300,
+             'ssoSessionIdleTimeout': SESSION_SECONDS, 'ssoSessionMaxLifespan': SESSION_SECONDS,
              'revokeRefreshToken': True, 'refreshTokenMaxReuse': 0,
              'browserFlow': mfa['browserFlow'], 'authenticationFlows': mfa['authenticationFlows'],
              'webAuthnPolicyRpId': admin_host, 'webAuthnPolicyRpEntityName': 'CloudLab master administration',
