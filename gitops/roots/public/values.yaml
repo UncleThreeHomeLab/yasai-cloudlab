@@ -40,10 +40,11 @@ identity:
   enabled: true
   application:
     enabled: true
-    installationRevision: a0a42ac02b0d351a4c56cf40e88f697f3537f19a
+    installationRevision: 7b05e2139f94a84f4c4f92734ba8ad45a8a7f4a5
     supportedInstallationRevisions:
       - 526891f62eb9b9a50a0ffaf6ef020269d09e7746
       - a0a42ac02b0d351a4c56cf40e88f697f3537f19a
+      - 7b05e2139f94a84f4c4f92734ba8ad45a8a7f4a5
 services:
   enabled: true
   revision: 7a1d3c657ff3c8a154cdce000c8572552f7ba5b8
