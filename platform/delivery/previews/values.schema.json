@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["enabled", "permissionsEnabled", "platformRepository", "catalog"],
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Render the controller, catalog and code ConfigMaps plus the lifecycle CronJob."
+    },
+    "permissionsEnabled": {
+      "type": "boolean",
+      "description": "Unsuspend the lifecycle CronJob. Enable only after the accepted identity, DNS and RBAC owners are active."
+    },
+    "platformRepository": {
+      "type": "string",
+      "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$",
+      "description": "Distinct designated platform source the controller renders preview workloads from."
+    },
+    "catalog": {
+      "type": "object",
+      "description": "Private preview catalog: hostname, issuer, approvals, privateDiscovery, ownership and artifact trust, plus pending YAML requests for the controller to merge."
+    }
+  }
+}
