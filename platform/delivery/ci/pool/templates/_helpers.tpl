@@ -58,22 +58,16 @@
 {{- if $pr }}{{ $ref = printf "refs/pull/%d/merge" $pr }}{{- end }}
 {{- $workflowRef := printf "%s/.github/workflows/ci.yaml@%s" $source.repository $ref }}
 {{- $entries := list }}
+{{- $rowJob := "__default" }}
 {{- if $pr }}
-{{- $entries = append $entries (dict "repository_id" $source.repositoryId "repository" $source.repository "workflow_ref" $workflowRef "workflow_sha" $approval.revision "sha" $approval.revision "ref" $ref "event_name" "pull_request" "job" "test") }}
-{{- else if eq $comp "publisher" }}
-{{- range $event := list "push" "workflow_dispatch" }}
-{{- $entries = append $entries (dict "repository_id" $source.repositoryId "repository" $source.repository "workflow_ref" $workflowRef "workflow_sha" $approval.revision "sha" $approval.revision "ref" $ref "event_name" $event "job" "publish") }}
-{{- end }}
+{{- $entries = append $entries (dict "repository_id" $source.repositoryId "repository" $source.repository "workflow_ref" $workflowRef "workflow_sha" $approval.revision "sha" $approval.revision "ref" $ref "event_name" "pull_request" "job" $rowJob) }}
 {{- else }}
-{{- $runnerJobs := list }}
-{{- if $jobs.test }}{{ $runnerJobs = append $runnerJobs "test" }}{{- end }}
-{{- if $publish }}{{ $runnerJobs = append $runnerJobs "build" }}{{- end }}
-{{- range $job := $runnerJobs }}
 {{- range $event := list "push" "workflow_dispatch" }}
-{{- $entries = append $entries (dict "repository_id" $source.repositoryId "repository" $source.repository "workflow_ref" $workflowRef "workflow_sha" $approval.revision "sha" $approval.revision "ref" $ref "event_name" $event "job" $job) }}
+{{- $entries = append $entries (dict "repository_id" $source.repositoryId "repository" $source.repository "workflow_ref" $workflowRef "workflow_sha" $approval.revision "sha" $approval.revision "ref" $ref "event_name" $event "job" $rowJob) }}
 {{- end }}
 {{- end }}
-{{- end }}
+{{- /* The server reports reusable-called jobs under the default job name, so per-role
+       rows can never match; both pools bind the approved revision, ref, and events. */ }}
 {{- $_ := set .Values "eligibility" $entries }}
 {{- $_ := set .Values "policyName" $policy }}
 {{- $_ := set .Values "manageSharedResources" $shared }}
