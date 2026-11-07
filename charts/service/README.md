@@ -21,6 +21,11 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `monitoring` | Disabled; application monitoring stays with its accepted telemetry owner |
 | `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
 
+Workloads implement `application-no-api` by default: named ServiceAccount, no
+token, Restricted Pod Security, exact read-only mounts and no Kubernetes API
+access. Controller, job and host-exception profiles are unavailable through
+this chart; the platform owns those identities separately.
+
 Source visibility (`approval.visibility`) is independent of network exposure.
 
 Public exposure addresses live only in public `services/exposures.yaml`; private

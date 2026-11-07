@@ -1,6 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
+  "description": "Ordinary workloads implement the application-no-api profile: named account, no token, Restricted Pod Security, exact read-only mounts and no Kubernetes API access. Removal from the accepted catalog is deletion intent for owned workload objects; PVCs, databases, buckets and vault items are retained.",
   "properties": {
     "previewWaypoint": {
       "type": "boolean"
