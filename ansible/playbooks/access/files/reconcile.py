@@ -58,6 +58,37 @@ POLICY_PATH = 'platform/access/policy.yaml'
 EXPOSURES_PATH = 'services/exposures.yaml'
 APPROVAL_PATH = 'platform/access/cloudflare-approval.yaml'
 MAX_FILE_BYTES = 65536
+RESOLVER_FILES = ('dns_host.py', 'dns_render.py', 'dns_wire.py')
+RESOLVER_DIR = '/var/lib/cloudlab/private-dns'
+
+
+def ensure_resolver_scripts():
+    """Sync the pinned resolver implementation before any remote dns_host.py call.
+
+    Setup installs these files once, but the reconciler owns the remote
+    interface (configure/check/absent/digest); a stale host copy fails every
+    DNS cycle. Uploads are exact-byte copies of the reviewed repo files,
+    checksum-verified after write. Any failure refuses DNS convergence.
+    """
+    wanted = {}
+    for name in RESOLVER_FILES:
+        data = (Path(__file__).resolve().parent / name).read_bytes()
+        wanted[name] = (hashlib.sha256(data).hexdigest(), data.decode('utf-8'))
+    for prefix in ('VM', 'VM2'):
+        host = os.environ[prefix + '_HOST']
+        for name, (digest, text) in wanted.items():
+            try:
+                observed = ssh(prefix, host, 'sha256sum ' + RESOLVER_DIR + '/' + name).split()[0]
+            except (RuntimeError, IndexError):
+                observed = None
+            if observed == digest:
+                continue
+            ssh(prefix, host, 'install -m 0600 /dev/stdin ' + RESOLVER_DIR + '/' + name,
+                input=text)
+            observed = ssh(prefix, host, 'sha256sum ' + RESOLVER_DIR + '/' + name).split()[0]
+            if observed != digest:
+                raise RuntimeError('Resolver implementation sync failed on ' + prefix
+                                   + '; DNS retained')
 
 
 def configuration():
@@ -689,6 +720,7 @@ def once(config, github):
         cluster = None
     if tailnet and cluster and not tailnet.get('skipped'):
         try:
+            ensure_resolver_scripts()
             status['dns'] = reconcile_dns(tailnet['declared'], tailnet['servers'],
                                            tailnet['mapping'], cluster)
             if status['dns']['blocked']:
@@ -720,6 +752,7 @@ def once(config, github):
             withdrawn_private.update(label + '.' + zone for label in detail.get('withdrawn', []))
     if (retired_public or withdrawn_private) and cluster:
         try:
+            ensure_resolver_scripts()
             base = credentials = None
             if retired_public:
                 base, _, credentials, _ = cloudflare_inputs()

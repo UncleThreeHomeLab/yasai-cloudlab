@@ -1,6 +1,8 @@
 """Host DNS receipts use the configure digest; plan scope and review fail closed."""
+import hashlib
 import json
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -74,6 +76,60 @@ class PlanScopeTests(unittest.TestCase):
         ]}
         with self.assertRaisesRegex(RuntimeError, 'Unowned'):
             reconcile.plan_owned_scope(document, {'service_new'}, set())
+
+
+class ResolverSyncTests(unittest.TestCase):
+    files_dir = Path(reconcile.__file__).resolve().parent
+
+    def run_sync(self, fake_ssh):
+        with patch.object(reconcile, 'ssh', side_effect=fake_ssh):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                reconcile.ensure_resolver_scripts()
+
+    def test_current_remote_skips_upload(self):
+        calls = []
+
+        def fake_ssh(prefix, host, command, input=None):
+            calls.append((prefix, command, input))
+            name = command.rsplit('/', 1)[1]
+            digest = hashlib.sha256((self.files_dir / name).read_bytes()).hexdigest()
+            return digest + '  ' + name
+
+        self.run_sync(fake_ssh)
+        self.assertTrue(calls)
+        for _, command, payload in calls:
+            self.assertTrue(command.startswith('sha256sum '), command)
+            self.assertIsNone(payload)
+
+    def test_stale_remote_uploads_exact_bytes_then_reverifies(self):
+        uploads = {}
+        remote = {}
+
+        def fake_ssh(prefix, host, command, input=None):
+            name = command.rsplit('/', 1)[1].split()[0]
+            if command.startswith('sha256sum '):
+                if (prefix, name) not in remote:
+                    raise RuntimeError('missing on host')
+                return remote[(prefix, name)] + '  ' + name
+            self.assertIn('install -m 0600 /dev/stdin ', command)
+            uploads[(prefix, name)] = input
+            remote[(prefix, name)] = hashlib.sha256(input.encode('utf-8')).hexdigest()
+            return ''
+
+        self.run_sync(fake_ssh)
+        for prefix in ('VM', 'VM2'):
+            for name in reconcile.RESOLVER_FILES:
+                local = (self.files_dir / name).read_bytes().decode('utf-8')
+                self.assertEqual(uploads[(prefix, name)], local)
+
+    def test_failed_reverify_refuses_convergence(self):
+        def fake_ssh(prefix, host, command, input=None):
+            if command.startswith('sha256sum '):
+                return '0' * 64 + '  stale'
+            return ''
+
+        with self.assertRaisesRegex(RuntimeError, 'sync failed'):
+            self.run_sync(fake_ssh)
 
 
 class ReviewGuardTests(unittest.TestCase):
