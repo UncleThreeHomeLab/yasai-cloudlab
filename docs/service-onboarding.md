@@ -833,7 +833,9 @@ destructive migrations require a separate explicit data scope.
 1. **Agent:** update the same entry in private `services/catalog.json`.
    Declare required SQL/S3 resources in `definition.data`, storage in
    `definition.persistence`, secret mounts in `definition.secrets`, and login in
-   `definition.oidc`. Leave unused features disabled or empty.
+   `definition.oidc`. Leave unused features disabled or empty. Ordinary storage
+   is one claim of at most 4Gi; composition claims must fit their approved
+   claim count and storage budget, or the catalog render fails closed.
 2. **Agent:** add scoped data bindings to the catalog's top-level `dataApprovals`.
    Match the service, resource name and credential reference. Include the database
    migration item when needed. Approve required references in
