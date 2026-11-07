@@ -62,19 +62,21 @@
               "type": "string",
               "enum": [
                 "526891f62eb9b9a50a0ffaf6ef020269d09e7746",
-                "a0a42ac02b0d351a4c56cf40e88f697f3537f19a"
+                "a0a42ac02b0d351a4c56cf40e88f697f3537f19a",
+                "7b05e2139f94a84f4c4f92734ba8ad45a8a7f4a5"
               ]
             },
             "supportedInstallationRevisions": {
               "type": "array",
               "minItems": 2,
-              "maxItems": 2,
+              "maxItems": 3,
               "uniqueItems": true,
               "items": {
                 "type": "string",
                 "enum": [
                   "526891f62eb9b9a50a0ffaf6ef020269d09e7746",
-                  "a0a42ac02b0d351a4c56cf40e88f697f3537f19a"
+                  "a0a42ac02b0d351a4c56cf40e88f697f3537f19a",
+                  "7b05e2139f94a84f4c4f92734ba8ad45a8a7f4a5"
                 ]
               }
             }
