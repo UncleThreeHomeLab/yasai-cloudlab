@@ -5,6 +5,7 @@ schema, derives its deterministic instance and namespace ownership
 through requested_catalog, renders the controller chart, and retires
 through the same guarded path when its request is removed or expires.
 """
+import hashlib
 import json
 import shutil
 import subprocess
@@ -84,6 +85,50 @@ def render(values):
     return [doc for doc in yaml.safe_load_all(rendered) if doc]
 
 
+def root_with(values):
+    if shutil.which('helm') is None:
+        raise unittest.SkipTest('helm renders the public root')
+    rendered = subprocess.check_output(
+        ['helm', 'template', 'root', str(ROOT / 'gitops/roots/public'), '-f', '-'],
+        input=json.dumps(values), text=True, timeout=120)
+    return [doc for doc in yaml.safe_load_all(rendered) if doc]
+
+
+def root_fails(values):
+    if shutil.which('helm') is None:
+        raise unittest.SkipTest('helm renders the public root')
+    result = subprocess.run(
+        ['helm', 'template', 'root', str(ROOT / 'gitops/roots/public'), '-f', '-'],
+        input=json.dumps(values), capture_output=True, text=True, timeout=60)
+    return result.returncode != 0
+
+
+def previews_commitment(repository, revision, nonce,
+                        paths=('previews/catalog.yaml',)):
+    preimage = '\n'.join(['cloudlab-consumer-source-acceptance/v1', 'previews',
+                          repository, str(len(paths)), *paths, revision, nonce, ''])
+    return hashlib.sha256(preimage.encode()).hexdigest()
+
+
+def enabled_writer(**overrides):
+    configuration = {'enabled': True, 'revision': 'a' * 40,
+                     'acceptanceCommitment': '1' * 64, 'permissionsEnabled': False}
+    configuration.update(overrides)
+    return {'identity': {'argo': {
+        'valuesRepository': 'https://github.com/example/private.git',
+        'valuesRevision': 'b' * 40}},
+        'previews': {'configuration': configuration}}
+
+
+def observed_pull(state='open', sha='e' * 40, draft=False, fork=False,
+                  number=42, base_id=123456, base_name='example/prices',
+                  head_id=123456, head_name='example/prices'):
+    return {'number': number, 'state': state, 'draft': draft,
+            'base': {'repo': {'id': base_id, 'full_name': base_name}},
+            'head': {'repo': {'id': head_id, 'full_name': head_name, 'fork': fork},
+                     'sha': sha}}
+
+
 class PreviewCompiledInputsTests(unittest.TestCase):
     def test_request_derives_deterministic_instance_and_ownership(self):
         request = prices_request()
@@ -157,6 +202,105 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         oversized = catalog(*[prices_request(pullRequest=n) for n in range(1, 22)])
         with self.assertRaises(ValueError):
             contract.requested_catalog(oversized)
+
+    def test_exact_open_revision_proceeds_while_stale_foreign_closed_deny(self):
+        row = contract.request(prices_request())
+        self.assertIsNone(lifecycle.retirement(row, row, observed_pull(), NOW))
+        self.assertEqual(
+            lifecycle.retirement(row, row, observed_pull(state='closed'), NOW),
+            'closed')
+        for pull in (observed_pull(sha='a' * 40), observed_pull(draft=True),
+                     observed_pull(fork=True),
+                     observed_pull(head_id=999, head_name='example/fork')):
+            with self.subTest(pull=pull):
+                self.assertEqual(lifecycle.retirement(row, row, pull, NOW),
+                                 'revision-unapproved')
+        for pull in (observed_pull(number=43),
+                     observed_pull(base_name='example/other'),
+                     observed_pull(state='unknown')):
+            with self.subTest(pull=pull):
+                with self.assertRaises(ValueError):
+                    lifecycle.retirement(row, row, pull, NOW)
+
+    def test_disabled_configuration_writes_no_approval_ingress(self):
+        rows = root_with({})
+        self.assertFalse(any(row['kind'] == 'ApplicationSet'
+                             and row['metadata']['name'] == 'cloudlab-previews'
+                             for row in rows))
+        bound = enabled_writer(enabled=False)
+        rows = root_with(bound)
+        self.assertFalse(any(row['kind'] == 'ApplicationSet'
+                             and row['metadata']['name'] == 'cloudlab-previews'
+                             for row in rows))
+
+    def test_enabled_writer_feeds_private_catalog_behind_accepted_revision(self):
+        rows = root_with(enabled_writer())
+        self.assertFalse(any(row['kind'] == 'Application'
+                             and row['metadata']['name'] == 'cloudlab-previews'
+                             for row in rows))
+        parent = next(row for row in rows
+                      if row['kind'] == 'ApplicationSet'
+                      and row['metadata']['name'] == 'cloudlab-previews')
+        self.assertEqual(parent['metadata']['labels']['cloudlab.io/owner'],
+                         'preview-platform')
+        self.assertEqual(parent['spec']['goTemplateOptions'], ['missingkey=error'])
+        self.assertEqual(parent['spec']['syncPolicy'],
+                         {'applicationsSync': 'create-update',
+                          'preserveResourcesOnDeletion': True})
+        generators = parent['spec']['generators'][0]['merge']['generators']
+        self.assertEqual(generators[0], {'list': {'elements': [{'consumer': 'previews'}]}})
+        self.assertEqual(generators[1], {'git': {
+            'repoURL': 'https://github.com/example/private.git', 'revision': 'main',
+            'files': [{'path': 'platform/acceptance/previews.yaml'}]}})
+        application = parent['spec']['template']
+        self.assertEqual(application['metadata']['labels']['cloudlab.io/owner'],
+                         'preview-platform')
+        self.assertEqual(application['metadata']['annotations']['argocd.argoproj.io/tracking-id'],
+                         'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-previews')
+        self.assertEqual(application['spec']['project'], 'cloudlab-previews')
+        chart, values = application['spec']['sources']
+        self.assertEqual(chart['repoURL'],
+                         'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git')
+        self.assertEqual(chart['targetRevision'], 'a' * 40)
+        self.assertEqual(chart['path'], 'platform/delivery/previews')
+        self.assertEqual(chart['helm']['valueFiles'], ['$values/previews/catalog.yaml'])
+        self.assertEqual(chart['helm']['valuesObject'],
+                         {'enabled': True, 'permissionsEnabled': False,
+                          'platformRepository': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'})
+        self.assertEqual(values['repoURL'], 'https://github.com/example/private.git')
+        self.assertEqual(values['ref'], 'values')
+        self.assertIn('Consumer source acceptance refused', values['targetRevision'])
+        self.assertIn('"previews"', values['targetRevision'])
+        self.assertIn('previews/catalog.yaml', values['targetRevision'])
+        self.assertIn('1' * 64, values['targetRevision'])
+        self.assertEqual(application['spec']['destination'],
+                         {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'})
+        self.assertEqual(application['spec']['syncPolicy']['automated'],
+                         {'enabled': True, 'prune': False, 'selfHeal': True, 'allowEmpty': False})
+        self.assertIn('FailOnSharedResource=true',
+                      application['spec']['syncPolicy']['syncOptions'])
+
+    def test_writer_rejects_unreviewed_revision_or_commitment(self):
+        for bad in ('', 'main', 'a' * 39):
+            with self.subTest(revision=bad):
+                self.assertTrue(root_fails(enabled_writer(revision=bad)))
+        for bad in ('', '1' * 63, True):
+            with self.subTest(commitment=bad):
+                self.assertTrue(root_fails(enabled_writer(acceptanceCommitment=bad)))
+        self.assertTrue(root_fails(enabled_writer(permissionsEnabled='false')))
+        self.assertTrue(root_fails({'previews': {'configuration': {'enabled': 'true'}}}))
+
+    def test_acceptance_commitment_binds_exact_private_revision(self):
+        commitment = previews_commitment('https://github.com/example/private.git',
+                                         'a' * 40, 'b' * 64)
+        self.assertEqual(commitment,
+                         'ee04a45dfb3d81a69f537c8610e47b599e39cc06605c3fa093297a1d03945018')
+        for changed in (previews_commitment('https://github.com/example/other.git', 'a' * 40, 'b' * 64),
+                        previews_commitment('https://github.com/example/private.git', 'c' * 40, 'b' * 64),
+                        previews_commitment('https://github.com/example/private.git', 'a' * 40, 'd' * 64),
+                        previews_commitment('https://github.com/example/private.git', 'a' * 40, 'b' * 64,
+                                            paths=('previews/other.yaml',))):
+            self.assertNotEqual(changed, commitment)
 
 
 if __name__ == '__main__':
