@@ -132,6 +132,25 @@ class ResolverSyncTests(unittest.TestCase):
             self.run_sync(fake_ssh)
 
 
+class PlanDigestTests(unittest.TestCase):
+    def test_ignores_serialization_noise_and_order(self):
+        change = {'address': 'a', 'change': {'actions': ['update'], 'after': {'x': 1}}}
+        noop = {'address': 'z', 'change': {'actions': ['no-op'], 'after': {'x': 9}}}
+        first = reconcile.plan_digest({'resource_changes': [change, noop],
+                                       'timestamp': 't1', 'noise': [3, 1]})
+        second = reconcile.plan_digest({'noise': [1], 'resource_changes': [noop, change],
+                                        'timestamp': 't2'})
+        self.assertEqual(first, second)
+
+    def test_changes_with_planned_values(self):
+        base = {'resource_changes': [
+            {'address': 'a', 'change': {'actions': ['update'], 'after': {'x': 1}}}]}
+        self.assertNotEqual(reconcile.plan_digest(base), reconcile.plan_digest(
+            {'resource_changes': [
+                {'address': 'a', 'change': {'actions': ['update'],
+                                            'after': {'x': 2}}}]}))
+
+
 class ReviewGuardTests(unittest.TestCase):
     def test_retired_review_flag_fails_with_migration_error(self):
         with self.assertRaisesRegex(SystemExit, 'retired; approval comes from the merged Git binding'):

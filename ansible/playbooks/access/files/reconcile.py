@@ -552,6 +552,22 @@ def plan_owned_scope(document, compiled_keys, retired_keys):
     return True
 
 
+def plan_digest(document):
+    """Stable digest over the canonical planned change set.
+
+    Only resource-change addresses, actions, and after-values feed the
+    digest, so serialization noise in `tofu show -json` output can never
+    void an approval across consecutive cycles.
+    """
+    changes = sorted(
+        ({'address': resource['address'], 'actions': resource['change']['actions'],
+          'after': resource['change'].get('after')}
+         for resource in document.get('resource_changes', [])
+         if resource['change']['actions'] != ['no-op']),
+        key=lambda change: change['address'])
+    return hashlib.sha256(json.dumps(changes, sort_keys=True).encode()).hexdigest()
+
+
 def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
     """Compile public exposures; plan always, apply only the merged binding."""
     base, backend, credentials, encryption = cloudflare_inputs()
@@ -621,7 +637,7 @@ def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
     if planned.returncode not in (0, 2):
         raise RuntimeError('Native Cloudflare plan failed; shared state retained')
     document = json.loads(tofu(directory, environment, 'show', '-json', 'plan'))
-    digest = hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest()
+    digest = plan_digest(document)
     # Retired keys are service-owned applications absent from current intent.
     retired_keys = set()
     for resource in document.get('resource_changes', []):
