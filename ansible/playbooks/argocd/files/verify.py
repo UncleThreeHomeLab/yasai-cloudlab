@@ -128,10 +128,15 @@ def public_lifecycle(payload):
 def controllers(payload):
     items = json.loads(kube('get', 'deployments,daemonsets,statefulsets,pods', '-n', 'argocd', '-o', 'json'))['items']
     for obj in items:
-        if obj['kind'] == 'Pod' and obj.get('status', {}).get('phase') != 'Succeeded':
-            containers = obj['spec'].get('containers', []) + obj['spec'].get('initContainers', [])
-            if any(c['image'] not in payload['image_refs'] for c in containers):
-                raise RuntimeError('Argo runtime image differs from the committed digest lock')
+        if obj['kind'] != 'Pod' or obj.get('status', {}).get('phase') == 'Succeeded':
+            continue
+        owners = [owner.get('kind') for owner in
+                  obj.get('metadata', {}).get('ownerReferences', [])]
+        if 'Job' in owners:
+            continue  # run-to-completion workload pods share the namespace
+        containers = obj['spec'].get('containers', []) + obj['spec'].get('initContainers', [])
+        if any(c['image'] not in payload['image_refs'] for c in containers):
+            raise RuntimeError('Argo runtime image differs from the committed digest lock')
     return fingerprint(items)
 
 
