@@ -853,7 +853,9 @@ destructive migrations require a separate explicit data scope.
    its persisted per-cycle report for created, pending and awaiting-administrator
    items. Ordinary secrets need an `approval.secretBindings` entry binding the
    approved name to its vault item and fields. Composition secrets need an
-   `approval.composition.secrets` entry. The reconciler preserves existing items
+   `approval.composition.secrets` entry. Every ordinary secret mount must match
+   exactly one binding, data credential, or confidential OIDC secret name;
+   anything else fails the cycle. The reconciler preserves existing items
    and reports pending field names.
    **User:** fill pending fields in 1Password. External Secrets remains the sole
    synchronizer. Guarded ordinary, composition and SQL/S3 secret templates reject

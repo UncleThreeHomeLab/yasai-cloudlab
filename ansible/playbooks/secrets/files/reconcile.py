@@ -251,6 +251,43 @@ def collect_oidc(name, approval, definition, references):
     return 'applications', oidc['client']
 
 
+def collect_wiring(name, approval, definition, coordinates):
+    """Requires unique delivery names and a delivery source per ordinary mount.
+
+    Only the catalog owner renders ExternalSecrets into service namespaces, so
+    an ordinary mount without a binding, data credential, or confidential OIDC
+    secret delivery would block its workload with no pending signal. Duplicate
+    delivery names would render competing ExternalSecrets for one Secret. Runs
+    after the collectors above validated these same structures; fail the cycle
+    with the exact service and name instead.
+    """
+    composition = approval.get('composition')
+    if composition is None:
+        bindings = approval.get('secretBindings') or []
+    else:
+        bindings = composition.get('secrets') or []
+    delivered = [binding['name'] for binding in bindings]
+    delivered.extend(request['credentialReference']
+                     for request in definition.get('data', {}).values())
+    if coordinates is not None:
+        delivered.append(definition['oidc']['secretReference'])
+    seen = set()
+    for target in delivered:
+        if target in seen:
+            fail('Duplicate credential delivery name: ' + name + '/' + target)
+        seen.add(target)
+    if composition is not None or \
+            approval.get('chartPath', 'charts/service') != 'charts/service':
+        return
+    mounts = definition.get('secrets', [])
+    if (not isinstance(mounts, list) or any(not isinstance(item, dict) or
+                                            not isinstance(item.get('name'), str) for item in mounts)):
+        fail('Invalid secret mounts: ' + name)
+    for mount in [item['name'] for item in mounts]:
+        if mount not in seen:
+            fail('Secret mount requires its approved delivery binding: ' + name + '/' + mount)
+
+
 def collect_catalog(profiles, document):
     if not isinstance(document, dict) or not isinstance(document.get('catalog'), list):
         fail('Service catalog requires its entry list')
@@ -276,6 +313,7 @@ def collect_catalog(profiles, document):
                 fail('Secret bindings require the ordinary service profile: ' + name)
             collect_bindings(collector, name, bindings, references, 'ordinary')
         coordinates = collect_oidc(name, approval, definition, references)
+        collect_wiring(name, approval, definition, coordinates)
         if coordinates is not None:
             oidc.append({'service': name, 'realm': coordinates[0], 'client': coordinates[1]})
     return collector.result(), oidc
