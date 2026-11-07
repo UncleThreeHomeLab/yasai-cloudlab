@@ -212,7 +212,7 @@ spec:
         {{- end }}
         {{- range .Values.configMaps }}
         - name: {{ .name }}
-          configMap: {name: {{ .name }}}
+          configMap: {name: {{ .name }}, defaultMode: 288}
         {{- end }}
         {{- if .Values.persistence.enabled }}
         - {name: data, persistentVolumeClaim: {claimName: {{ .Values.name }}}}

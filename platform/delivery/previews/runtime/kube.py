@@ -28,39 +28,6 @@ RESOURCES = {
 }
 
 POD_METRICS = ('metrics.k8s.io/v1beta1', 'PodMetrics')
-METADATA_ACCEPT = 'application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1'
-
-
-def _secret_metadata(value, namespace):
-    """Accept only a complete metadata representation before marking Secret presence."""
-    if (not isinstance(value, dict) or set(value) != {'apiVersion', 'kind', 'metadata', 'items'} or
-            value['apiVersion'] != 'meta.k8s.io/v1' or value['kind'] != 'PartialObjectMetadataList' or
-            not isinstance(value['metadata'], dict)):
-        raise RuntimeError('Invalid preview Secret metadata inventory')
-    meta = value['metadata']
-    remaining = meta.get('remainingItemCount', 0)
-    if (not isinstance(meta.get('continue', ''), str) or meta.get('continue') or
-            type(remaining) is not int or remaining != 0):
-        raise RuntimeError('Incomplete preview Secret metadata inventory')
-    items = value['items']
-    if items is None:
-        items = []
-    if not isinstance(items, list) or len(items) > 500:
-        raise RuntimeError('Invalid preview Secret metadata inventory')
-    result = []
-    for obj in items:
-        if (not isinstance(obj, dict) or set(obj) != {'apiVersion', 'kind', 'metadata'} or
-                obj['apiVersion'] != 'meta.k8s.io/v1' or obj['kind'] != 'PartialObjectMetadata' or
-                not isinstance(obj['metadata'], dict)):
-            raise RuntimeError('Invalid preview Secret metadata object')
-        meta = obj['metadata']
-        if (meta.get('namespace') != namespace or
-                any(not isinstance(meta.get(key), str) or not meta[key] for key in ('name', 'uid', 'resourceVersion')) or
-                len(meta['name']) > 253 or not re.fullmatch(
-                    r'[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*', meta['name'])):
-            raise RuntimeError('Invalid preview Secret metadata identity')
-        result.append({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': meta})
-    return result
 
 
 class NamespaceInventory(list):
@@ -103,13 +70,11 @@ class Kubernetes:
         self.account = Path('/var/run/secrets/kubernetes.io/serviceaccount')
         self.context = ssl.create_default_context(cafile=str(self.account / 'ca.crt'))
 
-    def request(self, method, route, value=None, *, _metadata_only=False):
+    def request(self, method, route, value=None):
         if (route != '/apis' and not route.startswith(('/api/', '/apis/'))) or '?' in route or '..' in route:
             raise ValueError('Unsupported preview API path')
         headers = {'Authorization': 'Bearer ' + self.account.joinpath('token').read_text().strip(),
                    'Content-Type': 'application/json'}
-        if _metadata_only:
-            headers['Accept'] = METADATA_ACCEPT
         request = urllib.request.Request('https://kubernetes.default.svc' + route,
             data=json.dumps(value).encode() if value is not None else None, headers=headers, method=method)
         try:
@@ -156,6 +121,13 @@ class Kubernetes:
         return self.request('DELETE', path(key), {'apiVersion': 'v1', 'kind': 'DeleteOptions',
             'propagationPolicy': 'Orphan' if orphan else 'Foreground', 'preconditions': {'uid': uid, 'resourceVersion': version}})
 
+    def secret_absence(self, namespace):
+        """Prove zero Secrets from the owned quota; Secret values are never listed."""
+        quota = self.get(('v1', 'ResourceQuota', namespace, 'budget'))
+        if (quota is None or quota.get('spec', {}).get('hard', {}).get('count/secrets') != '0' or
+                quota.get('status', {}).get('used', {}).get('count/secrets', '0') != '0'):
+            raise RuntimeError('Preview Secret quota cannot prove Secret absence')
+
     def namespace_inventory(self, namespace):
         result = self.request('GET', '/api/v1')['resources']
         endpoints = [('v1', result)]
@@ -197,9 +169,13 @@ class Kubernetes:
                     prefix = '/api/v1' if version == 'v1' else '/apis/' + version
                     route = prefix + '/namespaces/' + namespace + '/' + item['name']
                     if secret:
-                        value = {'items': _secret_metadata(self.request('GET', route, _metadata_only=True), namespace)}
-                    else:
+                        continue
+                    try:
                         value = self.request('GET', route)
+                    except APIError as error:
+                        if error.code != 403:
+                            raise
+                        raise RuntimeError('Preview namespace inventory lacks its complete discovery') from None
                     if value.get('metadata', {}).get('continue') or len(value.get('items', [])) > 500:
                         raise RuntimeError('Incomplete preview namespace inventory')
                     for obj in value.get('items', []):
@@ -218,4 +194,5 @@ class Kubernetes:
                                 raise RuntimeError('Preview metrics projection differs from its discovery')
                             objects.pod_metrics.add(id(obj))
                         objects.append(obj)
+        self.secret_absence(namespace)
         return objects
