@@ -31,8 +31,8 @@ run "scoped_registry" {
     error_message = "Both repository scopes require authenticated projects and bounded storage."
   }
   assert {
-    condition     = length(harbor_robot_account.robot) == 4 && alltrue([for robot in harbor_robot_account.robot : robot.level == "project" && robot.secret_wo_version == 1])
-    error_message = "Only four project robots with stable vault-owned passwords are permitted."
+    condition     = length(harbor_robot_account.robot) == 4 && alltrue([for robot in harbor_robot_account.robot : robot.level == "project" && robot.secret_wo_version == null])
+    error_message = "Only four project robots are permitted, with passwords staying vault-owned outside provider scope."
   }
   assert {
     condition     = alltrue([for key, robot in harbor_robot_account.robot : length(robot.permissions) == 1 && length(one(robot.permissions).access) == (endswith(key, "-pull") ? 1 : 2)])
