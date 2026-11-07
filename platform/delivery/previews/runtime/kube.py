@@ -125,7 +125,7 @@ class Kubernetes:
         """Prove zero Secrets from the owned quota; Secret values are never listed."""
         quota = self.get(('v1', 'ResourceQuota', namespace, 'budget'))
         if (quota is None or quota.get('spec', {}).get('hard', {}).get('count/secrets') != '0' or
-                quota.get('status', {}).get('used', {}).get('count/secrets', '0') != '0'):
+                quota.get('status', {}).get('used', {}).get('count/secrets') != '0'):
             raise RuntimeError('Preview Secret quota cannot prove Secret absence')
 
     def namespace_inventory(self, namespace):
