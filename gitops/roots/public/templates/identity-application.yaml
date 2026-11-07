@@ -110,7 +110,7 @@ spec:
           targetRevision: {{ $target.valuesRevision | quote }}
           ref: identityValues
         - repoURL: {{ .Values.repository | quote }}
-          targetRevision: {{ .Values.revision | quote }}
+          targetRevision: {{ $installation.installationRevision | quote }}
           ref: publicValues
       destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-identity}
       syncPolicy:
