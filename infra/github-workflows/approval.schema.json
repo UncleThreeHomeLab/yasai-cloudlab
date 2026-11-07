@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Governance plan approval binding",
+  "$comment": "Private file platform/governance/approval.yaml. A merged PR carrying this binding approves exactly one declaration content hash (sha256 of the reviewed platform/governance/repositories/platform.yaml bytes) and one plan digest; the governance executor applies that plan with no second operator command. Merging the approval PR keeps the declaration bytes identical, so the approval stays satisfiable; stale or mismatched bindings never apply. Workflow self-approval and release-App merge grants stay refused by module preconditions; unsupported prerequisites are reported, never auto-enabled.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "binding",
+    "plan"
+  ],
+  "properties": {
+    "binding": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "plan": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

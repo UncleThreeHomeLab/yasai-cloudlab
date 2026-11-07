@@ -4,11 +4,20 @@ Trusted executor for repository governance. Control machine only: reads the
 reviewed public declaration (platform/governance/repositories/platform.yaml)
 from a clean checkout at protected main, verifies both repository identities
 against the GitHub API, and plans the native module every cycle. Plans apply
-only with an explicit reviewed plan hash; standing reconciliation never
-carries one. Tokens and private repository identity stay in ignored local
-inputs; only revisions, digests and change counts are reported.
+only with an explicit merged approval binding {binding, plan} from the private
+repository; the standing loop applies that binding with no second operator
+command. Tokens and private repository identity stay in ignored local inputs;
+only revisions, digests and change counts are reported.
+
+Approval ceremony: merge the declaration change; read the pending digest from
+this reconciler's status; merge a second private PR binding {binding, plan}
+for the current declaration content hash; the standing loop applies it and
+reports convergence. Merging the approval PR keeps the declaration bytes
+identical, so the approval stays satisfiable; any declaration or plan change
+voids it until rebound.
 """
 
+import base64
 import fcntl
 import hashlib
 import json
@@ -30,6 +39,8 @@ WORK = Path('/infra-work/github')
 INPUTS = Path('/inputs/github')
 MODULE = 'infra/github-workflows'
 DECLARATION = 'platform/governance/repositories/platform.yaml'
+APPROVAL_PATH = 'platform/governance/approval.yaml'
+MAX_FILE_BYTES = 65536
 PROFILE_FIELDS = ('profile', 'workflowTokenPermissions', 'workflowsMayApprovePullRequests',
                   'releaseAppsMayMerge', 'forcePushes', 'branchDeletion', 'reviewBoundary')
 OWNED = re.compile(r'terraform_data[.]governance'
@@ -91,9 +102,9 @@ def remote_main():
         fail('Governance freshness check failed; refused')
 
 
-def declaration():
+def declaration(raw):
     """Reviewed public declaration; mirrors the native module preconditions."""
-    document = yaml.safe_load((ROOT / DECLARATION).read_text())
+    document = yaml.safe_load(raw)
     if not isinstance(document, dict) or set(document) != {'repository', 'repositoryId', 'governance'}:
         fail('Governance declaration is not the reviewed platform document')
     profile = document['governance']
@@ -160,6 +171,107 @@ def repository_identity(token, owner, name):
     return {'name': name, 'id': document['id'], 'node_id': document['node_id']}
 
 
+def github_json(token, path, limit=MAX_FILE_BYTES):
+    """Bounded read-only GitHub API read; 404 is absent, anything else fails closed."""
+    if not re.fullmatch(r'[A-Za-z0-9_./?=&-]+', path) or '..' in path:
+        fail('Invalid GitHub read path')
+    request = urllib.request.Request('https://api.github.com/' + path,
+                                     headers={'Authorization': 'Bearer ' + token,
+                                              'Accept': 'application/vnd.github+json',
+                                              'User-Agent': 'cloudlab-governance-reconciler'})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read(limit + 1)
+            if len(raw) > limit:
+                fail('GitHub response exceeds its bound')
+            return json.loads(raw)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        fail('GitHub read failed: HTTP ' + str(error.code))
+    except (urllib.error.URLError, ValueError):
+        fail('GitHub read unavailable or invalid')
+
+
+def private_approval(token, slug):
+    """Merged private {binding, plan} bytes at private main, or None when absent."""
+    document = github_json(token, 'repos/' + slug + '/git/ref/heads/main')
+    reference = document.get('object') if isinstance(document, dict) else None
+    revision = reference.get('sha') if isinstance(reference, dict) else None
+    if not revision or not re.fullmatch('[a-f0-9]{40}', revision):
+        fail('Private approval revision is unavailable')
+    document = github_json(token, 'repos/' + slug + '/contents/' + APPROVAL_PATH + '?ref=' + revision)
+    if document is None:
+        return None
+    if (not isinstance(document, dict) or document.get('type') != 'file'
+            or document.get('encoding') != 'base64'
+            or type(document.get('size')) is not int
+            or not 0 < document['size'] <= MAX_FILE_BYTES
+            or not isinstance(document.get('content'), str)):
+        fail('Private approval requires a bounded regular file')
+    try:
+        raw = base64.b64decode(document['content'].replace('\r', '').replace('\n', ''),
+                               validate=True)
+    except ValueError:
+        fail('Private approval transfer is invalid')
+    if len(raw) != document['size']:
+        fail('Private approval size changed during transfer')
+    return raw
+
+
+def plan_digest(document):
+    """Stable digest over the canonical planned change set.
+
+    Only resource-change addresses, actions, and after-values feed the
+    digest, so serialization noise in `tofu show -json` output can never
+    void an approval across consecutive cycles.
+    """
+    changes = sorted(
+        ({'address': resource['address'], 'actions': resource['change']['actions'],
+          'after': resource['change'].get('after')}
+         for resource in document.get('resource_changes', [])
+         if resource['change']['actions'] != ['no-op']),
+        key=lambda change: change['address'])
+    return hashlib.sha256(json.dumps(changes, sort_keys=True).encode()).hexdigest()
+
+
+def validate_approval(text, binding):
+    """Merged {binding, plan} approves exactly one declaration hash and plan digest."""
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        raise RuntimeError('Governance approval binding invalid; settings retained') from error
+    if (not isinstance(document, dict) or set(document) != {'binding', 'plan'}
+            or not isinstance(document['binding'], str)
+            or not re.fullmatch(r'[a-f0-9]{64}', document['binding'])
+            or not isinstance(document['plan'], str)
+            or not re.fullmatch(r'[a-f0-9]{64}', document['plan'])):
+        fail('Governance approval binding invalid; settings retained')
+    return hashlib.sha256(binding).hexdigest() == document['binding'], document['plan']
+
+
+def approval_satisfied(approval, binding, digest):
+    """True only when the merged approval binds the live declaration and plan."""
+    if approval is None:
+        return False
+    try:
+        text = approval.decode()
+    except ValueError:
+        fail('Governance approval binding invalid; settings retained')
+    current_binding, approved_plan = validate_approval(text, binding)
+    return current_binding and approved_plan == digest
+
+
+def unsupported_prerequisites(document):
+    """Module-reported unsupported prerequisites from the planned outputs."""
+    outputs = (document.get('planned_values') or {}).get('outputs') or {}
+    value = (outputs.get('unsupported_prerequisites') or {}).get('value')
+    if (not isinstance(value, list) or not value
+            or not all(isinstance(item, str) and item for item in value)):
+        fail('Governance prerequisites report is unavailable; refused')
+    return value
+
+
 def tofu_environment(backend, credentials, passphrase):
     """Minimal native HTTP-backend environment with enforced state encryption."""
     result = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}
@@ -219,10 +331,11 @@ def plan_owned_scope(document):
             'total': len(document.get('resource_changes', []))}
 
 
-def reconcile(review=None):
-    """Plan governance always; apply only the exact reviewed plan."""
+def reconcile():
+    """Plan governance always; apply only the merged approval binding."""
     revision = reviewed_revision()
-    public = declaration()
+    binding = (ROOT / DECLARATION).read_bytes()
+    public = declaration(binding)
     backend, credentials, passphrase, private = github_inputs()
     token = credentials['GITHUB_TOKEN']
     live_public = repository_identity(token, public['owner'], public['name'])
@@ -246,16 +359,19 @@ def reconcile(review=None):
     if planned.returncode not in (0, 2):
         fail('Native governance plan failed; shared state retained')
     document = json.loads(tofu(directory, environment, 'show', '-json', 'plan'))
-    digest = hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest()
+    digest = plan_digest(document)
     changes = plan_owned_scope(document)
+    unsupported = unsupported_prerequisites(document)
     drifted = planned.returncode == 2
     if not drifted:
-        return {'ready': True, 'changed': False, 'revision': revision, 'plan': digest, 'changes': changes}
-    if review is None:
         return {'ready': True, 'changed': False, 'revision': revision, 'plan': digest,
-                'changes': changes, 'drifted': True, 'pending_review': True}
-    if review != digest:
-        fail('Apply requires the exact reviewed plan')
+                'changes': changes, 'unsupported_prerequisites': unsupported}
+    approval = private_approval(token, public['owner'] + '/' + private['private_repository']['name'])
+    approved = approval_satisfied(approval, binding, digest)
+    if not approved:
+        return {'ready': True, 'changed': False, 'revision': revision, 'plan': digest,
+                'changes': changes, 'unsupported_prerequisites': unsupported, 'drifted': True,
+                'approved': approved, 'pending_review': True}
     state = tofu(directory, environment, 'state', 'list').split()
     expected = {'terraform_data.governance',
                 'github_workflow_repository_permissions.release["public_platform"]',
@@ -269,7 +385,8 @@ def reconcile(review=None):
                              text=True, timeout=600)
     if applied.returncode:
         fail('Native governance apply failed; inspect shared state before retrying')
-    return {'ready': True, 'changed': True, 'revision': revision, 'plan': digest, 'changes': changes}
+    return {'ready': True, 'changed': True, 'revision': revision, 'plan': digest,
+            'changes': changes, 'unsupported_prerequisites': unsupported, 'approved': True}
 
 
 def report(status):
@@ -280,9 +397,9 @@ def report(status):
     print(json.dumps(status, sort_keys=True), flush=True)
 
 
-def once(*, review=None):
+def once():
     try:
-        status = {'governance': reconcile(review=review)}
+        status = {'governance': reconcile()}
         status['ok'] = True
     except RuntimeError as error:
         status = {'governance': {'ready': False, 'error': str(error)}, 'ok': False}
@@ -296,16 +413,8 @@ def once(*, review=None):
 def main(argv):
     if argv[:1] not in (['once'], ['loop']):
         raise SystemExit('Governance reconciler requires once or loop')
-    review = None
     if '--review' in argv:
-        try:
-            review = argv[argv.index('--review') + 1]
-        except IndexError:
-            raise SystemExit('Apply requires the exact reviewed plan hash') from None
-        if not re.fullmatch('[a-f0-9]{64}', review or ''):
-            raise SystemExit('Apply requires the exact reviewed plan hash')
-    if argv[0] == 'loop' and review is not None:
-        raise SystemExit('Standing reconciliation never carries a standing apply review')
+        raise SystemExit('The review flag is retired; approval comes from the merged Git binding')
     os.umask(0o077)
     WORK.mkdir(parents=True, exist_ok=True)
     with (WORK / 'lock').open('a') as lock:
@@ -315,7 +424,7 @@ def main(argv):
             raise SystemExit('Another governance reconciliation holds the lock')
         config = configuration()
         if argv[0] == 'once':
-            status = once(review=review)
+            status = once()
             raise SystemExit(0 if status['ok'] else 1)
         while True:
             try:
