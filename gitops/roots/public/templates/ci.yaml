@@ -168,11 +168,12 @@ spec:
           helm:
             releaseName: 'cloudlab-ci-{{ "{{ .application }}" }}-{{ $component }}'
             skipCrds: true
-            # Publisher pools layer values-publisher.json over values.json:
+            # Publisher pools layer a publisher overlay over values.json:
             # --set cannot extend lists (it replaces them with sparse nils),
             # so the publisher volumes and mounts live in a value file. The
-            # chart pins every entry; keep the two files in sync.
-            valueFiles: [values.json{{ if $publishPool }}, values-publisher.json{{ end }}]
+            # chart pins every entry; keep the files in sync. Manual promotion
+            # uses the overlay without the release App mount.
+            valueFiles: [values.json{{ if $publishPool }}, '{{ "{{ if and (hasKey . \"publishing\") (hasKey .publishing \"releaseMode\") (eq .publishing.releaseMode \"manual\") }}" }}values-publisher-manual.json{{ "{{ else }}" }}values-publisher.json{{ "{{ end }}" }}'{{ end }}]
             values: |
               component: {{ $component }}
               registration:
