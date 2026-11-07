@@ -22,6 +22,7 @@
 {{- fail "Secret mount path is reserved" }}
 {{- end }}
 {{- end }}
+{{- if not .Values.renderDisabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -257,6 +258,7 @@ spec:
     {{- range .Values.ports }}
     - {name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: TCP}
     {{- end }}
+{{- end }}
 {{- end }}
 {{- if .Values.persistence.enabled }}
 ---
