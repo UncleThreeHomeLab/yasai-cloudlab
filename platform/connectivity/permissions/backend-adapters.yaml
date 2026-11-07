@@ -1,0 +1,12 @@
+# Backend adapter contracts for temporary permissions grants (access plan A4, public part).
+# Desired source: this file. Field owner: connectivity/permissions owner.
+# Reconciler: a selected backend only; no backend is selected, so nothing reconciles yet.
+# Credentials: none held here; a backend uses only its own approved credentials.
+# Deletion policy: contract removal withdraws backend authorization; issued bindings expire or are deleted, never retained.
+version: cloudlab-permissions-backend-adapters/v1
+adapters: []
+rules:
+  inputs: A request carries an existing beneficiary identity, a reviewed profile name, a namespace or cluster scope, a TTL within shared bounds and an immutable approval binding requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget.
+  outputs: Native RBAC RoleBinding or ClusterRoleBinding objects only, referencing existing cloudlab-permissions ClusterRoles; backends create no roles and no authority-bearing custom resources.
+  lifecycle: Bindings expire by TTL and are deleted on revocation; removal is followed by binding absence plus fresh denial. RBAC is additive; existing streams can survive revocation.
+  prohibitions: No standing grants, no custom IAM, no UID-based adoption, no private data in public Git, no automatic renewal.
