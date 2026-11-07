@@ -84,8 +84,8 @@ rollouts:
 previews:
   enabled: true
   configuration:
-    # Drill: writer stage with execution suspended (A12 live proof).
+    # Drill: execution stage (A12 live proof).
     enabled: true
     revision: f94a2c12f8c09a59342fb0eafcdc3361ab7b1989
     acceptanceCommitment: a61cdd45c31220c1445e0b0434873d2697574a723d437afd6505073242467271
-    permissionsEnabled: false
+    permissionsEnabled: true
