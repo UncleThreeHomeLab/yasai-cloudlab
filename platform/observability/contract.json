@@ -5,7 +5,7 @@
     "alert_rules_and_routing": "Git PrometheusRule and Alertmanager configuration",
     "logs_and_otlp": "Alloy",
     "identity": "Retained serialized Keycloak config-cli",
-    "independent_monitoring": "platform/observability/uptimerobot.py and UptimeRobot Free; declarations follow uptime.schema.json"
+    "independent_monitoring": "platform/observability/reconcile.py trusted executor with uptimerobot.py and UptimeRobot Free; declarations follow uptime.schema.json"
   },
   "grafana_provider": {
     "disposition": "retain native Git provisioning; retain bounded API lifecycle for machine credentials",
