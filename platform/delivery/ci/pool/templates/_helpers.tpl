@@ -66,8 +66,7 @@
 {{- $entries = append $entries (dict "repository_id" $source.repositoryId "repository" $source.repository "workflow_ref" $workflowRef "workflow_sha" $approval.revision "sha" $approval.revision "ref" $ref "event_name" $event "job" $rowJob) }}
 {{- end }}
 {{- end }}
-{{- /* The server reports reusable-called jobs under the default job name, so per-role
-       rows can never match; both pools bind the approved revision, ref, and events. */ }}
+{{/* Server job names arrive as __default; bind revision, ref, and events. */}}
 {{- $_ := set .Values "eligibility" $entries }}
 {{- $_ := set .Values "policyName" $policy }}
 {{- $_ := set .Values "manageSharedResources" $shared }}
