@@ -24,6 +24,80 @@ def decode_contents(document):
     return raw
 
 
+def argo_values(api, values, revision, identity_issuer, origin, additional_origins):
+    """Accept the reviewed Argo OIDC overlay only when it matches the contract.
+
+    Port of the retired inventory cross-check: the pre-R2 identity runtime
+    was trimmed in #511, so the native inventory half of the old comparison
+    no longer exists. The overlay file stays the reviewed source and the
+    construction rules it used to satisfy are enforced here instead: an
+    immutable private revision, a bounded 1MB file read, the exact pre-R2
+    native PKCE contract built from the anchored platform issuer and the
+    distinct public/private origins, and exact equality of the decoded
+    overlay with that contract. The Keycloak-side client itself is owned by
+    the identity writer; this function guards only what the mesh accepts
+    as its OIDC overlay.
+    """
+    import importlib.util
+    from urllib.parse import urlsplit
+    import yaml
+    from playbooks.argocd.files.github_setup import inspect, repository
+    if not re.fullmatch('[a-f0-9]{40}', revision or ''):
+        raise ValueError('Private Argo values require an immutable commit')
+    repo = repository(values.get('PRIVATE_CONFIG_REPOSITORY'))
+    if inspect(api, 'private-config', repo, True) is None:
+        raise RuntimeError('Designated private identity repository is unavailable')
+    runtime = Path(__file__).resolve().parents[4].joinpath(
+        'platform/identity/keycloak/runtime/configuration.py')
+    spec = importlib.util.spec_from_file_location('identity_configuration', runtime)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    parsed = urlsplit(module.exact_url(identity_issuer))
+    if parsed.path != '/realms/platform':
+        raise ValueError('Administrative applications require the platform issuer')
+    if (not isinstance(origin, str) or not isinstance(additional_origins, list)
+            or len(additional_origins) != 1
+            or any(not isinstance(item, str) for item in additional_origins)):
+        raise ValueError('Argo requires distinct bounded public/private origins')
+    origins = [origin] + additional_origins
+    if len(set(origins)) != len(origins):
+        raise ValueError('Argo requires distinct bounded public/private origins')
+    for address in origins:
+        if urlsplit(module.exact_url(address + '/auth/callback')).path != '/auth/callback':
+            raise ValueError('Argo origin must contain no path')
+    obj = api.request(
+        'GET', 'repos/' + repo + '/contents/identity/argo-values.yaml?ref=' + revision)
+    if (obj.get('type') != 'file' or obj.get('encoding') != 'base64'
+            or obj.get('size', 1048577) > 1048576):
+        raise RuntimeError('Private Argo source must be a bounded regular file')
+    raw = decode_contents(obj)
+    if len(raw) != obj['size']:
+        raise RuntimeError('Private Argo source differs from its bounded file contract')
+    if len(raw) > 1048576:
+        raise RuntimeError('Private Argo source exceeds its limit')
+    config = {'name': 'Keycloak', 'issuer': identity_issuer, 'clientID': 'argocd',
+              'enablePKCEAuthentication': True, 'refreshTokenThreshold': '2m',
+              'requestedScopes': ['openid', 'profile', 'email']}
+    expected = {'argo-cd': {'configs': {
+        'cm': {'url': origin, 'additionalUrls': yaml.safe_dump(origins[1:], sort_keys=True),
+               'users.session.duration': '10m',
+               'oidc.config': yaml.safe_dump(config, sort_keys=True)},
+        'rbac': {'policy.default': 'role:no-access', 'scopes': '[groups]',
+                 'policy.csv': '\n'.join([
+                     'g, /platform-admin, role:admin',
+                     'g, /developer, role:developer',
+                     'g, /viewer, role:viewer',
+                     'p, role:developer, applications, get, cloudlab-public/*, allow',
+                     'p, role:developer, applications, sync, cloudlab-public/*, allow',
+                     'p, role:developer, logs, get, cloudlab-public/*, allow',
+                     'p, role:viewer, applications, get, cloudlab-public/*, allow',
+                     'p, role:viewer, logs, get, cloudlab-public/*, allow'])}}}}
+    overlay = yaml.load(raw, Loader=strict_loader('Argo overlay'))
+    if overlay != expected:
+        raise RuntimeError('Private Argo overlay differs from its reviewed OIDC contract')
+    return {'helm': expected}
+
+
 def strict_loader(name):
     import yaml
     class StrictLoader(yaml.SafeLoader):

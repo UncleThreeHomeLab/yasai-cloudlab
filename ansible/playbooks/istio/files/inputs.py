@@ -12,7 +12,7 @@ import yaml
 def prepare(values, public, binding, active_revision, *, expected_revision=None):
     from playbooks.argocd.files.github_app import configuration_revision
     from playbooks.argocd.files.github_setup import repository
-    from playbooks.keycloak.files.private_source import argo_values, decode_contents
+    from playbooks.argocd.files.private_sources import argo_values, decode_contents
     private = values.get('PRIVATE_CONFIG_REPOSITORY')
     pin = public.get('mesh', {}).get('configuration', {}).get('revision')
     if (not isinstance(binding, dict) or set(binding) != {'valuesRepository', 'valuesRevision'}

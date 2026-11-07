@@ -10,7 +10,7 @@
     - {src: /workspace/ansible/playbooks/argocd/files/verify.py, dest: verify.py}
     - {src: /workspace/ansible/playbooks/argocd/files/bootstrap.py, dest: bootstrap.py}
     - {src: /workspace/verification/integration/controller_stability.py,
-      dest: controller_stability.py}
+       dest: controller_stability.py}
 - name: Render committed GitOps verification inputs
   ansible.builtin.command:
     argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
