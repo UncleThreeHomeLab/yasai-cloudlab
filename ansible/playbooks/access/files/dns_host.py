@@ -58,9 +58,19 @@ def validate_answers(payload, port=53):
         raise RuntimeError('Retained public DNS forwarding failed')
 
 
-def digest_for(payload, files):
-    return hashlib.sha256(json.dumps(
-        {'files': files, 'artifact': payload['artifact']}, sort_keys=True).encode()).hexdigest()
+def digest_for(payload):
+    """Generation identity over served content only, never host bind addresses.
+
+    Both resolvers must report the same digest when serving the same names;
+    hashing the rendered files (which embed per-host binds) made cross-host
+    generation proofs unsatisfiable.
+    """
+    content = {'names': sorted(payload['names']), 'zone': payload['zone'],
+               'identity_host': payload.get('identity_host'),
+               'cluster_gateway': payload.get('cluster_gateway'),
+               'tailnet_gateway': payload.get('tailnet_gateway'),
+               'artifact': payload['artifact']}
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
 def adopt(payload):
@@ -106,7 +116,7 @@ def configure(payload):
     files = configuration(payload)
     if not original.exists():
         atomic(original, content)
-    digest = digest_for(payload, files)
+    digest = digest_for(payload)
     generation = BASE / digest
     generation.mkdir(mode=0o755, exist_ok=True)
     repaired = False
