@@ -2,4 +2,14 @@
 # access: service routes, Cloudflare DNS/tunnel/Access, and identity callbacks
 # derive from these entries. One entry per service, keyed by service name.
 # The service catalog carries no copy of these fields.
-exposures: {}
+exposures:
+  notes:
+    service: notes
+    publication: published
+    exposure:
+      class: public
+      hostname: notes.unclethree.uk
+      access: public
+      backend: notes-web
+      path: /
+      port: 8080
