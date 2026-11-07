@@ -9,18 +9,45 @@ metadata: {name: cloudlab-preview-inventory}
 rules:
   # Complete discovery without Secret values: secrets are never listed and the
   # zero-Secret quota proves their absence; any unlisted collection fails closed.
-  - {apiGroups: [''], resources: [configmaps, endpoints, events, limitranges, persistentvolumeclaims, pods, resourcequotas, serviceaccounts, services], verbs: [list]}
-  - {apiGroups: [apps], resources: [deployments, replicasets, statefulsets], verbs: [list]}
-  - {apiGroups: [argoproj.io], resources: [applications, applicationsets, appprojects], verbs: [list]}
+  # Covers built-in namespaced collections plus every namespaced CRD from the
+  # pinned charts and the Gateway API upstream manifest. A new CRD requires an
+  # allowlist update before preview deletion can succeed.
+  - {apiGroups: [''], resources: [configmaps, endpoints, events, limitranges, persistentvolumeclaims, pods, podtemplates, replicationcontrollers, resourcequotas, serviceaccounts, services], verbs: [list]}
+  - {apiGroups: [apps], resources: [controllerrevisions, daemonsets, deployments, replicasets, statefulsets], verbs: [list]}
+  - {apiGroups: [argoproj.io], resources: [analysisruns, analysistemplates, applications, applicationsets, appprojects, experiments, rollouts], verbs: [list]}
   - {apiGroups: [discovery.k8s.io], resources: [endpointslices], verbs: [list]}
   - {apiGroups: [events.k8s.io], resources: [events], verbs: [list]}
-  - {apiGroups: [external-secrets.io], resources: [externalsecrets], verbs: [list]}
-  - {apiGroups: [gateway.networking.k8s.io], resources: [gateways, httproutes], verbs: [list]}
-  - {apiGroups: [kyverno.io], resources: [policies], verbs: [list]}
+  - {apiGroups: [external-secrets.io], resources: [externalsecrets, pushsecrets, secretstores], verbs: [list]}
+  - {apiGroups: [gateway.networking.k8s.io], resources: [backendtlspolicies, gateways, grpcroutes, httproutes, listenersets, referencegrants, tcproutes, tlsroutes, udproutes], verbs: [list]}
+  - {apiGroups: [kyverno.io], resources: [cleanuppolicies, policies, policyexceptions, updaterequests], verbs: [list]}
   - {apiGroups: [metrics.k8s.io], resources: [pods], verbs: [list]}
-  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [ingresses, networkpolicies], verbs: [list]}
   - {apiGroups: [rbac.authorization.k8s.io], resources: [rolebindings, roles], verbs: [list]}
   - {apiGroups: [security.istio.io], resources: [authorizationpolicies, peerauthentications, requestauthentications], verbs: [list]}
+  - {apiGroups: [acme.cert-manager.io], resources: [challenges, orders], verbs: [list]}
+  - {apiGroups: [actions.github.com], resources: [autoscalinglisteners, autoscalingrunnersets, ephemeralrunners, ephemeralrunnersets], verbs: [list]}
+  - {apiGroups: [autoscaling], resources: [horizontalpodautoscalers], verbs: [list]}
+  - {apiGroups: [batch], resources: [cronjobs, jobs], verbs: [list]}
+  - {apiGroups: [cert-manager.io], resources: [certificates, certificaterequests, issuers], verbs: [list]}
+  - {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [list]}
+  - {apiGroups: [extensions.istio.io], resources: [trafficextensions, wasmplugins], verbs: [list]}
+  - {apiGroups: [generators.external-secrets.io], resources: [acraccesstokens, beyondtrustworkloadcredentialsdynamicsecrets, cloudsmithaccesstokens, ecrauthorizationtokens, fakes, gcraccesstokens, generatorstates, githubaccesstokens, gitlabdeploytokens, grafanas, mfas, passwords, quayaccesstokens, sshkeys, stssessiontokens, uuids, vaultdynamicsecrets, webhooks], verbs: [list]}
+  - {apiGroups: [longhorn.io], resources: [backingimagedatasources, backingimagemanagers, backingimages, backupbackingimages, backups, backuptargets, backupvolumes, enginefrontends, engineimages, engines, instancemanagerupgradecontrols, instancemanagerupgrades, instancemanagers, nodes, orphans, recurringjobs, replicas, settings, shardgroups, shards, sharemanagers, snapshotgroups, snapshots, supportbundles, systembackups, systemrestores, volumeattachments, volumes], verbs: [list]}
+  - {apiGroups: [monitoring.coreos.com], resources: [alertmanagerconfigs, alertmanagers, podmonitors, probes, prometheusagents, prometheuses, prometheusrules, scrapeconfigs, servicemonitors, thanosrulers], verbs: [list]}
+  - {apiGroups: [monitoring.grafana.com], resources: [grafanaagents, integrations, logsinstances, metricsinstances, podlogs], verbs: [list]}
+  - {apiGroups: [networking.istio.io], resources: [destinationrules, envoyfilters, gateways, proxyconfigs, serviceentries, sidecars, virtualservices, workloadentries, workloadgroups], verbs: [list]}
+  - {apiGroups: [openreports.io], resources: [reports], verbs: [list]}
+  - {apiGroups: [policies.kyverno.io], resources: [namespaceddeletingpolicies, namespacedgeneratingpolicies, namespacedimagevalidatingpolicies, namespacedmutatingpolicies, namespacedvalidatingpolicies, policyexceptions], verbs: [list]}
+  - {apiGroups: [policy], resources: [poddisruptionbudgets], verbs: [list]}
+  - {apiGroups: [postgresql.cnpg.io], resources: [backups, clusters, databaseroles, databases, failoverquorums, imagecatalogs, poolers, publications, scheduledbackups, subscriptions], verbs: [list]}
+  - {apiGroups: [reports.kyverno.io], resources: [ephemeralreports], verbs: [list]}
+  - {apiGroups: [resource.k8s.io], resources: [resourceclaims, resourceclaimtemplates], verbs: [list]}
+  - {apiGroups: [rollout-operator.grafana.com], resources: [replicatemplates, zoneawarepoddisruptionbudgets], verbs: [list]}
+  - {apiGroups: [snapshot.storage.k8s.io], resources: [volumesnapshots], verbs: [list]}
+  - {apiGroups: [storage.k8s.io], resources: [csistoragecapacities], verbs: [list]}
+  - {apiGroups: [tailscale.com], resources: [proxygrouppolicies], verbs: [list]}
+  - {apiGroups: [telemetry.istio.io], resources: [telemetries], verbs: [list]}
+  - {apiGroups: [wgpolicyk8s.io], resources: [policyreports], verbs: [list]}
   - {apiGroups: [''], resources: [configmaps], resourceNames: [preview-waypoint-options], verbs: [get]}
   - {apiGroups: [''], resources: [services, serviceaccounts], resourceNames: [preview, preview-waypoint], verbs: [get]}
   - {apiGroups: [''], resources: [resourcequotas, limitranges], resourceNames: [budget], verbs: [get]}
