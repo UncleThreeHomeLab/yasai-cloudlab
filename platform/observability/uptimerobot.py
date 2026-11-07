@@ -130,6 +130,41 @@ def monitor_key(key):
     return key
 
 
+def declared(declaration, host, contact):
+    """Join one reviewed uptime declaration with its approved exposure host.
+
+    The host comes from the approved public exposure and the contact from the
+    private approved notification binding; neither is read from the
+    declaration. Returns the exact desired() monitor payload. The trusted
+    executor still preflights with probe() before reconcile(). Fail closed.
+    """
+    if not isinstance(declaration, dict):
+        raise ValueError('Monitor declaration is invalid')
+    monitoring = declaration.get('independentMonitoring')
+    if (set(declaration) != {'service', 'independentMonitoring'} or
+            not isinstance(monitoring, dict) or
+            set(monitoring) != {'exposureReference', 'path', 'expectedStatus',
+                                'intervalSeconds', 'notificationProfile'}):
+        raise ValueError('Monitor declaration is invalid')
+    monitor_key(declaration['service'])
+    if (not isinstance(monitoring['exposureReference'], str) or not re.fullmatch(
+            r'[a-z][a-z0-9-]{0,31}', monitoring['exposureReference'])):
+        raise ValueError('Monitor declaration is invalid')
+    path = monitoring['path']
+    if (not isinstance(path, str) or '..' in path or '%' in path or
+            not re.fullmatch(r'/[A-Za-z0-9._/-]{0,120}', path)):
+        raise ValueError('Monitor declaration is invalid')
+    if monitoring['expectedStatus'] != 200 or monitoring['intervalSeconds'] != 300:
+        raise ValueError('Monitor declaration is invalid')
+    if (not isinstance(monitoring['notificationProfile'], str) or not re.fullmatch(
+            r'[a-z][a-z0-9-]{0,63}', monitoring['notificationProfile'])):
+        raise ValueError('Monitor declaration is invalid')
+    if (not isinstance(host, str) or
+            not re.fullmatch(r'[a-z0-9]([a-z0-9.-]*[a-z0-9])?', host)):
+        raise ValueError('Monitor requires its approved public exposure host')
+    return desired(declaration['service'], public_url('https://' + host + path), contact)
+
+
 def desired(key, url, identifier):
     monitor_key(key)
     if type(identifier) is not int or identifier <= 0:

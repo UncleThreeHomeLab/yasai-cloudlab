@@ -4,6 +4,7 @@
   "title": "Independent uptime and external-owner status declarations",
   "description": "Public uptime declaration per service (for example services/<name>/uptime.yaml) and private external-owner status expectations (platform/operations/status.yaml). The uptime host derives from an approved public exposure, never an arbitrary URL; the endpoint must already be intentionally public and safe to probe without user authentication. Enabling status declares an expectation of bounded execution evidence; missing evidence stays visibly unavailable and a disabled executor never appears healthy.",
   "type": "object",
+  "additionalProperties": false,
   "oneOf": [
     {"required": ["service"]},
     {"required": ["externalOwnerStatus"]}
@@ -11,7 +12,7 @@
   "properties": {
     "service": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,34}$"
+      "pattern": "^[a-z][a-z0-9-]{0,30}$"
     },
     "independentMonitoring": {
       "type": "object",

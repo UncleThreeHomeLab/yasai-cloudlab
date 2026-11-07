@@ -6,7 +6,30 @@ import subprocess
 import yaml
 
 from playbooks.argocd.files.render import payload
-from playbooks.observability.files.chart import configuration, render
+
+ROOT = Path(__file__).resolve().parents[2]
+BASE = ROOT / 'platform/observability'
+NAMESPACE = json.loads((BASE / 'policy.json').read_text())['namespace']
+
+
+def render(name):
+    # Native chart render once owned by the retired observability generator.
+    command = ['helm', 'template', 'cloudlab-' + name, str(BASE / name), '-n', NAMESPACE,
+               '--kube-version', '1.36.5', '--include-crds', '-f', str(BASE / name / 'values.json')]
+    results = [subprocess.run(command, capture_output=True, text=True, timeout=90) for _ in range(2)]
+    if any(r.returncode for r in results) or results[0].stdout != results[1].stdout:
+        raise ValueError('Telemetry chart failed or is nondeterministic: ' + name)
+    return [o for o in yaml.safe_load_all(results[0].stdout) if o]
+
+
+def configuration(enabled=False):
+    result = subprocess.run(['helm', 'template', 'cloudlab-observability', str(BASE),
+        '-n', NAMESPACE, '--kube-version', '1.36.5', '--set', 'enabled=' + str(enabled).lower(),
+        '--set', 'monitoringEnabled=' + str(enabled).lower()],
+        capture_output=True, text=True, timeout=90)
+    if result.returncode:
+        raise ValueError('Telemetry boundary chart failed')
+    return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
 
 
 class KialiProjectTests(unittest.TestCase):
