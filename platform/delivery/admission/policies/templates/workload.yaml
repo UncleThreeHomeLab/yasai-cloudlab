@@ -49,6 +49,10 @@ spec:
         has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false
       message: Workloads must disable automatic service account token mounting.
     - expression: >-
+        has(object.spec.serviceAccountName) && object.spec.serviceAccountName != '' &&
+        object.spec.serviceAccountName != 'default'
+      message: Workloads must use their named service account.
+    - expression: >-
         !has(object.spec.volumes) || object.spec.volumes.all(v,
           !has(v.projected) || !has(v.projected.sources) ||
           v.projected.sources.all(s, !has(s.serviceAccountToken)))
