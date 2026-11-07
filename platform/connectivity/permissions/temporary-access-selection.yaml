@@ -6,7 +6,76 @@ version: cloudlab-temporary-access-selection/v1
 status: unselected
 scope: Backend selection for temporary Kubernetes RBAC grants through reviewed profiles
 selected: none
-blocked: Product decision open; no maintained upstream-only capability or scoped reviewed integration is selected. No speculative installation and no custom IAM.
+reviewed: 2026-11-07
+blocked: Product decision open after 2026-11-07 offline review of all five plan candidate families; each fails at least one security gate below. No speculative installation and no custom IAM.
 acceptance: One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path.
 boundsRef: platform/connectivity/access/temporary-access.json
-notes: Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates.
+bounds:
+  diagnosticsMinutes: 15
+  identityEditsMinutes: 10
+  rotationStartMinutes: 5
+  renewal: No automatic renewal; shorter backend limits apply.
+  approval: Approval binds immutable requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget. Requester, beneficiary, delegated equivalents and conflicting identities are excluded from approval. Human review is required initially for identity and secret operations.
+notes: Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates; kubectl is unreachable from this lane so all live gates stay pending and fail closed. Inline bounds mirror boundsRef.
+candidates:
+  - family: breakglass-openbao
+    members: telekom/k8s-breakglass; OpenBao
+    verdict: unselected
+    maintained: k8s-breakglass pushed 2026-11-07, latest release v0.1.0-beta.29 (2026-06-23); OpenBao docs at 2.7.x.
+    freeFit: k8s-breakglass Apache-2.0; OpenBao MPL-2.0; both self-hosted.
+    humanAuth: k8s-breakglass OIDC/JWT including Keycloak per README; OpenBao JWT/OIDC plus login MFA per docs.
+    machineAuth: k8s-breakglass bgctl/REST with no qualified workload-identity binding; OpenBao Kubernetes auth is inbound-only (SA token for OpenBao token, not a K8s grant).
+    boundary: k8s-breakglass authorization webhook with time-bounded sessions, CRD approvers and audit sinks; OpenBao control groups govern secret/certificate release only.
+    gap: k8s-breakglass is pre-1.0 beta with a small review base; requester/beneficiary approval exclusion, usage budgets and per-operation current-authority rechecks are undocumented and unprovable offline. OpenBao has no approval-bound issuance of TTL-bound native RoleBindings, and its Kubernetes credential path needs broader cluster access.
+    sources:
+      - https://github.com/telekom/k8s-breakglass
+      - https://openbao.org/docs/auth/kubernetes/
+      - https://openbao.org/docs/concepts/control-groups/
+  - family: athenz-garm
+    members: AthenZ/athenz; AthenZ/garm
+    verdict: unselected
+    maintained: athenz pushed 2026-11-06; garm pushed 2026-10-28.
+    freeFit: Both Apache-2.0, self-hosted.
+    humanAuth: Athenz console/certificate user flow; Keycloak Code+PKCE+MFA binding unqualified.
+    machineAuth: Athenz X.509 service identity; Kubernetes workload binding unqualified.
+    boundary: Garm is an allow/deny authorization webhook against cached Athenz policy; it issues no TTL-bound native bindings.
+    gap: No independent-approval workflow with requester exclusion, immutable scope and usage budgets in the free path; ownership, current-approval and K3s API-server webhook integration remain unqualified; live proof pending.
+    sources:
+      - https://github.com/AthenZ/athenz
+      - https://github.com/AthenZ/garm
+  - family: airflow-stackstorm
+    members: Apache Airflow; StackStorm
+    verdict: unselected
+    maintained: Airflow docs at 3.4.0, 3.3.x releases through Sep 2026; StackStorm docs at 3.9.0.
+    freeFit: Both Apache-2.0 (ASF and Linux Foundation), self-hosted.
+    humanAuth: Airflow FAB UI roles and StackStorm LDAP-backed RBAC govern the orchestrator itself, not grant issuance.
+    machineAuth: Service API credentials; no audience-bound workload-identity grant path.
+    boundary: DAG/task execution (Airflow) and action executions with inquiries (StackStorm); neither issues TTL-bound native Kubernetes bindings nor rechecks current authority per operation.
+    gap: Workflow approval does not supply the identity, isolation, deadline or durable execution contract; wiring either tool into the contract is custom IAM, which is prohibited.
+    sources:
+      - https://airflow.apache.org/docs/apache-airflow/stable/security/security_model.html
+      - https://docs.stackstorm.com/rbac.html
+  - family: midpoint
+    members: Evolveum midPoint
+    verdict: unselected
+    maintained: Evolveum doc train 4.8 through 4.11 plus Development.
+    freeFit: No-license-fee IGA, Apache-2.0/EUPL, self-hosted.
+    humanAuth: Enterprise SSO and IGA review flows; Keycloak Code+PKCE+MFA binding unqualified.
+    machineAuth: Provisioning-based; no audience-bound short-lived workload credential path to Kubernetes.
+    boundary: Account/group/role provisioning on managed resources via ConnId connectors; no maintained free connector issuing TTL-bound native Kubernetes RoleBindings.
+    gap: Audience enforcement and safe current-authority veto unqualified; building a Kubernetes just-in-time connector is custom IAM, which is prohibited; live proof pending.
+    sources:
+      - https://docs.evolveum.com/iam/access-management-and-provisioning/
+  - family: hoop-teleport-openiam
+    members: hoophq/hoop; Teleport Community Edition; OpenIAM Community Edition
+    verdict: unselected
+    maintained: hoop pushed 2026-11-07; Teleport CE docs current; OpenIAM CE 2026.9.1 released 2026-10-26.
+    freeFit: hoop MIT; Teleport AGPL-3.0 CE build; OpenIAM CE free vendor RPM. All free builds gate or omit the approval path.
+    humanAuth: hoop gateway sessions; Teleport CE tsh CLI requests with admin tctl approval only; OpenIAM SSO/IGA flows.
+    machineAuth: No audience-bound just-in-time grant path in any free build.
+    boundary: hoop OSS sidecar covers agent runtime control on data protocols with the review queue not built and codecs in a private module; Teleport CE brokers its own proxied sessions without configurable approval rules; OpenIAM provisions identities with no Kubernetes just-in-time enforcement.
+    gap: hoop reproducible OSS build fails (private libhoop module) and approval workflow is not in the OSS sidecar; Teleport just-in-time approval rules are Enterprise-only so CE cannot express requester-exclusion rules; OpenIAM CE has no documented free Kubernetes just-in-time enforcement boundary; live proof pending.
+    sources:
+      - https://github.com/hoophq/hoop
+      - https://goteleport.com/docs/identity-governance/access-requests/oss-role-requests/
+      - https://community.openiam.com/t/new-community-edition-2026-9-1/262
