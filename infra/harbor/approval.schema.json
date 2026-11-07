@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Harbor plan approval binding",
+  "$comment": "Private file platform/registry/approval.yaml. A merged PR carrying this binding approves exactly one binding content hash (sha256 of the reviewed binding.yaml bytes) and one plan digest; the Harbor settings executor applies that plan with no second operator command. Merging the approval PR keeps the binding bytes identical, so the approval stays satisfiable; stale or mismatched bindings never apply. Undeclared projects and memberships stay retained; any plan containing a delete or replace action is refused.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "binding",
+    "plan"
+  ],
+  "properties": {
+    "binding": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "plan": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

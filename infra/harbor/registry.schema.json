@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Registry settings binding",
-  "description": "Supported user declarations for Harbor API settings. A binding names only existing projects and approved membership profiles; robot accounts stay vault/manual-owned outside binding scope. It authorizes no new project, credential, import, or deletion. Executed by the agreed trusted provider executor; this schema plus registry.py only validate and compile.",
+  "description": "Supported user declarations for Harbor API settings. Private file platform/registry/projects/private.yaml. A binding names only existing projects and approved membership profiles; robot accounts stay vault/manual-owned outside binding scope. It authorizes no new project, credential, import, or deletion. The Harbor settings executor (infra/harbor/reconcile.py) compiles the binding and applies only with a merged platform/registry/approval.yaml binding; this schema plus registry.py only validate and compile.",
   "type": "object",
   "additionalProperties": false,
   "required": ["projects"],
   "properties": {
     "projects": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 2,
       "maxItems": 2,
       "uniqueItems": true,
       "items": {

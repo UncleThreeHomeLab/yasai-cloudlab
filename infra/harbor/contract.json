@@ -1,5 +1,5 @@
 {
-  "owner": "Local Compose OpenTofu; Harbor API resources only",
+  "owner": "Harbor settings executor (infra/harbor/reconcile.py) planning reviewed compiled bindings; Harbor API resources only",
   "backend_item": "gitlab-state-harbor",
   "encryption_item": "opentofu-state-harbor",
   "backend_fields": ["PROJECT_ID", "USERNAME", "TOKEN"],

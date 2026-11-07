@@ -1,7 +1,52 @@
 {
   "type": "object",
   "required": ["arc"],
+  "allOf": [
+    {"if": {"required": ["registration"]}, "then": {},
+     "else": {"properties": {"arc": {"properties": {"image": {"properties": {
+       "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/cloudlab-public/ci-controller$"},
+       "tag": {"type": "string", "pattern": "^0[.]15[.]0@sha256:[a-f0-9]{64}$"}}}}}}}}
+  ],
   "properties": {
+    "component": {"type": "string", "const": "controller"},
+    "images": {"type": "object"},
+    "registration": {
+      "type": "object",
+      "required": ["application", "source", "ci"],
+      "properties": {
+        "application": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,34}$"},
+        "source": {
+          "type": "object",
+          "required": ["repository", "repositoryId", "visibility"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"},
+            "repositoryId": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+            "visibility": {"enum": ["public", "private"]}
+          }
+        },
+        "ci": {
+          "type": "object",
+          "required": ["profile", "approval", "jobs"],
+          "properties": {
+            "profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+            "approval": {
+              "type": "object",
+              "required": ["revision"],
+              "properties": {
+                "revision": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+                "pullRequest": {"type": "integer", "minimum": 1}
+              }
+            },
+            "jobs": {
+              "type": "object",
+              "required": ["test"],
+              "properties": {"test": {"type": "boolean"}, "publish": {"type": "boolean"}}
+            }
+          }
+        },
+        "publishing": {"type": "object"}
+      }
+    },
     "applicationCapacity": {"type": "integer", "minimum": 1, "maximum": 8},
     "network": {
       "type": "object",
@@ -25,8 +70,8 @@
           "type": "object",
           "required": ["repository", "tag"],
           "properties": {
-            "repository": {"type": "string", "pattern": "^[a-z0-9.-]+/cloudlab-public/ci-controller$"},
-            "tag": {"type": "string", "pattern": "^0[.]15[.]0@sha256:[a-f0-9]{64}$"}
+            "repository": {"type": "string"},
+            "tag": {"type": "string"}
           }
         },
         "flags": {

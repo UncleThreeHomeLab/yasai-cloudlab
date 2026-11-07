@@ -1,3 +1,5 @@
+{{- include "cloudlab.ci.pool.normalize" . -}}
+{{- if .poolEnabled }}
 {{- with .Values.testing }}
 {{- if $.Values.publishing }}
 {{- fail "Test environment inputs cannot be mounted in a publisher pool" }}
@@ -16,10 +18,24 @@
 {{- $private := hasPrefix "cloudlab-ci-private-" $.Release.Namespace }}
 {{- $project := ternary "cloudlab-private" "cloudlab-public" $private }}
 {{- if not (regexMatch (printf "^[^/]+/%s/" $project) .image) }}{{ fail "Test environment must match the pool visibility" }}{{- end }}
-{{- $secret := ternary "harbor-test-pull" "harbor-tools-pull" $private }}
-{{- $pull := dict "name" "test-pull" "secret" (dict "secretName" $secret "defaultMode" 288 "items" (list (dict "key" ".dockerconfigjson" "path" "config.json"))) }}
-{{- if or (not (eq (toJson (get $volumes "testing")) (toJson $config)))
-    (not (eq (toJson (get $volumes "test-pull")) (toJson $pull))) }}
+{{- $testingVolume := get $volumes "testing" | default dict }}
+{{- $testingSource := index $testingVolume "configMap" | default dict }}
+{{- if ne (toJson (dict "name" (index $testingVolume "name") "configMap" (omit $testingSource "optional"))) (toJson $config) }}
+{{- fail "Test inputs must use the owned configuration and existing pull-only credential" }}
+{{- end }}
+{{- if and (hasKey $testingSource "optional") (ne (index $testingSource "optional") true) }}
+{{- fail "Test inputs must use the owned configuration and existing pull-only credential" }}
+{{- end }}
+{{- $testPull := get $volumes "test-pull" | default dict }}
+{{- $pullSecret := index $testPull "secret" | default dict }}
+{{- $pullNames := list "harbor-test-pull" "harbor-tools-pull" }}
+{{- if or (ne (index $testPull "name") "test-pull")
+    (not (has ($pullSecret.secretName | default "") $pullNames))
+    (ne (toJson (index $pullSecret "defaultMode")) "288")
+    (ne (toJson (index $pullSecret "items")) (toJson (list (dict "key" ".dockerconfigjson" "path" "config.json")))) }}
+{{- fail "Test inputs must use the owned configuration and existing pull-only credential" }}
+{{- end }}
+{{- if and (hasKey $pullSecret "optional") (ne (index $pullSecret "optional") true) }}
 {{- fail "Test inputs must use the owned configuration and existing pull-only credential" }}
 {{- end }}
 {{- range $name, $path := dict "testing" "/run/cloudlab-test/config" "test-pull" "/run/cloudlab-test/registry" }}
@@ -39,7 +55,6 @@ kind: ConfigMap
 metadata: {name: cloudlab-testing, namespace: {{ $.Release.Namespace }}}
 data:
   config.json: {{ toJson . | quote }}
-{{- if $private }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -56,6 +71,6 @@ spec:
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: {{ printf "{{ dict %q (dict %q (dict %q .username %q .password)) | toJson }}" "auths" ((splitList "/" .image) | first) "username" "password" | quote }}
-  dataFrom: [{extract: {key: harbor-cloudlab-private-pull}}]
+  dataFrom: [{extract: {key: {{ ternary "harbor-cloudlab-private-pull" "harbor-cloudlab-public-pull" $private }}}}]
 {{- end }}
 {{- end }}

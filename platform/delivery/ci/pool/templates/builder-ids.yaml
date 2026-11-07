@@ -1,3 +1,6 @@
+{{- include "cloudlab.ci.pool.normalize" . -}}
+{{- if .poolEnabled }}
 {{- if .Values.manageSharedResources }}
 {{ .Files.Get "builder-ids.yaml" }}
+{{- end }}
 {{- end }}

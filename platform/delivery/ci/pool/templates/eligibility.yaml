@@ -1,3 +1,5 @@
+{{- include "cloudlab.ci.pool.normalize" . -}}
+{{- if .poolEnabled }}
 {{- $repository := trimPrefix "https://github.com/" .Values.arc.githubConfigUrl }}
 {{- range .Values.arc.template.spec.volumes }}
 {{- if and (eq .name "eligibility") (ne .configMap.name $.Values.policyName) }}
@@ -49,3 +51,4 @@ metadata: {name: {{ .Values.policyName }}, namespace: {{ .Release.Namespace }}}
 data:
   eligibility.json: {{ $policy | quote }}
   admission.json: {{ dict "spec" $profile "controller" (printf "system:serviceaccount:%s:%s" .Values.arc.controllerServiceAccount.namespace .Values.arc.controllerServiceAccount.name) | toJson | quote }}
+{{- end }}

@@ -2,6 +2,7 @@
   "manageSharedResources": true,
   "policyName": "cloudlab-ci-eligibility",
   "arc": {
+    "enabled": true,
     "minRunners": 0,
     "maxRunners": 1,
     "template": {
@@ -72,6 +73,16 @@
               {
                 "name": "eligibility",
                 "mountPath": "/etc/cloudlab-runner",
+                "readOnly": true
+              },
+              {
+                "name": "testing",
+                "mountPath": "/run/cloudlab-test/config",
+                "readOnly": true
+              },
+              {
+                "name": "test-pull",
+                "mountPath": "/run/cloudlab-test/registry",
                 "readOnly": true
               }
             ],
@@ -155,6 +166,28 @@
             "configMap": {
               "name": "cloudlab-ci-eligibility",
               "defaultMode": 292
+            }
+          },
+          {
+            "name": "testing",
+            "configMap": {
+              "name": "cloudlab-testing",
+              "defaultMode": 292,
+              "optional": true
+            }
+          },
+          {
+            "name": "test-pull",
+            "secret": {
+              "secretName": "harbor-test-pull",
+              "defaultMode": 288,
+              "optional": true,
+              "items": [
+                {
+                  "key": ".dockerconfigjson",
+                  "path": "config.json"
+                }
+              ]
             }
           }
         ],

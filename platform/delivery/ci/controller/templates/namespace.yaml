@@ -1,3 +1,4 @@
+{{- include "cloudlab.ci.controller.normalize" . -}}
 {{- $pods := add (mul 3 (int .Values.applicationCapacity)) 2 }}
 {{- if .Values.manageSystemNamespace }}
 apiVersion: v1

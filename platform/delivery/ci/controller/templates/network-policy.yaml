@@ -1,3 +1,4 @@
+{{- include "cloudlab.ci.controller.normalize" . -}}
 {{- if .Values.network.enforce }}
 {{- $network := .Values.network }}
 {{- range $key := list "apiServiceCIDRs" "apiEndpointCIDRs" "registryCIDRs" }}

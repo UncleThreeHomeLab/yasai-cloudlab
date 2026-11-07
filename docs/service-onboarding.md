@@ -382,19 +382,19 @@ stay disabled. A new source revision never inherits a previous approval.
 This file is the versioned registration input. Argo deploys the pool files
 derived from it (step 4.3). Do not copy registration files into this public repo.
 
-### 4.3 Derive the pool files — Agent
+### 4.3 Review the derived pools — Agent
 
-Derive `platform/ci/pools/example-app/` pool files from the registration.
-The fixed platform profile
+Argo derives the controller, runner and publisher pools from the registration
+during reconciliation; no pool files are authored. The fixed platform profile
 [`platform/delivery/ci/pool/values.json`](../platform/delivery/ci/pool/values.json)
 supplies the runner pod specification, tool digests, isolation and budgets;
-the pool files carry only identity, approval and destination bindings:
+the registration carries only identity, approval and destination bindings:
 
-| Pool file | Derived content |
+| Component | Derived content |
 | --- | --- |
-| `controller.json` | `name: example-app`; watched namespace `cloudlab-ci-public-example-app` (or `cloudlab-ci-private-example-app`); `values.runnerPools: 1` (`2` with publishing) |
-| `runner.json` | `name`/`namespace` as above; `values.arc.githubConfigUrl: https://github.com/OWNER/REPO`; `values.arc.runnerScaleSetName: cloudlab-example-app`; `values.policyName: cloudlab-ci-eligibility`; `values.eligibility` entries binding `repository_id`, `repository`, `workflow_ref: OWNER/REPO/.github/workflows/ci.yaml@<ref>`, `workflow_sha` and `sha` to the approved revision; `values.testing.image` pin |
-| `publisher.json`, publishing only | Separate publisher role: `values.policyName: cloudlab-ci-eligibility-publish`; `values.publishing` with application, source and release repository identities, registry, project, workflow identity, release visibility and mode |
+| `controller` | Watched namespace `cloudlab-ci-public-example-app` (or `cloudlab-ci-private-example-app`); `runnerPools: 1` (`2` with publishing) |
+| `runner` | `cloudlab-example-app` in the watched namespace; repository endpoint; `test` and main-only `build` eligibility binding `repository_id`, `repository`, `workflow_ref: OWNER/REPO/.github/workflows/ci.yaml@<ref>`, `workflow_sha` and `sha` to the approved revision; `testing.image` pin |
+| `publisher`, publishing only | Separate publisher role `cloudlab-example-app-publish`; `publish` eligibility; `publishing` with application, source and release repository identities, registry, project, workflow identity, release visibility and mode |
 
 For `main` approvals, `ref` is `refs/heads/main` with `push` and
 `workflow_dispatch` events. For public PR test-only approvals, `ref` is
@@ -403,31 +403,31 @@ and the approved revision must be the PR's current merge revision. The pool
 chart validates every binding; Argo rejects mismatched identity, visibility,
 workflow approval or publishing destination.
 
-Derivation is mechanical and reviewer-checked: normally copy the qualified
-previous revision's pool files for the same application and update only the
-changed identity and approval fields. Never hand-edit a pool file to widen
-runner access, credentials or resource budgets beyond the fixed profile.
+Retire `platform/ci/pools/example-app/` after the derived pools converge;
+the ApplicationSets no longer read it. Removing the registration deletes its
+owned pools after review; keep the registration while the repo needs CI.
+Never widen runner access, credentials or resource budgets beyond the fixed
+profile.
 
 ### 4.4 Propose the registration in private GitOps — Agent, then User
 
-1. **Agent:** confirm the registration YAML and its derived pool files are
-   together in the private repo (`platform/ci/applications/example-app.yaml`
-   and `platform/ci/pools/example-app/`).
-   Do not copy either into this public repo.
-2. **Agent:** review the files before opening a PR. Confirm application name,
+1. **Agent:** confirm the registration YAML is in the private repo
+   (`platform/ci/applications/example-app.yaml`).
+   Do not copy it into this public repo.
+2. **Agent:** review the file before opening a PR. Confirm application name,
    immutable repository id, visibility namespace, approved revision,
    qualified tool digests and immutable `testing.image`.
    For this example, the controller name is `cloudlab-example-app-controller`;
    its watched namespace is `cloudlab-ci-public-example-app` for public repos,
    or `cloudlab-ci-private-example-app` for private repos.
-3. **Agent:** commit the files, push `onboard/example-app` and open a PR
+3. **Agent:** commit the file, push `onboard/example-app` and open a PR
    targeting private `main`.
    Preserve existing files for other applications. If this application already
    has configuration, review its diff instead of treating it as a new installation.
 4. **User:** review and merge through branch protection.
 
-Do not add `publisher.json` until publishing is approved. Publishing also
-needs section 5.2 prerequisites and `runnerPools: 2` in `controller.json`.
+Do not enable `jobs.publish` until publishing is approved. Publishing also
+needs section 5.2 prerequisites; the controller quota derives the second pool.
 Do not manually create runner pods or apply pool manifests.
 
 ### 4.5 Verify Argo deployment — Agent
@@ -439,9 +439,9 @@ Use the existing private Argo/Kubernetes access to check:
 | Argo application | `cloudlab-ci-example-app-controller` exists; Synced and Healthy |
 | Controller Deployment | `cloudlab-example-app-controller` is Available in `cloudlab-ci-system` |
 | Watched namespace | Matches the visibility namespace from step 4.4 |
-| GitOps source | Tracks private `main` containing the merged pool files |
+| GitOps source | Tracks private `main` containing the merged registration |
 
-Argo reads `platform/ci/pools/*/controller.json` automatically.
+Argo reads `platform/ci/applications/*.yaml` automatically.
 If the application is missing, inspect the
 `cloudlab-ci-application-controller` ApplicationSet and its private source access.
 If deployment fails, inspect Argo conditions and controller events before changing inputs.
@@ -451,7 +451,7 @@ Keep credentials and diagnostic dumps out of tracked files.
 when adding these application-specific controllers and pools.
 
 **Done when:** the repo's controller is healthy. Jobs remain disabled until
-registration approval produces `runner.json` and, when needed, `publisher.json`.
+registration approval derives the runner pool and, when needed, the publisher pool.
 Tests select `cloudlab-example-app`; publishing, when configured, selects
 `cloudlab-example-app-publish`. Workflows must not select GitHub-hosted runners.
 
@@ -701,14 +701,14 @@ current main commit. Review and merge the application PR before this
 main-only approval; no private PR job receives runner access. Renew approval for
 every source revision. Repository-owned approval remains public-only.
 
-Update `ci.approval.revision` (and `ci.jobs`) in the registration, then
-re-derive the pool files from section 4.3:
+Update `ci.approval.revision` (and `ci.jobs`) in the registration; Argo
+re-derives the pools from section 4.3:
 
-| Pool file | Purpose |
+| Component | Purpose |
 | --- | --- |
-| `controller.json` | Controller configuration; publishing updates quota to `values.runnerPools: 2` |
-| `runner.json` | Approves direct tests and any main-only build job on `cloudlab-example-app`; pins the test environment |
-| `publisher.json`, publishing only | Approves publishing and assigns `cloudlab-example-app-publish` |
+| `controller` | Controller configuration; publishing updates quota to `runnerPools: 2` |
+| `runner` | Approves direct tests and any main-only build job on `cloudlab-example-app`; pins the test environment |
+| `publisher`, publishing only | Approves publishing and assigns `cloudlab-example-app-publish` |
 
 Without publishing, the controller normally remains unchanged; no second-pool
 quota is needed. Only for publishing, complete section 5.2 and add the
@@ -718,15 +718,14 @@ The registration binds workflow approval and, when publishing, the release
 destination; it does not deploy runners, create registry credentials or publish
 an application image.
 
-**Done when:** the registration and derived pool files cover the reviewed application revision.
+**Done when:** the registration covers the reviewed application revision.
 
 ### 5.4 Deploy the approved pools — Agent, then User
 
-1. **Agent:** confirm the registration and derived pool files are together in
-   private `platform/ci/applications/example-app.yaml` and
-   `platform/ci/pools/example-app/`.
-   Review `controller.json`; tests and main-only builds normally leave it unchanged.
-   For publishing, include its quota for the second pool and `publisher.json`.
+1. **Agent:** confirm the registration in private
+   `platform/ci/applications/example-app.yaml`.
+   Review the jobs; tests and main-only builds normally leave the controller unchanged.
+   For publishing, include `jobs.publish` and the `publishing` block.
 2. **Agent:** review the diff. Confirm repo identity, visibility, workflow approval,
    runner names, qualified tool digests and immutable `testing.image`;
    check release destination and publishing
@@ -839,6 +838,9 @@ destructive migrations require a separate explicit data scope.
    Match the service, resource name and credential reference. Include the database
    migration item when needed. Approve required references in
    `approval.secretReferences`; never grant application pods privileged data credentials.
+   After merge, the application-data-reconciler provisions approved buckets and
+   least-privilege SQL grants without operator commands; buckets, databases and
+   their access bindings are retained on removal.
 3. **User/Agent:** keep secret values in 1Password's CloudLab vault.
    Use the [service contract](../charts/service/README.md) for required item fields
    and credential provisioning. The accepted private catalog carries every secret,
@@ -1393,7 +1395,7 @@ Check all declared exposure hosts, regardless of source repo visibility.
 | Private GitOps | `platform/access/policy.yaml` | Remove the service entries; private DNS and routes withdraw |
 | Private GitOps | `services/catalog.json` | Keep the entry with `publication: retired`; preserve its definition, approval and data bindings |
 | Private identity owner | `identity/configmap.yaml` revocations | Persist the client tombstone; the writer disables the client |
-| Private GitOps | `platform/ci/pools/example-app/` | Runner configuration stays; CI retirement needs a separate explicit decision |
+| Private GitOps | `platform/ci/applications/example-app.yaml` | Keep the registration while the repo needs CI; removing it deletes owned pools — a separate explicit decision |
 | Source and owning release repos | Application source, `.github/workflows/ci.yaml`, `apps/releases/example-app.json` | Preserve source, release history and recoverable artifacts; service retirement does not delete them |
 
 ### 9.1 Confirm the retirement scope — User, then Agent

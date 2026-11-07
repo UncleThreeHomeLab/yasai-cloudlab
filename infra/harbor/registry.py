@@ -3,10 +3,10 @@
 A binding declares only existing projects and approved membership profiles. It
 authorizes no new project, credential, import, garbage collection, or deletion.
 Robot accounts stay vault/manual-owned outside binding scope; a binding that
-declares `robots` is rejected as unsupported. An undeclared project is
-unchanged, never removed: partial input is not deletion intent. The agreed
-trusted executor consumes `compile` output; without that executor this module
-only validates and reports.
+declares `robots` is rejected as unsupported. A binding names both existing
+projects; anything less is invalid input and never deletion intent. The
+agreed trusted executor consumes `compile` output; without that executor
+this module only validates and reports.
 """
 
 import json
@@ -37,6 +37,9 @@ def binding(path):
 
 
 def guards(value):
+    if sorted(project["name"] for project in value["projects"]) != [
+            "cloudlab-private", "cloudlab-public"]:
+        raise SystemExit("A binding must name both existing registry projects")
     seen = set()
     for project in value["projects"]:
         name = project["name"]
@@ -91,6 +94,9 @@ def diff_command(path):
     if compiled["protected_tags"] != CONTRACT["protected_tags"]:
         changes.append("protected tags: %s -> %s"
                        % (CONTRACT["protected_tags"], compiled["protected_tags"]))
+    retained = sorted(set(CONTRACT["projects"]) - set(compiled["projects"]))
+    for name in retained:
+        print("retained: project %s is not declared; preserved, never deleted" % name)
     if changes:
         print("\n".join("change: " + line for line in changes))
         raise SystemExit(2)

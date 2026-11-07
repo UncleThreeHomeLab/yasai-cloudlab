@@ -10,6 +10,18 @@ variables {
     cloudlab-private-push = "synthetic-private-push-password-0000000000"
     cloudlab-private-pull = "synthetic-private-pull-password-0000000000"
   }
+  registry = {
+    projects = { cloudlab-public = 20, cloudlab-private = 20 }
+    memberships = {
+      public_admin      = { project = "cloudlab-public", group = "/platform-admin", role = "projectadmin" }
+      public_developer  = { project = "cloudlab-public", group = "/developer", role = "developer" }
+      public_viewer     = { project = "cloudlab-public", group = "/viewer", role = "guest" }
+      private_admin     = { project = "cloudlab-private", group = "/platform-admin", role = "projectadmin" }
+      private_developer = { project = "cloudlab-private", group = "/developer", role = "developer" }
+    }
+    protected_tags = "{release-*,deploy-*,rollback-*}"
+    retention      = "retain-all"
+  }
 }
 
 run "scoped_registry" {
@@ -40,4 +52,19 @@ run "missing_robot_custody" {
   command = plan
   variables { robot_secrets = {} }
   expect_failures = [var.robot_secrets]
+}
+
+run "binding_guard_refusal" {
+  command = plan
+  variables {
+    registry = {
+      projects = { cloudlab-public = 20.5, cloudlab-private = 20 }
+      memberships = {
+        public_admin = { project = "cloudlab-public", group = "/platform-admin", role = "projectadmin" }
+      }
+      protected_tags = "{release-*,deploy-*,rollback-*}"
+      retention      = "retain-all"
+    }
+  }
+  expect_failures = [var.registry]
 }

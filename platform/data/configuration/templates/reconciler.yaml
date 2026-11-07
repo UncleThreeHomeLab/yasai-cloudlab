@@ -1,0 +1,167 @@
+{{- define "cloudlab.data.reconcilerPod" -}}
+{{- $settings := .settings }}{{- $databases := .databases }}{{- $lock := .lock -}}
+serviceAccountName: data-reconciler
+automountServiceAccountToken: false
+restartPolicy: Never
+activeDeadlineSeconds: 210
+terminationGracePeriodSeconds: 20
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile: {type: RuntimeDefault}
+initContainers:
+  - name: ensure-buckets
+    image: {{ $lock.images.python | quote }}
+    command: [python, /code/reconcile.py]
+    securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 64Mi}
+    volumeMounts:
+      - {name: code, mountPath: /code, readOnly: true}
+      - {name: desired, mountPath: /desired, readOnly: true}
+      - {name: s3config, mountPath: /s3config, readOnly: true}
+      - {name: temporary, mountPath: /tmp}
+containers:
+  - name: apply-grants
+    image: {{ $settings.postgresImage | quote }}
+    command: [/bin/sh, -ec]
+    args:
+      - |
+        set -u
+        for sql in /grants/*.sql; do
+          [ -e "$sql" ] || continue
+          name=$(basename "$sql" .sql)
+          case "$name" in ''|*[!a-z0-9_]*|[0-9_]*|pg_*|postgres|template0|template1) exit 1;; esac
+          export PGUSER=$(cat "/credentials/$name/username")
+          export PGPASSWORD=$(cat "/credentials/$name/password")
+          psql -d "$name" -v ON_ERROR_STOP=1 -f "$sql" || exit 1
+        done
+        echo 'Scoped data grants reconciled'
+    env:
+      - {name: PGHOST, value: cloudlab-postgres-rw.cloudlab-data.svc.cluster.local}
+      - {name: PGPORT, value: '5432'}
+      - {name: PGSSLMODE, value: verify-full}
+      - {name: PGSSLROOTCERT, value: /ca/ca.crt}
+    securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 256Mi}
+    volumeMounts:
+      - {name: grants, mountPath: /grants, readOnly: true}
+      - {name: ca, mountPath: /ca, readOnly: true}
+      - {name: temporary, mountPath: /tmp}
+      {{- range $db := $databases }}
+      - {name: {{ printf "credentials-%s" ($db.name | replace "_" "-") }}, mountPath: {{ printf "/credentials/%s" $db.name }}, readOnly: true}
+      {{- end }}
+volumes:
+  - {name: code, configMap: {name: data-reconciler-code, defaultMode: 0444}}
+  - {name: desired, configMap: {name: data-desired-state, defaultMode: 0444}}
+  - {name: grants, configMap: {name: data-grants, defaultMode: 0444}}
+  - {name: temporary, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+  - {name: s3config, secret: {secretName: cloudlab-s3-config, defaultMode: 0440}}
+  - {name: ca, secret: {secretName: cloudlab-postgres-ca, items: [{key: ca.crt, path: ca.crt}], defaultMode: 0440}}
+  {{- range $db := $databases }}
+  - name: {{ printf "credentials-%s" ($db.name | replace "_" "-") }}
+    secret:
+      secretName: {{ $db.secret }}
+      items: [{key: username, path: username}, {key: password, path: password}]
+      defaultMode: 0440
+  {{- end }}
+{{- end }}
+{{- include "cloudlab.data.normalize" . -}}
+{{- $settings := .dataSettings -}}
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson -}}
+{{- $databases := list (dict "name" $settings.database "owner" $settings.migrationRole "secret" "notes-migration" "applicationRole" $settings.applicationRole) -}}
+{{- if $settings.identity.enabled }}
+{{- $databases = append $databases (dict "name" $settings.identity.database "owner" $settings.identity.role "secret" "keycloak-database" "applicationRole" nil) -}}
+{{- end }}
+{{- range $settings.serviceRequests }}
+{{- if .database }}
+{{- $databases = append $databases (dict "name" .database.name "owner" .database.migrationRole "secret" (printf "%s-migration" .service) "applicationRole" .database.applicationRole) -}}
+{{- end }}
+{{- end }}
+{{- $buckets := list $settings.bucket -}}
+{{- range $settings.serviceRequests }}
+{{- if .bucket }}{{ $buckets = append $buckets .bucket.name }}{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: data-reconciler, namespace: cloudlab-data}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: data-reconciler-code, namespace: cloudlab-data}
+data:
+  reconcile.py: |
+{{ .Files.Get "runtime/reconcile.py" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: data-desired-state, namespace: cloudlab-data}
+data:
+  desired.json: {{ dict "s3Host" $settings.s3Host "databases" $databases "buckets" $buckets | toJson | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: data-grants, namespace: cloudlab-data}
+data:
+  {{- range $db := $databases }}
+  {{ $db.name }}.sql: |
+    REVOKE ALL ON DATABASE "{{ $db.name }}" FROM PUBLIC;
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    {{- if $db.applicationRole }}
+    GRANT CONNECT ON DATABASE "{{ $db.name }}" TO "{{ $db.applicationRole }}";
+    GRANT USAGE ON SCHEMA public TO "{{ $db.applicationRole }}";
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{ $db.applicationRole }}";
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{{ $db.applicationRole }}";
+    ALTER DEFAULT PRIVILEGES FOR ROLE "{{ $db.owner }}" IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{{ $db.applicationRole }}";
+    ALTER DEFAULT PRIVILEGES FOR ROLE "{{ $db.owner }}" IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "{{ $db.applicationRole }}";
+    {{- end }}
+  {{- end }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: application-data-reconciler, namespace: cloudlab-data}
+spec:
+  schedule: '*/5 * * * *'
+  suspend: {{ or $settings.maintenance $settings.hibernated }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 3600
+      activeDeadlineSeconds: 210
+      backoffLimit: 0
+      template:
+        metadata:
+          labels: {cloudlab.io/data-reconciler: 'true'}
+        spec:
+{{ include "cloudlab.data.reconcilerPod" (dict "settings" $settings "databases" $databases "lock" $lock) | indent 10 }}
+{{- if not (or $settings.maintenance $settings.hibernated) }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: application-data-reconciler-sync
+  namespace: cloudlab-data
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  activeDeadlineSeconds: 210
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {cloudlab.io/data-reconciler: 'true'}
+    spec:
+{{ include "cloudlab.data.reconcilerPod" (dict "settings" $settings "databases" $databases "lock" $lock) | indent 6 }}
+{{- end }}

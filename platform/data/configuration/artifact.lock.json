@@ -1,0 +1,6 @@
+{
+  "images": {
+    "python": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed"
+  },
+  "provenance": "Reuses the qualified identity-writer python image for the bucket reconciler; the grants container uses the chart's pinned postgresImage."
+}

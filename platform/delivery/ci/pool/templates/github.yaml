@@ -1,3 +1,5 @@
+{{- include "cloudlab.ci.pool.normalize" . -}}
+{{- if .poolEnabled }}
 {{- if not (or (eq .Release.Namespace "cloudlab-ci-private") (regexMatch "^cloudlab-ci-(public|private)-[a-z0-9][a-z0-9-]{0,35}$" .Release.Namespace)) }}
 {{- fail "Runner App credentials require an approved repository namespace" }}
 {{- end }}
@@ -25,4 +27,5 @@ spec:
         github_app_private_key: |-
 {{ .Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: {{ $item }}}}]
+{{- end }}
 {{- end }}

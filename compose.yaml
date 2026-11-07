@@ -106,12 +106,17 @@ services:
     profiles: [infra]
     platform: linux/amd64
     build: *lab-build
-    entrypoint: [python, /opt/runner/run.py, infra-harbor]
-    working_dir: /workspace/ansible
+    entrypoint: [python, /workspace/infra/harbor/reconcile.py]
+    working_dir: /workspace
+    restart: unless-stopped
     volumes:
       - type: bind
         source: .
         target: /workspace
+        read_only: true
+      - type: bind
+        source: ${INFRA_PRIVATE_DIR:-../yasai-cloudlab-infra-inputs}/harbor
+        target: /inputs/harbor
         read_only: true
       - type: volume
         source: ssh_known_hosts
@@ -120,7 +125,9 @@ services:
       - type: volume
         source: harbor_infra_work
         target: /infra-work
-    command: [check]
+    environment:
+      HARBOR_INTERVAL: ${HARBOR_INTERVAL:-300}
+    command: [loop]
 
   credential-reconciler:
     profiles: [credentials]
