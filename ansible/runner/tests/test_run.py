@@ -233,9 +233,11 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
                     with self.assertRaisesRegex(SystemExit, message):
                         runner.playbook('playbooks/setup.yml', unchanged=True)
 
-    def test_policy_uses_named_operation_without_vm_access_inputs(self):
-        self.values = {'TAILSCALE_ADMIN_LOGIN': 'owner@example.test'}
-        self.invoke('tailnet-policy').assert_called_once_with('playbooks/tailscale/policy.yml')
+    def test_retired_tailnet_policy_has_no_runner_dispatch(self):
+        with patch.object(runner.subprocess, 'run') as command:
+            with self.assertRaisesRegex(SystemExit, 'Unknown action'):
+                self.invoke('tailnet-policy')
+        command.assert_not_called()
 
     def test_host_access_and_lifecycle_use_explicit_component_operations(self):
         self.invoke('host-access').assert_called_once_with('playbooks/tailscale/access.yml')

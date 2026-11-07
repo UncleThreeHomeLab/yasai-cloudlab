@@ -44,7 +44,7 @@ def main():
                  'host-reauth-worker': ('cloudlab-worker', 'reauth'),
                  'host-logout-server': ('cloudlab', 'logout'),
                  'host-logout-worker': ('cloudlab-worker', 'logout')}
-    if action not in {'inspect', 'baseline', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'monthly-proof', 'tailnet-policy', 'host-access'} | lifecycle.keys():
+    if action not in {'inspect', 'baseline', 'storage-check', 'setup', 'verify', 'prove', 'syntax', 'monthly-proof', 'host-access'} | lifecycle.keys():
         raise SystemExit('Unknown action; expected a supported runner action such as setup, validate, verify, or prove.')
     os.environ['LAB_MONTHLY_PROOF'] = '0'
     if action == 'monthly-proof':
@@ -78,11 +78,6 @@ def main():
     for name in ('PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
-    if action == 'tailnet-policy':
-        for prefix in ('VM', 'VM2'):
-            os.environ[prefix + '_PORT'] = values.get(prefix + '_PORT') or '22'
-        playbook('playbooks/tailscale/policy.yml')
-        return
     if action in {'setup', 'prove', 'verify'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
