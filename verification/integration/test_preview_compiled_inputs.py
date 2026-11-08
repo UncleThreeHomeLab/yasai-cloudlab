@@ -412,7 +412,10 @@ def disposable_endpointslice(name='preview-abcde', uid='slice-uid'):
         'metadata': {
             'name': name, 'namespace': SLICE_NAMESPACE, 'uid': uid,
             'labels': {'kubernetes.io/service-name': 'preview',
-                       'endpointslice.kubernetes.io/managed-by': 'endpointslice-controller'}},
+                       'endpointslice.kubernetes.io/managed-by': 'endpointslice-controller.k8s.io'},
+            'ownerReferences': [{'apiVersion': 'v1', 'kind': 'Service', 'name': 'preview',
+                                 'uid': 'svc-uid', 'controller': True,
+                                 'blockOwnerDeletion': True}]},
         'addressType': 'IPv4',
         'ports': [{'name': 'http', 'protocol': 'TCP', 'port': 8080}],
         'endpoints': [{
@@ -461,8 +464,10 @@ class PreviewEndpointSliceDisposalTests(unittest.TestCase):
         bad_ports['ports'] = [{'port': 99999}]
         foreign_target = disposable_endpointslice()
         foreign_target['endpoints'][0]['targetRef']['uid'] = 'other-uid'
+        foreign_owner = disposable_endpointslice()
+        foreign_owner['metadata']['ownerReferences'][0]['uid'] = 'other-uid'
         cases = [foreign, unlabeled, mismatched, wrong_api, wrong_type,
-                 bad_ports, foreign_target]
+                 bad_ports, foreign_target, foreign_owner]
         for bad in cases:
             with self.subTest(slice=bad['metadata']['labels']):
                 with self.assertRaises(ValueError):
@@ -474,8 +479,6 @@ class PreviewEndpointSliceDisposalTests(unittest.TestCase):
         pod = disposable_pod()
         first = disposable_endpointslice(name='preview-abcde', uid='slice-uid-1')
         second = disposable_endpointslice(name='preview-fghij', uid='slice-uid-2')
-        second['metadata']['labels']['endpointslice.kubernetes.io/managed-by'] = (
-            'endpointslice-mirroring-controller')
         account = {'apiVersion': 'v1', 'kind': 'ServiceAccount', 'metadata': {
             'name': 'default', 'namespace': SLICE_NAMESPACE, 'uid': 'sa-uid'}}
         config = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
