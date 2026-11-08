@@ -90,7 +90,7 @@ spec:
   {{- if $notes }}
   {{- $accounts = list "notes-web" "notes-api" }}
   {{- else }}
-  {{- range $composition.workloads }}{{ $accounts = append $accounts (.podSpec.serviceAccountName | default "default") }}{{ end }}
+  {{- range $composition.workloads }}{{- if or (not (hasKey .podSpec "serviceAccountName")) (eq (.podSpec.serviceAccountName | toString) "") (eq (.podSpec.serviceAccountName | toString) "default") }}{{ fail "Composition workloads require their named service account" }}{{- end }}{{ $accounts = append $accounts .podSpec.serviceAccountName }}{{ end }}
   {{- end }}
   rules:
     - from:

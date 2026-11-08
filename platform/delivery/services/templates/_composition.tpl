@@ -20,9 +20,10 @@
 {{- $profiles := deepCopy .workloads -}}
 {{- range $profiles -}}
 {{- $spec := .podSpec -}}
-{{- range $key, $value := dict "restartPolicy" "Always" "dnsPolicy" "ClusterFirst" "schedulerName" "default-scheduler" "serviceAccountName" "default" "terminationGracePeriodSeconds" 30 -}}
+{{- range $key, $value := dict "restartPolicy" "Always" "dnsPolicy" "ClusterFirst" "schedulerName" "default-scheduler" "terminationGracePeriodSeconds" 30 -}}
 {{- if not (hasKey $spec $key) }}{{ $_ := set $spec $key $value }}{{ end -}}
 {{- end -}}
+{{- if or (not (hasKey $spec "serviceAccountName")) (eq ($spec.serviceAccountName | toString) "") (eq ($spec.serviceAccountName | toString) "default") }}{{ fail "Composition workloads require their named service account" }}{{- end }}
 {{- range $volume := $spec.volumes -}}
 {{- range $kind := list "secret" "configMap" -}}
 {{- if hasKey $volume $kind -}}

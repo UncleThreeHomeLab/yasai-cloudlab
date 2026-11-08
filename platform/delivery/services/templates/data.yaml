@@ -1,3 +1,4 @@
+{{/* Credential map: approved data vault item -> app-namespace ExternalSecret -> database/bucket client. Roles stay distinct per operation (app, migration, backup). */}}
 {{- range $entry := .Values.catalog }}
 {{- range $kind, $request := $entry.definition.data }}
 {{- $scope := index $.Values.dataApprovals $request.credentialReference | required "Missing approved data scope" }}

@@ -13,6 +13,8 @@ rules:
   # pinned charts, the Gateway API upstream manifest, the distribution charts
   # (helm/k3s controllers), the Keycloak operator and the breakglass trial.
   # A new CRD requires an allowlist update before preview deletion can succeed.
+  # Disposal reuses this allowlist and recollects the full inventory per gate;
+  # never widen it without an allowlist update.
   - {apiGroups: [''], resources: [configmaps, endpoints, events, limitranges, persistentvolumeclaims, pods, podtemplates, replicationcontrollers, resourcequotas, serviceaccounts, services], verbs: [list]}
   - {apiGroups: [apps], resources: [controllerrevisions, daemonsets, deployments, replicasets, statefulsets], verbs: [list]}
   - {apiGroups: [argoproj.io], resources: [analysisruns, analysistemplates, applications, applicationsets, appprojects, experiments, rollouts], verbs: [list]}
@@ -55,6 +57,9 @@ rules:
   - {apiGroups: [wgpolicyk8s.io], resources: [policyreports], verbs: [list]}
   - {apiGroups: [''], resources: [configmaps], resourceNames: [preview-waypoint-options], verbs: [get]}
   - {apiGroups: [''], resources: [services, serviceaccounts], resourceNames: [preview, preview-waypoint], verbs: [get]}
+  # Budget named GET covers quota (zero-Secret proof) and LimitRange: materialize
+  # plus remove GET every declared receipt by name (controller.py), so the
+  # LimitRange budget cannot be LIST-only without breaking activation.
   - {apiGroups: [''], resources: [resourcequotas, limitranges], resourceNames: [budget], verbs: [get]}
   - {apiGroups: [apps], resources: [deployments], resourceNames: [preview, preview-waypoint], verbs: [get]}
   - {apiGroups: [networking.k8s.io], resources: [networkpolicies], resourceNames: [default-deny, waypoint, application], verbs: [get]}
