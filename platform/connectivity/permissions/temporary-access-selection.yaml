@@ -3,11 +3,11 @@
 # Reconciler: none until a backend is selected; selection alone installs nothing.
 # Credentials: none. Deletion policy: removing this record removes the selection only; no grants exist to revoke.
 version: cloudlab-temporary-access-selection/v1
-status: unselected
+status: selected
 scope: Backend selection for temporary Kubernetes RBAC grants through reviewed profiles
-selected: none
-reviewed: 2026-11-07
-blocked: Owner delegated choice 2026-11-07; k8s-breakglass recommended (see notes), selection withheld pending live qualification. No speculative installation and no custom IAM.
+selected: telekom/k8s-breakglass v0.3.0-rc.20
+reviewed: 2026-11-08
+blocked: Trial-qualified 2026-11-08; production adoption still needs Git-declared install, real identity wiring, usage-budget decision (no budget field; session quotas only), and workload-scope call.
 acceptance: One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path.
 boundsRef: platform/connectivity/access/temporary-access.json
 bounds:
@@ -16,17 +16,17 @@ bounds:
   rotationStartMinutes: 5
   renewal: No automatic renewal; shorter backend limits apply.
   approval: Approval binds immutable requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget. Requester, beneficiary, delegated equivalents and conflicting identities are excluded from approval. Human review is required initially for identity and secret operations.
-notes: "Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates. Inline bounds mirror boundsRef. Recommendation: k8s-breakglass (telekom) is the only free purpose-built Kubernetes JIT approval path (breakglass tickets, time-bounded sessions, CRD approvers, audit sinks, OIDC including Keycloak, Apache-2.0, active); all other families fail structurally (no free approval path, no Kubernetes connector, orchestrator-only, or enterprise-gated JIT). Qualify before selecting, in lab, against pinned beta: requester/beneficiary exclusion, TTL plus usage-budget enforcement with denial after expiry via one disposable scoped request, per-operation current-authority rechecks, workload-identity binding (or human-only scope), audit sink review."
+notes: "Shared request UI/API and approval semantics stay with the access owner. Private approval (A1-priv/A5) and live proof (A2-activ/A6-live) are separate pending gates. Inline bounds mirror boundsRef. k8s-breakglass was the only free purpose-built Kubernetes JIT approval path; trial-qualified live 2026-11-08 on lab K3s (pinned v0.3.0-rc.20, sha256-verified release manifests): disposable Keycloak users proved request 201, self-approve 403, approver approve 200, reject/drop paths, 60s TTL with enforcement flip yes-to-no at exact expiry, stdout audit events, and K3s webhook cutover (Node/RBAC preserved, scoped matchConditions, Deny). Enforcement grant equals RBAC of the escalated group (view read yes, delete no). Residual gaps: no usage-budget field (session quotas only, untested live), workload-identity sessions untested (human-only proven), blockSelfApproval effective default false (set true explicitly), single-cluster setup undocumented upstream, trial install outside Git (controller plus webhook wiring kept live as trial infra; Git declaration is a separate scoped platform change)."
 candidates:
   - family: breakglass-openbao
     members: telekom/k8s-breakglass; OpenBao
-    verdict: unselected
-    maintained: k8s-breakglass pushed 2026-11-07, latest release v0.1.0-beta.29 (2026-06-23); OpenBao docs at 2.7.x.
+    verdict: selected (k8s-breakglass trial-qualified)
+    maintained: k8s-breakglass v0.3.0-rc.20 trialled live 2026-11-08; OpenBao docs at 2.7.x.
     freeFit: k8s-breakglass Apache-2.0; OpenBao MPL-2.0; both self-hosted.
     humanAuth: k8s-breakglass OIDC/JWT including Keycloak per README; OpenBao JWT/OIDC plus login MFA per docs.
     machineAuth: k8s-breakglass bgctl/REST with no qualified workload-identity binding; OpenBao Kubernetes auth is inbound-only (SA token for OpenBao token, not a K8s grant).
     boundary: k8s-breakglass authorization webhook with time-bounded sessions, CRD approvers and audit sinks; OpenBao control groups govern secret/certificate release only.
-    gap: k8s-breakglass is pre-1.0 beta with a small review base; requester/beneficiary approval exclusion, usage budgets and per-operation current-authority rechecks are undocumented and unprovable offline. OpenBao has no approval-bound issuance of TTL-bound native RoleBindings, and its Kubernetes credential path needs broader cluster access.
+    gap: k8s-breakglass is pre-1.0 beta with a small review base; live trial proved exclusion, TTL expiry, per-operation rechecks and audit, but usage budgets do not exist as a field and workload-identity scope is untested. OpenBao has no approval-bound issuance of TTL-bound native RoleBindings, and its Kubernetes credential path needs broader cluster access.
     sources:
       - https://github.com/telekom/k8s-breakglass
       - https://openbao.org/docs/auth/kubernetes/
