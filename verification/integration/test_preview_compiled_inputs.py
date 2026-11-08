@@ -456,6 +456,9 @@ class PreviewEndpointSliceDisposalTests(unittest.TestCase):
         del unlabeled['metadata']['labels']['kubernetes.io/service-name']
         mismatched = disposable_endpointslice()
         mismatched['metadata']['labels']['kubernetes.io/service-name'] = 'foreign'
+        # A slice naming an absent Service is dangling once its Service is
+        # deleted, so rejection needs that Service present but unknown.
+        foreign_svc = disposable_service(name='foreign', uid='foreign-svc-uid')
         wrong_api = disposable_endpointslice()
         wrong_api['apiVersion'] = 'v1'
         wrong_type = disposable_endpointslice()
@@ -466,13 +469,41 @@ class PreviewEndpointSliceDisposalTests(unittest.TestCase):
         foreign_target['endpoints'][0]['targetRef']['uid'] = 'other-uid'
         foreign_owner = disposable_endpointslice()
         foreign_owner['metadata']['ownerReferences'][0]['uid'] = 'other-uid'
-        cases = [foreign, unlabeled, mismatched, wrong_api, wrong_type,
+        cases = [foreign, unlabeled, wrong_api, wrong_type,
                  bad_ports, foreign_target, foreign_owner]
         for bad in cases:
             with self.subTest(slice=bad['metadata']['labels']):
                 with self.assertRaises(ValueError):
                     lifecycle.namespace_disposable(
                         [bad, svc, pod], set(roots), 'ns-uid')
+        with self.assertRaises(ValueError):
+            lifecycle.namespace_disposable(
+                [mismatched, foreign_svc, pod],
+                {pod['metadata']['uid']}, 'ns-uid')
+
+    def test_dangling_native_leaves_are_disposable(self):
+        pod = disposable_pod()
+        roots = {pod['metadata']['uid']}
+        dangling_slice = disposable_endpointslice()
+        empty_slice = disposable_endpointslice(name='preview-empty', uid='slice-uid-empty')
+        empty_slice['endpoints'] = None
+        dangling_endpoints = disposable_endpoints()
+        objects = [dangling_slice, empty_slice, dangling_endpoints, pod]
+        self.assertTrue(lifecycle.namespace_disposable(objects, set(roots), 'ns-uid'))
+
+    def test_dangling_leaf_with_cross_namespace_target_rejected(self):
+        pod = disposable_pod()
+        roots = {pod['metadata']['uid']}
+        bad_slice = disposable_endpointslice()
+        bad_slice['endpoints'][0]['targetRef']['namespace'] = 'other'
+        with self.assertRaises(ValueError):
+            lifecycle.namespace_disposable(
+                [bad_slice, pod], set(roots), 'ns-uid')
+        bad_endpoints = disposable_endpoints()
+        bad_endpoints['subsets'][0]['addresses'][0]['targetRef']['namespace'] = 'other'
+        with self.assertRaises(ValueError):
+            lifecycle.namespace_disposable(
+                [bad_endpoints, pod], set(roots), 'ns-uid')
 
     def test_activated_inventory_with_slices_is_disposable(self):
         svc = disposable_service()
