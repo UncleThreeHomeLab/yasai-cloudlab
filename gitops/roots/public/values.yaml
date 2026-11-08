@@ -57,10 +57,10 @@ privateSources:
 observability:
   enabled: true
   configuration:
-    enabled: false
+    enabled: true
     paused: true
-    revision: ''
-    acceptanceCommitment: ''
+    revision: 804e83e704dd958fc10a820cd19e278accb6446d
+    acceptanceCommitment: '522134fb165f41b318da5c11b60b919fb2806dbf55641125085cc49618f107af'
 harbor:
   enabled: true
   installation:

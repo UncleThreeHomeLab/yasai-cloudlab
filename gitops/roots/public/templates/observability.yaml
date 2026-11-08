@@ -5,7 +5,7 @@
 {{- range $key, $_ := $configuration }}
 {{- if not (has $key (list "enabled" "paused" "revision" "acceptanceCommitment")) }}{{ fail "Unsupported observability configuration setting" }}{{ end }}
 {{- end }}
-{{- if $configuration.enabled }}
+{{- if and $configuration.enabled .Values.identity.argo }}
 {{- $binding := .Values.identity.argo | default dict }}
 {{- if or (not (eq .Values.observability.enabled true)) (not (eq .Values.identity.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" $configuration.revision)) (and (hasKey .Values.identity "argo") (or (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" ($binding.valuesRepository | default ""))) (eq ($binding.valuesRepository | default "") .Values.repository))) }}
 {{- fail "Native observability requires enabled telemetry, External Secrets and reviewed immutable source bindings" }}
