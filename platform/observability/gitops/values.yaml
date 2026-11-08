@@ -4,6 +4,10 @@ nativeSource:
   valuesRepository: ''
 catalog: null
 observabilityInputs: {}
+# Gates owned elsewhere: SMTP accounts must already exist; Alertmanager egress
+# stays with the workload/network owners; webhook mesh identity and method/path
+# enforcement need a qualified waypoint or application enforcement. Incident
+# silences stay runtime operations; timeIntervals carry recurring maintenance.
 platformNotifications:
   enabled: false
   fallbackReceiver: ''

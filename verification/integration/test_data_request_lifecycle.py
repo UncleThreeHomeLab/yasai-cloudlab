@@ -432,7 +432,8 @@ class GuardTests(unittest.TestCase):
                       'revision': 'e' * 40, 'path': 'deploy/helm/app'},
             'imageValues': {'web': 'images.web'},
             'images': {'web': 'harbor.example/app@sha256:' + 'f' * 64},
-            'workloads': [{'name': 'web', 'replicas': 1, 'podSpec': {
+            'workloads': [{'name': 'web', 'replicas': 1, 'preset': 'application-no-api', 'podSpec': {
+                'serviceAccountName': 'web',
                 'containers': [{'name': 'web', 'image': SERVICE_IMAGE}]}}],
             'claims': [{'name': 'app-postgres', 'size': '20Gi'},
                        {'name': 'app-data', 'size': '13Gi'}],

@@ -5,8 +5,8 @@ authorizes no new project, credential, import, garbage collection, or deletion.
 Robot accounts stay vault/manual-owned outside binding scope; a binding that
 declares `robots` is rejected as unsupported. A binding names both existing
 projects; anything less is invalid input and never deletion intent. The
-agreed trusted executor consumes `compile` output; without that executor
-this module only validates and reports.
+agreed trusted executor (`reconcile.py`, Compose service `infra-harbor`)
+consumes `compile` output; this module validates bindings and reports diffs.
 """
 
 import json
