@@ -10,8 +10,9 @@ rules:
   # Complete discovery without Secret values: secrets are never listed and the
   # zero-Secret quota proves their absence; any unlisted collection fails closed.
   # Covers built-in namespaced collections plus every namespaced CRD from the
-  # pinned charts and the Gateway API upstream manifest. A new CRD requires an
-  # allowlist update before preview deletion can succeed.
+  # pinned charts, the Gateway API upstream manifest, the distribution charts
+  # (helm/k3s controllers), the Keycloak operator and the breakglass trial.
+  # A new CRD requires an allowlist update before preview deletion can succeed.
   - {apiGroups: [''], resources: [configmaps, endpoints, events, limitranges, persistentvolumeclaims, pods, podtemplates, replicationcontrollers, resourcequotas, serviceaccounts, services], verbs: [list]}
   - {apiGroups: [apps], resources: [controllerrevisions, daemonsets, deployments, replicasets, statefulsets], verbs: [list]}
   - {apiGroups: [argoproj.io], resources: [analysisruns, analysistemplates, applications, applicationsets, appprojects, experiments, rollouts], verbs: [list]}
@@ -28,6 +29,10 @@ rules:
   - {apiGroups: [actions.github.com], resources: [autoscalinglisteners, autoscalingrunnersets, ephemeralrunners, ephemeralrunnersets], verbs: [list]}
   - {apiGroups: [autoscaling], resources: [horizontalpodautoscalers], verbs: [list]}
   - {apiGroups: [batch], resources: [cronjobs, jobs], verbs: [list]}
+  - {apiGroups: [breakglass.t-caas.telekom.com], resources: [breakglassescalations, breakglasssessions, clusterconfigs, debugsessionartifacts, debugsessionclusterbindings, debugsessions, hotfixrecords], verbs: [list]}
+  - {apiGroups: [helm.cattle.io], resources: [helmchartconfigs, helmcharts], verbs: [list]}
+  - {apiGroups: [k3s.cattle.io], resources: [addons], verbs: [list]}
+  - {apiGroups: [k8s.keycloak.org], resources: [keycloakrealmimports, keycloaks], verbs: [list]}
   - {apiGroups: [cert-manager.io], resources: [certificates, certificaterequests, issuers], verbs: [list]}
   - {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [list]}
   - {apiGroups: [extensions.istio.io], resources: [trafficextensions, wasmplugins], verbs: [list]}
