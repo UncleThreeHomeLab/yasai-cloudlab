@@ -185,9 +185,28 @@
           }
         },
         "storage": {
-          "emptyDir": {
-            "sizeLimit": "64Mi"
+          "volumeClaimTemplate": {
+            "metadata": {
+              "annotations": {
+                "argocd.argoproj.io/sync-options": "Prune=false,Delete=false"
+              }
+            },
+            "spec": {
+              "storageClassName": "cloudlab-telemetry",
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "resources": {
+                "requests": {
+                  "storage": "1Gi"
+                }
+              }
+            }
           }
+        },
+        "persistentVolumeClaimRetentionPolicy": {
+          "whenDeleted": "Retain",
+          "whenScaled": "Retain"
         }
       },
       "config": {
