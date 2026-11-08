@@ -100,14 +100,18 @@ def native_endpoints(obj, objects, known):
         if any(o['kind'] == 'Service' and o['metadata'].get('namespace') == namespace and
                o['metadata'].get('name') == meta['name'] for o in objects):
             return False
-        subsets = obj.get('subsets') or []
+        subsets = obj.get('subsets')
+        if subsets is None:
+            subsets = []
         if not isinstance(subsets, list):
             raise ValueError('Native Endpoints subsets are malformed')
         for subset in subsets:
             if not isinstance(subset, dict):
                 raise ValueError('Native Endpoints subset is malformed')
             for field in ('addresses', 'notReadyAddresses'):
-                addresses = subset.get(field, [])
+                addresses = subset.get(field)
+                if addresses is None:
+                    addresses = []
                 if not isinstance(addresses, list):
                     raise ValueError('Native Endpoints addresses are malformed')
                 for address in addresses:
@@ -123,14 +127,18 @@ def native_endpoints(obj, objects, known):
     if (spec.get('type') == 'ExternalName' or not isinstance(selector, dict) or not selector or
             any(not isinstance(key, str) or not key or not isinstance(value, str) for key, value in selector.items())):
         raise ValueError('Native Endpoints require a selector-backed Service')
-    subsets = obj.get('subsets', [])
+    subsets = obj.get('subsets')
+    if subsets is None:
+        subsets = []
     if not isinstance(subsets, list):
         raise ValueError('Native Endpoints subsets are malformed')
     for subset in subsets:
         if not isinstance(subset, dict):
             raise ValueError('Native Endpoints subset is malformed')
         for field in ('addresses', 'notReadyAddresses'):
-            addresses = subset.get(field, [])
+            addresses = subset.get(field)
+            if addresses is None:
+                addresses = []
             if not isinstance(addresses, list):
                 raise ValueError('Native Endpoints addresses are malformed')
             for address in addresses:
@@ -185,7 +193,9 @@ def native_endpointslice(obj, objects, known):
                     ref.get('apiVersion') != 'v1' or
                     ref.get('name') != labels['kubernetes.io/service-name']):
                 raise ValueError('Native EndpointSlice owner differs from its Service')
-        endpoints = obj.get('endpoints') or []
+        endpoints = obj.get('endpoints')
+        if endpoints is None:
+            endpoints = []
         if not isinstance(endpoints, list):
             raise ValueError('Native EndpointSlice endpoints are malformed')
         for endpoint in endpoints:
@@ -212,7 +222,9 @@ def native_endpointslice(obj, objects, known):
         raise ValueError('Native EndpointSlice requires a selector-backed Service')
     if obj.get('addressType') != 'IPv4':
         raise ValueError('Native EndpointSlice address type differs')
-    ports = obj.get('ports', [])
+    ports = obj.get('ports')
+    if ports is None:
+        ports = []
     if not isinstance(ports, list):
         raise ValueError('Native EndpointSlice ports are malformed')
     for port in ports:
@@ -224,6 +236,8 @@ def native_endpointslice(obj, objects, known):
                 (port.get('appProtocol') is not None and not isinstance(port.get('appProtocol'), str))):
             raise ValueError('Native EndpointSlice ports are malformed')
     endpoints = obj.get('endpoints')
+    if endpoints is None:
+        endpoints = []
     if not isinstance(endpoints, list):
         raise ValueError('Native EndpointSlice endpoints are malformed')
     for endpoint in endpoints:

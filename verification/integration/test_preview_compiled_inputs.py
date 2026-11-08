@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / 'platform/delivery/previews/runtime'))
 import contract
 import controller
 import lifecycle
+from kube import APIError
 
 SCHEMA = json.loads(
     (ROOT / 'platform/delivery/previews/approval.schema.json').read_text())
@@ -176,6 +177,19 @@ def retiring_controller(kube):
     return controller.Controller(kube, None, NOW)
 
 
+class DeniedFakeKube(FakeKube):
+    """Ownership-scoped reads: everything outside the state object denies."""
+
+    def __init__(self, state_obj, code=403):
+        super().__init__(state_obj)
+        self.code = code
+
+    def get(self, key):
+        if tuple(key) == ('v1', 'ConfigMap', 'argocd', contract.STATE):
+            return self.state_obj
+        raise APIError(self.code)
+
+
 class PreviewCompiledInputsTests(unittest.TestCase):
     def test_request_derives_deterministic_instance_and_ownership(self):
         request = prices_request()
@@ -239,6 +253,41 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         present.retiring_expiry = row['expiresAt']
         with self.assertRaises(ValueError):
             present.retire(record, {'entries': {}})
+
+    def test_null_uid_denied_reads_retire_as_absent(self):
+        row = contract.request(prices_request())
+        record = retiring_record(row)
+        ctrl = retiring_controller(DeniedFakeKube(state_object()))
+        ctrl.retiring_digest = record['approvalDigest']
+        ctrl.retiring_expiry = row['expiresAt']
+        ctrl.retire(record, {'entries': {}})
+        self.assertEqual(record['phase'], 'retired')
+        # Only authorization denials count as absent; other failures surface.
+        failing = retiring_controller(DeniedFakeKube(state_object(), code=500))
+        record = retiring_record(row)
+        failing.retiring_digest = record['approvalDigest']
+        failing.retiring_expiry = row['expiresAt']
+        with self.assertRaises(APIError):
+            failing.retire(record, {'entries': {}})
+
+    def test_uid_bearing_denied_reads_stay_fatal(self):
+        row = contract.request(prices_request())
+        namespace_key = ('v1', 'Namespace', '',
+                         'cloudlab-preview-' + row['instance'])
+
+        class VanishedNamespaceKube(DeniedFakeKube):
+            def get(self, key):
+                if tuple(key) == namespace_key:
+                    return None
+                return super().get(key)
+
+        record = retiring_record(row)
+        record['resources'][0]['uid'] = 'ns-uid'
+        ctrl = retiring_controller(VanishedNamespaceKube(state_object()))
+        ctrl.retiring_digest = record['approvalDigest']
+        ctrl.retiring_expiry = row['expiresAt']
+        with self.assertRaises(APIError):
+            ctrl.retire(record, {'entries': {}})
 
     def test_rendered_controller_carries_catalog_and_stays_suspended(self):
         settings = contract.runtime_catalog(
@@ -504,6 +553,52 @@ class PreviewEndpointSliceDisposalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             lifecycle.namespace_disposable(
                 [bad_endpoints, pod], set(roots), 'ns-uid')
+
+    def test_drained_null_leaves_are_disposable(self):
+        svc = disposable_service()
+        pod = disposable_pod()
+        roots = {svc['metadata']['uid'], pod['metadata']['uid']}
+        bound = disposable_endpointslice()
+        bound['ports'] = None
+        bound['endpoints'] = None
+        self.assertTrue(lifecycle.namespace_disposable(
+            [bound, svc, pod], set(roots), 'ns-uid'))
+        drained = disposable_endpointslice(name='preview-drained', uid='slice-uid-drained')
+        drained['ports'] = None
+        drained['endpoints'] = None
+        self.assertTrue(lifecycle.namespace_disposable(
+            [drained, pod], {pod['metadata']['uid']}, 'ns-uid'))
+        drained_endpoints = disposable_endpoints()
+        drained_endpoints['subsets'] = None
+        self.assertTrue(lifecycle.namespace_disposable(
+            [drained_endpoints, pod], {pod['metadata']['uid']}, 'ns-uid'))
+        nulled_addresses = disposable_endpoints(name='preview-nulled', uid='endpoints-uid-nulled')
+        nulled_addresses['subsets'] = [{'addresses': None, 'notReadyAddresses': None}]
+        self.assertTrue(lifecycle.namespace_disposable(
+            [nulled_addresses, pod], {pod['metadata']['uid']}, 'ns-uid'))
+
+    def test_malformed_nonlist_leaves_still_rejected(self):
+        svc = disposable_service()
+        pod = disposable_pod()
+        roots = {svc['metadata']['uid'], pod['metadata']['uid']}
+        bad_ports = disposable_endpointslice()
+        bad_ports['ports'] = 'http'
+        bad_endpoints = disposable_endpointslice()
+        bad_endpoints['endpoints'] = 'none'
+        bad_subsets = disposable_endpoints()
+        bad_subsets['subsets'] = 'none'
+        bad_addresses = disposable_endpoints(name='preview-bad', uid='endpoints-uid-bad')
+        bad_addresses['subsets'] = [{'addresses': 'none'}]
+        for bad in (bad_ports, bad_endpoints):
+            with self.subTest(leaf=bad['metadata']['name']):
+                with self.assertRaises(ValueError):
+                    lifecycle.namespace_disposable(
+                        [bad, svc, pod], set(roots), 'ns-uid')
+        for bad in (bad_subsets, bad_addresses):
+            with self.subTest(leaf=bad['metadata']['name']):
+                with self.assertRaises(ValueError):
+                    lifecycle.namespace_disposable(
+                        [bad, svc, pod], set(roots), 'ns-uid')
 
     def test_activated_inventory_with_slices_is_disposable(self):
         svc = disposable_service()
