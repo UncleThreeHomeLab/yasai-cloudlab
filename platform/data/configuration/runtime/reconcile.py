@@ -61,6 +61,7 @@ def load_desired_text(text):
     if not isinstance(databases, list) or not databases or len(databases) > 10:
         fail('Desired databases must list between 1 and 10 entries')
     seen = set()
+    roles = set()
     for entry in databases:
         if (not isinstance(entry, dict)
                 or set(entry) != {'name', 'owner', 'secret', 'applicationRole'}):
@@ -78,6 +79,10 @@ def load_desired_text(text):
         if entry['name'] in seen:
             fail('Desired database is declared twice: ' + entry['name'])
         seen.add(entry['name'])
+        for held in [entry['owner']] if role is None else [entry['owner'], role]:
+            if held in roles:
+                fail('Desired data role is reused across databases: ' + held)
+            roles.add(held)
     buckets = document['buckets']
     if not isinstance(buckets, list) or not buckets or len(buckets) > 10:
         fail('Desired buckets must list between 1 and 10 entries')

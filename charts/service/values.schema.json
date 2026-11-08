@@ -204,6 +204,19 @@
           "mountPath": {
             "type": "string",
             "pattern": "^/(secrets|config|tls)/[a-z0-9-]+$"
+          },
+          "containers": {
+            "type": "array",
+            "description": "Receiving containers; defaults to the application container only.",
+            "items": {
+              "enum": [
+                "application",
+                "dependencies"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
           }
         },
         "required": [
@@ -228,6 +241,19 @@
           "mountPath": {
             "type": "string",
             "pattern": "^/(secrets|config|tls)/[a-z0-9-]+$"
+          },
+          "containers": {
+            "type": "array",
+            "description": "Receiving containers; defaults to both application and dependencies containers.",
+            "items": {
+              "enum": [
+                "application",
+                "dependencies"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
           }
         },
         "required": [
@@ -655,6 +681,81 @@
     "rollouts": {
       "type": "object",
       "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ]
+    },
+    "apiToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Approved API clients receive a short-lived, audience-bound token in the application container only; admission denies other projections.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "audience": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,40}$"
+        },
+        "expirationSeconds": {
+          "type": "integer",
+          "minimum": 600,
+          "maximum": 3600
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "audience",
+              "expirationSeconds"
+            ]
+          }
+        }
+      ]
+    },
+    "dnsConfig": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Accepted DNS resolvers for workload pods, or null for cluster defaults.",
+      "properties": {
+        "nameservers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(([0-9]{1,3}\\.){3}[0-9]{1,3}|[0-9a-fA-F:]+)$"
+          },
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "nameservers"
+      ]
+    },
+    "isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Dormant default-deny NetworkPolicy for workload pods; activation awaits declared dependencies.",
       "properties": {
         "enabled": {
           "type": "boolean"

@@ -191,11 +191,26 @@ def admission(namespace, enforce, image, account):
     token = copy.deepcopy(good)
     token['spec']['volumes'] = [{'name': 'api', 'projected': {
         'sources': [{'serviceAccountToken': {'path': 'token'}}]}}]
+    bound = copy.deepcopy(good)
+    bound['spec']['volumes'] = [{'name': 'api', 'projected': {'sources': [{'serviceAccountToken': {
+        'path': 'token', 'audience': account, 'expirationSeconds': 600}}]}}]
+    stale = copy.deepcopy(bound)
+    stale['spec']['volumes'][0]['projected']['sources'][0]['serviceAccountToken']['expirationSeconds'] = 86400
+    shared = copy.deepcopy(good)
+    shared['metadata']['labels'] = {'cloudlab.io/workload': 'foreign-workload'}
+    owned = copy.deepcopy(good)
+    owned['metadata']['labels'] = {'cloudlab.io/workload': account}
     if not digest_result(dry_run(mutable), enforce):
         raise RuntimeError('Mutable image did not match the declared policy mode')
+    if dry_run(bound).returncode:
+        raise RuntimeError('Bound audience token did not pass server admission')
+    if dry_run(owned).returncode:
+        raise RuntimeError('Own workload account selection did not pass server admission')
     for document, message in (
             (unbounded, 'Every workload container requires positive CPU and memory requests and limits.'),
-            (token, 'Workloads must not project Kubernetes service account tokens.')):
+            (token, 'Workload token projections require a bound audience and short expiry.'),
+            (stale, 'Workload token projections require a bound audience and short expiry.'),
+            (shared, 'Workload pods must select their own workload service account.')):
         result = dry_run(document)
         if bool(result.returncode) != enforce or message not in result.stderr:
             raise RuntimeError('Workload violation did not match the declared policy mode')
@@ -353,6 +368,58 @@ def namespaces(workloads, enforce, catalog):
     return ephemeral_checked, composition_checked, restricted_checked
 
 
+def controller_namespace_policy(actions):
+    """Deny bare and debug pods in controller namespaces; admit controller-owned ones.
+
+    The probe image is a synthetic pinned digest: server dry-run exercises
+    admission only and never pulls it.
+    """
+    name = 'cloudlab-controller-namespace'
+    wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
+         'native controller-namespace policy readiness', timeout=180)
+    policy = get('validatingpolicy.policies.kyverno.io', name)
+    variables = {row['name']: row['expression']
+                 for row in policy['spec'].get('variables', [])}
+    if (not policy_ready(policy) or policy['spec']['validationActions'] != actions or
+            policy['spec'].get('failurePolicy') != 'Fail' or
+            'namespaceSelector' in policy['spec'].get('matchConstraints', {}) or
+            "'cloudlab-policy'" not in variables.get('selected', '')):
+        raise RuntimeError('Native controller-namespace policy is not ready or its declared scope changed')
+    enforce = actions == ['Deny']
+    image = 'registry.k8s.io/pause@sha256:' + '0' * 64
+    bare = probe('cloudlab-policy', image, 'cloudlab-admission-proof')
+    owned = copy.deepcopy(bare)
+    owned['metadata']['ownerReferences'] = [
+        {'apiVersion': 'apps/v1', 'kind': 'ReplicaSet', 'name': 'cloudlab-admission-proof'}]
+    if dry_run(owned).returncode:
+        raise RuntimeError('Controller-owned pod did not pass server admission')
+    result = dry_run(bare)
+    if (bool(result.returncode) != enforce or
+            'Controller namespaces accept only controller-managed pods.' not in result.stderr):
+        raise RuntimeError('Controller-namespace violation did not match the declared policy mode')
+    controller_ephemeral(enforce)
+
+
+def controller_ephemeral(enforce):
+    pods = (get('pod', namespace='cloudlab-policy') or {}).get('items', [])
+    target = next((row for row in pods if condition(row, 'Ready') and
+                   not row['metadata'].get('deletionTimestamp')), None)
+    if not target:
+        raise RuntimeError('Controller-namespace debug admission requires an existing ready pod')
+    path = ('/api/v1/namespaces/cloudlab-policy/pods/' +
+            urllib.parse.quote(target['metadata']['name'], safe='') + '/ephemeralcontainers?dryRun=All')
+    container = {'name': 'cloudlab-admission-debug', 'image': target['spec']['containers'][0]['image'],
+                 'command': ['true'], 'securityContext': {'runAsNonRoot': True, 'runAsUser': 65532,
+                     'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True,
+                     'capabilities': {'drop': ['ALL']}, 'seccompProfile': {'type': 'RuntimeDefault'}}}
+    target = copy.deepcopy(target)
+    target['spec'].setdefault('ephemeralContainers', []).append(container)
+    result = kube('replace', '--raw', path, '-f', '-', document=target, allow_failure=True)
+    if (bool(result.returncode) != enforce or
+            'Controller namespaces cannot add ephemeral debug containers.' not in result.stderr):
+        raise RuntimeError('Controller-namespace violation did not match the declared policy mode')
+
+
 def run(revision, actions, catalog=None, guard_expected=None, namespace_expected=None):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
@@ -390,13 +457,16 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
         wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
              'native workload policy readiness', timeout=180)
         policy = get('validatingpolicy.policies.kyverno.io', name)
+        variables = {row['name']: row['expression']
+                     for row in policy['spec'].get('variables', [])}
         if (not policy_ready(policy) or policy['spec']['validationActions'] != actions or
                 policy['spec']['failurePolicy'] != 'Fail' or
                 policy['spec']['evaluation']['background']['enabled'] is not background or
                 policy['spec']['matchConstraints']['resourceRules'][0]['resources'] != resources or
-                policy['spec']['matchConstraints']['namespaceSelector'] != {
-                    'matchLabels': {'cloudlab.io/owner': 'service-platform'}}):
+                'namespaceSelector' in policy['spec'].get('matchConstraints', {}) or
+                variables.get('selected') != "request.namespace.startsWith('cloudlab-app-')"):
             raise RuntimeError('Native workload policy is not ready or its declared mode or scope changed')
+    controller_namespace_policy(actions)
     namespace = get('namespace', 'cloudlab-policy')
     if namespace['metadata'].get('labels', {}).get('pod-security.kubernetes.io/enforce') != 'restricted':
         raise RuntimeError('Admission controllers require restricted Pod Security')
@@ -415,13 +485,16 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
     outcome = 'denied' if enforce else 'warned'
     return {'applications_converged': 2, 'admission_nodes': 2, 'policy_mode': 'enforce' if enforce else 'audit',
             **{name + '_' + outcome: True for name in (
-                'mutable_image', 'zero_resources', 'projected_token', 'ephemeral_image')},
+                'mutable_image', 'zero_resources', 'projected_token', 'stale_token', 'shared_account',
+                'ephemeral_image', 'controller_bare_pod', 'controller_ephemeral')},
             'ephemeral_namespaces_checked': ephemeral_checked,
             'composition_namespaces_checked': composition_checked,
             'unapproved_composition_namespace_denied': True,
             'namespace_security_labels_denied': True,
             'native_namespace_guard_verified': True,
             'restricted_workload_admitted': restricted_checked > 0,
+            'bound_token_admitted': True, 'own_account_admitted': True,
+            'controller_owned_admitted': True,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 
 

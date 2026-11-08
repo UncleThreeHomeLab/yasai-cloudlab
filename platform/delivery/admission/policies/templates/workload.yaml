@@ -15,14 +15,14 @@ spec:
   autogen:
     validatingAdmissionPolicy: {enabled: false}
   matchConstraints:
-    namespaceSelector:
-      matchLabels: {cloudlab.io/owner: service-platform}
     resourceRules:
       - apiGroups: ['']
         apiVersions: [v1]
         operations: {{ toJson $scope.operations }}
         resources: {{ toJson $scope.resources }}
   variables:
+    - name: selected
+      expression: request.namespace.startsWith('cloudlab-app-')
     - name: containers
       expression: >-
         object.spec.containers +
@@ -33,9 +33,11 @@ spec:
         (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])
   validations:
     - expression: >-
+        !variables.selected ||
         variables.allContainers.all(c, c.image.matches('^.+@sha256:[a-f0-9]{64}$'))
       message: Workload images must use an immutable SHA-256 digest.
     - expression: >-
+        !variables.selected ||
         variables.containers.all(c,
           has(c.resources) && has(c.resources.requests) && has(c.resources.limits) &&
           has(c.resources.requests.cpu) && has(c.resources.requests.memory) &&
@@ -46,15 +48,26 @@ spec:
           quantity(c.resources.limits.memory).isGreaterThan(quantity('0')))
       message: Every workload container requires positive CPU and memory requests and limits.
     - expression: >-
-        has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false
+        !variables.selected ||
+        (has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false)
       message: Workloads must disable automatic service account token mounting.
     - expression: >-
-        has(object.spec.serviceAccountName) && object.spec.serviceAccountName != '' &&
-        object.spec.serviceAccountName != 'default'
+        !variables.selected ||
+        (has(object.spec.serviceAccountName) && object.spec.serviceAccountName != '' &&
+        object.spec.serviceAccountName != 'default')
       message: Workloads must use their named service account.
     - expression: >-
-        !has(object.spec.volumes) || object.spec.volumes.all(v,
+        !variables.selected ||
+        (!has(object.spec.volumes) || object.spec.volumes.all(v,
           !has(v.projected) || !has(v.projected.sources) ||
-          v.projected.sources.all(s, !has(s.serviceAccountToken)))
-      message: Workloads must not project Kubernetes service account tokens.
+          v.projected.sources.all(s, !has(s.serviceAccountToken) ||
+            (has(s.serviceAccountToken.audience) && s.serviceAccountToken.audience != '' &&
+             has(s.serviceAccountToken.expirationSeconds) && s.serviceAccountToken.expirationSeconds <= 3600))))
+      message: Workload token projections require a bound audience and short expiry.
+    - expression: >-
+        !variables.selected ||
+        (!has(object.metadata.labels) || !('cloudlab.io/workload' in object.metadata.labels) ||
+         (has(object.spec.serviceAccountName) &&
+          object.spec.serviceAccountName == object.metadata.labels['cloudlab.io/workload']))
+      message: Workload pods must select their own workload service account.
 {{- end }}
