@@ -111,7 +111,7 @@ def propose(repository, path, desired):
             if native('git', 'diff', '--cached', '--name-only', cwd=checkout) != path:
                 raise ValueError('Release proposal exceeds its single approved file')
             native('git', '-c', 'user.name=CloudLab releases', '-c', 'user.email=releases@example.invalid',
-                   'commit', '--quiet', '-m', 'Propose fixture image ' + desired['digest'], cwd=checkout)
+                   'commit', '--quiet', '-m', 'Propose image ' + desired['digest'], cwd=checkout)
             native(*git_auth, 'push', '--quiet', 'origin', 'HEAD:refs/heads/' + branch, cwd=checkout)
         head = native('git', 'rev-parse', 'HEAD', cwd=checkout)
         if api('GET', prefix + '/git/ref/heads/main')['object']['sha'] != base:
