@@ -105,6 +105,11 @@ class PreviewIdentityRequestsTests(unittest.TestCase):
 
     def test_merge_matches_lifecycle_controller(self):
         raw = catalog(prices_request(), prices_request(pullRequest=43))
+        for item in raw['requests']:
+            row = lifecycle_contract.request(item)
+            namespace = 'cloudlab-preview-' + row['instance']
+            raw['ownership'][namespace] = row['instance'] + ':' + lifecycle_contract.digest(
+                lifecycle_contract.canonical(row))
         identity = identity_contract.runtime_catalog(
             identity_contract.requested_catalog(copy.deepcopy(raw)))
         lifecycle = lifecycle_contract.runtime_catalog(

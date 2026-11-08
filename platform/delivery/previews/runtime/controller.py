@@ -132,6 +132,8 @@ class Controller:
         return True
 
     def publication_ready(self, row, settings):
+        # Prerequisite: the ingress probe below needs per-instance DNS for the
+        # instance hostname, which no owner publishes yet (exposure gap).
         n = names(row)
         service = self.kube.get(('v1', 'Service', n['namespace'], 'preview'))
         app = self.kube.get(('argoproj.io/v1alpha1', 'Application', 'argocd', n['name']))
@@ -273,10 +275,16 @@ class Controller:
         namespace_receipt = namespaces[0] if len(namespaces) == 1 else None
         if receipts:
             if (namespace_receipt is None or namespace_receipt['key'] != list(namespace_key) or
-                    not isinstance(namespace_receipt.get('uid'), str) or not namespace_receipt['uid'] or
                     namespace_receipt.get('collision') or namespace_receipt.get('generated') or
                     not isinstance(namespace_receipt.get('desiredDigest'), str) or
                     not re.fullmatch('[a-f0-9]{64}', namespace_receipt['desiredDigest'])):
+                raise ValueError('Preview retirement lacks its unique original namespace receipt')
+            if namespace_receipt.get('uid') is None:
+                # A never-materialized namespace retires only while absent; a present
+                # namespace is never touched without its creation UID receipt.
+                if self.kube.get(namespace_key) is not None:
+                    raise ValueError('Preview retirement lacks its unique original namespace receipt')
+            elif not isinstance(namespace_receipt.get('uid'), str) or not namespace_receipt['uid']:
                 raise ValueError('Preview retirement lacks its unique original namespace receipt')
         elif record.get('activatedAt') is not None:
             raise ValueError('Activated preview cannot have empty creation history')

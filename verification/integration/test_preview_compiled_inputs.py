@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'platform/delivery/previews/runtime'))
 
 import contract
+import controller
 import lifecycle
 
 SCHEMA = json.loads(
@@ -56,12 +57,18 @@ def prices_request(**overrides):
 
 
 def catalog(*requests):
+    ownership = {}
+    for item in requests:
+        row = contract.request(item)
+        namespace = 'cloudlab-preview-' + row['instance']
+        ownership[namespace] = row['instance'] + ':' + contract.digest(
+            contract.canonical(row))
     return {
         'hostname': 'previews.internal.example.test',
         'issuer': 'https://login.example.test/realms/applications',
         'approvals': [],
         'privateDiscovery': False,
-        'ownership': {},
+        'ownership': ownership,
         'artifacts': {
             'harbor.example.test/cloudlab-public/prices': {
                 'subject': 'https://github.com/example/prices/.github/workflows/ci.yaml@refs/heads/main',
@@ -129,6 +136,46 @@ def observed_pull(state='open', sha='e' * 40, draft=False, fork=False,
                      'sha': sha}}
 
 
+class FakeKube:
+    """Minimal cluster: the runtime state object plus configured extras."""
+
+    def __init__(self, state_obj, extra=None):
+        self.state_obj = state_obj
+        self.extra = extra or {}
+
+    def get(self, key):
+        if tuple(key) == ('v1', 'ConfigMap', 'argocd', contract.STATE):
+            return self.state_obj
+        return self.extra.get(tuple(key))
+
+    def replace(self, obj):
+        self.state_obj = obj
+        return obj
+
+
+def retiring_record(row):
+    namespace = 'cloudlab-preview-' + row['instance']
+    return {
+        'phase': 'retiring', 'reason': 'expired',
+        'approval': row,
+        'approvalDigest': contract.digest(contract.canonical(row)),
+        'resources': [{
+            'key': ['v1', 'Namespace', '', namespace],
+            'desiredDigest': 'a' * 64, 'uid': None}]}
+
+
+def state_object():
+    return {
+        'metadata': {'name': contract.STATE, 'namespace': 'argocd',
+                     'uid': 'state-uid',
+                     'labels': {'cloudlab.io/owner': contract.OWNER}},
+        'data': {'state.json': json.dumps({'format': 1, 'entries': {}})}}
+
+
+def retiring_controller(kube):
+    return controller.Controller(kube, None, NOW)
+
+
 class PreviewCompiledInputsTests(unittest.TestCase):
     def test_request_derives_deterministic_instance_and_ownership(self):
         request = prices_request()
@@ -154,6 +201,44 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         self.assertEqual(settings['ownership'][namespace],
                          row['instance'] + ':' + contract.digest(
                              contract.canonical(row)))
+
+    def test_request_without_ownership_raises_clear_error(self):
+        raw = catalog(prices_request())
+        raw['ownership'] = {}
+        with self.assertRaisesRegex(
+                ValueError, r'cloudlab-preview-[a-f0-9]{32}'):
+            contract.requested_catalog(raw)
+
+    def test_request_with_matching_ownership_passes(self):
+        request = prices_request()
+        row = contract.request(request)
+        namespace = 'cloudlab-preview-' + row['instance']
+        derived = row['instance'] + ':' + contract.digest(
+            contract.canonical(row))
+        raw = catalog(request)
+        self.assertEqual(raw['ownership'][namespace], derived)
+        merged = contract.requested_catalog(raw)
+        self.assertEqual(merged['ownership'][namespace], derived)
+        self.assertEqual(len(merged['approvals']), 1)
+
+    def test_null_uid_absent_namespace_retire_proceeds(self):
+        row = contract.request(prices_request())
+        record = retiring_record(row)
+        ctrl = retiring_controller(FakeKube(state_object()))
+        ctrl.retiring_digest = record['approvalDigest']
+        ctrl.retiring_expiry = row['expiresAt']
+        ctrl.retire(record, {'entries': {}})
+        self.assertEqual(record['phase'], 'retired')
+        # A present namespace is still never touched without its UID receipt.
+        namespace_key = ('v1', 'Namespace', '',
+                         'cloudlab-preview-' + row['instance'])
+        present = retiring_controller(FakeKube(
+            state_object(), {namespace_key: {'metadata': {'uid': 'ns-uid'}}}))
+        record = retiring_record(row)
+        present.retiring_digest = record['approvalDigest']
+        present.retiring_expiry = row['expiresAt']
+        with self.assertRaises(ValueError):
+            present.retire(record, {'entries': {}})
 
     def test_rendered_controller_carries_catalog_and_stays_suspended(self):
         settings = contract.runtime_catalog(
