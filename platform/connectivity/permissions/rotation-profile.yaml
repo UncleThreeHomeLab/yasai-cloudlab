@@ -1,0 +1,24 @@
+# Disposable rotation profile (access plan A5, public part).
+# Desired source: this file. Field owner: operator for the drill; secrets owner for the ESO read-only boundary.
+# Reconciler: none (manual drill under one approved grant); ESO never writes.
+# Credentials: none here; the provisioning token stays in local custody and ESO keeps its read-only token.
+# Deletion policy: remove the disposable item after verification; retain unrelated items and fields.
+version: cloudlab-rotation-profile/v1
+status: declared; live execution gated (see gates)
+profile:
+  vault: CloudLab
+  item: cloudlab-access-rotation-drill
+  field: drill_secret
+  consumer: none (drill-only; no consumer reload or health step applies)
+  executor: local operator with the provisioning token, distinct from the ESO read-only token; never on hosts or in Kubernetes
+order:
+  - create the item with a generated value
+  - verify acceptance of the created value
+  - rotate to a new generated value
+  - verify new acceptance plus old rejection
+  - remove the disposable item
+startDeadline: rotation starts once within 5 minutes of grant issuance; an expired grant starts no work
+recovery: keep the prior value until the new one verifies; interrupted work resumes only under a fresh approved grant, bounded to operator review after one interrupted retry
+unrelatedFields: preserved on every operation; repeat operations never overwrite existing values
+gates: live cluster plus explicit rotation authorization required; ESO stays read-only throughout; out-of-scope denial and interrupted-write recovery are part of the fixture
+acceptance: One disposable fixture run completes the order above with an out-of-scope denial and an interrupted-write recovery.

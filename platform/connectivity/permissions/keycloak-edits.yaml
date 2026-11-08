@@ -1,0 +1,21 @@
+# Ordinary Keycloak user/group edits (access plan A5, public part).
+# Desired source: private identity/configmap.yaml desired_state for data; this file for the edit guard.
+# Field owner: identity owner for membership data; connectivity/permissions owner for this guard.
+# Reconciler: existing leased Keycloak writer only (keycloak-config-cli with the runtime-owned Lease); no other writer.
+# Credentials: none here; the writer uses only its approved service credential.
+# Deletion policy: explicit retirement plus persistent revocation tombstone; omission never deletes; vault items retained.
+version: cloudlab-keycloak-edits/v1
+scope: Ordinary user and group edits only
+path: private Git desired_state edit, private PR review, leased writer realm import
+preserved:
+  - private PR reviews and checks
+  - writer lease lock (one bounded writer)
+  - revocation tombstones and provenance
+  - unrelated users, groups and vault credentials
+excludedFromRuntimeRequests:
+  - platform-admin group membership changes
+  - approver-authority grants (review authority for an explicit domain only, never via runtime edit)
+  - self-privilege changes (requester or beneficiary gaining authority, including delegated equivalents)
+runtimeEditPath: none; the breakglass UI/API/bgctl/REST issues human-only temporary Kubernetes RBAC grants only and offers no Keycloak edit path
+adminApiFallback: prohibited as a runtime edit path; direct Admin API use is explicitly scoped recovery only, never a competing writer
+acceptance: One disposable fixture proves an ordinary edit converges through the leased writer while an out-of-scope (admin/self-privilege) request is denied.

@@ -1,0 +1,23 @@
+# Revocation, recovery and portability record (access plan A6, public part).
+# Desired source: this file for verification and retirement state; backend-adapters.yaml owns adapter rules and is referenced, not duplicated.
+# Field owner: connectivity/permissions owner.
+# Reconciler: native owners per path (see ownership.yaml); this record reconciles nothing.
+# Credentials: none.
+# Deletion policy: record removal ends the declaration only; issued grants still expire by TTL; audit and data retained.
+version: cloudlab-access-revocation-recovery/v1
+boundsRef: platform/connectivity/permissions/backend-adapters.yaml
+verification:
+  policyRemoval: removing the assignment or profile withdraws authority; bindings deleted; absence plus fresh denial asserted; held streams survive until closed
+  offboarding: user tombstone disables membership and invalidates incompatible grants; later broadening never expands an existing grant
+  sourceOutage: last-valid state retained; new grants refused while current authority cannot be established
+  identityOutage: issuance fails closed; existing sessions stay bounded by TTL
+  restart: backend issues nothing on restart and preserves no grants across restart
+  concurrency: usage budgets consumed atomically; duplicate titles or incompatible fields stop the operation
+  heldSessions: TTL bounds apply; token expiry alone neither terminates held streams nor proves revocation
+retirement:
+  trialWriter: removed only after the Git-declared breakglass syncs and the disposable live proof passes through the Git path; the retired writer never returns
+  replacedPaths: none active beyond the trial writer
+pinning:
+  breakglass: v0.3.0-rc.20 with sha256-verified manifests (see breakglass/artifact.lock.json); bytes vendored at promotion; image digests verified before Argo sync
+gates: live verification needs the lab cluster plus private approval declarations; blocked paths stay documented with no fallback writers
+acceptance: One bounded recovery scenario spans removal, outage and restart with backend-denial and retained-state assertions.
