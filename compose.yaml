@@ -212,6 +212,31 @@ services:
       PROTECTION_INTERVAL: ${PROTECTION_INTERVAL:-600}
     command: [loop]
 
+  preview-discovery:
+    profiles: [previews]
+    platform: linux/amd64
+    build: *lab-build
+    entrypoint: [python, /workspace/platform/delivery/previews/discovery.py]
+    working_dir: /workspace
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ${PRIVATE_CONFIG_DIR:-../cloudlab-config}
+        target: /private-config
+        read_only: true
+      - type: volume
+        source: ssh_known_hosts
+        target: /state
+        read_only: true
+    environment:
+      PRIVATE_CONFIG_DIR: /private-config
+      PREVIEW_DISCOVERY_INTERVAL: ${PREVIEW_DISCOVERY_INTERVAL:-300}
+    command: [ensure]
+
   dependency-maintenance:
     profiles: [maintenance]
     platform: linux/amd64
