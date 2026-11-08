@@ -2,7 +2,6 @@
 import json
 from pathlib import Path
 import re
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -100,14 +99,3 @@ def inspect(api, role, repo, private):
                 current.get('description') != MARKER + role):
             raise RuntimeError('Existing repository differs from the declared setup; adoption refused')
     return current
-
-
-def inputs():
-    from dotenv import dotenv_values
-    values = dotenv_values(ROOT / '.env', interpolate=False)
-    # Optional stdin injection lets an existing local gh login avoid storing a
-    # second token. Neither token form is required by normal cluster bootstrap.
-    token = values.get('GITHUB_PROVISION_TOKEN')
-    if not token and not sys.stdin.isatty():
-        token = sys.stdin.readline().strip()
-    return values, GitHub(token)
