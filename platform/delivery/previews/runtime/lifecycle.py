@@ -143,14 +143,21 @@ def native_endpointslice(obj, objects, known):
     meta = obj['metadata']; namespace = meta['namespace']
     labels = meta.get('labels', {})
     # Both native slice writers bind their slice to one Service by label.
+    # Only the verified in-tree writer is accepted; any other slice writer
+    # blocks disposal with a clear error rather than being trusted blindly.
     if (obj.get('apiVersion') != 'discovery.k8s.io/v1' or not isinstance(meta.get('uid'), str) or not meta['uid'] or
-            not isinstance(labels, dict) or labels.get('endpointslice.kubernetes.io/managed-by') not in (
-                'endpointslice-controller', 'endpointslice-mirroring-controller') or
+            not isinstance(labels, dict) or
+            labels.get('endpointslice.kubernetes.io/managed-by') != 'endpointslice-controller.k8s.io' or
             not isinstance(labels.get('kubernetes.io/service-name'), str) or not labels['kubernetes.io/service-name']):
         raise ValueError('EndpointSlice lacks its exact native identity')
     service = backing_object(objects, 'Service', namespace, labels['kubernetes.io/service-name'], known)
     if service is None:
         return False
+    for ref in meta.get('ownerReferences', []):
+        if (not isinstance(ref, dict) or ref.get('kind') != 'Service' or ref.get('apiVersion') != 'v1' or
+                ref.get('name') != labels['kubernetes.io/service-name'] or
+                ref.get('uid') != service['metadata'].get('uid')):
+            raise ValueError('Native EndpointSlice owner differs from its Service')
     spec = service.get('spec', {})
     if not isinstance(spec, dict):
         raise ValueError('Native EndpointSlice Service is malformed')
@@ -232,7 +239,7 @@ def namespace_disposable(objects, roots, namespace_uid):
             meta = obj['metadata']
             uid = meta.get('uid')
             if obj['kind'] in ('Endpoints', 'EndpointSlice', 'PodMetrics'):
-                if (meta.get('ownerReferences', []) != [] or
+                if ((obj['kind'] != 'EndpointSlice' and meta.get('ownerReferences', []) != []) or
                         any(not isinstance(meta.get(key), str) or not meta[key] for key in ('name', 'namespace'))):
                     raise ValueError('Native inventory leaf metadata differs')
                 if obj['kind'] == 'PodMetrics':
