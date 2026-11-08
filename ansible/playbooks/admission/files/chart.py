@@ -85,6 +85,7 @@ def check():
     if (actions not in (['Audit', 'Warn'], ['Deny']) or runner_actions not in (['Audit', 'Warn'], ['Deny']) or
             {p['metadata']['name'] for p in policies} != {
                 'cloudlab-workload-contract', 'cloudlab-workload-ephemeral', 'cloudlab-workload-namespace',
+                'cloudlab-controller-namespace', 'cloudlab-secretref-catalog',
                 'cloudlab-ci-boundary', 'cloudlab-ci-runner', 'cloudlab-ci-namespace', 'cloudlab-composition-namespace',
                 'cloudlab-private-source-ownership', 'cloudlab-private-source-credentials'} or any(
             policy['spec']['validationActions'] != (['Deny'] if policy['metadata']['name'] in ('cloudlab-composition-namespace', 'cloudlab-workload-namespace') or policy['metadata']['name'].startswith('cloudlab-private-source-') else runner_actions if policy['metadata']['name'].startswith('cloudlab-ci-') else actions)

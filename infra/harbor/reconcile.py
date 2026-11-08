@@ -50,6 +50,8 @@ WORK = Path('/infra-work/harbor')
 INPUTS = Path('/inputs/harbor')
 BINDING_PATH = 'platform/registry/projects/private.yaml'
 APPROVAL_PATH = 'platform/registry/approval.yaml'
+APPROVAL_SCHEMA = json.loads(
+    (Path(__file__).resolve().parent / 'approval.schema.json').read_text())
 MAX_FILE_BYTES = 65536
 
 
@@ -307,14 +309,12 @@ def plan_digest(document):
 def validate_approval(text, binding):
     """Merged {binding, plan} approves exactly one binding hash and plan digest."""
     import yaml
+    from jsonschema import validate, ValidationError
     try:
         document = yaml.safe_load(text)
-    except yaml.YAMLError as error:
+        validate(document, APPROVAL_SCHEMA)
+    except (yaml.YAMLError, ValidationError) as error:
         raise RuntimeError('Harbor approval binding invalid; settings retained') from error
-    if (not isinstance(document, dict) or set(document) != {'binding', 'plan'}
-            or not re.fullmatch(r'[a-f0-9]{64}', document['binding'] or '')
-            or not re.fullmatch(r'[a-f0-9]{64}', document['plan'] or '')):
-        raise RuntimeError('Harbor approval binding invalid; settings retained')
     return hashlib.sha256(binding).hexdigest() == document['binding'], document['plan']
 
 
@@ -367,7 +367,10 @@ def reconcile_harbor(config, github, *, apply_allowed=True):
         approval_raw = github.contents(repo, APPROVAL_PATH, revision)
         approved = False
         if approval_raw is not None:
-            current_binding, approved_plan = validate_approval(approval_raw.decode(), raw)
+            try:
+                current_binding, approved_plan = validate_approval(approval_raw.decode(), raw)
+            except Exception as error:
+                raise RuntimeError('Harbor approval binding invalid; settings retained') from error
             approved = current_binding and approved_plan == digest
         if not approved or not apply_allowed:
             return {'ready': True, 'changed': False, 'revision': revision,
