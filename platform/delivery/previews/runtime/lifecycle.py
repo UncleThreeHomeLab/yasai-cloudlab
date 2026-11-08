@@ -94,7 +94,28 @@ def native_endpoints(obj, objects, known):
         raise ValueError('Endpoints lack their exact native identity')
     service = backing_object(objects, 'Service', namespace, meta['name'], known)
     if service is None:
-        return False
+        # Dangling native leaf: its Service is already deleted, so it dies
+        # with the namespace. A present-but-unknown Service still blocks.
+        # Targets stay namespace-pinned; liveness binding is moot.
+        if any(o['kind'] == 'Service' and o['metadata'].get('namespace') == namespace and
+               o['metadata'].get('name') == meta['name'] for o in objects):
+            return False
+        subsets = obj.get('subsets') or []
+        if not isinstance(subsets, list):
+            raise ValueError('Native Endpoints subsets are malformed')
+        for subset in subsets:
+            if not isinstance(subset, dict):
+                raise ValueError('Native Endpoints subset is malformed')
+            for field in ('addresses', 'notReadyAddresses'):
+                addresses = subset.get(field, [])
+                if not isinstance(addresses, list):
+                    raise ValueError('Native Endpoints addresses are malformed')
+                for address in addresses:
+                    target = address.get('targetRef', {}) if isinstance(address, dict) else None
+                    if (not isinstance(target, dict) or target.get('kind') != 'Pod' or
+                            target.get('namespace') != namespace):
+                        raise ValueError('Native Endpoints target identity differs')
+        return True
     spec = service.get('spec', {})
     if not isinstance(spec, dict):
         raise ValueError('Native Endpoints Service is malformed')
@@ -152,7 +173,31 @@ def native_endpointslice(obj, objects, known):
         raise ValueError('EndpointSlice lacks its exact native identity')
     service = backing_object(objects, 'Service', namespace, labels['kubernetes.io/service-name'], known)
     if service is None:
-        return False
+        # Dangling native leaf: its Service is already deleted, so it dies
+        # with the namespace. A present-but-unknown Service still blocks.
+        # Owners and targets stay pinned to the deleted Service and this
+        # namespace; liveness binding is moot.
+        if any(o['kind'] == 'Service' and o['metadata'].get('namespace') == namespace and
+               o['metadata'].get('name') == labels['kubernetes.io/service-name'] for o in objects):
+            return False
+        for ref in meta.get('ownerReferences', []):
+            if (not isinstance(ref, dict) or ref.get('kind') != 'Service' or
+                    ref.get('apiVersion') != 'v1' or
+                    ref.get('name') != labels['kubernetes.io/service-name']):
+                raise ValueError('Native EndpointSlice owner differs from its Service')
+        endpoints = obj.get('endpoints') or []
+        if not isinstance(endpoints, list):
+            raise ValueError('Native EndpointSlice endpoints are malformed')
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict):
+                raise ValueError('Native EndpointSlice endpoint is malformed')
+            target = endpoint.get('targetRef')
+            if target is None or target == {}:
+                continue
+            if (not isinstance(target, dict) or target.get('kind') != 'Pod' or
+                    target.get('namespace') != namespace):
+                raise ValueError('Native EndpointSlice target identity differs')
+        return True
     for ref in meta.get('ownerReferences', []):
         if (not isinstance(ref, dict) or ref.get('kind') != 'Service' or ref.get('apiVersion') != 'v1' or
                 ref.get('name') != labels['kubernetes.io/service-name'] or
