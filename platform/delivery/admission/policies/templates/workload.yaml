@@ -61,7 +61,7 @@ spec:
         (!has(object.spec.volumes) || object.spec.volumes.all(v,
           !has(v.projected) || !has(v.projected.sources) ||
           v.projected.sources.all(s, !has(s.serviceAccountToken) ||
-            (has(s.serviceAccountToken.audience) && s.serviceAccountToken.audience != '' &&
+            (has(s.serviceAccountToken.audience) && s.serviceAccountToken.audience.matches('^[a-z][a-z0-9-]{0,40}$') &&
              has(s.serviceAccountToken.expirationSeconds) && s.serviceAccountToken.expirationSeconds <= 3600))))
       message: Workload token projections require a bound audience and short expiry.
     - expression: >-
