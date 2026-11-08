@@ -86,6 +86,6 @@ previews:
   configuration:
     # Drill: execution stage (A12 live proof).
     enabled: true
-    revision: f1fd14d752b852255f1188fbe1ba8d01b4506db4
+    revision: f5365f3ae037773033e21066f5517340b46a74f1
     acceptanceCommitment: aa03b6362c6e0e45c3f4bc9466ff2c9df8aefcfcc348bfc35a07e16b572dcd72
     permissionsEnabled: true
