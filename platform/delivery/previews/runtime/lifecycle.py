@@ -139,6 +139,76 @@ def native_endpoints(obj, objects, known):
     return True
 
 
+def native_endpointslice(obj, objects, known):
+    meta = obj['metadata']; namespace = meta['namespace']
+    labels = meta.get('labels', {})
+    # Both native slice writers bind their slice to one Service by label.
+    if (obj.get('apiVersion') != 'discovery.k8s.io/v1' or not isinstance(meta.get('uid'), str) or not meta['uid'] or
+            not isinstance(labels, dict) or labels.get('endpointslice.kubernetes.io/managed-by') not in (
+                'endpointslice-controller', 'endpointslice-mirroring-controller') or
+            not isinstance(labels.get('kubernetes.io/service-name'), str) or not labels['kubernetes.io/service-name']):
+        raise ValueError('EndpointSlice lacks its exact native identity')
+    service = backing_object(objects, 'Service', namespace, labels['kubernetes.io/service-name'], known)
+    if service is None:
+        return False
+    spec = service.get('spec', {})
+    if not isinstance(spec, dict):
+        raise ValueError('Native EndpointSlice Service is malformed')
+    selector = spec.get('selector')
+    if (spec.get('type') == 'ExternalName' or not isinstance(selector, dict) or not selector or
+            any(not isinstance(key, str) or not key or not isinstance(value, str) for key, value in selector.items())):
+        raise ValueError('Native EndpointSlice requires a selector-backed Service')
+    if obj.get('addressType') != 'IPv4':
+        raise ValueError('Native EndpointSlice address type differs')
+    ports = obj.get('ports', [])
+    if not isinstance(ports, list):
+        raise ValueError('Native EndpointSlice ports are malformed')
+    for port in ports:
+        if (not isinstance(port, dict) or
+                (port.get('name') is not None and not isinstance(port.get('name'), str)) or
+                (port.get('protocol') is not None and port.get('protocol') not in ('TCP', 'UDP', 'SCTP')) or
+                (port.get('port') is not None and
+                 (type(port.get('port')) is not int or not 1 <= port['port'] <= 65535)) or
+                (port.get('appProtocol') is not None and not isinstance(port.get('appProtocol'), str))):
+            raise ValueError('Native EndpointSlice ports are malformed')
+    endpoints = obj.get('endpoints')
+    if not isinstance(endpoints, list):
+        raise ValueError('Native EndpointSlice endpoints are malformed')
+    for endpoint in endpoints:
+        if not isinstance(endpoint, dict):
+            raise ValueError('Native EndpointSlice endpoint is malformed')
+        addresses = endpoint.get('addresses')
+        if (not isinstance(addresses, list) or not addresses or
+                any(not isinstance(address, str) or not address for address in addresses)):
+            raise ValueError('Native EndpointSlice addresses are malformed')
+        target = endpoint.get('targetRef')
+        if target is None or target == {}:
+            continue
+        if not isinstance(target, dict):
+            raise ValueError('Native EndpointSlice address target is malformed')
+        if (target.get('kind') != 'Pod' or target.get('apiVersion', '') not in ('', 'v1') or
+                target.get('namespace') != namespace or
+                any(not isinstance(target.get(key), str) or not target[key] for key in ('name', 'uid'))):
+            raise ValueError('Native EndpointSlice target identity differs')
+        pod = backing_object(objects, 'Pod', namespace, target['name'], known)
+        if pod is None:
+            return False
+        pod_labels = pod['metadata'].get('labels', {})
+        if (pod['metadata'].get('uid') != target['uid'] or not isinstance(pod_labels, dict) or
+                any(pod_labels.get(key) != value for key, value in selector.items())):
+            raise ValueError('Native EndpointSlice target differs from its selected Pod')
+        status = pod.get('status', {})
+        if not isinstance(status, dict):
+            raise ValueError('Native EndpointSlice Pod status is malformed')
+        pod_ips = status.get('podIPs', [])
+        if (not isinstance(pod_ips, list) or
+                any(not isinstance(item, dict) or not isinstance(item.get('ip'), str) for item in pod_ips)):
+            raise ValueError('Native EndpointSlice Pod addresses are malformed')
+        if any(address not in [status.get('podIP'), *(item['ip'] for item in pod_ips)] for address in addresses):
+            raise ValueError('Native EndpointSlice address differs from its Pod')
+    return True
+
+
 def namespace_disposable(objects, roots, namespace_uid):
     """Every remaining object must follow a verified owner chain; unknown data blocks."""
     if not namespace_uid:
@@ -161,7 +231,7 @@ def namespace_disposable(objects, roots, namespace_uid):
         for obj in remaining[:]:
             meta = obj['metadata']
             uid = meta.get('uid')
-            if obj['kind'] in ('Endpoints', 'PodMetrics'):
+            if obj['kind'] in ('Endpoints', 'EndpointSlice', 'PodMetrics'):
                 if (meta.get('ownerReferences', []) != [] or
                         any(not isinstance(meta.get(key), str) or not meta[key] for key in ('name', 'namespace'))):
                     raise ValueError('Native inventory leaf metadata differs')
@@ -170,6 +240,8 @@ def namespace_disposable(objects, roots, namespace_uid):
                             (obj.get('apiVersion'), obj['kind']) != POD_METRICS):
                         raise ValueError('Pod metrics lack their accepted discovery identity')
                     accepted = backing_object(objects, 'Pod', meta['namespace'], meta['name'], known) is not None
+                elif obj['kind'] == 'EndpointSlice':
+                    accepted = native_endpointslice(obj, objects, known)
                 else:
                     accepted = native_endpoints(obj, objects, known)
                 if accepted:
@@ -180,7 +252,7 @@ def namespace_disposable(objects, roots, namespace_uid):
                          (obj['kind'] == 'ConfigMap' and meta['name'] in GENERATED_CONFIGMAPS) or
                          obj['kind'] in ('Event',))
             refs = meta.get('ownerReferences', [])
-            if any(ref.get('kind') in ('Endpoints', 'PodMetrics') for ref in refs):
+            if any(ref.get('kind') in ('Endpoints', 'EndpointSlice', 'PodMetrics') for ref in refs):
                 raise ValueError('Native inventory leaves cannot authorize descendants')
             if uid in known or generated or (refs and all(ref.get('uid') in known for ref in refs)):
                 if not uid:
