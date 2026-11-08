@@ -5,6 +5,7 @@ schema, derives its deterministic instance and namespace ownership
 through requested_catalog, renders the controller chart, and retires
 through the same guarded path when its request is removed or expires.
 """
+import copy
 import hashlib
 import json
 import shutil
@@ -143,11 +144,19 @@ class FakeKube:
     def __init__(self, state_obj, extra=None):
         self.state_obj = state_obj
         self.extra = extra or {}
+        self.created = []
 
     def get(self, key):
         if tuple(key) == ('v1', 'ConfigMap', 'argocd', contract.STATE):
             return self.state_obj
         return self.extra.get(tuple(key))
+
+    def create(self, obj):
+        self.created.append(copy.deepcopy(obj))
+        created = copy.deepcopy(obj)
+        created['metadata']['uid'] = 'quota-uid'
+        created['metadata']['resourceVersion'] = '1'
+        return created
 
     def replace(self, obj):
         self.state_obj = obj
@@ -435,6 +444,168 @@ class PreviewCompiledInputsTests(unittest.TestCase):
                         previews_commitment('https://github.com/example/private.git', 'a' * 40, 'b' * 64,
                                             paths=('previews/other.yaml',))):
             self.assertNotEqual(changed, commitment)
+
+
+class PreviewProofQuotaTests(unittest.TestCase):
+    def quota_key(self, row):
+        return ('v1', 'ResourceQuota',
+                'cloudlab-preview-' + row['instance'], 'budget')
+
+    def test_budget_quota_matches_resources_output(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
+        inline = next(obj for obj in controller.resources(
+            row, settings, 'https://github.com/example/platform.git',
+            'state-uid') if obj['kind'] == 'ResourceQuota')
+        helper = controller.budget_quota(row, 'state-uid')
+        self.assertEqual(helper, inline)
+        self.assertEqual(helper['spec']['hard']['count/secrets'], '0')
+        self.assertEqual(helper['metadata']['labels'], {
+            'cloudlab.io/owner': contract.OWNER,
+            'cloudlab.io/preview-instance': row['instance']})
+
+    def test_missing_quota_restored_with_exact_spec(self):
+        row = contract.request(prices_request())
+        record = retiring_record(row)
+        kube = FakeKube(state_object())
+        quota = retiring_controller(kube).proof_quota(record)
+        desired = controller.budget_quota(row, 'state-uid')
+        self.assertEqual(kube.created, [desired])
+        self.assertEqual(quota['spec']['hard']['count/secrets'], '0')
+        receipt = next(item for item in record['resources']
+                       if item['key'][1] == 'ResourceQuota')
+        self.assertEqual(receipt['desiredDigest'],
+                         contract.digest(contract.canonical(desired)))
+        self.assertEqual(receipt['uid'], quota['metadata']['uid'])
+
+    def test_present_matching_quota_causes_no_create(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        record['resources'].append({
+            'key': list(key),
+            'desiredDigest': contract.digest(contract.canonical(desired)),
+            'uid': 'quota-uid'})
+        kube = FakeKube(state_object(), {key: observed})
+        self.assertEqual(
+            retiring_controller(kube).proof_quota(record), observed)
+        self.assertEqual(kube.created, [])
+
+    def test_foreign_quota_raises(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        observed['metadata']['labels']['cloudlab.io/owner'] = 'someone-else'
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        record['resources'].append({
+            'key': list(key),
+            'desiredDigest': contract.digest(contract.canonical(desired)),
+            'uid': 'quota-uid'})
+        kube = FakeKube(state_object(), {key: observed})
+        with self.assertRaises(ValueError):
+            retiring_controller(kube).proof_quota(record)
+        self.assertEqual(kube.created, [])
+
+    def test_digest_changed_receipt_raises(self):
+        row = contract.request(prices_request())
+        record = retiring_record(row)
+        record['resources'].append({
+            'key': list(self.quota_key(row)),
+            'desiredDigest': 'b' * 64, 'uid': 'quota-uid'})
+        kube = FakeKube(state_object())
+        with self.assertRaises(ValueError):
+            retiring_controller(kube).proof_quota(record)
+        self.assertEqual(kube.created, [])
+
+    def test_missing_receipt_with_present_quota_adopts(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        kube = FakeKube(state_object(), {key: observed})
+        self.assertEqual(
+            retiring_controller(kube).proof_quota(record), observed)
+        receipt = next(item for item in record['resources']
+                       if item['key'][1] == 'ResourceQuota')
+        self.assertEqual(receipt['desiredDigest'],
+                         contract.digest(contract.canonical(desired)))
+        self.assertEqual(receipt['uid'], 'quota-uid')
+        self.assertEqual(kube.created, [])
+
+    def test_uid_none_receipt_with_present_quota_adopts(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        record['resources'].append({
+            'key': list(key),
+            'desiredDigest': contract.digest(contract.canonical(desired)),
+            'uid': None})
+        kube = FakeKube(state_object(), {key: observed})
+        self.assertEqual(
+            retiring_controller(kube).proof_quota(record), observed)
+        receipt = next(item for item in record['resources']
+                       if item['key'][1] == 'ResourceQuota')
+        self.assertEqual(receipt['uid'], 'quota-uid')
+        self.assertEqual(kube.created, [])
+
+    def test_collision_receipt_with_present_quota_raises(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        record['resources'].append({
+            'key': list(key),
+            'desiredDigest': contract.digest(contract.canonical(desired)),
+            'uid': 'quota-uid', 'collision': True})
+        kube = FakeKube(state_object(), {key: observed})
+        with self.assertRaisesRegex(ValueError, 'administrator review'):
+            retiring_controller(kube).proof_quota(record)
+        self.assertEqual(kube.created, [])
+
+    def test_uid_mismatch_with_matching_quota_updates_receipt(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        record['resources'].append({
+            'key': list(key),
+            'desiredDigest': contract.digest(contract.canonical(desired)),
+            'uid': 'stale-uid'})
+        kube = FakeKube(state_object(), {key: observed})
+        self.assertEqual(
+            retiring_controller(kube).proof_quota(record), observed)
+        receipt = next(item for item in record['resources']
+                       if item['key'][1] == 'ResourceQuota')
+        self.assertEqual(receipt['uid'], 'quota-uid')
+        self.assertEqual(kube.created, [])
+
+    def test_adopted_quota_spec_drift_raises(self):
+        row = contract.request(prices_request())
+        desired = controller.budget_quota(row, 'state-uid')
+        observed = copy.deepcopy(desired)
+        observed['metadata'].update(uid='quota-uid', resourceVersion='1')
+        observed['spec']['hard']['count/secrets'] = '1'
+        key = self.quota_key(row)
+        record = retiring_record(row)
+        kube = FakeKube(state_object(), {key: observed})
+        with self.assertRaises(ValueError):
+            retiring_controller(kube).proof_quota(record)
+        self.assertEqual(kube.created, [])
 
 
 SLICE_NAMESPACE = 'cloudlab-preview-' + 'a' * 32

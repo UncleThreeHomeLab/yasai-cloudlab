@@ -58,6 +58,14 @@ HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()''']
     return result
 
 
+def budget_quota(row, state_uid):
+    return {'apiVersion': 'v1', 'kind': 'ResourceQuota',
+        'metadata': metadata(row, state_uid, 'budget', names(row)['namespace']),
+        'spec': {'hard': {'pods': '4', 'requests.cpu': '500m', 'requests.memory': '768Mi',
+            'limits.cpu': '1', 'limits.memory': '1Gi', 'persistentvolumeclaims': '0',
+            'services.loadbalancers': '0', 'services.nodeports': '0', 'count/secrets': '0'}}}
+
+
 def resources(row, settings, platform_repository, state_uid):
     runtime_catalog(settings)
     approval(row)
@@ -78,9 +86,7 @@ def resources(row, settings, platform_repository, state_uid):
     add('rbac.authorization.k8s.io/v1', 'RoleBinding', 'preview-inventory',
         roleRef={'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole', 'name': 'cloudlab-preview-inventory'},
         subjects=[{'kind': 'ServiceAccount', 'name': OWNER, 'namespace': 'argocd'}])
-    add('v1', 'ResourceQuota', 'budget', {'hard': {'pods': '4', 'requests.cpu': '500m', 'requests.memory': '768Mi',
-        'limits.cpu': '1', 'limits.memory': '1Gi', 'persistentvolumeclaims': '0',
-        'services.loadbalancers': '0', 'services.nodeports': '0', 'count/secrets': '0'}})
+    objects.append(budget_quota(row, state_uid))
     add('v1', 'LimitRange', 'budget', {'limits': [{'type': 'Container',
         'max': {'cpu': '250m', 'memory': '256Mi'}, 'default': {'cpu': '250m', 'memory': '256Mi'},
         'defaultRequest': {'cpu': '50m', 'memory': '128Mi'}}]})

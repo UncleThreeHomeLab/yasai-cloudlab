@@ -10,13 +10,13 @@ try:
     from .github import GitHub
     from .kube import Kubernetes, APIError, identity
     from .lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
-    from .resources import resources, workload_keys, private_route
+    from .resources import resources, workload_keys, private_route, budget_quota
 except ImportError:
     from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
     from github import GitHub
     from kube import Kubernetes, APIError, identity
     from lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
-    from resources import resources, workload_keys, private_route
+    from resources import resources, workload_keys, private_route, budget_quota
 
 
 def contains(observed, expected):
@@ -270,6 +270,45 @@ class Controller:
                 return False
         return True
 
+    def proof_quota(self, record):
+        # The final inventory proves Secret absence from the live budget
+        # quota, so it must exist before the namespace check runs.
+        row = record['approval']
+        key = ('v1', 'ResourceQuota', names(row)['namespace'], 'budget')
+        receipt = next((r for r in record['resources'] if r['key'] == list(key)), None)
+        desired = budget_quota(row, self.object['metadata']['uid'])
+        if receipt is not None and receipt.get('desiredDigest') != digest(canonical(desired)):
+            raise ValueError('Preview resource declaration changed within one instance')
+        if receipt is not None and receipt.get('collision'):
+            raise ValueError('Preexisting preview resource collision requires administrator review')
+        quota = self.kube.get(key)
+        if quota is None:
+            if receipt is None:
+                receipt = {'key': list(key), 'desiredDigest': digest(canonical(desired)), 'uid': None}
+                record['resources'].append(receipt)
+                self.save()
+            created = self.kube.create(desired)
+            if not contains(created.get('spec'), desired['spec']):
+                raise ValueError('Interrupted preview creation differs from recorded declaration')
+            receipt['uid'] = created['metadata']['uid']
+            self.save()
+            return created
+        if receipt is None:
+            receipt = {'key': list(key), 'desiredDigest': digest(canonical(desired)), 'uid': None}
+            record['resources'].append(receipt)
+            self.save()
+        # Crash or out-of-band quota: adopt only an owned, spec-matching quota.
+        if receipt.get('uid') is None or (receipt.get('uid') and quota['metadata']['uid'] != receipt['uid']):
+            owned(quota, row, self.object['metadata']['uid'])
+            if (not contains(quota.get('spec'), desired['spec']) or
+                    receipt.get('desiredDigest') != digest(canonical(desired))):
+                raise ValueError('Preview proof quota differs from recorded declaration')
+            receipt['uid'] = quota['metadata']['uid']
+            self.save()
+        else:
+            owned(quota, row, self.object['metadata']['uid'], receipt['uid'])
+        return quota
+
     def retire(self, record, identity_state):
         row = record['approval']; n = names(row)
         namespace_key = ('v1', 'Namespace', '', n['namespace'])
@@ -331,7 +370,7 @@ class Controller:
                     if receipt['key'][1] == kind and not self.remove(record, receipt):
                         return
             for receipt in receipts:
-                if receipt['key'][1] not in ('Namespace', 'ApplicationSet', 'Application', 'HTTPRoute', 'RoleBinding', 'Deployment', 'Service', 'ServiceAccount', 'Gateway'):
+                if receipt['key'][1] not in ('Namespace', 'ApplicationSet', 'Application', 'HTTPRoute', 'RoleBinding', 'ResourceQuota', 'Deployment', 'Service', 'ServiceAccount', 'Gateway'):
                     if not self.remove(record, receipt):
                         return
         if identity_state is None:
@@ -349,6 +388,7 @@ class Controller:
             namespace = self.kube.get(namespace_key)
             if namespace is not None:
                 owned(namespace, row, self.object['metadata']['uid'], namespace_receipt['uid'])
+                self.proof_quota(record)
                 namespace_disposable(self.kube.namespace_inventory(n['namespace']),
                     {r['uid'] for r in record['resources'] if r['uid']}, namespace_receipt['uid'])
                 if not self.remove(record, namespace_receipt):
