@@ -86,8 +86,7 @@ rollouts:
 previews:
   enabled: true
   configuration:
-    # Drill: execution stage (A12 live proof).
     enabled: true
     revision: eecb1591a6b40ceeaf40760b9f83988779c44f9c
-    acceptanceCommitment: aa03b6362c6e0e45c3f4bc9466ff2c9df8aefcfcc348bfc35a07e16b572dcd72
+    acceptanceCommitment: bfef8f78572e16fe470115f905f20686a021038be68ca69bd1551ace62e98e4e
     permissionsEnabled: true
