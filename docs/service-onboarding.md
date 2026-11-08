@@ -1316,7 +1316,7 @@ Source repository visibility does not change this path.
 
 ### 8.3 Declare collection, rules and dashboard JSON — Agent
 
-1. In the active private service catalog, set the service's `definition.monitoring`:
+1. In private `services/catalog.json`, set the service's `definition.monitoring`:
    `enabled`, `routes`, metrics (`profile: cloudlab-http` on the dedicated
    `http-metrics` port at `/metrics`) and/or logs (`profile: cloudlab-http-json-v1`).
    Only ordinary non-rollout `charts/service` workloads are supported; traces stay
@@ -1345,19 +1345,19 @@ Source repository visibility does not change this path.
    release/probe/synthetic traffic. Display valid zero activity as **No traffic**
    and missing evidence as **UNKNOWN** or **No data**; identify stale evidence
    separately. Do not turn missing series into healthy zero values.
-5. Request delivery in the reviewed `platformNotifications` subscriptions (service,
+5. Request delivery in the reviewed `platformNotifications` subscriptions in `platform/observability.yaml` (service,
    severities, approved receivers); services cannot invent destinations.
    Recurring maintenance uses declared `timeIntervals` with `muteWindows`;
    incident silences stay authorized runtime operations, not Git state.
 6. Keep secrets, endpoints and private deployment bindings out of public Git.
    Select one component, pod and container by default; filters are not authorization.
 
-| Declaration | Effect |
-| --- | --- |
-| `definition.monitoring` | Scrape/log collection for the service |
-| `serviceObservability` rules | `svc-<service>-*` PrometheusRules with alert links |
-| `serviceObservability` dashboard | `svc-<service>.json` board with an active-alerts link |
-| `platformNotifications` subscription | Firing/recovery delivery to approved receivers |
+| Private Git path | Declaration | Effect |
+| --- | --- | --- |
+| `services/catalog.json` | `definition.monitoring` | Scrape/log collection for the service |
+| `platform/observability.yaml` | `serviceObservability` rules | `svc-<service>-*` PrometheusRules with alert links |
+| `platform/observability.yaml` | `serviceObservability` dashboard | `svc-<service>.json` board with an active-alerts link |
+| `platform/observability.yaml` | `platformNotifications` subscription | Firing/recovery delivery to approved receivers |
 
 **Done when:** the declarations use stable UIDs, the board links from
 active-alerts, and selectors exclude unrelated workloads.
@@ -1378,7 +1378,7 @@ active-alerts, and selectors exclude unrelated workloads.
    selections change.
 2. **Agent:** leave Grafana settings in `platform/observability/prometheus/values.json`
    unchanged; adding service monitoring does not require changing them.
-3. **Agent:** review catalog and `platform/observability.yaml` changes in private
+3. **Agent:** review `services/catalog.json` and `platform/observability.yaml` changes in private
    GitOps. Commit each change through its owning protected PR flow.
    **User:** review and merge through branch protection.
 4. Convergence runs through the native observability parent
@@ -1414,7 +1414,7 @@ ConfigMap, mounted file and provisioned Grafana API.
    Verify optional log/trace links use only accepted redacted telemetry.
    Confirm no unrelated service data enters panels, variable options or links.
 4. **Agent:** let normal reconciliation run and confirm the declarations remain correct.
-   Make lasting edits in the private catalog or `platform/observability.yaml` and repeat
+   Make lasting edits in `services/catalog.json` or `platform/observability.yaml` and repeat
    its owning PR flow; UI-only changes are not durable.
 
 **Done when:** the service's own provisioned board covers current workloads, keeps

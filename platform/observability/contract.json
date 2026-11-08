@@ -92,8 +92,8 @@
     "sources": "Public configuration enabled/paused/revision; disabled and paused by default. One private main checkout supplies catalog and platform inputs; all six children use only the pinned public source.",
     "provenance": "cloudlab.io/observability-input-digest hashes catalog, observabilityInputs, platformNotifications, serviceObservability and alertmanagerState. It is content provenance, not a Git revision. Actual private SHA requires successful parent sync.revisions with matching compared sources; legacy service catalog revision remains separate.",
     "activation": "Enable automatic sync only after guarded writer handoff and identity DNS qualification; enabled/paused renders skip-reconcile true and automatic sync explicitly false.",
-    "legacy_guard": "Both legacy writers inspect the native parent and all six children before writes. Any protected retirement fence blocks writes. Handoff must hold main then history lock before fencing or adoption; history recovery takes only its own lock.",
-    "runtime_proof": "VM credentials only; run ansible-playbook -i inventory.yml playbooks/observability/tests/runtime-proof.yml through the existing Compose lab image from a clean reviewed checkout, twice. Installs retained server modules, probes authority read-only and checks worker absence; no full setup, vault, private publication or workload convergence.",
+    "legacy_guard": "Both legacy writers inspect the native parent and all six children before writes. Any protected retirement fence blocks writes. Handoff must hold main then history lock before fencing or adoption; history recovery takes only its own lock. Removing /opt/cloudlab/playbooks/observability/files/ requires the guarded writer handoff, a clear retirement fence, native ownership of all six children and the Alertmanager state-preservation gate; never reinstall or touch bootstrap.",
+    "runtime_proof": "VM credentials only; verify through the Compose shim from a clean reviewed checkout, twice: run the cached lab image (never --build) to render the native parent offline and validate inputs. Probes authority read-only and checks worker absence; no full setup, vault, private publication or workload convergence.",
     "notifications": "platformNotifications; disabled defaults; candidate transport requires qualified connections and existing dedicated Secret delivery before activation"
   },
   "notification_delivery": {
@@ -108,7 +108,7 @@
     "credentials": "Existing cloudlab-observability alertmanager-notification-* Kubernetes Secrets; fixed derived paths; no inline values or vault provisioning",
     "state": "Native 1Gi retained telemetry claim; legacy emptyDir unchanged; existing state preservation or verified-empty gate required before replacement",
     "activation_requirements": "Qualified network enforcement, credential readiness, existing state preservation and Kubernetes storage lifecycle; transport fixtures alone are insufficient",
-    "fixture": "ansible/playbooks/observability/tests/compose.notifications-proof.yaml; no host ports or production destinations"
+    "fixture": "Compose-shim offline render of the notification fixture with structural config validation; no host ports or production destinations"
   },
   "service_observability": {
     "collection": "Ordinary non-rollout charts/service definition.monitoring: shared normalized routes and explicit independent metrics/logs switches; default disabled. Generic traces require qualified ambient attribution and remain unsupported.",
