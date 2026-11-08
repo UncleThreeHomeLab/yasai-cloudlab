@@ -1,3 +1,9 @@
+{{/* Retired removal sequence: mark the entry retired (workloads stop
+rendering, policies deny, data stays), verify absence, then remove the entry.
+Prune order follows sync waves: workload objects first, wave -1 policies and
+bindings, wave -2 namespace/quota/register last with Prune=false. PVCs,
+databases, buckets and vault items always Retain; namespace and exception
+register are retained until the entry itself is removed. */}}
 {{- if hasKey .Values "argo-cd" }}
 {{- $config := index .Values "argo-cd" "configs" "cm" "oidc.config" | fromYaml }}
 {{- if not (hasSuffix "/realms/platform" $config.issuer) }}{{ fail "Approved platform identity issuer is required" }}{{- end }}
@@ -114,7 +120,15 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ $namespace }}
-  annotations: {argocd.argoproj.io/sync-wave: '-2', argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
+  {{- $exceptions := $a.exceptions | default list }}
+  {{- $exceptionIdentities := list }}
+  {{- range $exceptions }}{{ $exceptionIdentities = append $exceptionIdentities .identity }}{{ end }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+    argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
+    {{- if $exceptionIdentities }}
+    cloudlab.io/exception-register: {{ $exceptionIdentities | uniq | sortAlpha | join "," | quote }}
+    {{- end }}
   labels:
     cloudlab.io/owner: service-platform
     {{- if $composition }}
@@ -137,7 +151,10 @@ metadata:
 ---
 apiVersion: v1
 kind: ResourceQuota
-metadata: {name: budget, namespace: {{ $namespace }}}
+metadata:
+  name: budget
+  namespace: {{ $namespace }}
+  annotations: {argocd.argoproj.io/sync-wave: '-2', argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
 spec:
   hard:
     {{- if $composition }}
@@ -155,6 +172,18 @@ spec:
     {{- end }}
     services.loadbalancers: '0'
     services.nodeports: '0'
+{{- if $exceptions }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-exception-register
+  namespace: {{ $namespace }}
+  annotations: {argocd.argoproj.io/sync-wave: '-2'}
+  labels: {cloudlab.io/owner: service-platform}
+data:
+  register.json: {{ $exceptions | toJson | quote }}
+{{- end }}
 {{- if not $composition }}
 ---
 apiVersion: networking.k8s.io/v1

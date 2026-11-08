@@ -1,4 +1,5 @@
 {{/* The pinned registry credential lister watches the Kyverno namespace. */}}
+{{/* Credential map: harbor pull items -> cloudlab-policy and app-namespace pull Secrets -> kubelet image pull. */}}
 {{- $registryCredentials := dict }}
 {{- range .Values.catalog }}
 {{- with .approval.artifact }}

@@ -18,7 +18,7 @@ spec:
 {{- if hasKey . "connections" }}
 {{- $composition := . }}
 {{- $accounts := dict }}
-{{- range .workloads }}{{ $_ := set $accounts .name .podSpec.serviceAccountName }}{{ end }}
+{{- range .workloads }}{{- if or (not (hasKey .podSpec "serviceAccountName")) (eq (.podSpec.serviceAccountName | toString) "") (eq (.podSpec.serviceAccountName | toString) "default") }}{{ fail "Composition workloads require their named service account" }}{{- end }}{{ $_ := set $accounts .name .podSpec.serviceAccountName }}{{ end }}
 {{- range $destination := .workloads }}
 ---
 apiVersion: security.istio.io/v1

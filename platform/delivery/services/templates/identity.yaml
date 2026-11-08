@@ -1,3 +1,4 @@
+{{/* Credential map: keycloak-client-secrets item -> app-namespace ExternalSecret -> OIDC login flow. */}}
 {{- range .Values.catalog }}
 {{- $oidc := include "cloudlab.service.identity" . | fromJson }}
 {{- if and $oidc.enabled (hasKey $oidc "secretReference") }}

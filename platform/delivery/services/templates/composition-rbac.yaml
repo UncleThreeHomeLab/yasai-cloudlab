@@ -1,0 +1,58 @@
+{{/* Workload API presets resolve only here, in the administrator-owned services chart.
+charts/service workloads are implicitly application-no-api and render no Role.
+The apps/notes fork passes validated YAML through this same renderer and
+resolves nothing itself. No preset lets a workload self-grant RBAC verbs. */}}
+{{- $presets := dict
+  "application-api-reader" (list
+    (dict "apiGroups" (list "") "resources" (list "pods" "services" "events") "verbs" (list "get" "list"))
+    (dict "apiGroups" (list "apps") "resources" (list "deployments" "replicasets") "verbs" (list "get" "list"))
+    (dict "apiGroups" (list "batch") "resources" (list "jobs" "cronjobs") "verbs" (list "get" "list")))
+  "controller-scoped" (list
+    (dict "apiGroups" (list "") "resources" (list "pods" "services" "events" "configmaps") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "apps") "resources" (list "deployments" "replicasets") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "batch") "resources" (list "jobs" "cronjobs") "verbs" (list "get" "list" "watch")))
+  "job-scoped" (list
+    (dict "apiGroups" (list "batch") "resources" (list "jobs") "verbs" (list "get" "list" "watch" "create" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "get" "list")))
+-}}
+{{- range .Values.catalog }}
+{{- $a := .approval }}
+{{- $retired := eq (.publication | default "ready") "retired" }}
+{{- with $a.composition }}
+{{- $names := list }}
+{{- range .workloads }}{{ $names = append $names .name }}{{ end }}
+{{- if ne (len $names) (len ($names | uniq)) }}{{ fail "Composition workload names must be unique" }}{{- end }}
+{{- range .workloads }}
+{{- $preset := .preset | default "" }}
+{{- if not (has $preset (list "application-no-api" "application-api-reader" "controller-scoped" "job-scoped" "system-exception")) }}{{ fail "Composition workload preset must be one of the five approved presets" }}{{- end }}
+{{- $sa := .podSpec.serviceAccountName | default "" }}
+{{- if or (eq $sa "") (eq $sa "default") }}{{ fail "Composition workloads require their named service account" }}{{- end }}
+{{- if and (eq $preset "system-exception") (not $retired) }}
+{{- $match := false }}
+{{- range $a.exceptions | default list }}{{ if eq .identity $sa }}{{ $match = true }}{{ end }}{{ end }}
+{{- if not $match }}{{ fail "system-exception preset requires a matching per-exception register entry" }}{{- end }}
+{{- end }}
+{{- if and (ne $preset "application-no-api") (ne $preset "system-exception") (not $retired) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "workload-%s" .name }}
+  namespace: {{ $a.namespace }}
+  annotations: {argocd.argoproj.io/sync-wave: '-1'}
+  labels: {cloudlab.io/owner: service-platform, cloudlab.io/workload-preset: {{ $preset | quote }}}
+rules: {{ index $presets $preset | toJson }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "workload-%s" .name }}
+  namespace: {{ $a.namespace }}
+  annotations: {argocd.argoproj.io/sync-wave: '-1'}
+  labels: {cloudlab.io/owner: service-platform, cloudlab.io/workload-preset: {{ $preset | quote }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ printf "workload-%s" .name | quote }}}
+subjects: [{kind: ServiceAccount, name: {{ $sa | quote }}, namespace: {{ $a.namespace | quote }}}]
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

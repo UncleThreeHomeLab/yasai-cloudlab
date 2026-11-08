@@ -882,6 +882,22 @@ destructive migrations require a separate explicit data scope.
 
 **Done when:** dependency requests, scoped references and secret custody are declared.
 
+Implemented workload fields and their owners (services owner renders all):
+`approval.egress` (ordinary only) renders namespace `platform-egress` from
+declared destinations; `[]` or retired denies all.
+`approval.composition.connections` renders per-workload peer AuthorizationPolicies;
+retired empties them. `approval.composition.workloads[].preset` is exactly one of
+`application-no-api`, `application-api-reader`, `controller-scoped`, `job-scoped`,
+`system-exception`, resolving through the fixed composition Roles; `application-no-api`
+and `system-exception` render no Role (fail-closed deny). Ordinary services are
+implicitly `application-no-api` and carry no field. No preset lets a workload self-grant RBAC verbs.
+`approval.exceptions[]` (composition only) is the per-exception register
+(`identity`, `owner`, `reason`, `scope`, `removal`); `system-exception` requires a
+matching identity. Composition podSpecs require named service accounts.
+Retired: the `serviceAccountName: default` default. The budget named GET keeps
+both ResourceQuota and LimitRange: activation plus retirement GET every
+declared receipt by name, so the LimitRange cannot go LIST-only.
+
 ### 6.3 Choose access — User, then Agent
 
 1. **Agent:** ask the user to choose no ingress, private access, public access,
@@ -1468,6 +1484,9 @@ entries in the same atomic private PR, and merge with its rotated acceptance.
 Argo removes only tracked service-owned workload resources, including its
 Deployment/Rollout, Service and routes, without cascading into retained
 resources. This is workload removal, not merely scaling replicas to zero.
+Prune order follows sync waves: workload objects first, then wave -1 policies
+and bindings, then wave -2 namespace, quota and exception register, which stay
+until the retired entry itself is removed.
 
 Namespaces, quotas, credentials, PVCs, databases, buckets and shared resources remain.
 Runner pools are separate resources; this operation does not retire them.
@@ -1485,7 +1504,8 @@ and provider state; resolve the reported owner prerequisite before continuing.
    For class `none`, verify the former internal caller cannot reach its removed Service.
 3. **Agent:** confirm the scoped workload and routes are absent, retained claims
    and data resources remain, and unrelated services stay healthy.
-   Use non-destructive owner checks only.
+   Use non-destructive owner checks only. K3s ships no API audit log; verify
+   absence through Argo sync status and namespace inventory, not apiserver audit.
 4. **User:** decide separately whether CI pools, App repo grants or source activity
    should stop. Preserve approved images, signatures and recovery material until
    their separate retention or disposal scope is agreed.
