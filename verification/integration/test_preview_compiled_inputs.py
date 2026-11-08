@@ -388,5 +388,102 @@ class PreviewCompiledInputsTests(unittest.TestCase):
             self.assertNotEqual(changed, commitment)
 
 
+SLICE_NAMESPACE = 'cloudlab-preview-' + 'a' * 32
+
+
+def disposable_service(name='preview', uid='svc-uid'):
+    return {
+        'apiVersion': 'v1', 'kind': 'Service',
+        'metadata': {'name': name, 'namespace': SLICE_NAMESPACE, 'uid': uid},
+        'spec': {'type': 'ClusterIP', 'selector': {'app': 'preview'}}}
+
+
+def disposable_pod(name='preview-abc', uid='pod-uid', ip='10.42.0.5'):
+    return {
+        'apiVersion': 'v1', 'kind': 'Pod',
+        'metadata': {'name': name, 'namespace': SLICE_NAMESPACE, 'uid': uid,
+                     'labels': {'app': 'preview'}},
+        'status': {'podIP': ip, 'podIPs': [{'ip': ip}]}}
+
+
+def disposable_endpointslice(name='preview-abcde', uid='slice-uid'):
+    return {
+        'apiVersion': 'discovery.k8s.io/v1', 'kind': 'EndpointSlice',
+        'metadata': {
+            'name': name, 'namespace': SLICE_NAMESPACE, 'uid': uid,
+            'labels': {'kubernetes.io/service-name': 'preview',
+                       'endpointslice.kubernetes.io/managed-by': 'endpointslice-controller'}},
+        'addressType': 'IPv4',
+        'ports': [{'name': 'http', 'protocol': 'TCP', 'port': 8080}],
+        'endpoints': [{
+            'addresses': ['10.42.0.5'],
+            'conditions': {'ready': True, 'serving': True, 'terminating': False},
+            'targetRef': {'kind': 'Pod', 'namespace': SLICE_NAMESPACE,
+                          'name': 'preview-abc', 'uid': 'pod-uid', 'apiVersion': 'v1'}}]}
+
+
+def disposable_endpoints(name='preview', uid='endpoints-uid'):
+    return {
+        'apiVersion': 'v1', 'kind': 'Endpoints',
+        'metadata': {
+            'name': name, 'namespace': SLICE_NAMESPACE, 'uid': uid,
+            'labels': {'endpoints.kubernetes.io/managed-by': 'endpoint-controller'}},
+        'subsets': [{'addresses': [{
+            'ip': '10.42.0.5',
+            'targetRef': {'kind': 'Pod', 'namespace': SLICE_NAMESPACE,
+                          'name': 'preview-abc', 'uid': 'pod-uid', 'apiVersion': 'v1'}}]}]}
+
+
+class PreviewEndpointSliceDisposalTests(unittest.TestCase):
+    def test_slice_bound_to_known_service_is_disposable(self):
+        svc = disposable_service()
+        pod = disposable_pod()
+        slc = disposable_endpointslice()
+        self.assertTrue(lifecycle.namespace_disposable(
+            [slc, svc, pod],
+            {svc['metadata']['uid'], pod['metadata']['uid']}, 'ns-uid'))
+
+    def test_foreign_unlabeled_mismatched_slices_rejected(self):
+        svc = disposable_service()
+        pod = disposable_pod()
+        roots = {svc['metadata']['uid'], pod['metadata']['uid']}
+        foreign = disposable_endpointslice()
+        foreign['metadata']['labels']['endpointslice.kubernetes.io/managed-by'] = 'custom-controller'
+        unlabeled = disposable_endpointslice()
+        del unlabeled['metadata']['labels']['kubernetes.io/service-name']
+        mismatched = disposable_endpointslice()
+        mismatched['metadata']['labels']['kubernetes.io/service-name'] = 'foreign'
+        wrong_api = disposable_endpointslice()
+        wrong_api['apiVersion'] = 'v1'
+        wrong_type = disposable_endpointslice()
+        wrong_type['addressType'] = 'FQDN'
+        bad_ports = disposable_endpointslice()
+        bad_ports['ports'] = [{'port': 99999}]
+        foreign_target = disposable_endpointslice()
+        foreign_target['endpoints'][0]['targetRef']['uid'] = 'other-uid'
+        cases = [foreign, unlabeled, mismatched, wrong_api, wrong_type,
+                 bad_ports, foreign_target]
+        for bad in cases:
+            with self.subTest(slice=bad['metadata']['labels']):
+                with self.assertRaises(ValueError):
+                    lifecycle.namespace_disposable(
+                        [bad, svc, pod], set(roots), 'ns-uid')
+
+    def test_activated_inventory_with_slices_is_disposable(self):
+        svc = disposable_service()
+        pod = disposable_pod()
+        first = disposable_endpointslice(name='preview-abcde', uid='slice-uid-1')
+        second = disposable_endpointslice(name='preview-fghij', uid='slice-uid-2')
+        second['metadata']['labels']['endpointslice.kubernetes.io/managed-by'] = (
+            'endpointslice-mirroring-controller')
+        account = {'apiVersion': 'v1', 'kind': 'ServiceAccount', 'metadata': {
+            'name': 'default', 'namespace': SLICE_NAMESPACE, 'uid': 'sa-uid'}}
+        config = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
+            'name': 'kube-root-ca.crt', 'namespace': SLICE_NAMESPACE, 'uid': 'cm-uid'}}
+        objects = [first, second, disposable_endpoints(), account, config, svc, pod]
+        roots = {svc['metadata']['uid'], pod['metadata']['uid']}
+        self.assertTrue(lifecycle.namespace_disposable(objects, roots, 'ns-uid'))
+
+
 if __name__ == '__main__':
     unittest.main()
