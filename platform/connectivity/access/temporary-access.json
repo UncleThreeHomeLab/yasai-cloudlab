@@ -1,13 +1,17 @@
 {
-  "status": "unsupported",
+  "status": "selected",
   "scope": "Temporary-access selection and shared request UI/API (access plan sections 3-4)",
-  "blocked": "Product decision open: no maintained upstream-only capability or scoped reviewed integration is selected. Evaluated candidates each fail one or more security gates (current-authority checks, immutable scope, usage budgets, revocation, audience enforcement, reproducible free approval path). No speculative installation.",
+  "selected": "telekom/k8s-breakglass v0.3.0-rc.20 (human-only)",
+  "install": "platform/connectivity/permissions/breakglass at the pinned platform revision",
+  "blocked": "Private approval declarations (A1-priv/A5) and live proof through the Git-declared backend path (A2-activ/A6-live). Trial install retires after Git sync verifies.",
   "acceptance": "One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path; one UI/API parity scenario proves identical requester isolation, self-approval rejection and changed-scope rejection.",
   "bounds": {
     "diagnosticsMinutes": 15,
     "identityEditsMinutes": 10,
     "rotationStartMinutes": 5,
     "renewal": "No automatic renewal; shorter backend limits apply.",
-    "approval": "Approval binds immutable requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget. Requester, beneficiary, delegated equivalents and conflicting identities are excluded from approval. Human review is required initially for identity and secret operations."
+    "approval": "Approval binds immutable requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget. Requester, beneficiary, delegated equivalents and conflicting identities are excluded from approval. Human review is required initially for identity and secret operations.",
+    "usageBudget": "No spend/count budget field exists upstream; approval-gated issuance plus session quotas (maxValidFor/idleTimeout) are the honest budget bound. Quotas are session quotas only.",
+    "tokenChecks": "Human Code+PKCE (+ IdP MFA); machine credentials audience-bound and short-lived. Verify signature, issuer, audience, expiry, not-before, issued-at and existing identity enrollment; incomplete credentials never activate."
   }
 }

@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["namespace", "breakglass", "webhook"],
+  "properties": {
+    "namespace": {"const": "cloudlab-breakglass"},
+    "breakglass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "blockSelfApproval", "humanOnly"],
+      "properties": {
+        "version": {"const": "v0.3.0-rc.20"},
+        "blockSelfApproval": {"const": true},
+        "humanOnly": {"const": true}
+      }
+    },
+    "webhook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster", "mode", "cacheAuthorizedTTL", "cacheUnauthorizedTTL"],
+      "properties": {
+        "cluster": {"const": "lab"},
+        "mode": {"const": "Node,RBAC,Webhook"},
+        "cacheAuthorizedTTL": {"const": "0s"},
+        "cacheUnauthorizedTTL": {"const": "0s"}
+      }
+    }
+  }
+}

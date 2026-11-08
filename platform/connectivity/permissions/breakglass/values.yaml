@@ -1,0 +1,12 @@
+# Pinned human-only breakglass install scoping. Upstream manifests are vendored
+# at promotion after sha256 verification against artifact.lock.json.
+namespace: cloudlab-breakglass
+breakglass:
+  version: v0.3.0-rc.20
+  blockSelfApproval: true
+  humanOnly: true
+webhook:
+  cluster: lab
+  mode: Node,RBAC,Webhook
+  cacheAuthorizedTTL: 0s
+  cacheUnauthorizedTTL: 0s

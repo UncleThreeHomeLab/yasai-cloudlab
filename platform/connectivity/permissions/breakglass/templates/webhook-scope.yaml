@@ -1,0 +1,14 @@
+# Desired webhook scope (source of truth; K3s host application is an owner step).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-breakglass-webhook-scope
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: permissions-platform}
+data:
+  mode: {{ .Values.webhook.mode | quote }}
+  cluster: {{ .Values.webhook.cluster | quote }}
+  cacheAuthorizedTTL: {{ .Values.webhook.cacheAuthorizedTTL | quote }}
+  cacheUnauthorizedTTL: {{ .Values.webhook.cacheUnauthorizedTTL | quote }}
+  failurePolicy: Deny
+  scope: "Node and RBAC preserved; webhook last, breakglass service only; scoped matchConditions exclude system identities; exact session expiry, no allow-cache."

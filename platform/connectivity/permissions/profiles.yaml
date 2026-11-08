@@ -20,3 +20,15 @@ profiles:
       - apiGroups: ['']
         resources: [nodes]
         verbs: [get, list]
+  approver:
+    # Approval happens in the breakglass UI/API; this profile binds approver
+    # identities with the same read-only review context, nothing more.
+    namespaceRules: *workloadReads
+    clusterRules: []
+  machine-read:
+    # Narrow read-only subset for audience-bound short-lived machine credentials.
+    namespaceRules:
+      - apiGroups: ['']
+        resources: [pods, services]
+        verbs: [get, list]
+    clusterRules: []
