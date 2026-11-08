@@ -136,7 +136,12 @@ def request(value):
 
 
 def requested_catalog(value):
-    """Merge YAML approval requests into catalog approvals with derived ownership."""
+    """Merge YAML approval requests into catalog approvals with derived ownership.
+
+    Requests must ship precomputed ownership for their derived namespace
+    (derive via request()/requested_catalog()); the admission policy admits
+    only namespaces listed in the raw catalog ownership.
+    """
     if not isinstance(value, dict):
         raise ValueError('Preview catalog requires exact private access and approvals')
     pending = value.get('requests', [])
@@ -149,6 +154,8 @@ def requested_catalog(value):
     for row in rows:
         namespace = names(row)['namespace']
         derived = row['instance'] + ':' + digest(canonical(row))
+        if namespace not in ownership:
+            raise ValueError('Preview request for ' + namespace + ' lacks precomputed namespace authorization')
         if ownership.setdefault(namespace, derived) != derived:
             raise ValueError('Preview request conflicts with retained namespace authorization')
     merged['ownership'] = ownership
