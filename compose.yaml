@@ -61,6 +61,7 @@ services:
     build: *lab-build
     entrypoint: [python, -m, playbooks.access.files.reconcile]
     working_dir: /workspace
+    restart: unless-stopped
     volumes:
       - type: bind
         source: .

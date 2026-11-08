@@ -87,9 +87,10 @@ configuration. External publication, identity and retirement remain explicit.
 The public root owns the catalog Application and its reviewed `services.revision` pin.
 
 [Observability](playbooks/observability/) keeps Git-owned dashboards and rules, private access,
-redaction and bounded storage. [Harbor](playbooks/harbor/) retains Argo installation,
-scoped registry credentials and coordinated recovery. Its host schedules use the
-same monthly export window and local-only freshness checks. Component tests own
+redaction and bounded storage. Native ApplicationSets own Harbor installation;
+the [Harbor settings executor](../infra/harbor/) reconciles reviewed registry
+bindings under content-bound approval, retaining credentials, unrelated projects
+and recoverable artifacts. Component tests own
 browser and provider fixtures.
 
 CI tools are qualified before job credentials are delivered. Application CI is
