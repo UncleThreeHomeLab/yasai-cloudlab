@@ -276,8 +276,16 @@ def collect_wiring(name, approval, definition, coordinates):
         if target in seen:
             fail('Duplicate credential delivery name: ' + name + '/' + target)
         seen.add(target)
-    if composition is not None or \
-            approval.get('chartPath', 'charts/service') != 'charts/service':
+    if composition is not None:
+        return
+    if approval.get('chartPath', 'charts/service') != 'charts/service':
+        custom = definition.get('secrets', [])
+        if (not isinstance(custom, list) or any(not isinstance(item, dict) or
+                                                not isinstance(item.get('name'), str) for item in custom)):
+            fail('Invalid secret mounts: ' + name)
+        for mount in [item['name'] for item in custom]:
+            if mount not in (approval.get('secretReferences') or []):
+                fail('Custom-chart secret mount requires its approved reference: ' + name + '/' + mount)
         return
     mounts = definition.get('secrets', [])
     if (not isinstance(mounts, list) or any(not isinstance(item, dict) or

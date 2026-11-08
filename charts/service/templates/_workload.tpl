@@ -22,6 +22,8 @@
 {{- fail "Secret mount path is reserved" }}
 {{- end }}
 {{- end }}
+{{- $apiToken := .Values.apiToken | default dict }}
+{{- $isolation := .Values.isolation | default dict }}
 {{- if not .Values.renderDisabled }}
 apiVersion: v1
 kind: ServiceAccount
@@ -105,6 +107,7 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Values.name }}
         cloudlab.io/owner: {{ .Values.owner | quote }}
+        cloudlab.io/workload: {{ .Values.name }}
         {{- if $monitoring.logs.enabled }}
         cloudlab.io/log-profile: cloudlab-http-json-v1
         {{- end }}
@@ -117,6 +120,10 @@ spec:
     spec:
       serviceAccountName: {{ .Values.name }}
       automountServiceAccountToken: false
+      {{- with .Values.dnsConfig }}
+      dnsConfig:
+        nameservers: {{ .nameservers | toJson }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{ . | toJson }}
       {{- end }}
@@ -149,7 +156,14 @@ spec:
             - {name: temporary, mountPath: /tmp}
             - {name: dependencies, mountPath: /dependencies}
             {{- range .Values.configMaps }}
+            {{- if has "dependencies" (.containers | default (list "application" "dependencies")) }}
             - {name: {{ .name }}, mountPath: {{ .mountPath | quote }}, readOnly: true}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.secrets }}
+            {{- if has "dependencies" (.containers | default (list "application")) }}
+            - {name: {{ .name }}, mountPath: {{ .mountPath | quote }}, readOnly: true}
+            {{- end }}
             {{- end }}
       {{- end }}
       containers:
@@ -194,10 +208,17 @@ spec:
             - {name: dependencies, mountPath: /dependencies, readOnly: true}
             {{- end }}
             {{- range .Values.secrets }}
+            {{- if has "application" (.containers | default (list "application")) }}
             - {name: {{ .name }}, mountPath: {{ .mountPath | quote }}, readOnly: true}
             {{- end }}
+            {{- end }}
             {{- range .Values.configMaps }}
+            {{- if has "application" (.containers | default (list "application" "dependencies")) }}
             - {name: {{ .name }}, mountPath: {{ .mountPath | quote }}, readOnly: true}
+            {{- end }}
+            {{- end }}
+            {{- if $apiToken.enabled }}
+            - {name: api-token, mountPath: /var/run/secrets/cloudlab.io/api, readOnly: true}
             {{- end }}
             {{- if .Values.persistence.enabled }}
             - {name: data, mountPath: {{ .Values.persistence.mountPath | quote }}}
@@ -206,6 +227,12 @@ spec:
         - {name: temporary, emptyDir: {sizeLimit: 64Mi}}
         {{- if .Values.initCommand }}
         - {name: dependencies, emptyDir: {sizeLimit: 128Mi}}
+        {{- end }}
+        {{- if $apiToken.enabled }}
+        - name: api-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, audience: {{ $apiToken.audience | quote }}, expirationSeconds: {{ $apiToken.expirationSeconds }}}
         {{- end }}
         {{- range .Values.secrets }}
         - name: {{ .name }}
@@ -258,6 +285,17 @@ spec:
     {{- range .Values.ports }}
     - {name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: TCP}
     {{- end }}
+{{- end }}
+{{- if $isolation.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}-default-deny
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: {{ .Values.name }}}
+  policyTypes: [Ingress, Egress]
 {{- end }}
 {{- end }}
 {{- if .Values.persistence.enabled }}

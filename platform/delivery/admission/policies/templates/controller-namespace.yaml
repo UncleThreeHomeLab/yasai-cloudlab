@@ -1,0 +1,36 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-controller-namespace
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: {{ toJson .Values.validationActions }}
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods, pods/ephemeralcontainers]
+  variables:
+    - name: selected
+      expression: >-
+        request.namespace in ['argocd', 'argo-rollouts', 'cert-manager', 'cloudlab-ci-system',
+          'cloudlab-connectors', 'cloudlab-data', 'cloudlab-gateway-private', 'cloudlab-gateway-public',
+          'cloudlab-harbor', 'cloudlab-identity', 'cloudlab-observability', 'cloudlab-policy',
+          'cnpg-system', 'external-secrets', 'istio-system', 'longhorn-system', 'tailscale']
+  validations:
+    - expression: >-
+        !variables.selected ||
+        (!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0)
+      message: Controller namespaces cannot add ephemeral debug containers.
+    - expression: >-
+        !variables.selected ||
+        (has(object.metadata.ownerReferences) && size(object.metadata.ownerReferences) > 0)
+      message: Controller namespaces accept only controller-managed pods.

@@ -13,7 +13,10 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `ports`, `health` | Named ports and HTTP readiness/liveness paths |
 | `resources`, `replicas` | CPU/memory requests and limits within the namespace budget |
 | `environment` | Non-secret strings; secret values belong in 1Password |
-| `secrets`, `configMaps` | Approved names and bounded read-only mount paths |
+| `secrets`, `configMaps` | Approved names and bounded read-only mount paths, each with optional per-container selection (`application`, `dependencies`) |
+| `apiToken` | Disabled; approved API clients declare an audience-bound token with short expiry, mounted in the application container only |
+| `dnsConfig` | Null for cluster defaults; otherwise the accepted resolver nameservers |
+| `isolation.enabled` | Disabled; dormant default-deny NetworkPolicy for workload pods |
 | `persistence` | Opt-in replicated storage, at most 4 GiB, retained on removal |
 | `exposure` | Class signal only (`none`, `public`, `private`); addresses come from exposure inputs, never the catalog |
 | `data` | Optional database/bucket names, scoped credential references and `retain` policy |
@@ -23,7 +26,9 @@ and approved immutable sources; authors cannot supply these fields in service va
 
 Workloads implement `application-no-api` by default: named ServiceAccount, no
 token, Restricted Pod Security, exact read-only mounts and no Kubernetes API
-access. Controller, job and host-exception profiles are unavailable through
+access. Each pod carries its `cloudlab.io/workload` identity and must select
+that workload's own ServiceAccount; sharing across workloads is refused.
+Controller, job and host-exception profiles are unavailable through
 this chart; the platform owns those identities separately.
 
 Source visibility (`approval.visibility`) is independent of network exposure.

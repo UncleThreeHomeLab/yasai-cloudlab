@@ -37,3 +37,6 @@ data: {}
 oidc: {enabled: false}
 monitoring: {enabled: false}
 rollouts: {enabled: false}
+apiToken: {enabled: false}
+dnsConfig: null
+isolation: {enabled: false}

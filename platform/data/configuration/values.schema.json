@@ -27,11 +27,43 @@
         },
         "database": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^pg_"
+              }
+            },
+            {
+              "not": {
+                "enum": [
+                  "postgres",
+                  "template0",
+                  "template1"
+                ]
+              }
+            }
+          ]
         },
         "role": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^pg_"
+              }
+            },
+            {
+              "not": {
+                "enum": [
+                  "postgres",
+                  "template0",
+                  "template1"
+                ]
+              }
+            }
+          ]
         }
       }
     },
@@ -42,19 +74,83 @@
     },
     "database": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^pg_"
+          }
+        },
+        {
+          "not": {
+            "enum": [
+              "postgres",
+              "template0",
+              "template1"
+            ]
+          }
+        }
+      ]
     },
     "applicationRole": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^pg_"
+          }
+        },
+        {
+          "not": {
+            "enum": [
+              "postgres",
+              "template0",
+              "template1"
+            ]
+          }
+        }
+      ]
     },
     "migrationRole": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^pg_"
+          }
+        },
+        {
+          "not": {
+            "enum": [
+              "postgres",
+              "template0",
+              "template1"
+            ]
+          }
+        }
+      ]
     },
     "backupRole": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^pg_"
+          }
+        },
+        {
+          "not": {
+            "enum": [
+              "postgres",
+              "template0",
+              "template1"
+            ]
+          }
+        }
+      ]
     },
     "bucket": {
       "type": "string",
@@ -90,23 +186,71 @@
             "properties": {
               "name": {
                 "type": "string",
-                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
               },
               "applicationRole": {
                 "type": "string",
-                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
               },
               "migrationRole": {
                 "type": "string",
-                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
               },
               "applicationItem": {
                 "type": "string",
-                "pattern": "^(cnpg|s3)-[a-z0-9-]+-(production|migration)$"
+                "pattern": "^cnpg-[a-z0-9-]+-production$"
               },
               "migrationItem": {
                 "type": "string",
-                "pattern": "^(cnpg|s3)-[a-z0-9-]+-(production|migration)$"
+                "pattern": "^cnpg-[a-z0-9-]+-migration$"
               }
             },
             "required": [
@@ -127,7 +271,7 @@
               },
               "item": {
                 "type": "string",
-                "pattern": "^(cnpg|s3)-[a-z0-9-]+-(production|migration)$"
+                "pattern": "^s3-[a-z0-9-]+-production$"
               }
             },
             "required": [

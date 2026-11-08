@@ -3,6 +3,7 @@
 {{- range $settings.serviceRequests }}
 {{- $service := .service }}
 {{- if .database }}
+{{- if eq .database.applicationRole .database.migrationRole }}{{ fail "Service application and migration roles must differ" }}{{- end }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Database

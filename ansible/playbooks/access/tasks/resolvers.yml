@@ -76,6 +76,14 @@
       if hostvars['cloudlab'].access_dns_zone.rc == 0 and hostvars['cloudlab'].access_dns_zone.stdout is match('^\\*\\.internal\\.')
       else None }}"
 
+- name: Require two distinct valid independent DNS resolvers
+  ansible.builtin.assert:
+    that:
+      - hostvars['cloudlab'].access_dns_tailnet.stdout | trim is match('^([0-9]{1,3}\\.){3}[0-9]{1,3}$')
+      - hostvars['cloudlab-worker'].access_dns_tailnet.stdout | trim is match('^([0-9]{1,3}\\.){3}[0-9]{1,3}$')
+      - hostvars['cloudlab'].access_dns_tailnet.stdout | trim != hostvars['cloudlab-worker'].access_dns_tailnet.stdout | trim
+    fail_msg: Independent DNS resolvers must be two distinct valid addresses; no implicit fallback resolver is allowed.
+
 - name: Configure and verify each DNS generation before activation
   throttle: 1
   ansible.builtin.command:
