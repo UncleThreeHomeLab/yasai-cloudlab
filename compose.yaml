@@ -212,6 +212,30 @@ services:
       PROTECTION_INTERVAL: ${PROTECTION_INTERVAL:-600}
     command: [loop]
 
+  dependency-maintenance:
+    profiles: [maintenance]
+    platform: linux/amd64
+    image: docker.io/library/node:22.21.1-bookworm@sha256:b84d52cd45bfe261096ccbf886955d431b8b9ed01b72eaef588e8886bda09e78
+    entrypoint: [node, /workspace/platform/delivery/dependencies/schedule.cjs]
+    working_dir: /workspace
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: volume
+        source: maintenance_state
+        target: /maintenance/state
+      - type: volume
+        source: maintenance_handoff
+        target: /handoff
+    environment:
+      MAINTENANCE_INTERVAL: ${MAINTENANCE_INTERVAL:-3600}
+      MAINTENANCE_REPOSITORY: ${MAINTENANCE_REPOSITORY:-UncleThreeHomeLab/yasai-cloudlab}
+      MAINTENANCE_BASE: ${MAINTENANCE_BASE:-main}
+    command: [loop]
+
 volumes:
   harbor_infra_work:
   infra_work:
@@ -221,3 +245,5 @@ volumes:
   recovery_outputs:
   reconciler_state:
   protection_work:
+  maintenance_state:
+  maintenance_handoff:

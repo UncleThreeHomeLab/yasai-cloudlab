@@ -1,4 +1,8 @@
 // Bounded single-use handoff shared only with the trusted credential owner.
+//
+// The operator merges their user-held writer token via RENOVATE_TOKEN when
+// running this consumer; the repository never stores it and the value only
+// reaches the writer on stdin. Raw logs stay in tmpfs.
 const fs = require('node:fs');
 const {spawnSync} = require('node:child_process');
 const deadline = Date.now() + 120000;
@@ -13,10 +17,22 @@ const poll = setInterval(() => {
       process.exitCode = 1;
       return;
     }
-    const result = spawnSync('node', ['/trusted/renovate-run.cjs'], {
-      input, env: {PATH: process.env.PATH}, encoding: 'utf8', timeout: 1810000,
+    let scoped = '';
+    try {
+      const token = process.env.RENOVATE_TOKEN || '';
+      if (!token || /\s/.test(token)) throw new Error('writer token missing');
+      const request = JSON.parse(input);
+      request.token = token;
+      scoped = JSON.stringify(request);
+      if (scoped.length > 16384) throw new Error('scoped request exceeds 16 KiB');
+    } catch {
+      scoped = '';
+    }
+    const result = scoped ? spawnSync('node', ['/trusted/renovate-run.cjs'], {
+      input: scoped, env: {PATH: process.env.PATH}, encoding: 'utf8', timeout: 1810000,
       maxBuffer: 16384
-    });
+    }) : {status: 1, stdout: ''};
+    scoped = '';
     // Raw Renovate logs stay in tmpfs. Only its allowlisted result leaves.
     if (result.status === 0 && result.stdout.length < 1024) {
       fs.writeFileSync('/handoff/result.tmp', result.stdout, {mode: 0o600});
