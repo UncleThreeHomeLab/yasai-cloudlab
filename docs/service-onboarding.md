@@ -988,7 +988,11 @@ changes; rotation/removal/recovery remain independently scoped.
    Submit any changed service settings through the catalog PR flow in section 6.4.
    No hand-edit of the identity inventory is needed for applications clients;
    memberships and platform-realm clients stay hand-managed in private
-   `identity/configmap.yaml`. Verify a successful subsequent normal Keycloak
+   `identity/configmap.yaml`. User/group edits are private desired_state data
+   only; no platform/identity code change is needed or allowed. Preserve PR
+   reviews, the writer lease lock and revocations tombstones; never grant
+   platform-admin or self-privilege through these edits. Verify a successful
+   subsequent normal Keycloak
    writer run and the actual client configuration. The leased writer runs every
    five minutes.
    Keep the accepted identity installation pin; do not repin it to the advancing Root or service catalog revision.

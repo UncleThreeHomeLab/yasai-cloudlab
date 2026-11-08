@@ -1,0 +1,19 @@
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson -}}
+{{- if ne .Values.breakglass.version $lock.version -}}
+{{- fail "Breakglass values version must match artifact.lock.json" -}}
+{{- end }}
+# Secret-free install record: pins version, digests and enforced options.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-breakglass-install
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: permissions-platform}
+data:
+  version: {{ $lock.version | quote }}
+  blockSelfApproval: {{ .Values.breakglass.blockSelfApproval | quote }}
+  humanOnly: {{ .Values.breakglass.humanOnly | quote }}
+  crdsUrl: {{ $lock.crds.url | quote }}
+  crdsSha256: {{ $lock.crds.sha256 | quote }}
+  baseUrl: {{ $lock.base.url | quote }}
+  baseSha256: {{ $lock.base.sha256 | quote }}

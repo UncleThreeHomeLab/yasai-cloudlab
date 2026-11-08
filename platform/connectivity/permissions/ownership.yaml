@@ -33,6 +33,26 @@ paths:
     revocation: policy change via reviewed Git
     standing: false
     notes: No standing Argo grants; additive mappings remain unqualified. Qualified separately from native RBAC; neither review covers the other.
+  - id: argo-rbac-maps
+    subjects: opaque mapped identities only
+    source: platform/delivery/argocd values (empty policy.csv; no group or OIDC mappings declared)
+    fieldOwner: delivery/argocd owner
+    reconciler: cloudlab-argocd Application
+    credentials: none granted
+    retention: not-applicable
+    revocation: mapping change via reviewed Git; Argo RBAC is additive with native RBAC
+    standing: false
+    notes: Additive maps stay unqualified and empty; any future mapping needs its own qualification. Subjects stay opaque here.
+  - id: argo-bypass
+    subjects: opaque emergency identities only
+    source: platform/delivery/argocd values (local admin disabled, exec disabled, anonymous denied)
+    fieldOwner: delivery/argocd owner
+    reconciler: none while disabled
+    credentials: none issued
+    retention: not-applicable
+    revocation: re-disable via reviewed Git; rotate after any exceptional use
+    standing: false
+    notes: Emergency bypass stays disabled; exceptional use is separately reviewed. Subjects stay opaque here.
   - id: argo-controller
     subjects: argocd-application-controller ServiceAccount
     source: pinned upstream chart plus reviewed AppProjects
@@ -52,7 +72,7 @@ paths:
     retention: retain while declared
     revocation: remove or narrow the binding through reviewed Git
     standing: true
-    notes: Sole cluster-admin binding; identity comes only from the private values revision.
+    notes: Sole cluster-admin binding, breakglass-scoped for recovery only, never for daily use; identity comes only from the private values revision.
   - id: permissions-profiles-public
     subjects: no subjects bound; reviewed profiles only
     source: public platform/connectivity/permissions profiles.yaml at an accepted revision
@@ -62,7 +82,7 @@ paths:
     retention: retain roles while declared
     revocation: remove the profile through reviewed Git; bindings referencing it fail closed
     standing: false
-    notes: UID-free; fixed ClusterRole names and labels identify grants; revision tracked at Application/ConfigMap level, no UID adoption. Roles alone grant nothing; qualified separately from Argo mappings.
+    notes: "Exactly 5 workload presets, all owned by connectivity/permissions: viewer, developer, platform-engineer (scoped admin: namespace workload reads plus node reads, no admin verbs), approver (read-only review context), machine-read (pods/services reads only). No profile grants cluster-admin; binding the tailnet breakglass identity is excluded. UID-free; fixed ClusterRole names and labels identify grants; revision tracked at Application/ConfigMap level, no UID adoption. Roles alone grant nothing; qualified separately from Argo mappings."
   - id: permissions-rbac
     subjects: private assignments only
     source: private platform/permissions.yaml at an accepted revision (opaque here)
@@ -70,9 +90,9 @@ paths:
     reconciler: cloudlab-permissions ApplicationSet once enabled
     credentials: none; assignments reference existing identities
     retention: retain owner and roles during retirement
-    revocation: state retired with empty assignments, then binding absence plus fresh denial
+    revocation: remove the assignment (offboarding) or state retired with empty assignments, then binding absence plus fresh denial; held streams survive until closed
     standing: false
-    notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants. Qualified separately from Argo mappings.
+    notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants; repair is fix-forward, never empty-apply. Qualified separately from Argo mappings.
   - id: eso-readonly
     subjects: External Secrets operator
     source: external-secrets chart plus per-owner ExternalSecrets
@@ -93,6 +113,16 @@ paths:
     revocation: rotate in the vault; reissue locally
     standing: true
     notes: Only creator of missing approved items; application runners never hold it.
+  - id: rotation-disposable
+    subjects: local operator only
+    source: one disposable rotation drill profile, declared here
+    fieldOwner: operator
+    reconciler: none (manual drill, owner phase)
+    credentials: provisioning token in local custody only; ESO stays read-only and untouched
+    retention: drill-only; remove the disposable item after verification
+    revocation: rotate after use; last-valid retained until the new value verifies
+    standing: false
+    notes: "Vault CloudLab, item cloudlab-access-rotation-drill, field drill_secret. Order: create, verify acceptance, rotate, verify new acceptance plus old rejection, remove. Recovery: keep the prior value until the new one verifies; ESO never writes; token never leaves local custody."
   - id: workload-identities
     subjects: per-workload ServiceAccounts
     source: owning workload charts
@@ -142,7 +172,7 @@ paths:
     retention: session only
     revocation: close session; narrow entry policy through reviewed Git
     standing: false
-    notes: Authenticates callers; grants no Kubernetes or Argo authority by itself.
+    notes: Human path is Keycloak Code+PKCE with IdP MFA; breakglass sessions are human-only. Authenticates callers; grants no Kubernetes or Argo authority by itself.
   - id: machine-entry
     subjects: workload OIDC client identities
     source: approved private client declarations
@@ -152,7 +182,7 @@ paths:
     retention: credential lifetime only
     revocation: remove the client declaration; deny at the backend
     standing: false
-    notes: No standing Kubernetes grants; incomplete credentials never activate workloads.
+    notes: Audience-bound short-lived credentials; token checks are signature, issuer, audience, expiry, not-before, issued-at and existing identity enrollment. No machine sessions via breakglass (unqualified); direct private assignments with the machine-read profile only. No standing Kubernetes grants; incomplete credentials never activate workloads.
   - id: emergency-recovery
     subjects: independently held recovery identities
     source: out-of-band custody, separate from daily identities
@@ -164,6 +194,6 @@ paths:
     standing: true
     notes: Opaque by design; use is exceptional and separately reviewed.
 unsupported:
-  - Temporary grants: no access portal is selected (see temporary-access-selection.yaml); adapter contracts drafted, no backend installed, no temporary-grant mechanism exists.
+  - Temporary grants: k8s-breakglass v0.3.0-rc.20 selected and Git-declared (see temporary-access-selection.yaml and breakglass/); adapter contract active; live proof through the Git path pending, then trial-writer retirement.
   - Private assignment content: opaque private Git; bounded by acceptance, admission and zero active assignments.
   - Live corroboration: this contract is verified against declarations only; cluster reads need a separate scoped check.

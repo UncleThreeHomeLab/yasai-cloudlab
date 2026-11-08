@@ -68,10 +68,12 @@ harbor:
 admission:
   enabled: true
 permissions:
-  # Bootstrap disabled; run lab verify to qualify the exact admission guard first.
-  # Keep verified guard bytes unchanged; enable a reviewed pin and commitment with
-  # private active assignments: []. Verify sources/zero bindings before assignment.
-  # Initial activation is staged, not an atomic cross-Application dependency.
+  # Verify-first activation: 1) promote the service catalog pin first,
+  # 2) run lab verify to qualify the exact admission guard, 3) pin the reviewed
+  # revision, 4) record the acceptance commitment, 5) enable with private active
+  # assignments: []. Keep verified guard bytes unchanged; verify sources/zero
+  # bindings before assignment. Initial activation is staged, not an atomic
+  # cross-Application dependency. Breakglass reuses this pin and commitment.
   enabled: true
   revision: 0613d2cf624d0c9d6c13c328c0fea8e3ea9b0987
   acceptanceCommitment: '85bdb8db180dc381c5cdb4cd1e03695a84c46e1f63a055c070683ab85d80b933'

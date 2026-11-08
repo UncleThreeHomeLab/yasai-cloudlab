@@ -1,0 +1,18 @@
+{
+  "version": "v0.3.0-rc.20",
+  "source": "https://github.com/telekom/k8s-breakglass",
+  "release": "https://github.com/telekom/k8s-breakglass/releases/tag/v0.3.0-rc.20",
+  "crds": {
+    "url": "https://github.com/telekom/k8s-breakglass/releases/download/v0.3.0-rc.20/manifests-crds.yaml",
+    "sha256": "9e05136ff7acc48c9dfd582e0064d552a1851b19df82fa6a6c6d4b278eaedc54"
+  },
+  "base": {
+    "url": "https://github.com/telekom/k8s-breakglass/releases/download/v0.3.0-rc.20/manifests-base.yaml",
+    "sha256": "83176213a5c6b944ec812a358325a6f1527b9b9902b2aa9b7c55ccd18d1103d8"
+  },
+  "bundle": {
+    "url": "https://github.com/telekom/k8s-breakglass/releases/download/v0.3.0-rc.20/manifests-v0.3.0-rc.20.tgz",
+    "sha256": "9efd32a71ffa81b686eb729e99b1add48ab1d5ecdd22d51f211a4af3a10f6e49"
+  },
+  "vendoring": "Owner downloads crds/base at promotion, verifies sha256, vendors bytes as upstream-crds.yaml/upstream-base.yaml; controller image digests resolve from vendored bytes and are verified before Argo sync. Debug manifests excluded."
+}

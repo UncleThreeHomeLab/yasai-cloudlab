@@ -1,0 +1,43 @@
+{{- $permissions := .Values.permissions -}}
+{{- if $permissions.enabled -}}
+{{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" ($permissions.revision | default ""))) -}}
+{{- fail "Breakglass requires admission, External Secrets and an immutable public revision" -}}
+{{- end -}}
+{{- $acceptance := $permissions.acceptanceCommitment -}}
+{{- if not (regexMatch "^[a-f0-9]{64}$" ($acceptance | default "")) -}}
+{{- fail "Breakglass requires the reviewed permissions acceptance commitment" -}}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: cloudlab-breakglass, namespace: {{ .Values.namespace }}}
+spec:
+  sourceRepos: [{{ .Values.repository | quote }}]
+  destinations: [{server: 'https://kubernetes.default.svc', namespace: cloudlab-breakglass}]
+  clusterResourceWhitelist:
+    - {group: '', kind: Namespace}
+  namespaceResourceWhitelist:
+    - {group: '', kind: ConfigMap}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudlab-breakglass
+  namespace: {{ .Values.namespace }}
+  labels: {cloudlab.io/owner: permissions-platform}
+spec:
+  project: cloudlab-breakglass
+  source:
+    repoURL: {{ .Values.repository | quote }}
+    targetRevision: {{ $permissions.revision | quote }}
+    path: platform/connectivity/permissions/breakglass
+    helm:
+      releaseName: cloudlab-breakglass
+  destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-breakglass}
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false]
+    retry:
+      limit: 5
+      backoff: {duration: 5s, factor: 2, maxDuration: 1m}
+{{- end }}
