@@ -23,6 +23,10 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `oidc` | Optional explicit identity client settings; the identity owner compiles clients from the catalog |
 | `monitoring` | Disabled; application monitoring stays with its accepted telemetry owner |
 | `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
+| `egress` | In-cluster peers (`namespace` + `podSelector`) or canonical IPv4 `ipBlock` CIDRs only; external and domain allowlisting is unsupported and stays denied |
+| `exceptions` | Per-exception register; a `system-exception` workload requires a matching identity entry |
+| `approval.composition` | Multi-workload chart: named non-default `podSpec.serviceAccountName` per workload, exact selectors, ambient capture, default-deny mesh |
+| `publication` | `ready`, `published` or `retired`; retired stops rendering and denies policies while data, credentials and registers are retained |
 
 Dormant offline mirrors of the secret, identity, and data shapes live at `platform/delivery/services/secret-profiles.schema.json`, `secret-placeholders.schema.json`, `identity.schema.json`, and `platform/data/configuration/data.schema.json`, `storage.schema.json`. They are not referenced by values or templates and create nothing; the table above plus the owning modules stay normative.
 
