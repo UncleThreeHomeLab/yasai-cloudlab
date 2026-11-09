@@ -571,6 +571,7 @@
               "email": {
                 "type": "object",
                 "additionalProperties": false,
+                "description": "SMTP account and Alertmanager egress are owned elsewhere: the external account must already exist and delivery paths stay with the workload/network owners.",
                 "properties": {
                   "host": {
                     "type": "string",
@@ -640,6 +641,7 @@
               "webhook": {
                 "type": "object",
                 "additionalProperties": false,
+                "description": "Mesh mode uses ambient workload identity; method/path enforcement requires a supported waypoint or application enforcement qualified by the workload owner.",
                 "properties": {
                   "target": {
                     "type": "object",
@@ -819,6 +821,7 @@
         "timeIntervals": {
           "type": "array",
           "maxItems": 8,
+          "description": "Recurring maintenance schedules rendered as native time intervals; incident silences stay authorized runtime operations, not Git state.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -913,6 +916,7 @@
           "type": "array",
           "maxItems": 8,
           "uniqueItems": true,
+          "description": "Each entry must reference a declared time interval; applied at the root route so recurring maintenance mutes all child routes.",
           "items": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9-]{0,30}$",
@@ -922,6 +926,7 @@
         "inhibitRules": {
           "type": "array",
           "maxItems": 8,
+          "description": "Bounded native inhibition with equality matchers only; fallback, continuation, and recovery delivery are preserved.",
           "items": {
             "type": "object",
             "additionalProperties": false,

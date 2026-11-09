@@ -1,7 +1,20 @@
 {{/* Workload API presets resolve only here, in the administrator-owned services chart.
 charts/service workloads are implicitly application-no-api and render no Role.
 The apps/notes fork passes validated YAML through this same renderer and
-resolves nothing itself. No preset lets a workload self-grant RBAC verbs. */}}
+resolves nothing itself. No preset lets a workload self-grant RBAC verbs.
+Removal: a retired entry renders its preset Role with empty rules and keeps its
+RoleBinding. The services Application never prunes, so withdrawal arrives as an
+in-place update through self-heal; the emptied Role and binding stay as
+retention records. While the entry stays retired the render stays empty, and the
+workload AppProject admits no Role or RoleBinding kinds, so a retired grant
+cannot resurrect through the workload author; only a reviewed publication change
+reactivates the preset. RBAC is additive: this binding is the workload
+account's only grant (telemetry and artifact bindings attach to platform
+accounts), while cluster baseline discovery and self-review rights are
+unchanged. New API requests fail closed once the emptied Role reaches the API;
+in-flight requests complete. Composition pods mount no API credential under the
+composition policy (automount refused, projected volumes outside the allowlist),
+so no issued token outlives the grant through this owner. */}}
 {{- $presets := dict
   "application-api-reader" (list
     (dict "apiGroups" (list "") "resources" (list "pods" "services" "events") "verbs" (list "get" "list"))
@@ -32,7 +45,7 @@ resolves nothing itself. No preset lets a workload self-grant RBAC verbs. */}}
 {{- range $a.exceptions | default list }}{{ if eq .identity $sa }}{{ $match = true }}{{ end }}{{ end }}
 {{- if not $match }}{{ fail "system-exception preset requires a matching per-exception register entry" }}{{- end }}
 {{- end }}
-{{- if and (ne $preset "application-no-api") (ne $preset "system-exception") (not $retired) }}
+{{- if and (ne $preset "application-no-api") (ne $preset "system-exception") }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -41,7 +54,7 @@ metadata:
   namespace: {{ $a.namespace }}
   annotations: {argocd.argoproj.io/sync-wave: '-1'}
   labels: {cloudlab.io/owner: service-platform, cloudlab.io/workload-preset: {{ $preset | quote }}}
-rules: {{ index $presets $preset | toJson }}
+rules: {{ if $retired }}[]{{ else }}{{ index $presets $preset | toJson }}{{ end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

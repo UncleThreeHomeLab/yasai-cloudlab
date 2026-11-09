@@ -1351,7 +1351,8 @@ Source repository visibility does not change this path.
 5. Request delivery in the reviewed `platformNotifications` subscriptions in `platform/observability.yaml` (service,
    severities, approved receivers); services cannot invent destinations.
    Recurring maintenance uses declared `timeIntervals` with `muteWindows`;
-   incident silences stay authorized runtime operations, not Git state.
+   inhibition rules are likewise platform-owned in the same file.
+   Incident silences stay authorized runtime operations, not Git state.
 6. Keep secrets, endpoints and private deployment bindings out of public Git.
    Select one component, pod and container by default; filters are not authorization.
 

@@ -420,6 +420,64 @@ def controller_ephemeral(enforce):
         raise RuntimeError('Controller-namespace violation did not match the declared policy mode')
 
 
+def secretref_catalog_policy(actions, namespace):
+    """Admit exact owner-shaped ExternalSecrets; deny foreign store, template and refs.
+
+    All probes are server dry-runs: nothing is created. The positive control
+    mirrors the services owner's render (catalog store, 24h refresh, Owner
+    creation, Retain deletion, guarded v2 template, single whole-item extract).
+    """
+    name = 'cloudlab-secretref-catalog'
+    wait(lambda: policy_ready(get('validatingpolicy.policies.kyverno.io', name)),
+         'native secretref catalog policy readiness', timeout=180)
+    policy = get('validatingpolicy.policies.kyverno.io', name)
+    variables = {row['name']: row['expression']
+                 for row in policy['spec'].get('variables', [])}
+    messages = [row.get('message') for row in policy['spec'].get('validations', [])]
+    if (not policy_ready(policy) or policy['spec']['validationActions'] != actions or
+            policy['spec'].get('failurePolicy') != 'Fail' or
+            policy['spec'].get('evaluation', {}).get('admission') != {'enabled': True} or
+            policy['spec'].get('evaluation', {}).get('background') != {'enabled': False} or
+            policy['spec']['matchConstraints']['resourceRules'] != [{
+                'apiGroups': ['external-secrets.io'], 'apiVersions': ['v1'],
+                'operations': ['CREATE', 'UPDATE'], 'resources': ['externalsecrets']}] or
+            'namespaceSelector' in policy['spec'].get('matchConstraints', {}) or
+            variables.get('selected') != "request.namespace.startsWith('cloudlab-app-')" or
+            messages != ['Application ExternalSecrets require the catalog owner store, shape and retention.',
+                         'Application ExternalSecrets require the guarded v2 delivery template.',
+                         'Application ExternalSecrets require a single whole-item vault reference.']):
+        raise RuntimeError('Native secretref catalog policy is not ready or its declared scope changed')
+    enforce = actions == ['Deny']
+    good = {'apiVersion': 'external-secrets.io/v1', 'kind': 'ExternalSecret',
+            'metadata': {'name': 'cloudlab-secretref-proof', 'namespace': namespace},
+            'spec': {'refreshInterval': '24h',
+                     'secretStoreRef': {'name': 'cloudlab', 'kind': 'ClusterSecretStore'},
+                     'target': {'name': 'cloudlab-secretref-proof', 'creationPolicy': 'Owner',
+                                'deletionPolicy': 'Retain',
+                                'template': {'engineVersion': 'v2', 'mergePolicy': 'Replace',
+                                             'data': {'token': '{{ .token }}'}}},
+                     'dataFrom': [{'extract': {'key': 'prices-session'}}]}}
+    if dry_run(good).returncode:
+        raise RuntimeError('Owner-shaped ExternalSecret did not pass server admission')
+    foreign = copy.deepcopy(good)
+    foreign['spec']['secretStoreRef']['name'] = 'foreign'
+    untemplated = copy.deepcopy(good)
+    del untemplated['spec']['target']['template']
+    direct = copy.deepcopy(good)
+    direct['spec']['data'] = [{'secretKey': 'token',
+                               'remoteRef': {'key': 'prices-session', 'property': 'token'}}]
+    split = copy.deepcopy(good)
+    split['spec']['dataFrom'].append({'extract': {'key': 'prices-extra'}})
+    for document, message in (
+            (foreign, 'Application ExternalSecrets require the catalog owner store, shape and retention.'),
+            (untemplated, 'Application ExternalSecrets require the guarded v2 delivery template.'),
+            (direct, 'Application ExternalSecrets require a single whole-item vault reference.'),
+            (split, 'Application ExternalSecrets require a single whole-item vault reference.')):
+        result = dry_run(document)
+        if bool(result.returncode) != enforce or message not in result.stderr:
+            raise RuntimeError('ExternalSecret violation did not match the declared policy mode')
+
+
 def run(revision, actions, catalog=None, guard_expected=None, namespace_expected=None):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
@@ -475,6 +533,7 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
     workloads = [row for row in get('namespace')['items'] if namespace_candidate(row)]
     if not workloads:
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
+    secretref_catalog_policy(actions, workloads[0]['metadata']['name'])
     ephemeral_checked, composition_checked, restricted_checked = namespaces(workloads, enforce, catalog)
     initial = controllers()
     deadline = time.monotonic() + 60
@@ -486,7 +545,8 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
     return {'applications_converged': 2, 'admission_nodes': 2, 'policy_mode': 'enforce' if enforce else 'audit',
             **{name + '_' + outcome: True for name in (
                 'mutable_image', 'zero_resources', 'projected_token', 'stale_token', 'shared_account',
-                'ephemeral_image', 'controller_bare_pod', 'controller_ephemeral')},
+                'ephemeral_image', 'controller_bare_pod', 'controller_ephemeral',
+                'secretref_store', 'secretref_template', 'secretref_shape')},
             'ephemeral_namespaces_checked': ephemeral_checked,
             'composition_namespaces_checked': composition_checked,
             'unapproved_composition_namespace_denied': True,
@@ -494,7 +554,7 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
             'native_namespace_guard_verified': True,
             'restricted_workload_admitted': restricted_checked > 0,
             'bound_token_admitted': True, 'own_account_admitted': True,
-            'controller_owned_admitted': True,
+            'controller_owned_admitted': True, 'secretref_owner_admitted': True,
             'privileged_workload_denied': True, 'workloads_created': 0, 'controllers_stable': True}
 
 

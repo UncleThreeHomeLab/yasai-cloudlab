@@ -107,7 +107,7 @@
     "webhook_targets": "Nonretired charts/service catalog entries without composition; approved named TCP port and bounded path only; redirects disabled",
     "credentials": "Existing cloudlab-observability alertmanager-notification-* Kubernetes Secrets; fixed derived paths; no inline values or vault provisioning",
     "state": "Native 1Gi retained telemetry claim; legacy emptyDir unchanged; existing state preservation or verified-empty gate required before replacement",
-    "activation_requirements": "Qualified network enforcement, credential readiness, existing state preservation and Kubernetes storage lifecycle; transport fixtures alone are insufficient",
+    "activation_requirements": "Qualified network enforcement via the workload/network owners (Alertmanager egress), mesh identity plus waypoint-or-application method/path enforcement, existing credential delivery, state preservation, and storage lifecycle; transport fixtures alone are insufficient",
     "fixture": "Compose-shim offline render of the notification fixture with structural config validation; no host ports or production destinations"
   },
   "service_observability": {

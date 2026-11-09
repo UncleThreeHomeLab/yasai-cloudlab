@@ -1,4 +1,19 @@
 ---
+# Security posture (container/host exception assessment): the effective server
+# config sets only write-kubeconfig-mode 0600, the WireGuard advertise-address
+# and TLS SAN, pod/service CIDRs, the vxlan backend, reviewed sysctls and
+# legacy-ingress disablement. API and kubelet authentication, anonymous access,
+# Node authorization and restriction, and credential lifetimes follow the pinned
+# K3s distribution defaults; this module sets no bind-address, anonymous-auth,
+# authorization-mode, service-account-issuer, or kubelet-auth flags.
+# Advertise-address is not a bind: interface exposure is contained by the host
+# firewall (network owner), which opens neither 6443 nor 10250 publicly.
+# Cluster credentials are root-only files (server kubeconfig 0600, agent join
+# token 0600). The single-server SQLite datastore has no envelope encryption
+# (no secrets-encryption flag; the distribution opt-in mints its key under
+# server/cred), so disk or root access reads stored secrets; control-plane
+# restic backups carry their own separate credentials. Confirm distribution
+# defaults through the two-node prove/verify gate before relying on them.
 - name: Create K3s configuration directory
   ansible.builtin.file:
     path: /etc/rancher/k3s
