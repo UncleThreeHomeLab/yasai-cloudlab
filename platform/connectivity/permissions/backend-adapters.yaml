@@ -13,6 +13,9 @@ adapters:
     credentials: none held; human OIDC via Keycloak only, no service credentials in the adapter
     expiry: session TTL within shared bounds (15/10/5 minutes); maxValidFor at or under the bound; no renewal
     deletion: sessions expire by TTL and are deleted on revocation; removal is followed by binding absence plus fresh denial
+    idempotency: issuance and revocation carry durable session IDs; repeat revocation is a no-op and repeat issuance binds to the existing approval, never duplicating grants
+    retention: contract removal withdraws backend authorization; issued bindings expire by TTL or are deleted on revocation, never retained
+    unsupported: machine sessions via breakglass, spend/count usage budgets, standing grants, custom IAM, UID-based adoption and automatic renewal fail closed (rejected, never partially applied)
 rules:
   inputs: A request carries an existing beneficiary identity, a reviewed profile name, a namespace or cluster scope, a TTL within shared bounds and an immutable approval binding requester, beneficiary, backend, canonical target IDs, actions, policy revision, TTL and usage budget.
   outputs: Native RBAC RoleBinding or ClusterRoleBinding objects only, referencing existing cloudlab-permissions ClusterRoles; backends create no roles and no authority-bearing custom resources.
