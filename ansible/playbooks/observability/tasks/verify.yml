@@ -1,0 +1,20 @@
+---
+- name: Refresh authenticated observability observation inputs
+  ansible.builtin.import_tasks: source.yml
+  vars:
+    observability_public_payload: '{{ gitops_verification_payload.stdout | from_json }}'
+- name: Verify native telemetry desired state
+  ansible.builtin.command:
+    argv: [python3, /var/lib/cloudlab/observability/verify.py]
+    stdin: '{{ observability_runtime_payload | to_json }}'
+  register: observability_verified
+  changed_when: false
+  failed_when: false
+  no_log: true
+- name: Require observability verification to pass
+  ansible.builtin.assert:
+    that: observability_verified.rc == 0
+    fail_msg: Observability verification failed; private diagnostics withheld.
+- name: Report sanitized observability acceptance
+  ansible.builtin.debug:
+    msg: '{{ observability_verified.stdout | from_json }}'

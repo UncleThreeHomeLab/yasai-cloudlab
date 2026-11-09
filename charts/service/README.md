@@ -24,6 +24,8 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `monitoring` | Disabled; application monitoring stays with its accepted telemetry owner |
 | `rollouts.enabled` | Optional stateless Rollout with Gateway API weights and per-revision analysis |
 
+Dormant offline mirrors of the secret, identity, and data shapes live at `platform/delivery/services/secret-profiles.schema.json`, `secret-placeholders.schema.json`, `identity.schema.json`, and `platform/data/configuration/data.schema.json`, `storage.schema.json`. They are not referenced by values or templates and create nothing; the table above plus the owning modules stay normative.
+
 Workloads implement `application-no-api` by default: named ServiceAccount, no
 token, Restricted Pod Security, exact read-only mounts and no Kubernetes API
 access. Each pod carries its `cloudlab.io/workload` identity and must select

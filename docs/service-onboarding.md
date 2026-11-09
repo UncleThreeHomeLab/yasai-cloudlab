@@ -382,6 +382,8 @@ stay disabled. A new source revision never inherits a previous approval.
 This file is the versioned registration input. Argo deploys the pool files
 derived from it (step 4.3). Do not copy registration files into this public repo.
 
+Dormant annotated copies live at `platform/delivery/ci/examples/registration.example.yaml` and `release.example.json`; no reconciler reads that path. The live registration is `platform/ci/applications/<name>.yaml` in private GitOps; the live release record stays `apps/releases/<name>.json` in the owning GitOps repo per `release.schema.json`.
+
 ### 4.3 Review the derived pools — Agent
 
 Argo derives the controller, runner and publisher pools from the registration
@@ -1306,7 +1308,8 @@ Source repository visibility does not change this path.
 4. **Agent:** use the owning service's accepted SLO thresholds and rules.
    Notes thresholds live in `apps/notes/slo.json` with
    `charts/service/release-policy.json`; their pinned rule file is
-   `platform/observability/prometheus/templates/notes-slo.json`.
+   `platform/observability/prometheus/notes-slo.json`, rendered through the
+   explicit native include in `platform/observability/prometheus/templates/notes-slo.yaml`.
    Do not copy those expressions as a generic onboarding template.
    Request/error/latency panels require accepted instrumentation; readiness and resources
    alone do not establish application health. Alert counts require reliable service

@@ -264,7 +264,7 @@ class MonitoringCompiledInputsTests(unittest.TestCase):
     def test_notes_pinned_expressions_and_release_callers_preserved(self):
         import json
         pinned = json.loads(
-            (ROOT / 'platform/observability/prometheus/templates'
+            (ROOT / 'platform/observability/prometheus'
              '/notes-slo.json').read_text())
         groups = pinned['spec']['groups']
         self.assertEqual([group['name'] for group in groups],
@@ -283,7 +283,7 @@ class MonitoringCompiledInputsTests(unittest.TestCase):
         self.assertIn('charts/service/release-policy.json@', source)
         callers = (ROOT / 'docs/service-onboarding.md').read_text(
             encoding='utf-8')
-        self.assertIn('platform/observability/prometheus/templates'
+        self.assertIn('platform/observability/prometheus'
                       '/notes-slo.json', callers)
 
     def test_notification_renders_mute_inhibit_continuation_and_recovery(self):

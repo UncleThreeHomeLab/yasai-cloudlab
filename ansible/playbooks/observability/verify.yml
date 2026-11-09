@@ -1,0 +1,7 @@
+---
+- name: Verify native telemetry desired state
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Verify native telemetry desired state
+      ansible.builtin.import_tasks: tasks/verify.yml

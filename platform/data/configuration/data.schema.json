@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cloudlab.invalid/platform/data/data.schema.json",
+  "title": "Private platform/data.yaml (dormant schema)",
+  "description": "Dormant offline schema documenting the private platform/data.yaml shape already consumed via the data-configuration valueFiles entry. Adds no new read: valueFiles, pins, catalog wiring unchanged. s3Host derives as s3.internal.<zone>; maintenance/hibernated come from public flags; dataApprovals and catalog travel with the services catalog file, never here. Activation needs reviewed credentials, artifacts, and recovery automation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["zone", "database", "applicationRole", "migrationRole", "backupRole", "bucket"],
+  "properties": {
+    "zone": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"},
+    "database": {"$ref": "#/definitions/sqlIdentifier"},
+    "applicationRole": {"$ref": "#/definitions/sqlIdentifier"},
+    "migrationRole": {"$ref": "#/definitions/sqlIdentifier"},
+    "backupRole": {"$ref": "#/definitions/sqlIdentifier"},
+    "bucket": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"},
+    "identity": {"type": "object", "additionalProperties": false, "required": ["enabled", "database", "role"], "properties": {"enabled": {"type": "boolean"}, "database": {"$ref": "#/definitions/sqlIdentifier"}, "role": {"$ref": "#/definitions/sqlIdentifier"}}},
+    "production": {"type": "boolean"}
+  },
+  "definitions": {"sqlIdentifier": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$", "allOf": [{"not": {"pattern": "^pg_"}}, {"not": {"enum": ["postgres", "template0", "template1"]}}]}}
+}

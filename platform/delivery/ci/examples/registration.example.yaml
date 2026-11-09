@@ -1,0 +1,15 @@
+# Dormant example. Normative: platform/delivery/ci/registration.schema.json.
+# Argo reads platform/ci/applications/<name>.yaml in private GitOps only and
+# never this path. Do not copy placeholders into a live registration.
+application: example-app
+source:
+  repository: example/example-app
+  repositoryId: "100000000000001"
+  visibility: public
+ci:
+  profile: public-main
+  approval:
+    revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  jobs:
+    test: true
+    publish: false
