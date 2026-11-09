@@ -98,7 +98,7 @@ spec:
             quantity(c.resources[t].cpu).isGreaterThan(quantity('0')) &&
             quantity(c.resources[t].memory).isGreaterThan(quantity('0'))) &&
           (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(cap,
-            cap in ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETUID', 'SETGID', 'SYS_CHROOT', 'SETPCAP', 'NET_ADMIN', 'KILL']))) &&
+            cap in ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETUID', 'SETGID', 'SYS_CHROOT', 'SETPCAP', 'KILL']))) &&
         (!has(object.spec.initContainers) || object.spec.initContainers.all(c,
           !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(cap,
             cap in ['CHOWN', 'FOWNER', 'DAC_OVERRIDE'])))

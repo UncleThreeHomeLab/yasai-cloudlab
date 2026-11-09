@@ -421,7 +421,19 @@
                           "maximum": 3
                         },
                         "podSpec": {
-                          "type": "object"
+                          "type": "object",
+                          "required": [
+                            "serviceAccountName"
+                          ],
+                          "properties": {
+                            "serviceAccountName": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9-]{0,30}$",
+                              "not": {
+                                "const": "default"
+                              }
+                            }
+                          }
                         },
                         "preset": {
                           "description": "Workload API preset, resolved by the services owner only. Ordinary charts/service workloads are implicitly application-no-api and carry no field.",

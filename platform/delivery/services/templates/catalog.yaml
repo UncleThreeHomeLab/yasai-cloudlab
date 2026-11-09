@@ -3,7 +3,10 @@ rendering, policies deny, data stays), verify absence, then remove the entry.
 Prune order follows sync waves: workload objects first, wave -1 policies and
 bindings, wave -2 namespace/quota/register last with Prune=false. PVCs,
 databases, buckets and vault items always Retain; namespace and exception
-register are retained until the entry itself is removed. */}}
+register are retained until the entry itself is removed. Revocation bound:
+in-flight requests complete; once the emptied Role reaches the API, new grants
+fail closed; composition mounts no API credential, so no issued token outlives
+the grant. */}}
 {{- if hasKey .Values "argo-cd" }}
 {{- $config := index .Values "argo-cd" "configs" "cm" "oidc.config" | fromYaml }}
 {{- if not (hasSuffix "/realms/platform" $config.issuer) }}{{ fail "Approved platform identity issuer is required" }}{{- end }}
@@ -64,6 +67,13 @@ register are retained until the entry itself is removed. */}}
 {{- $_ := include "cloudlab.service.identity" . | fromJson }}
 {{- $monitoring := include "cloudlab.service.monitoring" . | fromJson }}
 {{- $composition := $a.composition | default dict }}
+{{- with $a.composition }}
+{{- range .workloads }}
+{{- $podSpec := .podSpec | default dict }}
+{{- $sa := $podSpec.serviceAccountName | default "" }}
+{{- if or (eq $sa "") (eq $sa "default") }}{{ fail "Composition workloads require their named service account" }}{{- end }}
+{{- end }}
+{{- end }}
 {{- if and $composition $v.rollouts.enabled }}{{ fail "Composition canaries require a separate supported contract" }}{{ end }}
 {{- $storageClaims := $composition.claims | default list }}
 {{- if not $composition }}
