@@ -76,4 +76,6 @@ def child_ok(name, exp, paused):
 
 def completion(native, *, paused):
     exp = backend(native)
-    return {'children': {n: child_ok(n, e, paused) for n, e in exp.items()}}
+    fence = get('configmap', 'cloudlab-observability-retirement', 'argocd') or {}
+    return {'children': {n: child_ok(n, e, paused) for n, e in exp.items()},
+            'retirement': {'fence': (fence.get('data') or {}).get('phase', 'clear')}}

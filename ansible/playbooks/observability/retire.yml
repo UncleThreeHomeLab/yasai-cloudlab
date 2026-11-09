@@ -1,0 +1,55 @@
+---
+- name: Evaluate observability retirement readiness without mutation
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require explicit retirement approval before any gate runs
+      ansible.builtin.assert:
+        that: observability_retire_approved | default(false) | bool
+        fail_msg: Observability retirement is not approved for this run.
+
+    - name: Require the rendered public payload for retirement evidence
+      ansible.builtin.assert:
+        that: gitops_verification_payload is defined
+        fail_msg: >-
+          Observability retirement needs the committed render first; run the
+          argocd render step and pass its payload into this playbook.
+
+    - name: Create the private observability retirement directory
+      ansible.builtin.file:
+        path: /var/lib/cloudlab/observability
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Sync the retirement gate implementation before running it
+      ansible.builtin.copy:
+        src: '/workspace/ansible/playbooks/observability/files/{{ item }}'
+        dest: '/var/lib/cloudlab/observability/{{ item }}'
+        owner: root
+        group: root
+        mode: '0600'
+      loop: [kube.py, native.py, retire.py]
+
+    - name: Refresh authenticated observability observation inputs
+      ansible.builtin.import_tasks: tasks/source.yml
+      vars:
+        observability_public_payload: '{{ gitops_verification_payload.stdout | from_json }}'
+    - name: Evaluate retirement readiness without mutation
+      ansible.builtin.command:
+        argv: [python3, /var/lib/cloudlab/observability/retire.py]
+        stdin: '{{ observability_runtime_payload | to_json }}'
+      register: observability_retirement
+      changed_when: false
+      failed_when: false
+      no_log: true
+    - name: Require retirement gates to pass
+      ansible.builtin.assert:
+        that: observability_retirement.rc == 0
+        fail_msg: Observability retirement gates failed; private diagnostics withheld.
+    - name: Report sanitized retirement evidence
+      ansible.builtin.debug:
+        msg: '{{ observability_retirement.stdout | from_json }}'
