@@ -3,7 +3,7 @@
     "platform",
     "applications"
   ],
-  "writer": "keycloak-config-cli; serialized with a runtime-owned Lease",
+  "writer": "keycloak-config-cli; serialized with a runtime-owned Lease; sole steady-state writer, no competing writer; no direct Admin API writes outside the Lease-guarded retirement flow",
   "private_inputs": [
     "desired_state",
     "revocations",
@@ -43,7 +43,7 @@
   "managed_fields": {
     "realm": "Public baseline; master uses separate bootstrap configuration",
     "client": "Explicit private inventory only",
-    "membership": "Explicit private users, groups and optional verified profiles",
+    "membership": "Explicit private users, groups and optional verified profiles; ordinary edits cover platform/applications realms only, never master/bootstrap/emergency identities (bounded retirement flow only) and never machine service accounts",
     "revocations": "Persistent private tombstones override desired state",
     "unmanaged": [
       "Other users",
@@ -52,7 +52,7 @@
       "Sessions",
       "Omitted clients"
     ],
-    "removal": "Explicit retirement and tombstone required; preserve unrelated users and vault credentials",
+    "removal": "Explicit retirement (client disabled plus persistent tombstone) required; retired client IDs are never reused and reconciliation refuses a removed client still present; preserve unrelated users and vault credentials",
     "groups": "Match full /platform-admin, /developer and /viewer paths; never subgroup basenames"
   },
   "sessions": {
@@ -128,6 +128,10 @@
     "credential": "ESO project-scoped github-argocd",
     "permissions": "ConfigMap only in cloudlab-identity; no prune or empty apply; unavailable source blocks realm import",
     "file": "identity/configmap.yaml; argo-values.yaml is a values input only"
+  },
+  "clients": {
+    "derivation": "Catalog oidc settings plus approved private/public exposures compile to explicit client inputs; callbacks are exact HTTPS redirects derived from exposure hostnames only, web origins limited to callback origins",
+    "fields": "audience, scopes (profile/email only), role-to-group mappings, public/confidential type; confidential clients without a ready vault secret stay pending and never block the realm"
   },
   "security": {
     "routing": "Use one private HTTPS listener with exact routes and certificate SANs; deny public master, administration, management and client registration paths",
