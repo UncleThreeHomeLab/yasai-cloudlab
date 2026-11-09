@@ -90,7 +90,7 @@ paths:
     reconciler: cloudlab-permissions ApplicationSet once enabled
     credentials: none; assignments reference existing identities
     retention: retain owner and roles during retirement
-    revocation: remove the assignment (offboarding) or state retired with empty assignments, then binding absence plus fresh denial; held streams survive until closed
+    revocation: remove the assignment (offboarding) or state retired with empty assignments, then binding absence plus fresh denial; held streams survive until closed; blocked cleanup and uncertain writes surface with durable operation IDs, retry only after read-back
     standing: false
     notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants; repair is fix-forward, never empty-apply. Qualified separately from Argo mappings.
   - id: eso-readonly
@@ -120,7 +120,7 @@ paths:
     reconciler: none (manual drill, owner phase)
     credentials: provisioning token in local custody only; ESO stays read-only and untouched
     retention: drill-only; remove the disposable item after verification
-    revocation: rotate after use; last-valid retained until the new value verifies
+    revocation: rotate after use; last-valid retained until the new value verifies; uncertain writes stay explicit with durable operation IDs until acceptance verifies
     standing: false
     notes: "Vault CloudLab, item cloudlab-access-rotation-drill, field drill_secret. Order: create, verify acceptance, rotate, verify new acceptance plus old rejection, remove. Recovery: keep the prior value until the new one verifies; ESO never writes; token never leaves local custody."
   - id: workload-identities
