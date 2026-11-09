@@ -19,6 +19,19 @@ def wait_result(function, description, timeout=180):
     raise RuntimeError(description + ' did not pass before its deadline')
 
 
+GENERIC_KUBE_FAILURE = 'GitOps Kubernetes operation failed; private output withheld'
+
+
+def check(phase, function, *args, **kwargs):
+    """Run one phase; a withheld kubectl failure becomes a secret-free category."""
+    try:
+        return function(*args, **kwargs)
+    except RuntimeError as error:
+        if str(error) == GENERIC_KUBE_FAILURE:
+            raise RuntimeError('GitOps ' + phase + ' failed') from None
+        raise
+
+
 def pod(namespace, name, image, command, trusted=False):
     labels = {'cloudlab.io/verification': 'gitops'}
     if trusted:
@@ -84,7 +97,8 @@ def denied_application(payload, case, suffix):
                        for c in (current or {}).get('status', {}).get('conditions', []))
         wait_result(rejected, 'AppProject ' + case + ' denial')
     finally:
-        kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--ignore-not-found', '--wait=true')
+        kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--ignore-not-found',
+             '--wait=true', '--timeout=60s')
 
 
 def public_lifecycle(payload):
@@ -119,7 +133,8 @@ def public_lifecycle(payload):
         if data.get('purpose') != 'Disposable GitOps authorization and reconciliation checks.':
             raise RuntimeError('Public reconciliation probe differs from its committed source')
     finally:
-        kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--ignore-not-found', '--wait=true')
+        kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--ignore-not-found',
+             '--wait=true', '--timeout=60s')
         current = configmap()
         if current and current['metadata'].get('labels', {}).get('cloudlab.io/verification') == 'gitops-public-fixture':
             kube('delete', 'configmap', name, '-n', namespace, '--wait=true')
@@ -140,16 +155,57 @@ def controllers(payload):
     return fingerprint(items)
 
 
+def wait_roots(payload, attempts=3):
+    """Converge both roots; retry only withheld kubectl failures (e.g. a patch
+    uid/resourceVersion race), never specific verdicts. Fails closed."""
+    for attempt in range(attempts):
+        try:
+            for name in ('cloudlab-public-root', 'cloudlab-argocd'):
+                wait_application(name, payload['revision'])
+            return
+        except RuntimeError as error:
+            if str(error) != GENERIC_KUBE_FAILURE or attempt + 1 == attempts:
+                raise
+
+
+def clean_stale_fixtures(public_namespace):
+    """Delete-if-exists leftovers from an interrupted run; labels only, never beyond."""
+    kube('delete', 'application.argoproj.io', '-n', 'argocd', '-l', 'cloudlab.io/verification=gitops',
+         '--ignore-not-found', '--wait=true', '--timeout=60s')
+    for namespace in ('argocd', public_namespace):
+        kube('delete', 'pod', '-n', namespace, '-l', 'cloudlab.io/verification=gitops',
+             '--ignore-not-found', '--wait=true', '--timeout=60s')
+
+
+def stability(payload):
+    before = {name: get('application.argoproj.io', name)['metadata']['uid']
+              for name in ('cloudlab-public-root', 'cloudlab-argocd')}
+    stable_controllers = controllers(payload)
+    started = time.monotonic()
+    while time.monotonic() - started < 60:
+        time.sleep(10)
+        if controllers(payload) != stable_controllers:
+            raise RuntimeError('Argo controller or pod changed during stability observation')
+        for name, uid in before.items():
+            current = get('application.argoproj.io', name)
+            status = current.get('status', {})
+            if (current['metadata']['uid'] != uid or status.get('sync', {}).get('status') != 'Synced' or
+                    not matches_revision(current, payload['revision']) or
+                    status.get('health', {}).get('status') != 'Healthy'):
+                raise RuntimeError('Public GitOps did not remain converged')
+    return round(time.monotonic() - started, 1)
+
+
 def run(payload):
-    for name in ('cloudlab-public-root', 'cloudlab-argocd'):
-        wait_application(name, payload['revision'])
-    default = get('appproject.argoproj.io', 'default')['spec']
+    check('public root convergence', wait_roots, payload)
+    default = check('default project lockdown', get, 'appproject.argoproj.io', 'default')['spec']
     if default.get('sourceRepos') or default.get('destinations'):
         raise RuntimeError('Default Argo project grants unexpected access')
     suffix = uuid.uuid4().hex[:10]
+    check('stale fixture cleanup', clean_stale_fixtures, payload['public_namespace'])
     for case in ('source', 'namespace'):
-        denied_application(payload, case, suffix)
-    public_lifecycle(payload)
+        check('denied ' + case + ' fixture', denied_application, payload, case, suffix)
+    check('public lifecycle fixture', public_lifecycle, payload)
     # These unauthenticated probes test reachability and HTTP denial, not PKI.
     # They send no credentials. Certificate and access checks verify TLS trust separately.
     endpoint = 'argocd-server.argocd.svc'
@@ -166,33 +222,21 @@ def run(payload):
         "grep -Eq '^HTTP/[0-9.]+ 200' /tmp/response) && (" +
         request('/api/v1/applications') + "grep -Eq '^HTTP/[0-9.]+ (401|403)' /tmp/response); " +
         "then exit 0; fi; sleep 3; done; cat /tmp/tls; exit 1")
-    verify_pod(pod('argocd', 'cloudlab-allowed-' + suffix, payload['probe_image'], allowed, trusted=True))
+    check('allowed probe fixture', verify_pod,
+          pod('argocd', 'cloudlab-allowed-' + suffix, payload['probe_image'], allowed, trusted=True))
     denied = ('getent hosts ' + endpoint + ' >/dev/null || { echo NXDOMAIN; exit 1; }; status=0; '
         'timeout 6 openssl s_client -brief -connect ' + endpoint + ':443 -servername ' + endpoint +
         ' </dev/null >/tmp/response 2>/tmp/tls || status=$?; '
         'cat /tmp/tls; '
         "if grep -Eq 'CONNECTION ESTABLISHED|Protocol version:' /tmp/tls; then exit 1; fi; "
         "test $status -eq 124 || { test $status -ne 0 && grep -Eiq 'Connection refused|No route to host' /tmp/tls; }")
-    verify_pod(pod(payload['public_namespace'], 'cloudlab-denied-' + suffix, payload['probe_image'], denied))
-    before = {name: get('application.argoproj.io', name)['metadata']['uid']
-              for name in ('cloudlab-public-root', 'cloudlab-argocd')}
-    stable_controllers = controllers(payload)
-    started = time.monotonic()
-    while time.monotonic() - started < 60:
-        time.sleep(10)
-        if controllers(payload) != stable_controllers:
-            raise RuntimeError('Argo controller or pod changed during stability observation')
-        for name, uid in before.items():
-            current = get('application.argoproj.io', name)
-            status = current.get('status', {})
-            if (current['metadata']['uid'] != uid or status.get('sync', {}).get('status') != 'Synced' or
-                    not matches_revision(current, payload['revision']) or
-                    status.get('health', {}).get('status') != 'Healthy'):
-                raise RuntimeError('Public GitOps did not remain converged')
+    check('denied probe fixture', verify_pod,
+          pod(payload['public_namespace'], 'cloudlab-denied-' + suffix, payload['probe_image'], denied))
+    observed = check('controller stability observation', stability, payload)
     result = {'public_roots_converged': True, 'source_denied': True, 'namespace_denied': True,
                       'unauthenticated_api_denied': True, 'untrusted_network_denied': True,
                       'public_source_reconciled': True, 'failure_injection': False, 'controllers_stable': True,
-              'stability_seconds': round(time.monotonic() - started, 1), 'private_sources_tested': False}
+              'stability_seconds': observed, 'private_sources_tested': False}
     receipt = BASE / 'public-proof.tmp'
     with receipt.open('w') as stream:
         json.dump(dict(result, revision=payload['revision'], verified_at=time.time()), stream)
