@@ -1,0 +1,351 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Private service exposure declarations (dormant)",
+  "description": "Dormant offline shape for the private-class exposure counterpart to services/exposures.yaml. Not referenced by variables.tf, services.tf, main.tf, or any reconciler; creates no DNS record, tunnel route, or access policy. Normative public exposures stay services/exposures.yaml under infra/cloudflare/exposures.schema.json; the native Cloudflare provider remains the sole writer for public DNS (trusted executor unresolved, live stays dormant). Activation needs a separately reviewed change through the owning exposure/access owners.",
+  "$comment": "T13/R25. Retirement is publication retired: withdraw DNS with cache/session accounting, then remove routes and permissions, then verify the backend is unreachable. Source failure, invalid input, or incomplete discovery is never retirement intent: retain last-valid state and report blocked. Hostname uniqueness across public and private sources is checked by leak-free string comparison only; private inventory is never published.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "status",
+    "scope",
+    "exposures",
+    "retirement",
+    "owners",
+    "blocked"
+  ],
+  "properties": {
+    "version": {
+      "const": "cloudlab-private-exposures/v1"
+    },
+    "status": {
+      "const": "dormant"
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "exposures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "public",
+        "private"
+      ],
+      "properties": {
+        "public": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "service",
+            "publication",
+            "exposure"
+          ],
+          "properties": {
+            "service": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,30}$"
+            },
+            "publication": {
+              "enum": [
+                "published",
+                "retired"
+              ]
+            },
+            "exposure": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "class",
+                "hostname",
+                "access",
+                "backend",
+                "path",
+                "port"
+              ],
+              "properties": {
+                "class": {
+                  "const": "public"
+                },
+                "hostname": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+                  "not": {
+                    "pattern": "internal\\.",
+                    "$comment": "Mirrors variables.tf routes validation: public hostnames never carry the private internal marker."
+                  }
+                },
+                "access": {
+                  "enum": [
+                    "public",
+                    "human",
+                    "machine"
+                  ]
+                },
+                "accessPolicy": {
+                  "enum": [
+                    "approved-human",
+                    "approved-machine"
+                  ]
+                },
+                "backend": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^/[A-Za-z0-9/_-]*$"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1024,
+                  "maximum": 65535
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "access": {
+                        "const": "public"
+                      }
+                    }
+                  },
+                  "then": {
+                    "not": {
+                      "required": [
+                        "accessPolicy"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "access": {
+                        "const": "human"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "accessPolicy"
+                    ],
+                    "properties": {
+                      "accessPolicy": {
+                        "const": "approved-human"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "access": {
+                        "const": "machine"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "accessPolicy"
+                    ],
+                    "properties": {
+                      "accessPolicy": {
+                        "const": "approved-machine"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "private": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "service",
+            "publication",
+            "exposure"
+          ],
+          "properties": {
+            "service": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,30}$"
+            },
+            "publication": {
+              "enum": [
+                "published",
+                "retired"
+              ]
+            },
+            "exposure": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "class",
+                "hostname",
+                "access",
+                "backend",
+                "path",
+                "port"
+              ],
+              "properties": {
+                "class": {
+                  "const": "private"
+                },
+                "hostname": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\\.internal\\.[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+                },
+                "access": {
+                  "enum": [
+                    "tailnet",
+                    "human",
+                    "machine"
+                  ]
+                },
+                "accessPolicy": {
+                  "enum": [
+                    "approved-human",
+                    "approved-machine"
+                  ]
+                },
+                "backend": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^/[A-Za-z0-9/_-]*$"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1024,
+                  "maximum": 65535
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "access": {
+                        "const": "tailnet"
+                      }
+                    }
+                  },
+                  "then": {
+                    "not": {
+                      "required": [
+                        "accessPolicy"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "access": {
+                        "const": "human"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "accessPolicy"
+                    ],
+                    "properties": {
+                      "accessPolicy": {
+                        "const": "approved-human"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "access": {
+                        "const": "machine"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "accessPolicy"
+                    ],
+                    "properties": {
+                      "accessPolicy": {
+                        "const": "approved-machine"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "retirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publication",
+        "withdrawal",
+        "sourceFailure"
+      ],
+      "properties": {
+        "publication": {
+          "const": "retired"
+        },
+        "withdrawal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sourceFailure": {
+          "const": "retain-last-valid"
+        }
+      }
+    },
+    "owners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fieldOwner",
+        "reconciler",
+        "credentials",
+        "deletionPolicy"
+      ],
+      "properties": {
+        "fieldOwner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reconciler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentials": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deletionPolicy": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "blocked": {
+      "type": "string",
+      "minLength": 1
+    },
+    "acceptance": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "version": "cloudlab-network-canary/v1",
+  "status": "dormant",
+  "scope": "T6/R8 bounded Prices traffic canary: one declared in-cluster dependency plus one forbidden destination. Dormant record only; no play, template, or reconciler reads this file.",
+  "canary": {
+    "allow": {
+      "source": "prices-web",
+      "destination": "prices-api",
+      "ports": [8080]
+    },
+    "forbid": {
+      "destination": "prices-legacy"
+    },
+    "egress": {
+      "cidr": "10.96.0.0/12",
+      "except": ["10.96.0.0/16"]
+    },
+    "retired": false
+  },
+  "offCluster": {
+    "disposition": "unsupported",
+    "detail": "D3: off-cluster egress is unsupported scope. The canary exercises in-cluster allow/deny only; any off-cluster destination stays dormant with no external control claimed, rendered, or enforced."
+  },
+  "owners": {
+    "fieldOwner": "services owner for composition-network.yaml, egress.yaml, _egress.tpl; network module for host transport verify",
+    "reconciler": "none for this declaration (dormant; renders nothing until a separately reviewed activation)",
+    "credentials": "none",
+    "deletionPolicy": "Removing this file removes the dormant intent only; rendered policy and egress are unchanged; no grants exist to revoke"
+  },
+  "blocked": "Live Prices canary on real CNI/mesh explicitly unverified: no 2-node K3s/iSCSI environment (Q4/Q5), so no live run attempted or passed. Off-cluster proof cannot exist even after Q4 clears (D3). Synthetic short canary intervals and fixture DNS cache values stay in ad-hoc throwaway fixtures only; no production interval changes.",
+  "acceptance": "Ad-hoc offline fixtures prove the allow renders an allow rule, the forbidden destination renders no rule, retired yields empty rules/egress, and validateEgress rejects foreign zones, duplicate/reserved names, unauthorized backends, bad policy, IPv6, and host-bits-set CIDRs."
+}
