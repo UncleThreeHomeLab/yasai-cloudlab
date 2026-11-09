@@ -891,11 +891,13 @@ declared destinations; `[]` or retired denies all.
 retired empties them. `approval.composition.workloads[].preset` is exactly one of
 `application-no-api`, `application-api-reader`, `controller-scoped`, `job-scoped`,
 `system-exception`, resolving through the fixed composition Roles; `application-no-api`
-and `system-exception` render no Role (fail-closed deny). Ordinary services are
+and `system-exception` render no Role (fail-closed deny), and `job-scoped` stays
+retired with empty rules while its Binding is retained. Ordinary services are
 implicitly `application-no-api` and carry no field. No preset lets a workload self-grant RBAC verbs.
 `approval.exceptions[]` (composition only) is the per-exception register
-(`identity`, `owner`, `reason`, `scope`, `removal`); `system-exception` requires a
-matching identity. Composition podSpecs require named service accounts.
+(`identity`, `owner`, `reason`, `scope`, `removal`); entries require a consuming
+`system-exception` workload and `system-exception` requires a matching identity.
+Composition podSpecs require named service accounts.
 Retired: the `serviceAccountName: default` default. The budget named GET keeps
 both ResourceQuota and LimitRange: activation plus retirement GET every
 declared receipt by name, so the LimitRange cannot go LIST-only.
