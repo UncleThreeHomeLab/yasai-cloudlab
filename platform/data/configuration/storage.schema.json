@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cloudlab.invalid/platform/data/storage.schema.json",
+  "title": "Private platform/storage.yaml (dormant schema)",
+  "description": "Dormant offline schema for a future private platform/storage.yaml. Fully dormant: no valueFiles entry, template, pin, or catalog change proposed. Mirrors rendered StorageClass cloudlab-data (Longhorn, Retain, 2 replicas, ext4) and the ordinary claim budget (2 claims, 4Gi). All data retains on removal; activation needs a separately reviewed platform change.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["storageClass", "reclaimPolicy", "ordinaryBudget", "retention"],
+  "properties": {
+    "storageClass": {"const": "cloudlab-data"},
+    "provisioner": {"const": "driver.longhorn.io"},
+    "reclaimPolicy": {"const": "Retain"},
+    "volumeBindingMode": {"const": "Immediate"},
+    "replicas": {"const": 2},
+    "fsType": {"const": "ext4"},
+    "ordinaryBudget": {"type": "object", "additionalProperties": false, "required": ["claims", "storageGi"], "properties": {"claims": {"const": 2}, "storageGi": {"const": 4}}},
+    "retention": {"const": "retain"}
+  }
+}

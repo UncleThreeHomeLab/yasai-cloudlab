@@ -40,3 +40,4 @@ __pycache__/
 !AGENTS.md
 !/docs/service-onboarding.md
 !/platform/delivery/dependencies/README.md
+.worktrees/

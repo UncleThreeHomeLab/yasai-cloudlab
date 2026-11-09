@@ -1,0 +1,2 @@
+{{- /* Pinned Notes SLO rules: explicit native include of chart-root notes-slo.json. */ -}}
+{{ .Files.Get "notes-slo.json" }}

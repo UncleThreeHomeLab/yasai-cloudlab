@@ -1,0 +1,20 @@
+---
+- name: Inspect existing observability parent without mutating it
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, get, application.argoproj.io, cloudlab-observability-gitops, -n, argocd, -o, json]
+  register: observability_parent_source
+  changed_when: false
+  no_log: true
+- name: Read authenticated observability observation inputs after binding
+  ansible.builtin.command:
+    argv: [python, /workspace/ansible/playbooks/observability/files/inputs.py]
+    stdin: '{{ {"parent": observability_parent_source.stdout | from_json, "public": observability_public_payload} | to_json }}'
+  delegate_to: localhost
+  become: false
+  register: observability_native_payload
+  changed_when: false
+  no_log: true
+- name: Keep observability observation inputs transient and private
+  ansible.builtin.set_fact:
+    observability_runtime_payload: '{{ observability_public_payload | combine(observability_native_payload.stdout | from_json) }}'
+  no_log: true

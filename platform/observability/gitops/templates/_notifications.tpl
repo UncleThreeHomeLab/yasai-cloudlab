@@ -87,7 +87,14 @@
 {{- $route := dict "receiver" $fallback "routes" $routes "group_by" (list "alertname" "service" "severity") "group_wait" (printf "%ds" (int $input.groupWaitSeconds)) "group_interval" (printf "%ds" (int $input.groupIntervalSeconds)) "repeat_interval" (printf "%ds" (int $input.repeatIntervalSeconds)) -}}
 {{- if $input.muteWindows }}{{ $_ := set $route "mute_time_intervals" $input.muteWindows }}{{ end -}}
 {{- $inhibit := list -}}
+{{- $inhibitLabels := list "alertname" "service" "severity" "namespace" -}}
 {{- range $rule := $input.inhibitRules -}}
+{{- range $matcher := concat $rule.sourceMatchers $rule.targetMatchers -}}
+{{- if not (regexMatch "^(alertname|service|severity|namespace)=" $matcher) }}{{ fail "Inhibition matchers allow only alertname, service, severity or namespace" }}{{ end -}}
+{{- end -}}
+{{- range $label := $rule.equal | default list -}}
+{{- if not (has $label $inhibitLabels) }}{{ fail "Inhibition equal labels allow only alertname, service, severity or namespace" }}{{ end -}}
+{{- end -}}
 {{- $native := dict "source_matchers" $rule.sourceMatchers "target_matchers" $rule.targetMatchers -}}
 {{- if $rule.equal }}{{ $_ := set $native "equal" $rule.equal }}{{ end -}}
 {{- $inhibit = append $inhibit $native -}}
@@ -98,7 +105,10 @@
 {{- range $span := $window.times -}}
 {{- $spans = append $spans (dict "start_time" $span.start "end_time" $span.end) -}}
 {{- end -}}
-{{- $nativeIntervals = append $nativeIntervals (dict "name" $window.name "time_intervals" (list (dict "weekdays" $window.weekdays "times" $spans))) -}}
+{{- $nativeWindow := dict "weekdays" $window.weekdays "times" $spans -}}
+{{- if hasKey $window "months" }}{{ $_ := set $nativeWindow "months" $window.months }}{{ end -}}
+{{- if hasKey $window "daysOfMonth" }}{{ $_ := set $nativeWindow "days_of_month" $window.daysOfMonth }}{{ end -}}
+{{- $nativeIntervals = append $nativeIntervals (dict "name" $window.name "time_intervals" (list $nativeWindow)) -}}
 {{- end -}}
 {{- $config := dict "global" (dict "resolve_timeout" "1m") "route" $route "receivers" $receivers -}}
 {{- if $inhibit }}{{ $_ := set $config "inhibit_rules" $inhibit }}{{ end -}}
