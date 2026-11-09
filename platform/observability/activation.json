@@ -1,0 +1,19 @@
+{
+  "record": "observability activation gate",
+  "registry": "empty",
+  "registryDetail": "gitops values carry no catalog entries, no serviceObservability declarations and disabled platformNotifications with no receivers or subscriptions",
+  "parent": "paused",
+  "parentDetail": "public configuration sets paused true, which renders skip-reconcile true with automatic sync explicitly false once the private-source half lands; until then no parent converges",
+  "activation": "blocked",
+  "blockedOn": [
+    "guarded writer handoff evidence",
+    "private source approval receipt",
+    "connection and access qualification through the workload and network owners",
+    "two-node environment with qualified storage"
+  ],
+  "explicitlyUnverified": [
+    "alert firing and recovery delivery",
+    "native parent convergence",
+    "provider monitor delivery"
+  ]
+}

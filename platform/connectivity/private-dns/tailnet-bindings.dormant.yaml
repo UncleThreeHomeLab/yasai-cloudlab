@@ -1,0 +1,31 @@
+# Tailnet split-DNS bindings consumed on the DU-C side (dormant declaration).
+# Desired source: this file. No template, play, or reconciler reads this path;
+# it renders nothing until a separately reviewed activation through the
+# owning access/private-DNS owners. Disposable names only (.invalid).
+version: cloudlab-tailnet-bindings/v1
+status: dormant
+scope: T13/R24 tailnet policy plus resolver bindings consumed on the DU-C side
+tailnet:
+  profile: operator-private-access
+  administratorReference: canary-admin@example.invalid
+  splitDNS:
+    zone: internal.example.invalid
+    resolverReferences: [canary-resolver-a, canary-resolver-b]
+  accessTests:
+    - identity: canary-allow@example.invalid
+      destination: private-gateway
+      expected: allow
+    - identity: canary-deny@example.invalid
+      destination: dns
+      expected: deny
+renderRules:
+  additive: true
+  oneWriterPerField: true
+  lastValidOnInvalidSource: true
+owners:
+  fieldOwner: access owner for policy/tag/service-approvals; private-DNS owner for resolver records
+  reconciler: none for this declaration (dormant; renders nothing until activation)
+  credentials: none (enrollment secrets stay out of Git and pods)
+  deletionPolicy: Removing this file removes the dormant intent only; policy grants, resolver records, and routes are unchanged; no access exists to revoke
+blocked: "Live tailnet allow/deny from scoped clients explicitly unverified: no 2-node K3s/iSCSI environment (Q4). Recovery access stays intact via independent SSH under bootstrap. No enrollment, device, or privilege expansion."
+acceptance: Ad-hoc offline checks prove the allow/deny pair and split-DNS zone binding validate, unrelated policy zones and DNS entries are preserved by the additive rule, and invalid sources retain last-valid state.

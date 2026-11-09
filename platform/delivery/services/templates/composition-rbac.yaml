@@ -2,6 +2,10 @@
 charts/service workloads are implicitly application-no-api and render no Role.
 The apps/notes fork passes validated YAML through this same renderer and
 resolves nothing itself. No preset lets a workload self-grant RBAC verbs.
+job-scoped stays retired: it was the only preset carrying write verbs (batch
+create/delete), and no supported workload requires them, so its Role always
+renders empty rules while its Binding stays as the retention record. The two
+read-only presets keep reconciling get/list (plus watch for controller-scoped).
 Removal: a retired entry renders its preset Role with empty rules and keeps its
 RoleBinding. The services Application never prunes, so withdrawal arrives as an
 in-place update through self-heal; the emptied Role and binding stay as
@@ -24,10 +28,8 @@ so no issued token outlives the grant through this owner. */}}
     (dict "apiGroups" (list "") "resources" (list "pods" "services" "events" "configmaps") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "apps") "resources" (list "deployments" "replicasets") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "batch") "resources" (list "jobs" "cronjobs") "verbs" (list "get" "list" "watch")))
-  "job-scoped" (list
-    (dict "apiGroups" (list "batch") "resources" (list "jobs") "verbs" (list "get" "list" "watch" "create" "delete"))
-    (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "get" "list")))
 -}}
+{{- $retiredPresets := list "job-scoped" }}
 {{- range .Values.catalog }}
 {{- $a := .approval }}
 {{- $retired := eq (.publication | default "ready") "retired" }}
@@ -54,7 +56,7 @@ metadata:
   namespace: {{ $a.namespace }}
   annotations: {argocd.argoproj.io/sync-wave: '-1'}
   labels: {cloudlab.io/owner: service-platform, cloudlab.io/workload-preset: {{ $preset | quote }}}
-rules: {{ if $retired }}[]{{ else }}{{ index $presets $preset | toJson }}{{ end }}
+rules: {{ if or $retired (has $preset $retiredPresets) }}[]{{ else }}{{ index $presets $preset | toJson }}{{ end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

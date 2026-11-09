@@ -1,0 +1,41 @@
+# Public/private exposure pair (dormant declaration).
+# Desired source: this file. No Terraform, Argo, or reconciler reads this path;
+# it reconciles nothing until a separately reviewed activation through the
+# owning exposure/access owners. Disposable hostnames only (example.com,
+# internal.example.invalid); resolver and production values unchanged.
+version: cloudlab-private-exposures/v1
+status: dormant
+scope: T13/R25 exposure reconciliation declarations for one disposable service
+exposures:
+  public:
+    service: prices-fixture
+    publication: retired
+    exposure:
+      class: public
+      hostname: prices-fixture.example.com
+      access: human
+      accessPolicy: approved-human
+      backend: web
+      path: /
+      port: 8443
+  private:
+    service: prices-fixture
+    publication: retired
+    exposure:
+      class: private
+      hostname: prices-fixture.internal.example.invalid
+      access: tailnet
+      backend: web
+      path: /
+      port: 8443
+retirement:
+  publication: retired
+  withdrawal: Retired withdraws DNS with cache and session accounting, then removes routes and permissions, then verifies the backend is unreachable before reporting removal complete.
+  sourceFailure: retain-last-valid
+owners:
+  fieldOwner: access owner for HTTPRoute/permissions/cert config; native Cloudflare provider for public DNS (sole writer)
+  reconciler: none for this declaration (dormant; reconciles nothing until activation)
+  credentials: none (provider credentials stay in the secrets manager, never in Git)
+  deletionPolicy: Removing this file removes the dormant intent only; shared gateways, policies, secrets, and retained data are preserved; no DNS, route, or grant exists to revoke
+blocked: "Live public DNS/tunnel/TLS plus retirement reachability explicitly unverified: no trusted Cloudflare executor or immutable revision/receipt owner (Q3), so live stays dormant. No live run attempted or passed."
+acceptance: Ad-hoc offline checks prove schema/render/plan/leak conformance on disposable hostnames, hostname uniqueness across sources by string comparison only, and retired semantics with source-failure retention.
