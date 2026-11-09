@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Tailnet split-DNS bindings consumed on the DU-C side (dormant)",
+  "description": "Dormant offline shape for the tailnet intent the DU-C side consumes: profile, administrator reference, split-DNS zone plus resolver references, and scoped allow/deny access tests. Not referenced by forwarding.yaml, values.schema.json, or any reconciler; creates no policy, tag, DNS record, or enrollment. Normative private tailnet declarations stay with the access owner (platform/connectivity/access/policy.schema.json, DU-A scope). Activation needs a separately reviewed change through the owning access/private-DNS owners.",
+  "$comment": "T13/R24. Additive-only render rule: bindings preserve unrelated policy zones, DNS entries, and tunnel entries; one writer per managed field; missing, invalid, or unreachable sources retain last-valid state and never delete grants, resolver settings, DNS, or routes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "status",
+    "scope",
+    "tailnet",
+    "renderRules",
+    "owners",
+    "blocked"
+  ],
+  "properties": {
+    "version": {
+      "const": "cloudlab-tailnet-bindings/v1"
+    },
+    "status": {
+      "const": "dormant"
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "tailnet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "administratorReference",
+        "splitDNS",
+        "accessTests"
+      ],
+      "properties": {
+        "profile": {
+          "const": "operator-private-access"
+        },
+        "administratorReference": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254,
+          "pattern": "^[^\\s@]+@[^\\s@]+$"
+        },
+        "splitDNS": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "zone",
+            "resolverReferences"
+          ],
+          "properties": {
+            "zone": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^internal\\.[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+            },
+            "resolverReferences": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 63,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+              }
+            }
+          }
+        },
+        "accessTests": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "identity",
+              "destination",
+              "expected"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 254
+              },
+              "destination": {
+                "enum": [
+                  "private-gateway",
+                  "dns"
+                ]
+              },
+              "expected": {
+                "enum": [
+                  "allow",
+                  "deny"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "renderRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "additive",
+        "oneWriterPerField",
+        "lastValidOnInvalidSource"
+      ],
+      "properties": {
+        "additive": {
+          "const": true
+        },
+        "oneWriterPerField": {
+          "const": true
+        },
+        "lastValidOnInvalidSource": {
+          "const": true
+        }
+      }
+    },
+    "owners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fieldOwner",
+        "reconciler",
+        "credentials",
+        "deletionPolicy"
+      ],
+      "properties": {
+        "fieldOwner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reconciler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentials": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deletionPolicy": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "blocked": {
+      "type": "string",
+      "minLength": 1
+    },
+    "acceptance": {
+      "type": "string"
+    }
+  }
+}
