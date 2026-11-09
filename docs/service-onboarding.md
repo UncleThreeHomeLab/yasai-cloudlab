@@ -1321,7 +1321,8 @@ Source repository visibility does not change this path.
 
 ### 8.3 Declare collection, rules and dashboard JSON — Agent
 
-1. In private `services/catalog.json`, set the service's `definition.monitoring`:
+1. In the private catalog selected by public `services.catalogPath`
+   (`services/catalog.json` by default), set the service's `definition.monitoring`:
    `enabled`, `routes`, metrics (`profile: cloudlab-http` on the dedicated
    `http-metrics` port at `/metrics`) and/or logs (`profile: cloudlab-http-json-v1`).
    Only ordinary non-rollout `charts/service` workloads are supported; traces stay
@@ -1360,10 +1361,20 @@ Source repository visibility does not change this path.
 
 | Private Git path | Declaration | Effect |
 | --- | --- | --- |
-| `services/catalog.json` | `definition.monitoring` | Scrape/log collection for the service |
+| selected private catalog | `definition.monitoring` | Scrape/log collection for the service |
 | `platform/observability.yaml` | `serviceObservability` rules | `svc-<service>-*` PrometheusRules with alert links |
 | `platform/observability.yaml` | `serviceObservability` dashboard | `svc-<service>.json` board with an active-alerts link |
 | `platform/observability.yaml` | `platformNotifications` subscription | Firing/recovery delivery to approved receivers |
+
+Prices is the first Git-driven lifecycle proof. Specify it offline in the same
+shapes (private PR later): a `prices` catalog entry on the ordinary
+`charts/service` chartPath, a `serviceObservability` entry whose rule groups
+separate missing targets from failing targets, HTTP error/latency burn, and
+insufficient-evidence states, a `svc-prices` dashboard, and a
+`platformNotifications` subscription binding `prices` severities to an approved
+receiver. Synthetic delivery fixtures stay on production-equivalent intervals
+(at or above the 30s collection cadence); never use the schema minima
+(`for: 1ms`, 1s group interval) on the 2-VM fleet.
 
 **Done when:** the declarations use stable UIDs, the board links from
 active-alerts, and selectors exclude unrelated workloads.
@@ -1384,14 +1395,19 @@ active-alerts, and selectors exclude unrelated workloads.
    selections change.
 2. **Agent:** leave Grafana settings in `platform/observability/prometheus/values.json`
    unchanged; adding service monitoring does not require changing them.
-3. **Agent:** review `services/catalog.json` and `platform/observability.yaml` changes in private
-   GitOps. Commit each change through its owning protected PR flow.
+3. **Agent:** review the selected private catalog and `platform/observability.yaml`
+   changes in private GitOps. Commit each change through its owning protected PR flow.
    **User:** review and merge through branch protection.
 4. Convergence runs through the native observability parent
    (`cloudlab-observability-gitops`). That parent is currently disabled and
-   paused; a later reviewed public Git merge activates it after the handoff gates
-   pass. Until then, merged declarations do not converge; do not run local
+   paused; a later reviewed public Git merge activates it only after all four
+   activation gates pass: guarded writer handoff evidence, the private-source
+   approval receipt, connection and access qualification through the workload
+   and network owners, and the two-node environment with qualified storage.
+   Until then, merged declarations do not converge; do not run local
    applies to force them. Never patch Applications manually or use UI-only writes.
+   Run the live leg one scenario at a time (create, drift repair, firing and
+   recovery, removal) with quiescence between steps; never run them back-to-back.
 5. **Agent:** after activation, confirm Argo renders the six children from the
    accepted private revision and the `cloudlab-dashboards` ConfigMap carries the
    reviewed input digest. Check `/api/dashboards/uid/DASHBOARD_UID` through
@@ -1420,8 +1436,9 @@ ConfigMap, mounted file and provisioned Grafana API.
    Verify optional log/trace links use only accepted redacted telemetry.
    Confirm no unrelated service data enters panels, variable options or links.
 4. **Agent:** let normal reconciliation run and confirm the declarations remain correct.
-   Make lasting edits in `services/catalog.json` or `platform/observability.yaml` and repeat
-   its owning PR flow; UI-only changes are not durable.
+   Make lasting edits in the selected private catalog or `platform/observability.yaml`
+   and repeat its owning PR flow; UI-only changes are not durable. Confirm firing
+   and recovery delivery through the subscribed receivers, not provider status alone.
 
 **Done when:** the service's own provisioned board covers current workloads, keeps
 other services out of its view, and passes aggregate, drilldown, zero/missing/stale

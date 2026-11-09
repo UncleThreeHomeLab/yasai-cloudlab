@@ -1,5 +1,6 @@
-"""Native desired-state verify: revisions, private SHA/digest, parent comparison,
-6 children, storage, alertmanager checkpoint/loading, native health.
+"""Native desired-state verify: revisions, private SHA/digest, parent comparison
+with live digest equality, 6 children, storage, alertmanager checkpoint/loading,
+two completed post-quiescence generations, native health.
 Read-only; never patches root or unpauses.
 """
 import copy
@@ -27,6 +28,14 @@ def parent_ok(ev, decl, paused):
     if a.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/skip-reconcile') != str(paused).lower():
         return False
     if a['spec']['syncPolicy']['automated']['enabled'] == paused:
+        return False
+    live = {a.get('metadata', {}).get('annotations', {}).get('cloudlab.io/observability-input-digest')}
+    for s in a.get('spec', {}).get('sources', []):
+        values = (s.get('helm') or {}).get('valuesObject', {})
+        if isinstance(values, dict) and 'nativeInputDigest' in values:
+            live.add(values['nativeInputDigest'])
+    live.discard(None)
+    if live != {ev.get('native', {}).get('digest')}:
         return False
     st = a.get('status', {})
     revs = st.get('sync', {}).get('revisions', [])
@@ -69,6 +78,19 @@ def alertmanager_ok(native_mod, paused):
     return any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in conds)
 
 
+def quiescent(n, native_mod, paused, timeout=60):
+    """Two completed post-quiescence generations within an explicit bound."""
+    base = None
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        comp = native_mod.completion(n, paused=paused)
+        if (paused or all(comp['children'].values())) and json.dumps(comp, sort_keys=True) == base:
+            return comp
+        base = json.dumps(comp, sort_keys=True) if paused or all(comp['children'].values()) else None
+        time.sleep(10)
+    raise AssertionError('observability did not reach quiescence')
+
+
 def run(payload):
     n = payload['native']
     assert re.fullmatch(HEX40, n['configuration_revision'])
@@ -78,16 +100,11 @@ def run(payload):
     native.executor(n, paused=paused)
     assert parent_ok(payload, {'parent': payload['applicationSet'],
                               'public_revision': payload['public_revision']}, paused), 'parent comparison failed'
-    comp = native.completion(n, paused=paused)
+    comp = quiescent(n, native, paused)
     if not paused:
         assert all(comp['children'].values()), 'children not converged'
     assert storage_ok(), 'storage desired state failed'
     assert alertmanager_ok(n, paused), 'alertmanager checkpoint/loading failed'
-    base = json.dumps(comp, sort_keys=True)
-    t = time.monotonic()
-    while time.monotonic() - t < 60:
-        time.sleep(10)
-        assert json.dumps(native.completion(n, paused=paused), sort_keys=True) == base, 'stability changed'
     return {'paused': paused, 'children': comp['children'], 'storage': True, 'alertmanager': True}
 
 
