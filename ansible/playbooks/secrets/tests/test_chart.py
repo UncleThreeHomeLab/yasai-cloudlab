@@ -52,6 +52,24 @@ class ChartTests(unittest.TestCase):
             for container in obj['spec']['template']['spec']['containers']:
                 self.assertRegex(container['image'], r'@sha256:[0-9a-f]{64}$')
 
+    def test_store_consumers_exclude_operator_without_moving_authentication(self):
+        store = next(obj for obj in self.objects if obj['kind'] == 'ClusterSecretStore')
+        expected = ['longhorn-system', 'argocd', 'cert-manager', 'tailscale',
+                    'cloudlab-connectors', 'cloudlab-data']
+        self.assertEqual(store['spec']['conditions'], [{'namespaces': expected}])
+        self.assertEqual(store['spec']['provider']['onepasswordSDK']['auth']['serviceAccountSecretRef'],
+                         {'name': 'onepassword-token', 'namespace': 'external-secrets', 'key': 'token'})
+        command = ['helm', 'template', self.lock['release_name'], str(chart.ROOT),
+                   '--namespace', self.lock['namespace'], '--kube-version', self.lock['kube_version'],
+                   '--values', str(chart.ROOT / 'values.json'), '--set', 'cloudlab.serviceConsumers=true',
+                   '--set', 'cloudlab.additionalConsumerNamespaces[0]=cloudlab-identity']
+        import yaml
+        objects = [obj for obj in yaml.safe_load_all(subprocess.check_output(command, timeout=90)) if obj]
+        store = next(obj for obj in objects if obj['kind'] == 'ClusterSecretStore')
+        self.assertEqual(store['spec']['conditions'], [
+            {'namespaces': expected + ['cloudlab-identity']},
+            {'namespaceSelector': {'matchLabels': {'cloudlab.io/service-secrets': 'approved'}}}])
+
     def test_controller_reconciles_without_minting_service_account_tokens(self):
         objects = {(obj['kind'], obj['metadata']['name']): obj for obj in self.objects}
         controller = objects['ClusterRole', 'external-secrets-controller']
