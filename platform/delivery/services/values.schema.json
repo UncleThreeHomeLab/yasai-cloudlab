@@ -106,6 +106,42 @@
                     ]
                   }
                 }
+              },
+              {
+                "if": {
+                  "required": [
+                    "exceptions"
+                  ],
+                  "properties": {
+                    "exceptions": {
+                      "type": "array",
+                      "minItems": 1
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "composition"
+                  ],
+                  "properties": {
+                    "composition": {
+                      "properties": {
+                        "workloads": {
+                          "contains": {
+                            "properties": {
+                              "preset": {
+                                "const": "system-exception"
+                              }
+                            },
+                            "required": [
+                              "preset"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               }
             ],
             "required": [
@@ -192,7 +228,7 @@
                 }
               },
               "exceptions": {
-                "description": "Per-exception register for composition namespaces. Each entry records one approved exception; system-exception presets require a matching identity entry.",
+                "description": "Per-exception register for composition namespaces. Each entry records one approved exception; entries require a consuming system-exception workload and system-exception presets require a matching identity entry.",
                 "type": "array",
                 "maxItems": 12,
                 "uniqueItems": true,
