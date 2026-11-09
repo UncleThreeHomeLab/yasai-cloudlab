@@ -1,4 +1,21 @@
 ---
+- name: Create the private observability verification directory
+  ansible.builtin.file:
+    path: /var/lib/cloudlab/observability
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Sync the observability verification implementation before running it
+  ansible.builtin.copy:
+    src: '/workspace/ansible/playbooks/observability/files/{{ item }}'
+    dest: '/var/lib/cloudlab/observability/{{ item }}'
+    owner: root
+    group: root
+    mode: '0600'
+  loop: [kube.py, native.py, verify.py]
+
 - name: Refresh authenticated observability observation inputs
   ansible.builtin.import_tasks: source.yml
   vars:

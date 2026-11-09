@@ -1,7 +1,10 @@
 ---
 - name: Verify native telemetry desired state
-  hosts: localhost
+  hosts: k3s_servers
+  become: true
   gather_facts: false
+  any_errors_fatal: true
   tasks:
     - name: Verify native telemetry desired state
       ansible.builtin.import_tasks: tasks/verify.yml
+      when: observability_enabled | bool
