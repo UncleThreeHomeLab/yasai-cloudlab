@@ -387,7 +387,7 @@ def controller_namespace_policy(actions):
         raise RuntimeError('Native controller-namespace policy is not ready or its declared scope changed')
     enforce = actions == ['Deny']
     image = 'registry.k8s.io/pause@sha256:' + '0' * 64
-    bare = probe('cloudlab-policy', image, 'cloudlab-admission-proof')
+    bare = probe('cloudlab-policy', image, 'default')
     owned = copy.deepcopy(bare)
     owned['metadata']['ownerReferences'] = [
         {'apiVersion': 'apps/v1', 'kind': 'ReplicaSet', 'name': 'cloudlab-admission-proof'}]
