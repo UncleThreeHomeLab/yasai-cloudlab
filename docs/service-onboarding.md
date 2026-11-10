@@ -1017,8 +1017,9 @@ changes; rotation/removal/recovery remain independently scoped.
    The identity owner keeps their secret in `keycloak-client-secrets/client_secrets`
    in CloudLab, at `client_secrets[realm][client-id]`; never put the value in Git.
    Confidential enrollment requires an existing string of at least 32 characters.
-   The user supplies that value in 1Password; the reconciler reports a missing client
-   key as pending but never writes the shared identity item. Pending confidential
+   The user supplies that value in 1Password; the reconciler creates the missing
+   shared item with empty declared keys, never rewrites an existing item, and
+   reports a missing or empty client key as pending. Pending confidential
    clients stay out of the realm import without blocking other clients.
    Guarded delivery requires a nonempty string at the selected realm/client and
    retains the last valid Secret until completion resumes through normal ESO refresh.

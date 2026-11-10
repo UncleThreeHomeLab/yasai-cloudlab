@@ -11,10 +11,13 @@ remains the sole read-only synchronizer; this token never leaves the machine.
 Sources of truth: the active private catalog (services/catalog.json by default,
 or the reviewed services.catalogPath selection) carries secret, identity, and
 data bindings; services/<name>/protection.yaml files carry backup protection
-bindings. Shared platform credentials (OIDC shared item, protection
-destinations) are reported for user/administrator completion, never created.
-Per-service secrets.yaml files do not exist: catalog supersession stands and
-every binding lives in the accepted catalog, never beside a workload.
+bindings. The shared OIDC identity item is created with empty declared keys
+when missing and never rewritten once it exists, so every stored value,
+including sibling keys, is preserved; the user completes empty keys in
+1Password. Shared protection destinations stay administrator-owned and are
+reported for administrator completion, never created. Per-service secrets.yaml
+files do not exist: catalog supersession stands and every binding lives in the
+accepted catalog, never beside a workload.
 """
 
 import argparse
@@ -327,16 +330,53 @@ def collect_catalog(profiles, document):
     return collector.result(), oidc
 
 
+def oidc_placeholders(checks):
+    """Empty credential map for declared confidential clients, sorted for stable bytes."""
+    realms = {}
+    for check in sorted(checks, key=lambda row: (row['realm'], row['client'])):
+        realms.setdefault(check['realm'], {})[check['client']] = ''
+    return realms
+
+
+def create_oidc_item(token, checks):
+    """Create the missing shared identity item with empty declared keys only.
+
+    Sent through standard input like every provisioned item; no secret value
+    travels in arguments. Existing items never reach this path, so stored
+    values, including sibling realm and client keys, are never rewritten.
+    """
+    current = provision.inventory_items(token)
+    if any(item.get('title') == OIDC_ITEM for item in current):
+        raise RuntimeError('CloudLab item appeared during provisioning; rerun to validate it')
+    document = {'title': OIDC_ITEM, 'category': 'SECURE_NOTE',
+                'tags': ['cloudlab-managed'],
+                'fields': [{'id': OIDC_FIELD, 'label': OIDC_FIELD, 'type': 'CONCEALED',
+                            'value': json.dumps(oidc_placeholders(checks), sort_keys=True)}]}
+    created = provision.command(['item', 'create', '-', '--vault', 'CloudLab'], token, document)
+    if (not isinstance(created, dict) or not isinstance(created.get('id'), str) or
+            not created['id'] or created.get('title') != OIDC_ITEM):
+        raise RuntimeError('Created item response is incomplete; inspect existence before retrying')
+    return created
+
+
 def check_oidc(token, checks, inventory):
-    """Reports confidential client key status from the existing shared item only."""
+    """Ensure declared confidential client keys exist; report ready or pending.
+
+    Creates the missing shared item with empty placeholders for declared
+    clients only. Existing items are read, never rewritten: every stored
+    value, including sibling keys owned by other consumers, is preserved
+    exactly. The user completes empty keys in 1Password; later cycles
+    detect completion and report ready.
+    """
     matches = [item for item in inventory if item.get('title') == OIDC_ITEM]
     if len(matches) > 1:
         raise RuntimeError('Duplicate CloudLab item title: ' + OIDC_ITEM)
     if not checks:
         return []
     if not matches:
-        return [{**check, 'status': 'awaiting-administrator',
-                 'detail': 'shared identity item is missing; administrator bootstrap required'}
+        create_oidc_item(token, checks)
+        return [{**check, 'status': 'pending',
+                 'detail': 'shared identity placeholders created; user supplies the confidential client secret in 1Password'}
                 for check in checks]
     current = provision.command(['item', 'get', matches[0]['id'], '--vault', 'CloudLab'], token)
     fields = current.get('fields', []) if isinstance(current, dict) else []
@@ -472,9 +512,7 @@ def cycle(arguments, profiles):
         protection = check_protection(arguments.private_dir, catalog_requests(document),
                                       inventory)
     awaiting = sorted({row['destination'] for row in protection
-                       if row['destinationStatus'] == 'awaiting-administrator'} |
-                      {check['service'] + '/' + check['client'] for check in oidc
-                       if check['status'] == 'awaiting-administrator'})
+                       if row['destinationStatus'] == 'awaiting-administrator'})
     return {'source': source, 'created': provisioned['created'],
             'preserved': provisioned['preserved'], 'pending': provisioned['pending'],
             'oidc': oidc, 'protection': protection,

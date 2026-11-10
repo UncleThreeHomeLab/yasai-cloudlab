@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cloudlab.invalid/platform/data/storage.schema.json",
-  "title": "Private platform/storage.yaml (dormant schema)",
-  "description": "Dormant offline schema for a future private platform/storage.yaml. Fully dormant: no valueFiles entry, template, pin, or catalog change proposed. Mirrors rendered StorageClass cloudlab-data (Longhorn, Retain, 2 replicas, ext4) and the ordinary claim budget (2 claims, 4Gi). All data retains on removal; activation needs a separately reviewed platform change.",
+  "title": "Private platform/storage.yaml (supported)",
+  "description": "Supported private platform/storage.yaml shape consumed via the data-configuration valueFiles entry. Mirrors rendered StorageClass cloudlab-data (Longhorn, Retain, 2 replicas, ext4) and the ordinary claim budget (2 claims, 4Gi); the chart refuses any deviation. All data retains on removal; deletion needs a previously approved exact-scope policy.",
   "type": "object",
   "additionalProperties": false,
   "required": ["storageClass", "reclaimPolicy", "ordinaryBudget", "retention"],

@@ -307,6 +307,43 @@
     "production": {
       "type": "boolean"
     },
+    "storageClass": {
+      "const": "cloudlab-data"
+    },
+    "provisioner": {
+      "const": "driver.longhorn.io"
+    },
+    "reclaimPolicy": {
+      "const": "Retain"
+    },
+    "volumeBindingMode": {
+      "const": "Immediate"
+    },
+    "replicas": {
+      "const": 2
+    },
+    "fsType": {
+      "const": "ext4"
+    },
+    "ordinaryBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claims",
+        "storageGi"
+      ],
+      "properties": {
+        "claims": {
+          "const": 2
+        },
+        "storageGi": {
+          "const": 4
+        }
+      }
+    },
+    "retention": {
+      "const": "retain"
+    },
     "dataApprovals": {
       "type": "object",
       "maxProperties": 40,
