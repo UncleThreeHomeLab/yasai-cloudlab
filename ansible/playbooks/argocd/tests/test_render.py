@@ -328,6 +328,22 @@ class RenderTests(unittest.TestCase):
             self.assertNotIn('finalizers', app['metadata'])
             self.assertIn('FailOnSharedResource=true', app['spec']['syncPolicy']['syncOptions'])
 
+    def test_root_applications_use_only_the_verified_apply_migration_option(self):
+        for app in [x for x in self.data['roots'] if x['kind'] == 'Application']:
+            options = app['spec']['syncPolicy']['syncOptions']
+            self.assertIn('ClientSideApplyMigration=false', options)
+            self.assertFalse(any('DisableClientSideApplyMigration' in x for x in options))
+        bad = {'kind': 'Application', 'metadata': {'name': 'cloudlab-bad'},
+               'spec': {'syncPolicy': {'syncOptions': ['FailOnSharedResource=true', 'DisableClientSideApplyMigration=true']}}}
+        real_documents = render.documents
+        def mixed(path, release, version):
+            if Path(path) == render.PUBLIC:
+                return [bad]
+            return real_documents(path, release, version)
+        with patch.object(render, 'documents', side_effect=mixed):
+            with self.assertRaisesRegex(RuntimeError, 'DisableClientSideApplyMigration'):
+                payload()
+
     def test_server_has_no_broad_chart_ingress_policy(self):
         policies = [x for x in self.data['operator'] if x['kind'] == 'NetworkPolicy']
         self.assertTrue(any(x['metadata']['name'] == 'argocd-default-deny' for x in policies))

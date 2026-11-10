@@ -55,6 +55,9 @@ def payload():
             options = obj['spec']['syncPolicy']['syncOptions']
             if any(x in options for x in ('ServerSideApply=true', 'Replace=true', 'Force=true')):
                 raise RuntimeError('Broad forced ownership or replacement is forbidden')
+            # Pinned Argo 3.5.3 only recognizes ClientSideApplyMigration=false.
+            if any('DisableClientSideApplyMigration' in x for x in options):
+                raise RuntimeError('DisableClientSideApplyMigration is not an Argo sync option; use ClientSideApplyMigration=false')
     source = yaml.safe_load((PUBLIC / 'values.yaml').read_text())
     permissions = source.get('permissions', {'enabled': False})
     if not isinstance(permissions, dict) or type(permissions.get('enabled')) is not bool:
