@@ -2,4 +2,4 @@ apiVersion: v2
 name: cloudlab-breakglass
 version: 0.1.0
 appVersion: v0.3.0-rc.20
-description: Pinned human-only breakglass install scoping (config and webhook scope only; upstream manifests vendored at promotion).
+description: Pinned human-only breakglass install (sha256-verified vendored upstream plus install scoping; runtime config pending the private OIDC gate).

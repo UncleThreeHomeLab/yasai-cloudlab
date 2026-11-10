@@ -16,8 +16,17 @@ spec:
   destinations: [{server: 'https://kubernetes.default.svc', namespace: cloudlab-breakglass}]
   clusterResourceWhitelist:
     - {group: '', kind: Namespace}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+    - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
   namespaceResourceWhitelist:
     - {group: '', kind: ConfigMap}
+    - {group: '', kind: ServiceAccount}
+    - {group: '', kind: Service}
+    - {group: apps, kind: Deployment}
+    - {group: cert-manager.io, kind: Certificate}
+    - {group: cert-manager.io, kind: Issuer}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

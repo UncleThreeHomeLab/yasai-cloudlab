@@ -92,7 +92,7 @@ paths:
     retention: retain owner and roles during retirement
     revocation: remove the assignment (offboarding) or state retired with empty assignments, then binding absence plus fresh denial; held streams survive until closed; blocked cleanup and uncertain writes surface with durable operation IDs, retry only after read-back
     standing: false
-    notes: Disabled with zero assignments; invalid sources retain last-valid without creating grants; repair is fix-forward, never empty-apply. Qualified separately from Argo mappings.
+    notes: Enabled with zero standing assignments (private source present and empty; subjects stay opaque here); invalid sources retain last-valid without creating grants; repair is fix-forward, never empty-apply. Qualified separately from Argo mappings.
   - id: eso-readonly
     subjects: External Secrets operator
     source: external-secrets chart plus per-owner ExternalSecrets

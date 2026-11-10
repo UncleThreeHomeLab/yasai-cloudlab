@@ -1,0 +1,32 @@
+{{- $lock := .Files.Get "artifact.lock.json" | fromJson -}}
+{{- $ns := .Values.namespace -}}
+{{/* Pinned upstream install parallel to the trial: CRDs once from the verified
+   bytes, then base without duplicate CRDs, the example Ingress (exposure stays
+   with the access owner), or the localhost sample config (private OIDC gate
+   pending, so the controller waits instead of serving a sample). Namespace
+   remaps to the Git install; trial retires after Git sync verifies. */}}
+{{- range $text := regexSplit "(?m)^---\\s*$" (.Files.Get "upstream-crds.yaml") -1 }}
+{{- $obj := $text | fromYaml }}
+{{- if and $obj $obj.kind }}
+{{- $_ := set $obj.metadata "annotations" (dict "argocd.argoproj.io/sync-options" "ServerSideApply=true,Prune=false,Delete=false") }}
+---
+{{ toYaml $obj }}
+{{- end }}
+{{- end }}
+{{- range $text := regexSplit "(?m)^---\\s*$" (.Files.Get "upstream-base.yaml") -1 }}
+{{- $obj := $text | fromYaml }}
+{{- if and $obj $obj.kind (ne $obj.kind "CustomResourceDefinition") (ne $obj.kind "Ingress") (not (and (eq $obj.kind "ConfigMap") (eq $obj.metadata.name "breakglass-config"))) }}
+{{- $obj := ($text | replace "breakglass-system" $ns) | fromYaml }}
+{{- if eq $obj.kind "Namespace" }}
+{{- $_ := set $obj.metadata "labels" (dict "cloudlab.io/owner" "permissions-platform") }}
+{{- end }}
+{{- if eq $obj.kind "Deployment" }}
+{{- range $container := $obj.spec.template.spec.containers }}
+{{- $_ := set $container "image" $lock.images.controller }}
+{{- $_ := set $container "imagePullPolicy" "IfNotPresent" }}
+{{- end }}
+{{- end }}
+---
+{{ toYaml $obj }}
+{{- end }}
+{{- end }}
