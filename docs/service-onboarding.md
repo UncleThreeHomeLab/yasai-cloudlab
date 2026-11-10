@@ -898,6 +898,29 @@ implicitly `application-no-api` and carry no field. No preset lets a workload se
 (`identity`, `owner`, `reason`, `scope`, `removal`); entries require a consuming
 `system-exception` workload and `system-exception` requires a matching identity.
 Composition podSpecs require named service accounts.
+
+Credential map (vault item to container). Each credential flows from its vault
+item to one app-namespace ExternalSecret to the approved container mount:
+ordinary `approval.secretBindings[]`, composition `approval.composition.secrets[]`,
+confidential OIDC (`identity.yaml`, `keycloak-client-secrets` item), and data
+(`data.yaml`; database `username`/`password`, bucket `BUCKET`/`ACCESS_KEY_ID`/
+`SECRET_ACCESS_KEY`/`ENDPOINT`/`REGION`). Operations: External Secrets syncs
+read-only on a 24h interval; every target sets `creationPolicy: Owner`,
+`deletionPolicy: Retain`, and guarded v2 templates that fail on missing or empty
+fields; `dataApprovals` gates each data credential to its exact service, name,
+and kind scope; foreign names, items, fields, or scopes fail the render before
+reaching the cluster. Admission re-checks the owner store, shape, retention,
+and single whole-item references. No secret values appear in Git or diagnostics.
+
+Field ownership and deletion. Source: the accepted private catalog revision;
+owner: the services renderer for all platform objects; reconciler: the
+`cloudlab-services` Application (automated self-heal, no prune) plus per-entry
+workload ApplicationSets (self-heal with prune) and native admission, CNI, and
+mesh. `publication: retired` empties peer rules, preset Roles, and workload
+renders in place while the namespace, quota, register, bindings, PVCs,
+databases, buckets, and vault items stay retained. Removal sequence per the
+catalog header: retire, verify absence, then remove the entry. Removing a
+declaration never deletes vault items or persistent data.
 Retired: the `serviceAccountName: default` default. The budget named GET keeps
 both ResourceQuota and LimitRange: activation plus retirement GET every
 declared receipt by name, so the LimitRange cannot go LIST-only.
