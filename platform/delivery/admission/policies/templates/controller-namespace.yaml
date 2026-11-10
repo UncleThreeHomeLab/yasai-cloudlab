@@ -28,6 +28,10 @@ spec:
         (!has(object.metadata.labels) || !('cloudlab.io/verification' in object.metadata.labels) ||
           object.metadata.labels['cloudlab.io/verification'] != 'gitops' ||
           !object.metadata.name.startsWith('cloudlab-allowed-') ||
+          !has(object.spec.restartPolicy) || object.spec.restartPolicy != 'Never') &&
+        (!has(object.metadata.labels) || !('app.kubernetes.io/managed-by' in object.metadata.labels) ||
+          object.metadata.labels['app.kubernetes.io/managed-by'] != 'cloudlab-certificate-verify' ||
+          !object.metadata.name.startsWith('cloudlab-certificate-check-') ||
           !has(object.spec.restartPolicy) || object.spec.restartPolicy != 'Never')
   validations:
     - expression: >-
