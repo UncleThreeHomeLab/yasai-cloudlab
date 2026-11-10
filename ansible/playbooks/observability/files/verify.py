@@ -41,12 +41,19 @@ def parent_ok(ev, decl, paused):
     revs = st.get('sync', {}).get('revisions', [])
     if revs != [decl['public_revision'], ev['acceptedRevision']] and not paused:
         return False
+    if not paused:
+        compared = st.get('sync', {}).get('comparedTo', {}).get('sources', [])
+        identity = lambda s: {k: s.get(k) for k in ('repoURL', 'targetRevision', 'path', 'ref')}
+        if [identity(s) for s in compared] != [identity(s) for s in a['spec']['sources']]:
+            return False
     if not paused and (st.get('sync', {}).get('status') != 'Synced'
                        or st.get('health', {}).get('status') != 'Healthy'):
         return False
     if a.get('operation') or any(c.get('type', '').endswith('Error') for c in st.get('conditions', [])):
         return False
-    return True
+    return {'reported_revisions': revs, 'digest': ev['native']['digest'],
+            'public_revision': decl['public_revision'],
+            'private_revision': ev['acceptedRevision']}
 
 
 def storage_ok():
@@ -98,14 +105,17 @@ def run(payload):
     assert re.fullmatch(HEX64, n['digest'])
     paused = bool(payload['paused'])
     native.executor(n, paused=paused)
-    assert parent_ok(payload, {'parent': payload['applicationSet'],
-                              'public_revision': payload['public_revision']}, paused), 'parent comparison failed'
+    chain = parent_ok(payload, {'parent': payload['applicationSet'],
+                               'public_revision': payload['public_revision']}, paused)
+    assert chain, 'parent comparison failed'
     comp = quiescent(n, native, paused)
     if not paused:
         assert all(comp['children'].values()), 'children not converged'
     assert storage_ok(), 'storage desired state failed'
     assert alertmanager_ok(n, paused), 'alertmanager checkpoint/loading failed'
-    return {'paused': paused, 'children': comp['children'], 'storage': True, 'alertmanager': True}
+    snap = native.snapshot_evidence() if not paused else None
+    return {'paused': paused, 'children': comp['children'], 'storage': True,
+            'alertmanager': True, 'revision_chain': chain, 'snapshots': snap}
 
 
 if __name__ == '__main__':
