@@ -1,5 +1,11 @@
-# Pinned human-only breakglass install scoping. Upstream manifests are vendored
-# at promotion after sha256 verification against artifact.lock.json.
+# Pinned human-only breakglass install. Upstream bytes are vendored as
+# upstream-crds/base.yaml after sha256 verification against artifact.lock.json
+# and render remapped to this namespace with the digest-pinned controller
+# image. The upstream localhost sample config is skipped: the controller waits
+# for reviewed runtime config through the pending private OIDC gate (A1-priv)
+# instead of serving a sample. Trial cluster-scoped resources retire before
+# Git sync takes ownership; trial namespaced resources linger until the Git
+# backend verifies.
 namespace: cloudlab-breakglass
 breakglass:
   version: v0.3.0-rc.20
