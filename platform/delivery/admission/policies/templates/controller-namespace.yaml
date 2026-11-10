@@ -21,10 +21,14 @@ spec:
   variables:
     - name: selected
       expression: >-
-        request.namespace in ['argocd', 'argo-rollouts', 'cert-manager', 'cloudlab-ci-system',
+        (request.namespace in ['argocd', 'argo-rollouts', 'cert-manager', 'cloudlab-ci-system',
           'cloudlab-connectors', 'cloudlab-data', 'cloudlab-gateway-private', 'cloudlab-gateway-public',
           'cloudlab-harbor', 'cloudlab-identity', 'cloudlab-observability', 'cloudlab-policy',
-          'cnpg-system', 'external-secrets', 'istio-system', 'longhorn-system', 'tailscale']
+          'cnpg-system', 'external-secrets', 'istio-system', 'longhorn-system', 'tailscale']) &&
+        (!has(object.metadata.labels) || !('cloudlab.io/verification' in object.metadata.labels) ||
+          object.metadata.labels['cloudlab.io/verification'] != 'gitops' ||
+          !object.metadata.name.startsWith('cloudlab-allowed-') ||
+          !has(object.spec.restartPolicy) || object.spec.restartPolicy != 'Never')
   validations:
     - expression: >-
         !variables.selected ||
