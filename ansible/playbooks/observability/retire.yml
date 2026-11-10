@@ -1,5 +1,5 @@
 ---
-- name: Evaluate observability retirement readiness without mutation
+- name: Remove retired observability writer installs behind approval and convergence gates
   hosts: k3s_servers
   become: true
   gather_facts: false
@@ -50,6 +50,14 @@
       ansible.builtin.assert:
         that: observability_retirement.rc == 0
         fail_msg: Observability retirement gates failed; private diagnostics withheld.
+    # Live leg: the gate output lists only existing legacy roots from the synced
+    # implementation; approval was asserted before any gate ran.
+    - name: Remove retired legacy writer installs only after gates pass
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: absent
+      loop: '{{ (observability_retirement.stdout | from_json).legacy_paths }}'
+      when: observability_retire_approved | default(false) | bool
     - name: Report sanitized retirement evidence
       ansible.builtin.debug:
         msg: '{{ observability_retirement.stdout | from_json }}'
