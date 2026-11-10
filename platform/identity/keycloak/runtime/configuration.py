@@ -174,6 +174,11 @@ def load_compiled_inputs(private_directory):
 def compile_clients(catalog, policy, exposures, credentials, revocations=None):
     """Catalog oidc plus approved exposures to client inputs.
 
+    The catalog definition.oidc shape is the single identity source: no
+    standalone services/<name>/identity.yaml exists or is consumed (the
+    writer mounts catalog/policy/exposures plus desired_state, revocations
+    and client_secrets only), so there is nothing to migrate and any
+    standalone identity key is refused as dual-editable, never merged.
     Returns (clients, pending, skipped): clients feed client(); pending names
     confidential clients whose vault secret is not ready yet; skipped names
     exposure-less entries whose client carries a persistent tombstone.
@@ -216,6 +221,8 @@ def compile_clients(catalog, policy, exposures, credentials, revocations=None):
         oidc = definition.get('oidc', {}) if isinstance(definition, dict) else {}
         if not isinstance(service, str) or not isinstance(oidc, dict):
             raise ValueError('Catalog entry %d is invalid' % index)
+        if isinstance(definition, dict) and set(definition) & {'identity', 'identityRef'}:
+            raise ValueError('Identity has a single source; standalone identity keys are refused: ' + service)
         if entry.get('publication') == 'retired' or oidc.get('enabled') is not True:
             continue
         if 'clientReference' in oidc:

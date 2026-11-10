@@ -131,7 +131,8 @@
   },
   "clients": {
     "derivation": "Catalog oidc settings plus approved private/public exposures compile to explicit client inputs; callbacks are exact HTTPS redirects derived from exposure hostnames only, web origins limited to callback origins",
-    "fields": "audience, scopes (profile/email only), role-to-group mappings, public/confidential type; confidential clients without a ready vault secret stay pending and never block the realm"
+    "fields": "audience, scopes (profile/email only), role-to-group mappings, public/confidential type; confidential clients without a ready vault secret stay pending and never block the realm",
+    "source": "Catalog definition.oidc is the single identity source; no standalone services/<name>/identity.yaml exists or is consumed, and compile refuses dual-editable identity keys"
   },
   "security": {
     "routing": "Use one private HTTPS listener with exact routes and certificate SANs; deny public master, administration, management and client registration paths",

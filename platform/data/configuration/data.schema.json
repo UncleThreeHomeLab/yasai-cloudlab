@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cloudlab.invalid/platform/data/data.schema.json",
-  "title": "Private platform/data.yaml (dormant schema)",
-  "description": "Dormant offline schema documenting the private platform/data.yaml shape already consumed via the data-configuration valueFiles entry. Adds no new read: valueFiles, pins, catalog wiring unchanged. s3Host derives as s3.internal.<zone>; maintenance/hibernated come from public flags; dataApprovals and catalog travel with the services catalog file, never here. Activation needs reviewed credentials, artifacts, and recovery automation.",
+  "title": "Private platform/data.yaml (supported)",
+  "description": "Supported private platform/data.yaml shape consumed via the data-configuration valueFiles entry. Per-service data requests live only in the services catalog definition.data plus dataApprovals; no per-service data.yaml exists or is consumed. s3Host derives as s3.internal.<zone>; maintenance/hibernated come from public flags; dataApprovals and catalog travel with the services catalog file, never here. Retention stays retain; deletion needs a previously approved exact-scope policy.",
   "type": "object",
   "additionalProperties": false,
   "required": ["zone", "database", "applicationRole", "migrationRole", "backupRole", "bucket"],

@@ -248,8 +248,10 @@ class RenderTests(unittest.TestCase):
             app = {'spec': parent['spec']['template']['spec'], 'metadata': parent['spec']['template']['metadata']}
             self.assertEqual(app['spec']['sources'][0]['targetRevision'], pin)
             self.assertEqual(app['spec']['sources'][0]['helm']['valuesObject']['revision'], pin)
+            # services valueFiles order: catalog, argo-values, access/policy, exposures
             self.assertEqual(app['spec']['sources'][0]['helm']['valueFiles'],
-                             ['$values/services/catalog.json', '$values/identity/argo-values.yaml'])
+                             ['$values/services/catalog.json', '$values/identity/argo-values.yaml',
+                              '$values/platform/access/policy.yaml', '$exposures/services/exposures.yaml'])
             self.assertEqual(app['spec']['sources'][1]['repoURL'], values['identity']['argo']['valuesRepository'])
             self.assertEqual(app['spec']['sources'][1]['ref'], 'values')
             self.assertIn('Consumer source acceptance refused', app['spec']['sources'][1]['targetRevision'])
