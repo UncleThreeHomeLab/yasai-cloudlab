@@ -11,6 +11,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[4]
 OPERATOR = ROOT / 'platform/delivery/argocd'
 PUBLIC = ROOT / 'gitops/roots/public'
+# Argo release whose sync-options documentation verifies ClientSideApplyMigration=false.
+VERIFIED_ARGO_APP_VERSION = 'v3.5.3'
 
 
 def documents(path, release, version):
@@ -33,8 +35,15 @@ def images(value):
             yield from images(child)
 
 
+def require_verified_argo(lock):
+    version = lock['chart']['app_version']
+    if version != VERIFIED_ARGO_APP_VERSION:
+        raise RuntimeError('Pinned Argo ' + version + ' is not verified for ClientSideApplyMigration=false')
+
+
 def payload():
     lock = json.loads((OPERATOR / 'artifact.lock.json').read_text())
+    require_verified_argo(lock)
     archive = OPERATOR / lock['chart']['archive']
     if hashlib.sha256(archive.read_bytes()).hexdigest() != lock['chart']['sha256']:
         raise RuntimeError('Argo chart checksum mismatch')
@@ -55,7 +64,7 @@ def payload():
             options = obj['spec']['syncPolicy']['syncOptions']
             if any(x in options for x in ('ServerSideApply=true', 'Replace=true', 'Force=true')):
                 raise RuntimeError('Broad forced ownership or replacement is forbidden')
-            # Pinned Argo 3.5.3 only recognizes ClientSideApplyMigration=false.
+            # Verified Argo documents ClientSideApplyMigration=false (no manager takeover); DisableClientSideApplyMigration is not an option.
             if any('DisableClientSideApplyMigration' in x for x in options):
                 raise RuntimeError('DisableClientSideApplyMigration is not an Argo sync option; use ClientSideApplyMigration=false')
     source = yaml.safe_load((PUBLIC / 'values.yaml').read_text())

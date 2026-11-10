@@ -344,6 +344,13 @@ class RenderTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'DisableClientSideApplyMigration'):
                 payload()
 
+    def test_render_requires_the_verified_argo_apply_migration_release(self):
+        render.require_verified_argo({'chart': {'app_version': 'v3.5.3'}})
+        with self.assertRaisesRegex(RuntimeError, 'not verified for ClientSideApplyMigration'):
+            render.require_verified_argo({'chart': {'app_version': 'v3.5.4'}})
+        lock = json.loads((render.OPERATOR / 'artifact.lock.json').read_text())
+        self.assertEqual(lock['chart']['app_version'], render.VERIFIED_ARGO_APP_VERSION)
+
     def test_server_has_no_broad_chart_ingress_policy(self):
         policies = [x for x in self.data['operator'] if x['kind'] == 'NetworkPolicy']
         self.assertTrue(any(x['metadata']['name'] == 'argocd-default-deny' for x in policies))
