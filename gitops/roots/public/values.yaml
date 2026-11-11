@@ -48,8 +48,8 @@ identity:
       - acba1faa4c095e525ea9638cc7e71761d5e59f47
 services:
   enabled: true
-  revision: fd6fe073622d8fe8d3c2c54492132cf2408d3800
-  acceptanceCommitment: '3e0b12508117e77d1cb0cb6d3837accb049f47bbd3526b8eb14fbb76b23dbea5'
+  revision: ff6b08a26dfbf023f2795573094080a92582f479
+  acceptanceCommitment: '7c109b2125beb751cc1b55513fc50b90ed3f299244b8402cd218673b5add2fee'
 privateSources:
   enabled: true
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
