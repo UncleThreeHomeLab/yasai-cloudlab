@@ -49,6 +49,39 @@
 {{- if gt (len $requests) 8 }}{{ fail "Native data exceeds the retained service request limit" }}{{- end }}
 {{- $_ := set $v "serviceRequests" $requests }}
 {{- $_ := set $v "serviceConsumers" (keys $consumers | sortAlpha) }}
+{{- $deletionApprovals := $v.deletionApprovals | default list }}
+{{- if gt (len $deletionApprovals) 2 }}{{ fail "Native data deletions exceed the approved single-fixture limit" }}{{- end }}
+{{- $markers := dict }}{{- $markerRoles := dict }}
+{{- range $entry := $v.catalog }}
+{{- $name := $entry.approval.name }}
+{{- range $kind, $request := $entry.definition.data }}
+{{- if hasKey $request "deletion" }}
+{{- $_ := set $markers (printf "%s/%s/%s" $name $kind $request.name) $request.deletion.digest }}
+{{- $scope := get $v.dataApprovals $request.credentialReference }}
+{{- $_ := set $markerRoles (printf "%s/%s/%s" $name $kind $request.name) (dict "applicationRole" ($scope.applicationRole | default "") "migrationRole" ($scope.migrationRole | default "")) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $deletions := list }}{{- $approved := dict }}
+{{- range $approval := $deletionApprovals }}
+{{- $key := printf "%s/%s/%s" $approval.service $approval.kind $approval.name }}
+{{- if or (and (ne $approval.kind "database") (ne $approval.kind "bucket")) (hasKey $approved $key) }}{{ fail "Native data deletion approval is duplicated or has an unknown kind" }}{{- end }}
+{{- $expect := sha256sum (toJson (dict "service" $approval.service "kind" $approval.kind "name" $approval.name "scope" "disposable-fixture-delete-v1")) }}
+{{- if or (ne $approval.digest $expect) (not (hasKey $markers $key)) (ne (get $markers $key) $approval.digest) }}{{ fail "Native data deletion requires its exact marker and approval digest" }}{{- end }}
+{{- $roles := get $markerRoles $key }}
+{{- if or (eq $approval.service "notes") (and $v.identity.enabled (eq $approval.service "keycloak")) (has $approval.service (list "data-admin" "admin" "app")) }}{{ fail "Native data deletion refuses a fixed platform service" }}{{- end }}
+{{- if eq $approval.kind "database" }}
+{{- if or (has $approval.name $protectedDatabases) (has $roles.applicationRole $protectedRoles) (has $roles.migrationRole $protectedRoles) }}{{ fail "Native data deletion overlaps a protected platform identity" }}{{- end }}
+{{- else }}
+{{- if eq $approval.name $v.bucket }}{{ fail "Native data deletion overlaps the platform owner" }}{{- end }}
+{{- end }}
+{{- $_ := set $approved $key true }}
+{{- $deletions = append $deletions (dict "service" $approval.service "kind" $approval.kind "name" $approval.name "digest" $approval.digest) }}
+{{- end }}
+{{- range $key := keys $markers }}
+{{- if not (hasKey $approved $key) }}{{ fail "Native data deletion marker requires its exact approval" }}{{- end }}
+{{- end }}
+{{- $_ := set $v "deletions" $deletions }}
 {{- end }}
 {{- $_ := set . "dataSettings" $v }}
 {{- end }}

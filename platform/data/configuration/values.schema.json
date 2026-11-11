@@ -532,6 +532,19 @@
                       },
                       "retention": {
                         "const": "retain"
+                      },
+                      "deletion": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        },
+                        "required": [
+                          "digest"
+                        ]
                       }
                     }
                   },
@@ -554,6 +567,19 @@
                       },
                       "retention": {
                         "const": "retain"
+                      },
+                      "deletion": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        },
+                        "required": [
+                          "digest"
+                        ]
                       }
                     }
                   }
@@ -586,6 +612,94 @@
             ]
           }
         }
+      }
+    },
+    "deletionApprovals": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "service",
+              "kind",
+              "name",
+              "digest",
+              "reason"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "kind": {
+                "const": "database"
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "allOf": [
+                  {
+                    "not": {
+                      "pattern": "^pg_"
+                    }
+                  },
+                  {
+                    "not": {
+                      "enum": [
+                        "postgres",
+                        "template0",
+                        "template1"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "service",
+              "kind",
+              "name",
+              "digest",
+              "reason"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "kind": {
+                "const": "bucket"
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
       }
     }
   },
