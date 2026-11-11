@@ -1,0 +1,7 @@
+{
+  "name": "cloudlab-identity-browser-fixture",
+  "private": true,
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}

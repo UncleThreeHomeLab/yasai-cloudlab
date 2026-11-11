@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cloudlab.invalid/platform/ci/release.schema.json",
   "title": "Application release record",
-  "description": "Declarative contract for apps/releases/<application>.json in the owning GitOps repository. Mirrors release.validate(): an immutable primary digest, the exact published source revision and the publishing workflow run, with optional bounded multi-component digests. JSON Schema cannot express primary-component membership or digest equality; the release proposer still enforces that primary_component names a component whose digest equals digest.",
+  "description": "Declarative contract for apps/releases/<application>.json in the owning GitOps repository. Decision D44: JSON stays the native release record format; there is no YAML migration. Mirrors release.validate(): an immutable primary digest, the exact published source revision and the publishing workflow run, with optional bounded multi-component digests. JSON Schema cannot express primary-component membership or digest equality; the release proposer still enforces that primary_component names a component whose digest equals digest.",
   "type": "object",
   "additionalProperties": false,
   "required": ["digest", "source_revision", "workflow_run_id"],

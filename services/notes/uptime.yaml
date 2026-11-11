@@ -1,0 +1,13 @@
+# $schema: ../../platform/observability/uptime.schema.json
+# First independent uptime declaration. The probed host derives from the
+# approved public exposure for notes (services/exposures.yaml), never from
+# this file; the notification profile below is a reference to the private
+# binding only. Merging this declaration is the approval for standing
+# reconciliation by the control-machine infra-uptime service.
+service: notes
+independentMonitoring:
+  exposureReference: public
+  path: /health
+  expectedStatus: 200
+  intervalSeconds: 300
+  notificationProfile: operator-email

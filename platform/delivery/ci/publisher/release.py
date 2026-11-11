@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -71,6 +72,45 @@ def validate(desired):
     return desired
 
 
+def canonical(desired):
+    """Canonical record bytes; reviewer submissions must match the proposer byte for byte."""
+    return (json.dumps(validate(desired), sort_keys=True, indent=2) + '\n').encode()
+
+
+def verify(registration, desired, application):
+    """Trusted offline validation of a reviewer-submitted release record.
+
+    Holds no GitOps write credential: it joins the submitted record against
+    the approved private registration (exact-revision binding, approved
+    components and primary). Run it as the merge gate on the release PR; a
+    gate failure blocks the PR. Anything merged invalid is still denied at
+    admission, and Argo keeps serving the prior merged release.
+    """
+    validate(desired)
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,34}', application):
+        raise ValueError('Release verification requires its approved application name')
+    if not isinstance(registration, dict) or registration.get('application') != application:
+        raise ValueError('Release verification requires its approved application registration')
+    approval = registration.get('ci', {}).get('approval', {}) if isinstance(
+        registration.get('ci'), dict) else {}
+    if (not isinstance(approval, dict) or
+            not re.fullmatch(r'[a-f0-9]{40}', approval.get('revision', '')) or
+            desired['source_revision'] != approval['revision']):
+        raise ValueError('Release source revision lacks its exact approved registration revision')
+    publishing = registration.get('publishing', {})
+    if not isinstance(publishing, dict):
+        raise ValueError('Release verification requires its approved publishing registration')
+    components = publishing.get('components')
+    if components is None:
+        if 'components' in desired or 'primary_component' in desired:
+            raise ValueError('Release components lack their approved registration components')
+    elif (not isinstance(components, dict) or
+            set(desired.get('components', {})) != set(components) or
+            desired.get('primary_component') != publishing.get('primaryComponent')):
+        raise ValueError('Release components differ from their approved registration')
+    return desired
+
+
 def propose(repository, path, desired):
     if (not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository) or
             not re.fullmatch(r'apps/releases/[a-z][a-z0-9-]{0,34}[.]json', path)):
@@ -127,3 +167,36 @@ def propose(repository, path, desired):
                 'body': 'Propose the image by immutable digest. Only ' + path +
                         ' changes. Deployment remains owned by Argo; this workflow never merges.\n'})
         return {'release_changed': True, 'pull_request_only': True}
+
+
+def main(arguments):
+    if len(arguments) != 3 or arguments[0] != 'verify':
+        raise SystemExit('Release verification requires: release.py verify <registration.json> <release-file>')
+    registration_raw = Path(arguments[1]).read_bytes()
+    release_raw = Path(arguments[2]).read_bytes()
+    if len(registration_raw) > 65536 or len(release_raw) > 65536:
+        raise SystemExit('Release verification input exceeds its bound')
+    match = re.fullmatch(r'(?:.*/)?apps/releases/([a-z][a-z0-9-]{0,34})[.]json',
+                         arguments[2].replace('\\', '/'))
+    if match is None:
+        raise SystemExit('Release verification requires its approved artifact file')
+    try:
+        registration, desired = json.loads(registration_raw), json.loads(release_raw)
+    except ValueError:
+        raise SystemExit('Release verification requires valid JSON documents') from None
+    try:
+        verify(registration, desired, match[1])
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    if release_raw != canonical(desired):
+        raise SystemExit('Release submission must match the canonical record bytes')
+    print(json.dumps({'verified': True, 'application': match[1]}))
+
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv[1:] if len(sys.argv) > 1 else [])
+    except SystemExit:
+        raise
+    except OSError:
+        raise SystemExit('Release verification input unavailable') from None

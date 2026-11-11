@@ -1,0 +1,36 @@
+{
+  "runner_version": "2.338.0",
+  "source": {
+    "url": "https://codeload.github.com/actions/runner/tar.gz/refs/tags/v2.338.0",
+    "sha256": "f9ad169b07995dad7964a4f9ce95673a153317a4888ba8d540ecead71def725a"
+  },
+  "sdk": "mcr.microsoft.com/dotnet/sdk:8.0.426-bookworm-slim@sha256:f7e28a0a3f6f9235929ec19274fd0ddf8534e9159f99fac602ac73304f1ce99f",
+  "runtime_version": "8.0.32",
+  "security_packages": {
+    "System.Security.Cryptography.Pkcs": "10.0.13",
+    "System.Formats.Asn1": "10.0.13"
+  },
+  "images": {
+    "base": "ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807",
+    "trivy": "docker.io/aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
+  },
+  "qualification_builder": "docker.io/moby/buildkit:v0.34.0-rootless@sha256:65eca3c01cd1180c8f64565c4e3c5983af5145818b0e6fa863385d099eb73855",
+  "nuget": {
+    "Runner.Common": "f5507a916a37264ee44507e4dc75c27c727145c2beefadc4deaaae8a5e459c91",
+    "Runner.Listener": "8e85c86de152c95d4d3adc891d37eb27bcbc9eec6306699de1693a7fc126b4b8",
+    "Runner.PluginHost": "1ab6b1e1eaf4e3beb0444fc762a492848f4d1da5e57f6eb61354042d1d4a2551",
+    "Runner.Plugins": "95da36da5a8603f9a34f3a9d7c9729201d694d817372d80fb192531e9da563ce",
+    "Runner.Sdk": "a1a211ee527fae0a0a03274e47bd822eb5936adf2516d7a2b8f2fc4de7ec80d7",
+    "Runner.Worker": "6b60e50c04e294ef9660016afe934e11cd91a680d98fb0d23dc3b37e9a29654a",
+    "Sdk": "9a25795cbd4e556e850be6bc69ffac3a75d51e8f09b5498e500816c8ef39bc5d",
+    "Test": "60b185b2fe08500b4ac8fd8ed0eaba5160fcf6089788551db77a9da40d0b698c"
+  },
+  "overlays": {
+    "runner.patch": "546e4f956ee5fa0a2a2d334b19dc2b04974985180e13791d2fa618645109ad6c",
+    "TrustedWorkflow.cs": "68e2365932d1e0eef49ed2fa8df972a4e2b276b359582c665b0213bec4727c58",
+    "TrustedTemplate.cs": "683603b6d3d06816611c339a404122e4cc24ee33f47998cbafc644fe7bff3bc2",
+    "health.py": "33dd346912c464b9d2c774bbcfa2a8f7a5901ca2a3a9bd565f3df0f73e17489c",
+    "tests/Fixtures.cs": "24c7d8db56fd899d31d05e19a660dcd412e84198e0cb434277fd9b7d7f9c669b",
+    "tests/TrustedWorkflowL0.cs": "4ccd4dcd62c979262a81ff65c49b6350eb0dd534a83dcbf4b7042e8e415fd717"
+  }
+}

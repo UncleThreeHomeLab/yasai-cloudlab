@@ -8,10 +8,16 @@ argocd/github-preview-discovery Secret over the recovery SSH path. App keys
 never leave this machine; the in-cluster controller and ApplicationSet
 generators consume only the short-lived token. Repeat runs preserve a valid
 owned token; a superseded token expires within its issuer-enforced one hour.
+
+This automation is also the catalog merge owner (D46): it deterministically
+merges reviewed previews/*.yaml requests with precomputed namespace ownership
+into previews/catalog.yaml and opens the PR with a single-use least-scope
+token. The owner merges; this automation never merges.
 """
 import argparse
 import base64
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,7 +35,8 @@ sys.path.insert(0, str(ROOT / 'platform/delivery/previews/runtime'))
 sys.path.insert(0, str(ROOT / 'ansible'))
 
 from contract import (  # noqa: E402
-    APPROVALS, LEASE_MARGIN, OWNER, discovery_lease, obsolete, requested_catalog, runtime_catalog)
+    APPROVALS, LEASE_MARGIN, OWNER, approval, canonical, digest, discovery_lease, names,
+    obsolete, request, requested_catalog, runtime_catalog)
 from playbooks.argocd.files.github_app import app_token  # noqa: E402
 from playbooks.argocd.files.github_setup import GitHub, configuration  # noqa: E402
 from playbooks.secrets.files.vault import fields  # noqa: E402
@@ -41,12 +48,16 @@ APP_FIELDS = ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')
 APP_PERMISSIONS = {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}
 TOKEN_PERMISSIONS = {'contents': 'read', 'pull_requests': 'read'}
 LEASE_PERMISSIONS = {'contents': 'read', 'pull_requests': 'read', 'metadata': 'read'}
+WRITE_PERMISSIONS = {'contents': 'write', 'pull_requests': 'write'}
+WRITE_ECHO = {'contents': 'write', 'pull_requests': 'write', 'metadata': 'read'}
 NAMESPACE = 'argocd'
 NAME = 'github-preview-discovery'
 LABELS = {'cloudlab.io/owner': 'cloudlab-preview-discovery',
           'argocd.argoproj.io/secret-type': 'scm-creds'}
 CATALOG_PATH = 'previews/catalog.yaml'
 MAX_CATALOG_BYTES = 262144
+MAX_REQUEST_BYTES = 16384
+MAX_REQUEST_FILES = 20
 REVISION_PATTERN = re.compile(r'[a-f0-9]{40}')
 
 
@@ -112,8 +123,8 @@ def revoke(lease):
             raise
 
 
-def issue(values):
-    """Mint one exact-repository read lease from the local release App."""
+def release_app(values):
+    """Validated release App API for the designated configuration repository."""
     repo = designated(values)
     credentials = fields(APP_ITEM, APP_FIELDS)
     api = GitHub(app_token(credentials))
@@ -129,7 +140,13 @@ def issue(values):
             (account.get('login') or '').lower() != owner or
             installation.get('target_type') != 'Organization'):
         raise RuntimeError('Release App grants differ from the designated repository contract')
-    issued = api.request('POST', 'app/installations/' + credentials['INSTALLATION_ID'] + '/access_tokens',
+    return api, repo, credentials['INSTALLATION_ID']
+
+
+def issue(values):
+    """Mint one exact-repository read lease from the local release App."""
+    api, repo, installation_id = release_app(values)
+    issued = api.request('POST', 'app/installations/' + installation_id + '/access_tokens',
                          {'repositories': [repo.split('/')[1]], 'permissions': dict(TOKEN_PERMISSIONS)})
     lease = {'token': issued.get('token')}
     try:
@@ -301,16 +318,166 @@ def retire(values):
     return {'changed': current is not None}
 
 
+def load_requests(private_dir):
+    """Reviewed approval request files in deterministic name order."""
+    directory = Path(private_dir) / 'previews'
+    if not directory.is_dir():
+        return []
+    raws = []
+    for path in sorted(directory.glob('*.yaml'), key=lambda item: item.name):
+        if path.name == 'catalog.yaml':
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            fail('Cannot read ' + str(path))
+        if len(raw) > MAX_REQUEST_BYTES:
+            fail('Preview request exceeds its bound in ' + path.name)
+        try:
+            document = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            fail('Invalid YAML in ' + path.name)
+        if not isinstance(document, dict):
+            fail('Preview request requires its approval fields in ' + path.name)
+        raws.append((path.name, document))
+    if len(raws) > MAX_REQUEST_FILES:
+        fail('Preview approval requests exceed their bound')
+    return raws
+
+
+def merge_requests(raw_catalog, raws):
+    """Deterministically merge request files into catalog approvals (D46).
+
+    This automation is the merge owner: it derives each request's immutable
+    instance and namespace ownership and extends the catalog additively.
+    Already-merged requests are skipped; removing a file never removes an
+    approval (retirement flows through controller expiry/close/orphan
+    cleanup). Any ownership conflict refuses the whole merge with no PR.
+    """
+    base = runtime_catalog(raw_catalog)
+    merged = dict(base)
+    merged['approvals'] = list(base['approvals'])
+    merged['ownership'] = dict(base['ownership'])
+    seen = {row['instance'] for row in merged['approvals']}
+    for name, document in raws:
+        try:
+            row = approval(request(document))
+        except ValueError as error:
+            raise ValueError('Preview request invalid in ' + name + ': ' + str(error)) from None
+        if row['instance'] in seen:
+            continue
+        namespace = names(row)['namespace']
+        derived = row['instance'] + ':' + digest(canonical(row))
+        if namespace in merged['ownership'] and merged['ownership'][namespace] != derived:
+            raise ValueError('Preview request conflicts with retained namespace authorization in ' + name)
+        merged['ownership'][namespace] = derived
+        merged['approvals'].append(row)
+        seen.add(row['instance'])
+    return runtime_catalog(merged)
+
+
+def dump_catalog(merged):
+    return yaml.safe_dump({'catalog': merged}, sort_keys=True, width=4096)
+
+
+def catalog_token(api, repo, installation_id):
+    """Single-use catalog PR token; never delivered, never reused for leases."""
+    issued = api.request('POST', 'app/installations/' + installation_id + '/access_tokens',
+                         {'repositories': [repo.split('/')[1]], 'permissions': dict(WRITE_PERMISSIONS)})
+    token = issued.get('token')
+    valid = isinstance(token, str) and token and not any(char in token for char in '\n\r')
+    try:
+        if not valid:
+            raise ValueError('Issued catalog token is invalid')
+        instant = datetime.fromisoformat(str(issued.get('expires_at', '')).replace('Z', '+00:00'))
+        expires = int(instant.timestamp())
+        if (instant.tzinfo is None or not 0 < expires - int(time.time()) <= 3660 or
+                issued.get('permissions') != WRITE_ECHO):
+            raise ValueError('Issued catalog token lifetime or permissions differ')
+        inventory = GitHub(token).request('GET', 'installation/repositories?per_page=100')
+        rows = inventory.get('repositories', [])
+        if (inventory.get('total_count') != 1 or len(rows) != 1 or rows[0].get('full_name') != repo or
+                rows[0].get('private') is not True or type(rows[0].get('id')) is not int or rows[0]['id'] < 1 or
+                any(rows[0].get(key) for key in ('fork', 'archived', 'disabled'))):
+            raise ValueError('Issued catalog token selection differs')
+        return token
+    except Exception:
+        if valid:
+            revoke({'token': token})
+        raise RuntimeError('Catalog token validation failed; private diagnostics withheld') from None
+
+
+def propose(values, private_dir):
+    """Merge pending approval requests and open the catalog PR (owner merges)."""
+    catalog, source = load_catalog(private_dir)
+    raws = load_requests(private_dir)
+    if not raws:
+        return {'proposed': False, 'requests': 0}
+    settled = merged_settings(catalog)
+    merged = merge_requests(settled, raws)
+    if merged == settled:
+        return {'proposed': False, 'requests': len(raws)}
+    content = dump_catalog(merged)
+    if len(content.encode()) > MAX_CATALOG_BYTES:
+        raise ValueError('Preview catalog exceeds its bound')
+    base = source['revision']
+    branch = 'preview-catalog/' + hashlib.sha256((base + CATALOG_PATH + content).encode()).hexdigest()[:24]
+    api, repo, installation_id = release_app(values)
+    token = catalog_token(api, repo, installation_id)
+    try:
+        writer = GitHub(token)
+        prefix = 'repos/' + repo
+        main = writer.request('GET', prefix + '/git/ref/heads/main')
+        if main['object']['sha'] != base:
+            raise ValueError('Reviewed checkout is stale; refresh before proposing the catalog')
+        ref = writer.request('GET', prefix + '/git/ref/heads/' + branch, missing=True)
+        if ref is None:
+            writer.request('POST', prefix + '/git/refs', {'ref': 'refs/heads/' + branch, 'sha': base})
+            main_file = writer.request('GET', prefix + '/contents/' + CATALOG_PATH + '?ref=main')
+            stored = writer.request('PUT', prefix + '/contents/' + CATALOG_PATH,
+                                    {'message': 'Merge preview approvals', 'content': base64.b64encode(
+                                        content.encode()).decode(), 'branch': branch,
+                                     'sha': main_file['sha']})
+            head = stored['commit']['sha']
+        else:
+            head = ref['object']['sha']
+            current = writer.request('GET', prefix + '/contents/' + CATALOG_PATH + '?ref=' + branch)
+            if base64.b64decode(''.join(current['content'].split()), validate=True).decode() != content:
+                raise ValueError('Existing catalog branch differs; overwrite refused')
+        query = 'head=' + repo.split('/')[0] + ':' + branch + '&base=main&state=all&per_page=100'
+        pulls = writer.request('GET', prefix + '/pulls?' + query)
+        if len(pulls) > 1 or pulls and (pulls[0]['state'] != 'open' or pulls[0]['head']['sha'] != head):
+            raise ValueError('Existing catalog PR differs; no PR changed')
+        opened = False
+        if not pulls:
+            writer.request('POST', prefix + '/pulls', {
+                'base': 'main', 'head': branch, 'title': 'Merge preview approvals',
+                'body': 'Merge reviewed preview approval requests into ' + CATALOG_PATH +
+                        ' with precomputed namespace ownership. Only that file changes. ' +
+                        'The owner merges; this automation never merges.\n'})
+            opened = True
+        return {'proposed': opened, 'requests': len(raws), 'branch': branch}
+    finally:
+        revoke({'token': token})
+
+
 def cycle(arguments, values):
     catalog, source = load_catalog(arguments.private_dir, arguments.catalog_file)
     if arguments.action == 'retire':
         return dict(retire(values), source=source)
-    return dict(ensure(catalog, values), source=source)
+    if arguments.action == 'propose':
+        if arguments.catalog_file is not None:
+            fail('Catalog proposals require the private checkout')
+        return dict(propose(values, arguments.private_dir), source=source)
+    result = dict(ensure(catalog, values), source=source)
+    if arguments.catalog_file is None:
+        result['propose'] = propose(values, arguments.private_dir)
+    return result
 
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', nargs='?', default='ensure', choices=('ensure', 'retire'))
+    parser.add_argument('action', nargs='?', default='ensure', choices=('ensure', 'propose', 'retire'))
     parser.add_argument('--private-dir', default=os.environ.get('PRIVATE_CONFIG_DIR', '/private-config'))
     parser.add_argument('--catalog-file', default=None)
     parser.add_argument('--workspace', default='/workspace')

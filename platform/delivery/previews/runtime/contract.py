@@ -140,7 +140,9 @@ def requested_catalog(value):
 
     Requests must ship precomputed ownership for their derived namespace
     (derive via request()/requested_catalog()); the admission policy admits
-    only namespaces listed in the raw catalog ownership.
+    only namespaces listed in the raw catalog ownership. The preview-discovery
+    automation (D46) is the merge owner for request files; it computes the
+    ownership and opens the catalog PR, and the owner merges.
     """
     if not isinstance(value, dict):
         raise ValueError('Preview catalog requires exact private access and approvals')

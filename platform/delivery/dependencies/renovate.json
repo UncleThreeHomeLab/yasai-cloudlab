@@ -55,7 +55,8 @@
       "infra/cloudflare/**",
       "infra/harbor/**",
       "ansible/playbooks/harbor/tests/provider-fixture/**",
-      "apps/releases/**"
+      "apps/releases/**",
+      "platform/delivery/dependencies/fixture/**"
     ],
     "postUpgradeTasks": {
       "commands": [],

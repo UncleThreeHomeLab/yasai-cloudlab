@@ -12,7 +12,7 @@
   "identityGraceSeconds": 600,
   "tombstoneCapacity": 256,
   "privateValues": "previews/catalog.json",
-  "approvalRequests": "Reviewed private YAML approvals (approval.schema.json) merge into catalog approvals; the controller derives the deterministic instance, source path, source digest and namespace ownership. Removing a request retires its instance through guarded disposable cleanup. Changing any approved field enrolls a new instance; retired instances never reactivate. Legacy explicit approvals with retained ownership stay accepted during migration.",
+  "approvalRequests": "Reviewed private YAML approvals (approval.schema.json) merge into catalog approvals through the preview-discovery automation (D46), which derives the deterministic instance, source path, source digest and namespace ownership and opens the catalog PR for the owner to merge. Removing a request retires its instance through guarded disposable cleanup. Changing any approved field enrolls a new instance; retired instances never reactivate. Legacy explicit approvals with retained ownership stay accepted during migration.",
   "privateDiscoveryCredential": {
     "localAppItem": "github-release-private",
     "localAppFields": [

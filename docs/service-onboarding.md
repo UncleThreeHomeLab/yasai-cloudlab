@@ -1249,6 +1249,11 @@ Automatic publication or reviewer-submitted manual promotion changes this file i
    enforces primary-component membership and digest equality.
    For component releases, verify every approved component digest and confirm
    `primary_component` selects the image recorded in `digest`.
+   Run the trusted release verifier as the merge gate
+   (`python platform/delivery/ci/publisher/release.py verify <registration.json>
+   <release-file>`, registration rendered to JSON); a gate failure blocks the PR.
+   Anything merged invalid is still denied at admission, and Argo keeps serving
+   the prior merged release.
 2. **User:** review and merge through the repository's configured review process.
    Automatic release Apps cannot merge; manual promotion only submits a PR.
 
@@ -1276,9 +1281,11 @@ Automatic publication or reviewer-submitted manual promotion changes this file i
 2. **Agent:** check the previous image is compatible with current database schema
    and persisted data. Image rollback does not reverse migrations or restore data.
    If incompatible, stop and use the data owner's reviewed migration or recovery procedure.
-3. **Agent:** open a rollback PR restoring the complete previous release record:
+3. **Agent:** renew the registration approval to that same historical revision first,
+   then open a rollback PR restoring the complete previous release record:
    `digest`, `source_revision` and `workflow_run_id` from that same historical version.
    Use the recorded immutable digest; do not reconstruct it from a tag.
+   The merge gate binds the record to the current approval, so the renewal is the rollback approval.
 4. **User:** review and merge through branch protection.
    **Agent:** repeat section 7.4 against the restored record.
 
