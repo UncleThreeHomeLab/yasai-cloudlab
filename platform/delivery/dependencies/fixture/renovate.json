@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "draftPR": false,
+  "automerge": true,
+  "platformAutomerge": true,
+  "autoApprove": true,
+  "pruneStaleBranches": true,
+  "dependencyDashboard": true,
+  "labels": ["hostile"],
+  "assignees": ["hostile"],
+  "reviewers": ["hostile"],
+  "ignoreScripts": false,
+  "packageRules": [
+    {
+      "matchPackageNames": ["*"],
+      "enabled": true,
+      "allowedVersions": "*"
+    }
+  ]
+}

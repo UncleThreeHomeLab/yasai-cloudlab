@@ -20,6 +20,7 @@ const {spawnSync} = require('node:child_process');
 // upgrade to calendar months only if a group needs month-boundary runs.
 const CADENCE_SECONDS = {daily: 86400, weekly: 604800, monthly: 2592000};
 const HANDOFF_DIR = process.env.CLOUDLAB_HANDOFF_DIR || '/handoff';
+const TOOLCHAIN_FILE = process.env.CLOUDLAB_TOOLCHAIN_FILE || '/toolchain.json';
 const REQUEST_BYTES = 16384;
 const QUALIFY_TIMEOUT_MS = 600000;
 const PROPOSE_TIMEOUT_MS = 1800000;
@@ -310,6 +311,12 @@ function main() {
     const stages = [];
     let outcome = null;
     try {
+      // The qualification runner binds its toolchain record to this group run;
+      // qualify.cjs refuses any other role, and the candidate tree stays the
+      // exact reviewed base until the writer proposes.
+      fs.writeFileSync(TOOLCHAIN_FILE, JSON.stringify({role: 'candidate-runner',
+        operation: crypto.randomBytes(16).toString('hex'), candidateTree: baseSha}),
+        {mode: 0o600});
       const qualified = runQualify(stagesDir, lockDoc.image);
       stages.push({name: 'qualify', passed: qualified});
       if (!qualified) throw new Error('toolchain qualification failed');

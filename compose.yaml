@@ -241,7 +241,11 @@ services:
   dependency-maintenance:
     profiles: [maintenance]
     platform: linux/amd64
-    image: docker.io/library/node:22.21.1-bookworm@sha256:b84d52cd45bfe261096ccbf886955d431b8b9ed01b72eaef588e8886bda09e78
+    # Locked qualifier image; the pin owner is platform/delivery/dependencies/image.lock.json.
+    image: ghcr.io/renovatebot/renovate:44.181.5@sha256:611eac05a6ee11c06d23157ae2ca11364f5b4a096c12d7f82a65aec2b6ec8a48
+    # The image defaults to non-root; root matches every other Compose service
+    # and owns the fixed toolchain path plus the state and handoff volumes.
+    user: root
     entrypoint: [node, /workspace/platform/delivery/dependencies/schedule.cjs]
     working_dir: /workspace
     restart: unless-stopped
@@ -250,16 +254,60 @@ services:
         source: .
         target: /workspace
         read_only: true
+      - type: bind
+        source: ./platform/delivery/dependencies
+        target: /trusted
+        read_only: true
+      - type: bind
+        source: .
+        target: /candidate
+        read_only: true
+      - type: bind
+        source: ./platform/delivery/dependencies/fixture
+        target: /fixture
+        read_only: true
       - type: volume
         source: maintenance_state
         target: /maintenance/state
       - type: volume
         source: maintenance_handoff
         target: /handoff
+    tmpfs:
+      - /results
     environment:
       MAINTENANCE_INTERVAL: ${MAINTENANCE_INTERVAL:-3600}
       MAINTENANCE_REPOSITORY: ${MAINTENANCE_REPOSITORY:-UncleThreeHomeLab/yasai-cloudlab}
       MAINTENANCE_BASE: ${MAINTENANCE_BASE:-main}
+    command: [loop]
+
+  maintenance-handoff:
+    profiles: [maintenance]
+    platform: linux/amd64
+    # Same locked image; runs only the handoff consumer, never the scheduler.
+    # The writer token comes from the owner-provisioned file below, never Git.
+    image: ghcr.io/renovatebot/renovate:44.181.5@sha256:611eac05a6ee11c06d23157ae2ca11364f5b4a096c12d7f82a65aec2b6ec8a48
+    # Same user as the scheduler: both share the handoff volume.
+    user: root
+    entrypoint: [node, /workspace/platform/delivery/dependencies/handoff.cjs]
+    working_dir: /workspace
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ./platform/delivery/dependencies
+        target: /trusted
+        read_only: true
+      - type: volume
+        source: maintenance_handoff
+        target: /handoff
+    tmpfs:
+      - /tmp
+    env_file:
+      - path: ${PRIVATE_CONFIG_DIR:-../cloudlab-config}/maintenance.env
+        required: true
     command: [loop]
 
 volumes:
