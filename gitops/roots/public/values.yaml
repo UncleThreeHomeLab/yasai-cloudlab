@@ -88,5 +88,5 @@ previews:
   configuration:
     enabled: true
     revision: eecb1591a6b40ceeaf40760b9f83988779c44f9c
-    acceptanceCommitment: bfef8f78572e16fe470115f905f20686a021038be68ca69bd1551ace62e98e4e
+    acceptanceCommitment: 73f9023b6217a863db024a7d15999f76781164eef181a6292f92e3aedeaa507a
     permissionsEnabled: true
