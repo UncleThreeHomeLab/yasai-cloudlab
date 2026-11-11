@@ -1,0 +1,8 @@
+# DRAFT — public file platform/access/cloudflare-approval.yaml (U2 T5 first approval).
+# Destination: PUBLIC repository (creates platform/access/; approval bytes only),
+# merged via public PR through the public-pr-merge-guard boundary, never by worker.
+# Both fields come from the live executor status AFTER the exposure change merges
+# (see merge-verify-steps.md): revision = merged main SHA, plan = plan digest.
+# A newer main SHA or a mismatched plan never applies.
+revision: 4fac334c7cb12d1c2f78818b9f1fef9c813cbb92
+plan: 7813a60abeda84e237887963a02168fa01af530db7af7e2c789d2e7da5d2bdbd
