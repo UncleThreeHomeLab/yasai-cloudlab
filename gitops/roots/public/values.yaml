@@ -76,7 +76,7 @@ permissions:
   # cross-Application dependency. Breakglass reuses this pin and commitment.
   enabled: true
   revision: d9d639881301e62487c73a9a4fbdc6c0f2eba966
-  acceptanceCommitment: '8fb59f68f870dd199aab259d5cb83aab4974ca386ba712dc27c0ab35fe79f959'
+  acceptanceCommitment: '7f0f7c97532d86bba26d18ec89019eb8c3c7865b07fbe9247eb29fd1f27184e2'
 ci:
   enabled: true
   poolEnabled: false
