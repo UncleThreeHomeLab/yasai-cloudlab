@@ -81,8 +81,11 @@ def alertmanager_ok(native_mod, paused):
         return False
     if paused:
         return True
-    conds = am.get('status', {}).get('conditions', [])
-    return any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in conds)
+    # Operator reports Available/Reconciled (never Ready); see vendored Alertmanager CRD columns.
+    conds = {c.get('type'): c.get('status') for c in am.get('status', {}).get('conditions', [])}
+    if conds.get('Available') != 'True' or conds.get('Reconciled') != 'True':
+        return False
+    return (am.get('status', {}).get('availableReplicas') or 0) >= 1
 
 
 def quiescent(n, native_mod, paused, timeout=60):
