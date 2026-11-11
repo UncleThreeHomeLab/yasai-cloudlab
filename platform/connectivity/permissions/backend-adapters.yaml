@@ -24,3 +24,4 @@ rules:
   outage: Backend outage fails closed for new grants; restarts issue nothing and preserve no grants; held sessions stay bounded by TTL and audit.
   audit: "Secret-free events only: session ID, requester/beneficiary opaque IDs, backend, actions, policy revision, TTL, decision and expiry; never tokens, credentials or private data."
   prohibitions: No standing grants, no custom IAM, no UID-based adoption, no private data in public Git, no automatic renewal.
+acceptance: One bounded recovery scenario spans removal, outage and restart with backend-denial and retained-state assertions.
