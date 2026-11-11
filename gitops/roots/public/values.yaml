@@ -59,7 +59,7 @@ observability:
   configuration:
     enabled: true
     paused: false
-    revision: ae2639d37cf8eb391d7fc1e85faef40bea0641db
+    revision: ea5fbbace7de86cd36eaf3682d7428f6b757613d
     acceptanceCommitment: 'd4e3c58e4f7ea6b4342ce7cdb0c3beb20fb54d110eac2b5ba69321e107f93abd'
 harbor:
   enabled: true
