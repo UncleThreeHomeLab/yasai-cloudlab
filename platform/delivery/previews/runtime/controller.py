@@ -152,6 +152,9 @@ class Controller:
         except urllib.error.HTTPError as error:
             if error.code not in (401, 403):
                 return False
+        except OSError:
+            # Unpublished DNS and other probe transports stay pending, counted per instance.
+            raise RuntimeError('Preview ingress probe unavailable; diagnostics withheld') from None
         return True
 
     def application_owner(self, record, app):
