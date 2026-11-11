@@ -17,7 +17,7 @@ exposures:
   # production: retired and removed by the follow-up retirement PR, never kept.
   t5-disposable:
     service: t5-disposable
-    publication: published
+    publication: retired
     exposure:
       class: public
       hostname: t5-disposable.unclethree.uk
