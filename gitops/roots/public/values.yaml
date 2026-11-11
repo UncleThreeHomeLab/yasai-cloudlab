@@ -75,7 +75,7 @@ permissions:
   # bindings before assignment. Initial activation is staged, not an atomic
   # cross-Application dependency. Breakglass reuses this pin and commitment.
   enabled: true
-  revision: 0613d2cf624d0c9d6c13c328c0fea8e3ea9b0987
+  revision: d9d639881301e62487c73a9a4fbdc6c0f2eba966
   acceptanceCommitment: '85bdb8db180dc381c5cdb4cd1e03695a84c46e1f63a055c070683ab85d80b933'
 ci:
   enabled: true
