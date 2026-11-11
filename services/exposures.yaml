@@ -13,3 +13,15 @@ exposures:
       backend: notes-web
       path: /
       port: 8080
+  # DISPOSABLE T5 exposure (short-lived publish->verify->retire proof). Not
+  # production: retired and removed by the follow-up retirement PR, never kept.
+  t5-disposable:
+    service: t5-disposable
+    publication: published
+    exposure:
+      class: public
+      hostname: t5-disposable.unclethree.uk
+      access: public
+      backend: t5-disposable
+      path: /
+      port: 8080
