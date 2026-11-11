@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Cloudflare plan approval binding",
-  "$comment": "Public file platform/access/cloudflare-approval.yaml. A merged PR carrying this binding approves exactly one main revision and one plan digest; the connectivity reconciler applies that plan with no second operator command. Stale or mismatched bindings never apply.",
+  "$comment": "Public file platform/access/cloudflare-approval.yaml. A merged PR carrying this binding approves exactly one exposure state (byte-identical services/exposures.yaml at the bound revision and HEAD) and one plan digest; the connectivity reconciler applies that plan with no second operator command. Merging the approval PR keeps the exposure bytes identical, so the approval stays satisfiable; stale or mismatched bindings never apply.",
   "type": "object",
   "additionalProperties": false,
   "required": [

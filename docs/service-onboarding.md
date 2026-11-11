@@ -1095,8 +1095,11 @@ and their owning configuration has converged for readiness checks.
    setup scope.
 3. **Agent:** for public DNS, read the pending plan digest from the connectivity
    reconciler status and merge the `platform/access/cloudflare-approval.yaml`
-   binding PR for the current main SHA. The standing loop applies the bound plan
-   with no second command. Private DNS converges automatically after merge.
+   binding PR for the current main SHA. The binding approves the exposure
+   bytes, not the HEAD SHA, so merging the binding PR itself keeps the
+   approval satisfiable; rebind only after an exposure or plan change.
+   The standing loop applies the bound plan with no second command.
+   Private DNS converges automatically after merge.
 4. **User/Agent:** open the published hostname from an intended client.
    Verify login and permitted application actions. Check anonymous or unauthorized
    access is denied where required. Test each additional private view from the tailnet.

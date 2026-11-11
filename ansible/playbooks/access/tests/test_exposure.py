@@ -56,17 +56,12 @@ class ApprovalTests(unittest.TestCase):
     revision = 'a' * 40
     plan = 'b' * 64
 
-    def test_current_binding_matches(self):
-        current, plan = exposure.validate_approval(
-            'revision: %s\nplan: %s\n' % (self.revision, self.plan), self.revision)
-        self.assertTrue(current)
+    def test_binding_returns_bound_revision_and_plan(self):
+        revision, plan = exposure.validate_approval(
+            'revision: %s\nplan: %s\n' % (self.revision, self.plan))
+        self.assertEqual(revision, self.revision)
         self.assertEqual(plan, self.plan)
-
-    def test_stale_binding_never_applies(self):
-        current, _ = exposure.validate_approval(
-            'revision: %s\nplan: %s\n' % ('c' * 40, self.plan), self.revision)
-        self.assertFalse(current)
 
     def test_malformed_binding_fails_loudly(self):
         with self.assertRaises(Exception):
-            exposure.validate_approval('revision: %s\n' % self.revision, self.revision)
+            exposure.validate_approval('revision: %s\n' % self.revision)

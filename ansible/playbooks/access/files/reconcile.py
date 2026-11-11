@@ -1,17 +1,20 @@
 """Control-machine connectivity reconciler: tailnet, private DNS, public DNS.
 
 Reads accepted Git revisions only. Tailnet and private DNS converge
-automatically. Cloudflare plans every cycle and applies the merged revision's
-exact plan with no second operator command once the same merged revision binds
-its digest in platform/access/cloudflare-approval.yaml (merged PR plus exact
-plan-hash binding constitutes approval). Unreviewed or mismatched state never
-applies. Invalid or unreachable sources retain last-valid state and report
-blocked; they never delete, grant, or publish.
+automatically. Cloudflare plans every cycle and applies the approved
+exposure state's exact plan with no second operator command once a merged
+platform/access/cloudflare-approval.yaml binds its {revision, plan}
+(merged PR plus exact exposure-state and plan-hash binding constitutes
+approval). Unreviewed or mismatched state never applies. Invalid or
+unreachable sources retain last-valid state and report blocked; they
+never delete, grant, or publish.
 
 Approval ceremony: merge the exposure change; read the pending digest from
-this reconciler's status; merge a second PR binding {revision, plan} for the
-current main SHA; the standing loop applies it and reports convergence. A
-newer main SHA voids the binding until rebound.
+this reconciler's status; merge a second PR binding {revision, plan} for
+the current main SHA; the standing loop applies it and reports
+convergence. The binding approves the exposure bytes, not the HEAD SHA:
+merging the approval PR keeps those bytes identical, so the approval
+stays satisfiable; any exposure or plan change voids it until rebound.
 
 Activation ceremony (first private policy): capture the current tailnet ACL
 and split-DNS hashes; merge private platform/access/policy.yaml; run `once`;
@@ -659,11 +662,17 @@ def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
     approved = False
     if approval_raw is not None:
         try:
-            current_binding, approved_plan = public_exposure.validate_approval(
-                approval_raw.decode(), revision)
+            bound_revision, bound_plan = public_exposure.validate_approval(
+                approval_raw.decode())
         except Exception as error:
             raise RuntimeError('Cloudflare approval binding invalid; exposures retained') from error
-        approved = current_binding and approved_plan == digest
+        try:
+            bound_raw = github.contents(repo, EXPOSURES_PATH, bound_revision,
+                                        limit=MAX_FILE_BYTES)
+        except RuntimeError as error:
+            raise RuntimeError('Bound exposure state unavailable; last-valid state retained') from error
+        if bound_raw is not None and bound_raw == raw and bound_plan == digest:
+            approved = True
     if not approved or not apply_allowed:
         return {'ready': True, 'changed': False, 'revision': revision, 'plan': digest,
                 'published': published, 'retired': retired, 'drifted': True,

@@ -52,15 +52,18 @@ def validate_bundle(text, zone):
     return [entries[key] for key in sorted(entries)]
 
 
-def validate_approval(text, revision):
-    """Returns True only when the merged binding approves this exact revision.
+def validate_approval(text):
+    """Returns the merged binding's (revision, plan); malformed bindings fail loudly.
 
-    A missing binding is normal (nothing approved yet); a malformed binding is
-    an author error and fails loudly. Stale bindings never apply.
+    The caller approves the exposure state, not the HEAD SHA: it fetches the
+    exposure bytes at both the bound revision and HEAD and applies only when
+    they are byte-identical and the HEAD plan equals the bound plan. A
+    missing binding file is normal (nothing approved yet) and stays pending;
+    stale or mismatched bindings never apply.
     """
     document = yaml.safe_load(text)
     validate(document, json.loads(APPROVAL_SCHEMA.read_text()))
-    return document['revision'] == revision, document['plan']
+    return document['revision'], document['plan']
 
 
 def service_key(service):
