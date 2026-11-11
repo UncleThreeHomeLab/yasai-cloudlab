@@ -56,6 +56,8 @@ spec:
     - {group: '', kind: ConfigMap}
     {{- end }}
     - {group: '', kind: ServiceAccount}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
     - {group: batch, kind: Job}
     - {group: batch, kind: CronJob}
     - {group: '', kind: ResourceQuota}
