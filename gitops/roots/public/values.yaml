@@ -49,7 +49,7 @@ identity:
 services:
   enabled: true
   revision: ff6b08a26dfbf023f2795573094080a92582f479
-  acceptanceCommitment: 'a825d5ccbbd2b8c053073451ab93ff2f09a37c16f8c9aa43d826c9d0fc5757be'
+  acceptanceCommitment: '51b164e8638ba41c5f1bbb2a4c3406ea744c19dba1d72c122db4fa9be1668527'
 privateSources:
   enabled: true
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
