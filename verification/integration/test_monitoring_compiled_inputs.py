@@ -177,7 +177,7 @@ class MonitoringCompiledInputsTests(unittest.TestCase):
             'https://grafana.internal.example.test/d/svc-prices')
         self.assertIn('logs_url', alert['annotations'])
         board = yaml.safe_load(
-            values['serviceDashboards']['svc-prices.json'])
+            values['serviceBoards']['svc-prices.json'])
         self.assertEqual((board['uid'], board['title'], board['editable']),
                          ('svc-prices', 'Prices', False))
         self.assertIn({'title': 'prices', 'type': 'link', 'url': '/d/svc-prices'},
@@ -204,7 +204,7 @@ class MonitoringCompiledInputsTests(unittest.TestCase):
         lifecycle = values['nativeLifecycle']
         self.assertEqual(lifecycle['serviceMetrics'], {})
         self.assertEqual(lifecycle['serviceRules'], {})
-        self.assertEqual(values['serviceDashboards'], {})
+        self.assertEqual(values['serviceBoards'], {})
 
     def test_unbound_or_retired_declarations_fail_closed(self):
         if shutil.which('helm') is None:
