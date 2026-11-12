@@ -362,6 +362,19 @@
             },
             "retention": {
               "const": "retain"
+            },
+            "deletion": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "digest"
+              ]
             }
           },
           "required": [
@@ -384,6 +397,19 @@
             },
             "retention": {
               "const": "retain"
+            },
+            "deletion": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "digest"
+              ]
             }
           },
           "required": [

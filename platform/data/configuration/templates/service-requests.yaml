@@ -1,9 +1,14 @@
 {{- include "cloudlab.data.normalize" . -}}
 {{- $settings := .dataSettings -}}
+{{- $doomed := dict }}
+{{- range $settings.deletions | default list }}
+{{- if eq .kind "database" }}{{- $_ := set $doomed (printf "%s/%s" .service .name) true }}{{- end }}
+{{- end }}
 {{- range $settings.serviceRequests }}
 {{- $service := .service }}
 {{- if .database }}
 {{- if eq .database.applicationRole .database.migrationRole }}{{ fail "Service application and migration roles must differ" }}{{- end }}
+{{- if not (hasKey $doomed (printf "%s/%s" $service .database.name)) }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
@@ -15,6 +20,7 @@ spec:
   owner: {{ .database.migrationRole | quote }}
   cluster: {name: cloudlab-postgres}
   databaseReclaimPolicy: retain
+{{- end }}
 {{- range $entry := list (dict "name" (printf "%s-application" $service) "item" .database.applicationItem) (dict "name" (printf "%s-migration" $service) "item" .database.migrationItem) }}
 ---
 apiVersion: external-secrets.io/v1

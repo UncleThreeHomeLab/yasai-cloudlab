@@ -56,6 +56,8 @@ spec:
     - {group: '', kind: ConfigMap}
     {{- end }}
     - {group: '', kind: ServiceAccount}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
     - {group: batch, kind: Job}
     - {group: batch, kind: CronJob}
     - {group: '', kind: ResourceQuota}
@@ -152,7 +154,7 @@ spec:
       path: platform/data/configuration
       helm:
         releaseName: cloudlab-data-configuration
-        valueFiles: ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/platform/storage.yaml', {{ printf "$values/%s" (include "cloudlab.serviceCatalogPath" .) | quote }}]
+        valueFiles: ['$values/platform/certificates.yaml', '$values/platform/data.yaml', '$values/platform/storage.yaml', '$values/platform/data/deletion-approvals.yaml', {{ printf "$values/%s" (include "cloudlab.serviceCatalogPath" .) | quote }}]
         valuesObject: {{ merge (dict "sharedInputs" true) $flags | toJson }}
     - {repoURL: {{ .Values.identity.argo.valuesRepository | quote }}, targetRevision: {{ .Values.identity.argo.valuesRevision | quote }}, ref: values}
   destination: {server: 'https://kubernetes.default.svc', namespace: cloudlab-data}

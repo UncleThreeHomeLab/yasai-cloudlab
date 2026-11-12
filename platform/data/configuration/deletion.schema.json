@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cloudlab.invalid/platform/data/deletion.schema.json",
+  "title": "Private platform/data/deletion-approvals.yaml (supported)",
+  "description": "Exact-scope deletion approvals consumed via the data-configuration deletion-approvals valueFiles entry. Each entry authorizes deleting exactly one disposable database or bucket; the chart template recomputes the digest and fails closed on any mismatch. Digest input scope is the fixed literal disposable-fixture-delete-v1. Compute each digest offline with: python3 -c \"import json,hashlib,sys; print(hashlib.sha256(json.dumps({'service':sys.argv[1],'kind':sys.argv[2],'name':sys.argv[3],'scope':'disposable-fixture-delete-v1'},sort_keys=True,separators=(',',':')).encode()).hexdigest())\" <service> <kind> <name>",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deletionApprovals"],
+  "properties": {
+    "deletionApprovals": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["service", "kind", "name", "digest", "reason"],
+            "properties": {
+              "service": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}$"},
+              "kind": {"const": "database"},
+              "name": {"$ref": "#/definitions/sqlIdentifier"},
+              "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "reason": {"type": "string", "minLength": 1}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["service", "kind", "name", "digest", "reason"],
+            "properties": {
+              "service": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}$"},
+              "kind": {"const": "bucket"},
+              "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"},
+              "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "reason": {"type": "string", "minLength": 1}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {"sqlIdentifier": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$", "allOf": [{"not": {"pattern": "^pg_"}}, {"not": {"enum": ["postgres", "template0", "template1"]}}]}}
+}

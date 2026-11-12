@@ -1,11 +1,14 @@
-"""Ensure approved SeaweedFS buckets exist; grants run separately via psql.
+"""Ensure approved SeaweedFS buckets exist; delete only dual-approved ones.
 
 Reads desired state rendered by this chart from /desired/desired.json and
-uses only the mounted data-admin S3 identity. Buckets are never deleted: an
-unlisted bucket is retained, never removed. PostgreSQL grants are rendered
-as static SQL by the chart and applied by the companion psql container as
-each database owner; this module validates the shared desired document and
-reconciles buckets only.
+uses only the mounted data-admin S3 identity. Buckets listed under `buckets`
+are created when missing and never removed; buckets listed under `deletions`
+are removed when present, with absent counting as success. Every deletion
+entry is self-authenticating: its digest must recompute over the fixed
+deletion scope or the cycle fails with nothing deleted. PostgreSQL grants
+are rendered as static SQL by the chart and applied by the companion psql
+container as each database owner; this module validates the shared desired
+document and reconciles buckets only.
 
 Stdlib only: the in-cluster python image carries no third-party packages.
 """
@@ -25,6 +28,9 @@ RESERVED_DATABASES = {'postgres', 'template0', 'template1'}
 SECRET_NAME = re.compile(r'^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$')
 BUCKET_NAME = re.compile(r'^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$')
 S3_HOST = re.compile(r'^s3\.internal\.[a-z0-9.-]+$')
+SERVICE_NAME = re.compile(r'^[a-z][a-z0-9-]{0,30}$')
+DIGEST_HEX = re.compile(r'^[0-9a-f]{64}$')
+DELETION_SCOPE = 'disposable-fixture-delete-v1'
 
 EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
 
@@ -36,6 +42,14 @@ def fail(message):
 def valid_sql_identifier(value):
     return (isinstance(value, str) and SQL_IDENTIFIER.match(value) is not None
             and not value.startswith('pg_') and value not in RESERVED_DATABASES)
+
+
+def deletion_digest(service, kind, name):
+    """Hex digest over the canonical deletion bytes (mirrors the chart gate)."""
+    canonical = json.dumps({'service': service, 'kind': kind, 'name': name,
+                            'scope': DELETION_SCOPE},
+                           sort_keys=True, separators=(',', ':')).encode()
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def load_desired(path):
@@ -52,7 +66,8 @@ def load_desired_text(text):
         document = json.loads(text)
     except ValueError as error:
         fail('Desired data state is unreadable: ' + str(error))
-    if not isinstance(document, dict) or set(document) != {'s3Host', 'databases', 'buckets'}:
+    if (not isinstance(document, dict)
+            or set(document) != {'s3Host', 'databases', 'buckets', 'deletions'}):
         fail('Desired data state has unknown shape')
     host = document['s3Host']
     if not isinstance(host, str) or len(host) > 253 or S3_HOST.match(host) is None:
@@ -90,6 +105,36 @@ def load_desired_text(text):
         fail('Desired bucket name is invalid')
     if len(set(buckets)) != len(buckets):
         fail('Desired bucket is declared twice')
+    deletions = document['deletions']
+    if not isinstance(deletions, list) or len(deletions) > 2:
+        fail('Desired deletions must list at most 2 entries')
+    seen_deletions = set()
+    for entry in deletions:
+        if (not isinstance(entry, dict)
+                or set(entry) != {'service', 'kind', 'name', 'digest'}):
+            fail('Desired deletion entry has unknown shape')
+        kind = entry['kind']
+        if kind not in ('database', 'bucket'):
+            fail('Desired deletion kind is not supported: ' + repr(kind))
+        if (not isinstance(entry['service'], str)
+                or SERVICE_NAME.match(entry['service']) is None):
+            fail('Desired deletion service is invalid: ' + repr(entry['service']))
+        valid_name = (valid_sql_identifier(entry['name']) if kind == 'database'
+                      else isinstance(entry['name'], str)
+                      and BUCKET_NAME.match(entry['name']) is not None)
+        if not valid_name:
+            fail('Desired deletion name is invalid: ' + repr(entry['name']))
+        if (not isinstance(entry['digest'], str)
+                or DIGEST_HEX.match(entry['digest']) is None
+                or entry['digest'] != deletion_digest(entry['service'], kind, entry['name'])):
+            fail('Desired deletion digest does not match its approval: '
+                 + entry['service'] + '/' + kind)
+        triple = (entry['service'], kind, entry['name'])
+        if triple in seen_deletions:
+            fail('Desired deletion is declared twice: ' + entry['service'] + '/' + entry['name'])
+        seen_deletions.add(triple)
+        if kind == 'bucket' and entry['name'] in buckets:
+            fail('Desired deletion overlaps a retained bucket: ' + entry['name'])
     return document
 
 
@@ -162,6 +207,37 @@ def ensure_buckets(document, access, secret, region, transport=None):
     return ensured
 
 
+def delete_buckets(document, access, secret, region, transport=None):
+    """Delete ONLY approved buckets; absent counts as success, others retained."""
+    if not access or not secret:
+        raise RuntimeError('S3 admin identity is missing; buckets retained')
+    call = transport or (lambda method, path, headers:
+                         s3_status(document['s3Host'], method, path, headers))
+    deleted = []
+    for entry in document['deletions']:
+        if entry['kind'] != 'bucket':
+            continue
+        bucket = entry['name']
+        path = '/%s/' % bucket
+        headers = signature_headers('HEAD', path, document['s3Host'], access, secret,
+                                    region, datetime.now(timezone.utc))
+        status = call('HEAD', path, headers)
+        if status == 404:
+            continue
+        if status != 200:
+            raise RuntimeError('S3 bucket check refused for %s; buckets retained' % bucket)
+        headers = signature_headers('DELETE', path, document['s3Host'], access, secret,
+                                    region, datetime.now(timezone.utc))
+        if call('DELETE', path, headers) not in (200, 204):
+            raise RuntimeError('S3 bucket deletion refused for %s; buckets retained' % bucket)
+        headers = signature_headers('HEAD', path, document['s3Host'], access, secret,
+                                    region, datetime.now(timezone.utc))
+        if call('HEAD', path, headers) != 404:
+            raise RuntimeError('S3 bucket did not converge for %s; buckets retained' % bucket)
+        deleted.append(bucket)
+    return deleted
+
+
 def read_secret(directory, name, required=True):
     path = Path(directory) / name
     try:
@@ -180,6 +256,7 @@ def main():
         secret = read_secret('/s3config', 'admin_SECRET_ACCESS_KEY')
         region = read_secret('/s3config', 'app_REGION', required=False) or 'us-east-1'
         ensured = ensure_buckets(document, access, secret, region)
+        deleted = delete_buckets(document, access, secret, region)
     except (ValueError, RuntimeError) as error:
         print(str(error), file=sys.stderr, flush=True)
         return 1
@@ -187,6 +264,8 @@ def main():
         print('Ensured S3 buckets: ' + ', '.join(ensured), flush=True)
     else:
         print('All approved S3 buckets already exist', flush=True)
+    if deleted:
+        print('Deleted approved S3 buckets: ' + ', '.join(deleted), flush=True)
     return 0
 
 
