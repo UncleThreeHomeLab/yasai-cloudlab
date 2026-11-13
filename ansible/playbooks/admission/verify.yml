@@ -69,7 +69,9 @@
         stdin: "{{ {'catalog': ((admission_service_catalog.stdout | from_json)['values']['catalog'] if
           (services_enabled | bool and admission_service_catalog is not skipped) else []),
           'permissionsGuard': (lookup('file', '/workspace/platform/delivery/admission/policies/templates/permissions.yaml') | from_yaml_all | list),
-          'namespaceGuard': (lookup('file', '/workspace/platform/delivery/admission/policies/templates/workload-namespace.yaml') | from_yaml)} | to_json }}"
+          'namespaceGuard': (lookup('file', '/workspace/platform/delivery/admission/policies/templates/workload-namespace.yaml') | from_yaml),
+          'networkGuard': (lookup('file',
+            '/workspace/platform/delivery/admission/policies/templates/workload-network-native.yaml') | from_yaml_all | list)} | to_json }}"
       changed_when: false
       no_log: true
       register: admission_verified

@@ -30,6 +30,137 @@ def permission_input_desired(path=None):
     return list(yaml.safe_load_all(Path(path).read_text()))
 
 
+def network_guard_desired(path=None):
+    import yaml
+    path = path or Path(__file__).resolve().parents[4] / 'platform/delivery/admission/policies/templates/workload-network-native.yaml'
+    return list(yaml.safe_load_all(Path(path).read_text()))
+
+
+def network_guard_validate(documents, expected):
+    name = 'cloudlab-workload-network-bounds'
+    if (not isinstance(expected, list) or len(expected) != 2 or len(documents) != 2 or
+            [row.get('kind') for row in expected] != ['ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding'] or
+            any(row.get('metadata', {}).get('name') != name for row in expected) or
+            expected[0].get('spec', {}).get('failurePolicy') != 'Fail' or
+            expected[1].get('spec') != {'policyName': name, 'validationActions': ['Deny']}):
+        raise RuntimeError('Workload network guard requires its complete policy and binding')
+    for actual, reference in zip(documents, expected, strict=True):
+        kind = reference['kind']
+        marker = 'cloudlab-workload-policy:admissionregistration.k8s.io/' + kind + ':cloudlab-policy/' + name
+        if (not isinstance(actual, dict) or actual.get('apiVersion') != reference['apiVersion'] or
+                actual.get('kind') != kind or actual.get('metadata', {}).get('name') != name or
+                actual.get('spec') != reference.get('spec') or
+                any(actual.get('metadata', {}).get('annotations', {}).get(key) != value
+                    for key, value in reference['metadata']['annotations'].items()) or
+                actual.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != marker):
+            raise RuntimeError('Workload network guard differs from its declared owner')
+        metadata = actual['metadata']
+        if (not isinstance(metadata.get('uid'), str) or not metadata['uid'] or
+                metadata.get('deletionTimestamp') or metadata.get('ownerReferences') or metadata.get('finalizers')):
+            raise RuntimeError('Workload network guard has no stable owner')
+        if kind == 'ValidatingAdmissionPolicy':
+            status = actual.get('status', {})
+            typing = status.get('typeChecking')
+            if (not metadata.get('generation') or status.get('observedGeneration') != metadata['generation'] or
+                    not isinstance(typing, dict) or typing.get('expressionWarnings') or
+                    any(row.get('status') == 'False' for row in status.get('conditions', []))):
+                raise RuntimeError('Workload network guard type-checking is incomplete or has warnings')
+    return True
+
+
+def network_guard_probes(namespace, policy):
+    name = 'cloudlab-network-guard-probe'
+    if get('networkpolicy', name, namespace=namespace):
+        raise RuntimeError('Workload network guard probe name is already in use')
+    attribution = "ValidatingAdmissionPolicy 'cloudlab-workload-network-bounds' with binding 'cloudlab-workload-network-bounds' denied request:"
+    def probe(operation, document):
+        return kube(operation, '--dry-run=server', '-f', '-', document=document, allow_failure=True)
+    def require_denied(result, direction):
+        message = 'Workload NetworkPolicy ' + direction + ' rules must limit peers or ports.'
+        if not result.returncode or attribution not in result.stderr or message not in result.stderr:
+            raise RuntimeError('Workload network guard did not deny its synthetic ' + direction + ' probe')
+    for direction in ('ingress', 'egress'):
+        document = {'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
+            'metadata': {'name': name, 'namespace': namespace},
+            'spec': {'podSelector': {}, 'policyTypes': [direction.title()], direction: []}}
+        if probe('create', document).returncode:
+            raise RuntimeError('Workload network guard positive CREATE control was not admitted')
+        document['spec'][direction] = [{}]
+        require_denied(probe('create', document), direction)
+    if (not isinstance(policy, dict) or policy.get('kind', 'NetworkPolicy') != 'NetworkPolicy' or
+            policy.get('apiVersion', 'networking.k8s.io/v1') != 'networking.k8s.io/v1' or
+            policy.get('metadata', {}).get('namespace') != namespace or
+            not policy.get('metadata', {}).get('uid') or not policy['metadata'].get('resourceVersion') or
+            policy['metadata'].get('deletionTimestamp')):
+        raise RuntimeError('Workload network guard requires an existing stable policy for UPDATE probes')
+    baseline = copy.deepcopy(policy)
+    baseline['apiVersion'] = 'networking.k8s.io/v1'
+    baseline['kind'] = 'NetworkPolicy'
+    baseline.pop('status', None)
+    baseline['metadata'].pop('managedFields', None)
+    if probe('replace', baseline).returncode:
+        raise RuntimeError('Workload network guard positive UPDATE control was not admitted')
+    for direction in ('ingress', 'egress'):
+        document = copy.deepcopy(baseline)
+        document['spec']['policyTypes'] = ['Ingress', 'Egress']
+        document['spec'][direction] = [{}]
+        require_denied(probe('replace', document), direction)
+    if probe('replace', baseline).returncode:
+        raise RuntimeError('Workload network guard UPDATE control changed during probes')
+
+
+def network_guard_unselected_probe():
+    namespace = 'cloudlab-policy'
+    target = get('namespace', namespace)
+    if (not isinstance(target, dict) or
+            target.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') == 'service-platform'):
+        raise RuntimeError('Workload network guard requires an unselected probe namespace')
+    name = 'cloudlab-network-guard-probe'
+    if get('networkpolicy', name, namespace=namespace):
+        raise RuntimeError('Unselected network guard probe name is already in use')
+    document = {'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
+        'metadata': {'name': name, 'namespace': namespace},
+        'spec': {'podSelector': {}, 'policyTypes': ['Egress'], 'egress': [{}]}}
+    result = kube('create', '--dry-run=server', '-f', '-', document=document, allow_failure=True)
+    if "ValidatingAdmissionPolicy 'cloudlab-workload-network-bounds' with binding 'cloudlab-workload-network-bounds' denied request:" in result.stderr:
+        raise RuntimeError('Workload network guard unexpectedly matched an unselected namespace')
+    if result.returncode:
+        raise RuntimeError('Workload network guard unselected namespace probe was not admitted')
+    return True
+
+
+def network_guard_inventory(workloads):
+    count = 0
+    target = None
+    for workload in workloads:
+        if workload['metadata'].get('labels', {}).get('cloudlab.io/owner') != 'service-platform':
+            raise RuntimeError('Workload network guard inventory requires platform-owned namespaces')
+        policies = get('networkpolicy', namespace=workload['metadata']['name'])
+        if not isinstance(policies, dict) or not isinstance(policies.get('items'), list):
+            raise RuntimeError('Workload network policy inventory is incomplete')
+        for policy in policies['items']:
+            metadata = policy.get('metadata', {})
+            name = metadata.get('name', '')
+            marker = 'cloudlab-services:networking.k8s.io/NetworkPolicy:' + workload['metadata']['name'] + '/' + name
+            if (target is None and metadata.get('namespace') == workload['metadata']['name'] and
+                    name in ('platform-deny', 'platform-ingress') and
+                    metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id') == marker and
+                    metadata.get('uid') and metadata.get('resourceVersion') and not metadata.get('deletionTimestamp')):
+                target = (workload['metadata']['name'], policy)
+            spec = policy.get('spec', {})
+            for direction, peers in (('ingress', 'from'), ('egress', 'to')):
+                for rule in spec.get(direction, []) or []:
+                    restricted_peers = rule.get(peers, []) or []
+                    if ((not restricted_peers and not rule.get('ports')) or
+                            any(not any(key in peer for key in ('ipBlock', 'namespaceSelector', 'podSelector'))
+                                for peer in restricted_peers)):
+                        raise RuntimeError('Existing workload NetworkPolicy has an unrestricted rule')
+            count += 1
+    if target is None:
+        raise RuntimeError('Workload network guard UPDATE probes require a stable service-owned policy')
+    return count, target
+
+
 def namespace_guard_create_probe(declaration=None):
     document = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {
         'name': 'cloudlab-app-native-guard-probe', 'labels': {'cloudlab.io/owner': 'foreign'}}}
@@ -478,7 +609,7 @@ def secretref_catalog_policy(actions, namespace):
             raise RuntimeError('ExternalSecret violation did not match the declared policy mode')
 
 
-def run(revision, actions, catalog=None, guard_expected=None, namespace_expected=None):
+def run(revision, actions, catalog=None, guard_expected=None, namespace_expected=None, network_expected=None):
     if not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('Admission verification requires the exact published source revision')
     if actions not in (['Audit', 'Warn'], ['Deny']):
@@ -533,6 +664,17 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
     workloads = [row for row in get('namespace')['items'] if namespace_candidate(row)]
     if not workloads:
         raise RuntimeError('Application namespaces require their existing restricted Pod Security owner')
+    network_expected = network_expected if network_expected is not None else network_guard_desired()
+    def network_guard_ready():
+        documents = [get(row['kind'], row['metadata']['name']) for row in network_expected]
+        try:
+            return network_guard_validate(documents, network_expected)
+        except RuntimeError:
+            return False
+    wait(network_guard_ready, 'native workload network guard convergence', timeout=180)
+    network_policies_checked, (network_namespace, network_policy) = network_guard_inventory(workloads)
+    network_guard_probes(network_namespace, network_policy)
+    unselected_admitted = network_guard_unselected_probe()
     secretref_catalog_policy(actions, workloads[0]['metadata']['name'])
     ephemeral_checked, composition_checked, restricted_checked = namespaces(workloads, enforce, catalog)
     initial = controllers()
@@ -552,6 +694,9 @@ def run(revision, actions, catalog=None, guard_expected=None, namespace_expected
             'unapproved_composition_namespace_denied': True,
             'namespace_security_labels_denied': True,
             'native_namespace_guard_verified': True,
+            'native_workload_network_guard_verified': True,
+            'native_workload_network_guard_unselected_admitted': unselected_admitted,
+            'workload_network_policies_checked': network_policies_checked,
             'restricted_workload_admitted': restricted_checked > 0,
             'bound_token_admitted': True, 'own_account_admitted': True,
             'controller_owned_admitted': True, 'secretref_owner_admitted': True,
@@ -565,6 +710,7 @@ if __name__ == '__main__':
         print(json.dumps(run(sys.argv[1], json.loads(sys.argv[2]),
             data['catalog'] if isinstance(data, dict) else data,
             data.get('permissionsGuard') if isinstance(data, dict) else None,
-            data.get('namespaceGuard') if isinstance(data, dict) else None), sort_keys=True))
+            data.get('namespaceGuard') if isinstance(data, dict) else None,
+            data.get('networkGuard') if isinstance(data, dict) else None), sort_keys=True))
     except Exception:
         raise SystemExit('Admission verification incomplete; existing workloads and policy mode retained') from None
