@@ -1,0 +1,45 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cloudlab-workload-network-bounds
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Exact
+    namespaceSelector:
+      matchLabels:
+        cloudlab.io/owner: service-platform
+    objectSelector: {}
+    resourceRules:
+      - apiGroups: [networking.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [networkpolicies]
+        scope: Namespaced
+  validations:
+    - expression: >-
+        !has(object.spec.ingress) || object.spec.ingress.all(r,
+          ((!has(r.from) || size(r.from) == 0) ?
+            (has(r.ports) && size(r.ports) > 0) :
+            r.from.all(p, has(p.ipBlock) || has(p.namespaceSelector) || has(p.podSelector))))
+      message: Workload NetworkPolicy ingress rules must limit peers or ports.
+    - expression: >-
+        !has(object.spec.egress) || object.spec.egress.all(r,
+          ((!has(r.to) || size(r.to) == 0) ?
+            (has(r.ports) && size(r.ports) > 0) :
+            r.to.all(p, has(p.ipBlock) || has(p.namespaceSelector) || has(p.podSelector))))
+      message: Workload NetworkPolicy egress rules must limit peers or ports.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cloudlab-workload-network-bounds
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  policyName: cloudlab-workload-network-bounds
+  validationActions: [Deny]
