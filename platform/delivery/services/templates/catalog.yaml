@@ -22,6 +22,14 @@ the grant. */}}
 {{- $routeNames := list }}
 {{- $retired := eq (.publication | default "ready") "retired" }}
 {{- if $ordinary }}
+{{- $portNames := dict }}
+{{- range $v.ports }}
+{{- if hasKey $portNames .name }}{{ fail "Service port names must be unique" }}{{ end }}
+{{- $_ := set $portNames .name true }}
+{{- end }}
+{{- range $v.health }}
+{{- if not (hasKey $portNames .port) }}{{ fail "Health probes require declared ports" }}{{ end }}
+{{- end }}
 {{- range $field := list "hostname" "access" "path" "port" "backend" }}
 {{- if hasKey $v.exposure $field }}{{ fail "Ordinary service addresses come from exposure inputs, not the catalog" }}{{- end }}
 {{- end }}

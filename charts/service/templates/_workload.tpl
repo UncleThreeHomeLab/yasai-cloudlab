@@ -4,6 +4,14 @@
 {{- fail "ReadWriteOnce service persistence requires one replica" }}
 {{- end }}
 {{- $monitoring := include "cloudlab.service.monitoring" (dict "definition" $v) | fromJson }}
+{{- $portNames := dict }}
+{{- range .Values.ports }}
+{{- if hasKey $portNames .name }}{{ fail "Service port names must be unique" }}{{ end }}
+{{- $_ := set $portNames .name true }}
+{{- end }}
+{{- range .Values.health }}
+{{- if not (hasKey $portNames .port) }}{{ fail "Health probes require declared ports" }}{{ end }}
+{{- end }}
 {{- if and .Values.rollouts.enabled (or .Values.persistence.enabled (eq .Values.exposure.class "none")) }}
 {{- fail "Rollouts require a stateless service and a Gateway API exposure" }}
 {{- end }}
@@ -176,15 +184,27 @@ spec:
             - {name: {{ .name }}, containerPort: {{ .port }}, protocol: TCP}
             {{- end }}
           startupProbe:
-            httpGet: {{ .Values.health.readiness | toJson }}
+            {{- if eq (.Values.health.readiness.type | default "http") "tcp" }}
+            tcpSocket: {{ dict "port" .Values.health.readiness.port | toJson }}
+            {{- else }}
+            httpGet: {{ dict "path" .Values.health.readiness.path "port" .Values.health.readiness.port | toJson }}
+            {{- end }}
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
-            httpGet: {{ .Values.health.readiness | toJson }}
+            {{- if eq (.Values.health.readiness.type | default "http") "tcp" }}
+            tcpSocket: {{ dict "port" .Values.health.readiness.port | toJson }}
+            {{- else }}
+            httpGet: {{ dict "path" .Values.health.readiness.path "port" .Values.health.readiness.port | toJson }}
+            {{- end }}
             periodSeconds: 5
             timeoutSeconds: 2
           livenessProbe:
-            httpGet: {{ .Values.health.liveness | toJson }}
+            {{- if eq (.Values.health.liveness.type | default "http") "tcp" }}
+            tcpSocket: {{ dict "port" .Values.health.liveness.port | toJson }}
+            {{- else }}
+            httpGet: {{ dict "path" .Values.health.liveness.path "port" .Values.health.liveness.port | toJson }}
+            {{- end }}
             periodSeconds: 10
             timeoutSeconds: 2
           resources: {{ .Values.resources | toJson }}
