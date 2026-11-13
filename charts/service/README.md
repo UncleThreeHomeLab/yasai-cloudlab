@@ -10,7 +10,7 @@ and approved immutable sources; authors cannot supply these fields in service va
 | --- | --- |
 | `name`, `owner` | Explicit application and owner labels |
 | `image` | Full image reference with SHA-256 digest |
-| `ports`, `health` | Named ports and HTTP readiness/liveness paths |
+| `ports`, `health` | Named ports and HTTP or TCP readiness/liveness probes |
 | `resources`, `replicas` | CPU/memory requests and limits within the namespace budget |
 | `environment` | Non-secret strings; secret values belong in 1Password |
 | `secrets`, `configMaps` | Approved names and bounded read-only mount paths, each with optional per-container selection (`application`, `dependencies`) |
@@ -27,6 +27,9 @@ and approved immutable sources; authors cannot supply these fields in service va
 | `exceptions` | Per-exception register; a `system-exception` workload requires a matching identity entry |
 | `approval.composition` | Multi-workload chart: named non-default `podSpec.serviceAccountName` per workload, exact selectors, ambient capture, default-deny mesh |
 | `publication` | `ready`, `published` or `retired`; retired stops rendering and denies policies while data, credentials and registers are retained |
+
+TCP probes use `type: tcp` and a declared `port`; an inherited `path` is ignored.
+TCP checks only that the listener accepts connections.
 
 Dormant offline mirrors of the secret, identity, and data shapes live at `platform/delivery/services/secret-profiles.schema.json`, `secret-placeholders.schema.json`, `identity.schema.json`, and `platform/data/configuration/data.schema.json`, `storage.schema.json`. They are not referenced by values or templates and create nothing; the table above plus the owning modules stay normative.
 

@@ -102,11 +102,34 @@
             "port": {
               "type": "string",
               "pattern": "^[a-z][a-z0-9-]{0,40}$"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "http",
+                "tcp"
+              ]
             }
           },
           "required": [
-            "path",
             "port"
+          ],
+          "anyOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "tcp"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            }
           ]
         },
         "liveness": {
@@ -120,11 +143,34 @@
             "port": {
               "type": "string",
               "pattern": "^[a-z][a-z0-9-]{0,40}$"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "http",
+                "tcp"
+              ]
             }
           },
           "required": [
-            "path",
             "port"
+          ],
+          "anyOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "tcp"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            }
           ]
         }
       },
