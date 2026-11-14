@@ -116,10 +116,10 @@
       },
       "Microsoft.AspNetCore.WebUtilities": {
         "type": "Transitive",
-        "resolved": "8.0.25",
-        "contentHash": "5NYpWgmaZjaJo2MdEnCsY7JBuJB0VaIkQCyumH0LcMkzHFVUuPzWlNqGk6knLixmzkBRV6I+1dzWKPBOVzLL+w==",
+        "resolved": "8.0.34",
+        "contentHash": "y/PLrdK62JmGf41Aya+wWKpDlzZzqrtxvFAbM3GmjkoO91XE6X9ANUN4jLI5hP2vpQeKciOOnp61FJ4eVYEExQ==",
         "dependencies": {
-          "Microsoft.Net.Http.Headers": "8.0.25",
+          "Microsoft.Net.Http.Headers": "8.0.34",
           "System.IO.Pipelines": "8.0.0"
         }
       },
@@ -272,8 +272,8 @@
       },
       "Microsoft.Net.Http.Headers": {
         "type": "Transitive",
-        "resolved": "8.0.25",
-        "contentHash": "/viZF58KPiq3S8s+4w36pHzf/QRhPZeFBLl8uMRejkwt4gvlSOyH3JuzIvXDS7K4Hdjfnfko/2wAYeSfJJbYAw==",
+        "resolved": "8.0.34",
+        "contentHash": "AckgYSh+GCocnuBb5Iij47bUSBve0nMNOsK5n5uks9ltYWeESo66NLeRp4cUX8KuA1Be1cIRiObf46BSuYSrWw==",
         "dependencies": {
           "Microsoft.Extensions.Primitives": "8.0.0"
         }
@@ -1323,8 +1323,8 @@
         "dependencies": {
           "Microsoft.Win32.Registry": "[5.0.0, )",
           "Newtonsoft.Json": "[13.0.3, )",
-          "Runner.Sdk": "[2.338.0, )",
-          "Sdk": "[2.338.0, )",
+          "Runner.Sdk": "[1.0.0, )",
+          "Sdk": "[1.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.11, )",
           "System.Text.Encoding.CodePages": "[10.0.12, )",
           "System.Threading.Channels": "[10.0.10, )"
@@ -1335,9 +1335,9 @@
         "dependencies": {
           "Microsoft.Win32.Registry": "[5.0.0, )",
           "Newtonsoft.Json": "[13.0.3, )",
-          "Runner.Common": "[2.338.0, )",
-          "Runner.Sdk": "[2.338.0, )",
-          "Sdk": "[2.338.0, )",
+          "Runner.Common": "[1.0.0, )",
+          "Runner.Sdk": "[1.0.0, )",
+          "Sdk": "[1.0.0, )",
           "System.IO.FileSystem.AccessControl": "[5.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.11, )",
           "System.ServiceProcess.ServiceController": "[10.0.9, )"
@@ -1346,15 +1346,15 @@
       "runner.plugins": {
         "type": "Project",
         "dependencies": {
-          "Runner.Sdk": "[2.338.0, )",
-          "Sdk": "[2.338.0, )"
+          "Runner.Sdk": "[1.0.0, )",
+          "Sdk": "[1.0.0, )"
         }
       },
       "runner.sdk": {
         "type": "Project",
         "dependencies": {
           "Microsoft.Win32.Registry": "[5.0.0, )",
-          "Sdk": "[2.338.0, )",
+          "Sdk": "[1.0.0, )",
           "System.Text.Encoding.CodePages": "[10.0.12, )",
           "System.Threading.Channels": "[10.0.10, )"
         }
@@ -1362,10 +1362,11 @@
       "runner.worker": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.AspNetCore.WebUtilities": "[8.0.34, )",
           "Microsoft.DevTunnels.Connections": "[1.3.60, )",
-          "Runner.Common": "[2.338.0, )",
-          "Runner.Sdk": "[2.338.0, )",
-          "Sdk": "[2.338.0, )",
+          "Runner.Common": "[1.0.0, )",
+          "Runner.Sdk": "[1.0.0, )",
+          "Sdk": "[1.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.11, )",
           "System.ServiceProcess.ServiceController": "[10.0.3, )",
           "System.Threading.Channels": "[10.0.10, )",

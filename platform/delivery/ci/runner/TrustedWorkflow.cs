@@ -84,7 +84,8 @@ namespace GitHub.Runner.Worker
                 var unique = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var row in workflows.EnumerateArray())
                 {
-                    if (!ExactFields(row, Fields))
+                    bool bound = row.ValueKind == JsonValueKind.Object && row.TryGetProperty("job_workflow_ref", out _);
+                    if (!ExactFields(row, bound ? Fields.Concat(new[] { "job_workflow_ref" }) : Fields))
                         return false;
                     var expected = new Dictionary<string, string>(StringComparer.Ordinal);
                     foreach (var field in Fields)
@@ -96,7 +97,17 @@ namespace GitHub.Runner.Worker
                     }
                     if (!Valid(expected) || !unique.Add(string.Join("\0", Fields.Select(field => expected[field]))))
                         return false;
-                    matched |= Fields.All(field => string.Equals(actual[field], expected[field], StringComparison.Ordinal));
+                    string called = null;
+                    if (bound)
+                    {
+                        var value = row.GetProperty("job_workflow_ref");
+                        if (value.ValueKind != JsonValueKind.String ||
+                            !ValidCalledWorkflow(value.GetString()))
+                            return false;
+                        called = value.GetString();
+                    }
+                    matched |= Fields.All(field => string.Equals(actual[field], expected[field], StringComparison.Ordinal)) &&
+                        (!bound || string.Equals(called, TrustedTemplate.CalledWorkflow(message), StringComparison.Ordinal));
                 }
                 return matched;
             }
@@ -146,5 +157,8 @@ namespace GitHub.Runner.Worker
 
         private static bool Matches(string value, string pattern) => value != null && value.Length <= 256 &&
             Regex.IsMatch(value, "\\A(?:" + pattern + ")\\z", RegexOptions.CultureInvariant);
+
+        private static bool ValidCalledWorkflow(string value) =>
+            Matches(value, "(?!\\.{1,2}/)[A-Za-z0-9_.-]+/(?!\\.{1,2}/)[A-Za-z0-9_.-]+/\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml@[a-f0-9]{40}");
     }
 }
