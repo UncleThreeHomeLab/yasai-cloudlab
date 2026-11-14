@@ -1,0 +1,21 @@
+OIDC proof API
+
+Required environment:
+- OIDC_ISSUER: HTTPS Keycloak realm issuer without a trailing slash.
+- OIDC_AUDIENCE: required access-token audience.
+- OIDC_ROLE: required value in the access-token roles list.
+- OIDC_CA_FILE: path to a readable CA bundle for the issuer.
+
+Port 8080 serves GET /proof. It accepts one Authorization: Bearer header and
+validates the token signature, issuer, audience, timestamps, token type and
+role. The endpoint returns 200 for an authorized token, 401 for an invalid
+token, 403 for a missing role and 503 when verification is unavailable.
+
+Port 8081 serves GET /live and GET /ready. Readiness confirms configuration and
+worker initialization; it does not check issuer or JWKS availability. The API
+retrieves keys from the issuer's /protocol/openid-connect/certs endpoint. Keys
+are cached for up to 60 seconds; unknown keys may be rejected until refresh.
+
+Use the service behind an approved private route and enforce its network
+policy. Neither listener provides TLS itself. /proof verifies access tokens;
+it does not perform an OIDC browser login or provide a callback.
