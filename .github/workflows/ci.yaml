@@ -1,0 +1,12 @@
+name: Publish OIDC proof
+"on":
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
+jobs:
+  publish:
+    uses: UncleThreeHomeLab/yasai-cloudlab/.github/workflows/application-publish.yaml@faf9fc36ed7ab0fb66ef80232ef156d4c9d83aaa
+    with:
+      application: oidc-proof
