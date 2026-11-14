@@ -92,6 +92,8 @@ def network_guard_probes(namespace, policy):
         require_denied(probe('create', document), direction)
         document['spec'][direction] = [{peers: [{'namespaceSelector': {}}]}]
         require_denied(probe('create', document), direction)
+        document['spec'][direction] = [{'ports': [{'protocol': 'TCP'}]}]
+        require_denied(probe('create', document), direction)
     if (not isinstance(policy, dict) or policy.get('kind', 'NetworkPolicy') != 'NetworkPolicy' or
             policy.get('apiVersion', 'networking.k8s.io/v1') != 'networking.k8s.io/v1' or
             policy.get('metadata', {}).get('namespace') != namespace or
@@ -114,6 +116,8 @@ def network_guard_probes(namespace, policy):
         document['spec'][direction] = [{peers: [{'ipBlock': {'cidr': '0.0.0.0/0'}}]}]
         require_denied(probe('replace', document), direction)
         document['spec'][direction] = [{peers: [{'namespaceSelector': {}}]}]
+        require_denied(probe('replace', document), direction)
+        document['spec'][direction] = [{'ports': [{'protocol': 'TCP'}]}]
         require_denied(probe('replace', document), direction)
     if probe('replace', baseline).returncode:
         raise RuntimeError('Workload network guard UPDATE control changed during probes')
@@ -163,16 +167,18 @@ def network_guard_inventory(workloads):
             for direction, peers in (('ingress', 'from'), ('egress', 'to')):
                 for rule in spec.get(direction, []) or []:
                     restricted_peers = rule.get(peers, []) or []
-                    if ((not restricted_peers and not rule.get('ports')) or
+                    ports = rule.get('ports') or []
+                    bounded_ports = bool(ports) and all(port.get('port') is not None for port in ports)
+                    if ((not restricted_peers and not bounded_ports) or
                             any(not any(key in peer for key in ('ipBlock', 'namespaceSelector', 'podSelector'))
                                 for peer in restricted_peers) or
-                            (not rule.get('ports') and any(
+                            (not bounded_ports and any(
                                 isinstance(peer.get('ipBlock'), dict) and
                                 re.search(r'/0+$', peer['ipBlock'].get('cidr', '')) and
                                 not peer['ipBlock'].get('except') and
                                 not any(key in peer for key in ('namespaceSelector', 'podSelector'))
                                 for peer in restricted_peers)) or
-                            (not rule.get('ports') and any(
+                            (not bounded_ports and any(
                                 'namespaceSelector' in peer and
                                 not constrained(peer['namespaceSelector']) and
                                 not constrained(peer.get('podSelector', {}))

@@ -22,15 +22,15 @@ spec:
   validations:
     - expression: >-
         !has(object.spec.ingress) || object.spec.ingress.all(r,
-          ((!has(r.from) || size(r.from) == 0) ?
-            (has(r.ports) && size(r.ports) > 0) :
-            r.from.all(p, (has(p.ipBlock) &&
-              (!p.ipBlock.cidr.matches('/0+$') ||
-               (has(p.ipBlock.except) && size(p.ipBlock.except) > 0) ||
-               (has(r.ports) && size(r.ports) > 0))) ||
+          (has(r.ports) && size(r.ports) > 0 && r.ports.all(port, has(port.port))) ?
+            (!has(r.from) || size(r.from) == 0 ||
+             r.from.all(p, has(p.ipBlock) || has(p.namespaceSelector) || has(p.podSelector))) :
+            (has(r.from) && size(r.from) > 0 && r.from.all(p,
+              (has(p.ipBlock) &&
+                (!p.ipBlock.cidr.matches('/0+$') ||
+                 (has(p.ipBlock.except) && size(p.ipBlock.except) > 0))) ||
               (has(p.namespaceSelector) &&
-                ((has(r.ports) && size(r.ports) > 0) ||
-                 (has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
+                ((has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
                  (has(p.namespaceSelector.matchExpressions) && size(p.namespaceSelector.matchExpressions) > 0) ||
                  (has(p.podSelector) &&
                    ((has(p.podSelector.matchLabels) && size(p.podSelector.matchLabels) > 0) ||
@@ -39,15 +39,15 @@ spec:
       message: Workload NetworkPolicy ingress rules must limit peers or ports.
     - expression: >-
         !has(object.spec.egress) || object.spec.egress.all(r,
-          ((!has(r.to) || size(r.to) == 0) ?
-            (has(r.ports) && size(r.ports) > 0) :
-            r.to.all(p, (has(p.ipBlock) &&
-              (!p.ipBlock.cidr.matches('/0+$') ||
-               (has(p.ipBlock.except) && size(p.ipBlock.except) > 0) ||
-               (has(r.ports) && size(r.ports) > 0))) ||
+          (has(r.ports) && size(r.ports) > 0 && r.ports.all(port, has(port.port))) ?
+            (!has(r.to) || size(r.to) == 0 ||
+             r.to.all(p, has(p.ipBlock) || has(p.namespaceSelector) || has(p.podSelector))) :
+            (has(r.to) && size(r.to) > 0 && r.to.all(p,
+              (has(p.ipBlock) &&
+                (!p.ipBlock.cidr.matches('/0+$') ||
+                 (has(p.ipBlock.except) && size(p.ipBlock.except) > 0))) ||
               (has(p.namespaceSelector) &&
-                ((has(r.ports) && size(r.ports) > 0) ||
-                 (has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
+                ((has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
                  (has(p.namespaceSelector.matchExpressions) && size(p.namespaceSelector.matchExpressions) > 0) ||
                  (has(p.podSelector) &&
                    ((has(p.podSelector.matchLabels) && size(p.podSelector.matchLabels) > 0) ||
