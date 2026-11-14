@@ -28,7 +28,14 @@ spec:
               (!p.ipBlock.cidr.matches('/0+$') ||
                (has(p.ipBlock.except) && size(p.ipBlock.except) > 0) ||
                (has(r.ports) && size(r.ports) > 0))) ||
-              has(p.namespaceSelector) || has(p.podSelector))))
+              (has(p.namespaceSelector) &&
+                ((has(r.ports) && size(r.ports) > 0) ||
+                 (has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
+                 (has(p.namespaceSelector.matchExpressions) && size(p.namespaceSelector.matchExpressions) > 0) ||
+                 (has(p.podSelector) &&
+                   ((has(p.podSelector.matchLabels) && size(p.podSelector.matchLabels) > 0) ||
+                    (has(p.podSelector.matchExpressions) && size(p.podSelector.matchExpressions) > 0))))) ||
+              (!has(p.namespaceSelector) && has(p.podSelector)))))
       message: Workload NetworkPolicy ingress rules must limit peers or ports.
     - expression: >-
         !has(object.spec.egress) || object.spec.egress.all(r,
@@ -38,7 +45,14 @@ spec:
               (!p.ipBlock.cidr.matches('/0+$') ||
                (has(p.ipBlock.except) && size(p.ipBlock.except) > 0) ||
                (has(r.ports) && size(r.ports) > 0))) ||
-              has(p.namespaceSelector) || has(p.podSelector))))
+              (has(p.namespaceSelector) &&
+                ((has(r.ports) && size(r.ports) > 0) ||
+                 (has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
+                 (has(p.namespaceSelector.matchExpressions) && size(p.namespaceSelector.matchExpressions) > 0) ||
+                 (has(p.podSelector) &&
+                   ((has(p.podSelector.matchLabels) && size(p.podSelector.matchLabels) > 0) ||
+                    (has(p.podSelector.matchExpressions) && size(p.podSelector.matchExpressions) > 0))))) ||
+              (!has(p.namespaceSelector) && has(p.podSelector)))))
       message: Workload NetworkPolicy egress rules must limit peers or ports.
 ---
 apiVersion: admissionregistration.k8s.io/v1
