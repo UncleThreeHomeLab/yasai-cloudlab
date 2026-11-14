@@ -87,6 +87,9 @@ def network_guard_probes(namespace, policy):
             raise RuntimeError('Workload network guard positive CREATE control was not admitted')
         document['spec'][direction] = [{}]
         require_denied(probe('create', document), direction)
+        peers = 'from' if direction == 'ingress' else 'to'
+        document['spec'][direction] = [{peers: [{'ipBlock': {'cidr': '0.0.0.0/0'}}]}]
+        require_denied(probe('create', document), direction)
     if (not isinstance(policy, dict) or policy.get('kind', 'NetworkPolicy') != 'NetworkPolicy' or
             policy.get('apiVersion', 'networking.k8s.io/v1') != 'networking.k8s.io/v1' or
             policy.get('metadata', {}).get('namespace') != namespace or
@@ -104,6 +107,9 @@ def network_guard_probes(namespace, policy):
         document = copy.deepcopy(baseline)
         document['spec']['policyTypes'] = ['Ingress', 'Egress']
         document['spec'][direction] = [{}]
+        require_denied(probe('replace', document), direction)
+        peers = 'from' if direction == 'ingress' else 'to'
+        document['spec'][direction] = [{peers: [{'ipBlock': {'cidr': '0.0.0.0/0'}}]}]
         require_denied(probe('replace', document), direction)
     if probe('replace', baseline).returncode:
         raise RuntimeError('Workload network guard UPDATE control changed during probes')
@@ -153,7 +159,13 @@ def network_guard_inventory(workloads):
                     restricted_peers = rule.get(peers, []) or []
                     if ((not restricted_peers and not rule.get('ports')) or
                             any(not any(key in peer for key in ('ipBlock', 'namespaceSelector', 'podSelector'))
-                                for peer in restricted_peers)):
+                                for peer in restricted_peers) or
+                            (not rule.get('ports') and any(
+                                isinstance(peer.get('ipBlock'), dict) and
+                                re.search(r'/0+$', peer['ipBlock'].get('cidr', '')) and
+                                not peer['ipBlock'].get('except') and
+                                not any(key in peer for key in ('namespaceSelector', 'podSelector'))
+                                for peer in restricted_peers))):
                         raise RuntimeError('Existing workload NetworkPolicy has an unrestricted rule')
             count += 1
     if target is None:
