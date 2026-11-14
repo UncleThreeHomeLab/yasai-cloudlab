@@ -26,9 +26,7 @@ spec:
             (!has(r.from) || size(r.from) == 0 ||
              r.from.all(p, has(p.ipBlock) || has(p.namespaceSelector) || has(p.podSelector))) :
             (has(r.from) && size(r.from) > 0 && r.from.all(p,
-              (has(p.ipBlock) &&
-                (!p.ipBlock.cidr.matches('/0+$') ||
-                 (has(p.ipBlock.except) && size(p.ipBlock.except) > 0))) ||
+              (has(p.ipBlock) && !p.ipBlock.cidr.matches('/0+$')) ||
               (has(p.namespaceSelector) &&
                 ((has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
                  (has(p.namespaceSelector.matchExpressions) && size(p.namespaceSelector.matchExpressions) > 0) ||
@@ -43,9 +41,7 @@ spec:
             (!has(r.to) || size(r.to) == 0 ||
              r.to.all(p, has(p.ipBlock) || has(p.namespaceSelector) || has(p.podSelector))) :
             (has(r.to) && size(r.to) > 0 && r.to.all(p,
-              (has(p.ipBlock) &&
-                (!p.ipBlock.cidr.matches('/0+$') ||
-                 (has(p.ipBlock.except) && size(p.ipBlock.except) > 0))) ||
+              (has(p.ipBlock) && !p.ipBlock.cidr.matches('/0+$')) ||
               (has(p.namespaceSelector) &&
                 ((has(p.namespaceSelector.matchLabels) && size(p.namespaceSelector.matchLabels) > 0) ||
                  (has(p.namespaceSelector.matchExpressions) && size(p.namespaceSelector.matchExpressions) > 0) ||
