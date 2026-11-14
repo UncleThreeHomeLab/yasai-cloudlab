@@ -284,7 +284,7 @@ services:
     profiles: [maintenance]
     platform: linux/amd64
     # Same locked image; runs only the handoff consumer, never the scheduler.
-    # The writer token comes from the owner-provisioned file below, never Git.
+    # The writer token comes from the launcher-injected environment below, never Git.
     image: ghcr.io/renovatebot/renovate:44.181.5@sha256:611eac05a6ee11c06d23157ae2ca11364f5b4a096c12d7f82a65aec2b6ec8a48
     # Same user as the scheduler: both share the handoff volume.
     user: root
@@ -305,9 +305,8 @@ services:
         target: /handoff
     tmpfs:
       - /tmp
-    env_file:
-      - path: ${PRIVATE_CONFIG_DIR:-../cloudlab-config}/maintenance.env
-        required: true
+    environment:
+      RENOVATE_TOKEN: "${RENOVATE_TOKEN:?Run platform/delivery/dependencies/launch.py: RENOVATE_TOKEN is required and never stored in Git}"
     command: [loop]
 
 volumes:
