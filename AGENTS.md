@@ -50,9 +50,22 @@ it into lifecycle management.
 
 *Git declarations are the source of truth; controllers do the work.*
 
-Every future change must be declarative: no imperative steps, no manual
-configuration, no SSH/API installers. Before changing a capability, identify
-its desired-state source, field owner, reconciler, credentials, and deletion
+Every lasting application or platform configuration change must be
+declarative: no imperative steps, no manual configuration, no SSH/API
+installers. Use reviewed Git declarations and their accepted reconciler,
+including native provider configurations for external resources. Do not use
+manual UI, SSH, API, or direct cluster changes to create lasting settings.
+
+Read-only investigation, ad-hoc testing, and necessary operational actions
+may be manual; they must not replace declarative configuration. Normal user
+actions, such as adding a user or setting a secret, may be manual when they
+are not managed configuration. Follow the Secrets rules for vault items.
+When lasting configuration lacks a supported declarative interface, use an
+explicitly scoped platform change, not a manual workaround. Bootstrap and
+external resources retain their designated owners and approval gates.
+
+Before changing a capability, identify its desired-state source, field owner,
+reconciler, credentials, and deletion
 policy. Routine onboarding uses reviewed Git declarations consumed directly
 by the accepted owner. Use YAML for supported inputs; Helm, provider HCL,
 dashboard JSON, application code, and workflow scripts keep their formats.
@@ -118,7 +131,11 @@ chat; ad-hoc validation is never committed. Non-setup changes need no check.
 
 A clean checkout, `.env`, and Docker Compose must bootstrap the lab on two
 existing, reachable VMs. VM creation and upstream firewalls are external
-prerequisites. Version all non-secret inputs, dependencies, automation, and
+prerequisites. Limit manual setup to documented prerequisites,
+environment-specific inputs, credentials, and unavoidable user actions.
+Document required inputs and external prerequisites with their owner; do not
+rely on undocumented UI changes or existing cluster state. Version all
+non-secret inputs, dependencies, automation, and
 validation. Keep tracked files environment-agnostic; environment specifics
 live in ignored local configuration. Never rely on cached images,
 credentials, copied tokens, or untracked scripts. Generate node secrets
