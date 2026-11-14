@@ -189,7 +189,7 @@ namespace GitHub.Runner.Worker
                 !message.Variables.ContainsKey("system.workflowFileSha");
         }
 
-        private static string CalledWorkflow(AgentJobRequestMessage message)
+        internal static string CalledWorkflow(AgentJobRequestMessage message)
         {
             if (message.Variables == null ||
                 !message.Variables.TryGetValue("system.workflowFileFullPath", out var path) ||

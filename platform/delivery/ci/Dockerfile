@@ -135,7 +135,11 @@ COPY runner/source.lock.json /source/maintenance-source.lock.json
 RUN dotnet restore Test/Test.csproj --runtime linux-x64 --force-evaluate \
     -p:RuntimeIdentifiers=linux-x64 -p:RestorePackagesWithLockFile=true -p:RestoreLockedMode=false
 
-FROM source-inputs AS source
+FROM source-inputs AS integrity
+COPY runner/ /source/runner-integrity/
+RUN perl /source/runner-integrity/check-security-pins.pl
+
+FROM integrity AS source
 RUN dotnet restore Test/Test.csproj --runtime linux-x64 --locked-mode -p:RuntimeIdentifiers=linux-x64
 
 FROM source AS test

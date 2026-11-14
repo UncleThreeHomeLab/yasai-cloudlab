@@ -8,7 +8,8 @@
   "runtime_version": "8.0.32",
   "security_packages": {
     "System.Security.Cryptography.Pkcs": "10.0.13",
-    "System.Formats.Asn1": "10.0.13"
+    "System.Formats.Asn1": "10.0.13",
+    "Microsoft.AspNetCore.WebUtilities": "8.0.34"
   },
   "images": {
     "base": "ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807",
@@ -21,14 +22,14 @@
     "Runner.PluginHost": "1ab6b1e1eaf4e3beb0444fc762a492848f4d1da5e57f6eb61354042d1d4a2551",
     "Runner.Plugins": "95da36da5a8603f9a34f3a9d7c9729201d694d817372d80fb192531e9da563ce",
     "Runner.Sdk": "a1a211ee527fae0a0a03274e47bd822eb5936adf2516d7a2b8f2fc4de7ec80d7",
-    "Runner.Worker": "6b60e50c04e294ef9660016afe934e11cd91a680d98fb0d23dc3b37e9a29654a",
+    "Runner.Worker": "13c58916ac3cff6ea710172d1f378c2a1968b8f3a8c7b5ff364d14bdd5f49507",
     "Sdk": "9a25795cbd4e556e850be6bc69ffac3a75d51e8f09b5498e500816c8ef39bc5d",
-    "Test": "60b185b2fe08500b4ac8fd8ed0eaba5160fcf6089788551db77a9da40d0b698c"
+    "Test": "e48a30b3c452ca17aa778fcd3438615e3bc3ed3654f5fb6f26ffb1e45fad6223"
   },
   "overlays": {
-    "runner.patch": "546e4f956ee5fa0a2a2d334b19dc2b04974985180e13791d2fa618645109ad6c",
-    "TrustedWorkflow.cs": "68e2365932d1e0eef49ed2fa8df972a4e2b276b359582c665b0213bec4727c58",
-    "TrustedTemplate.cs": "683603b6d3d06816611c339a404122e4cc24ee33f47998cbafc644fe7bff3bc2",
+    "runner.patch": "cbad57b5913d1784aedb693787f3128d5d2e0450d92161c1c09a08a6d38e8457",
+    "TrustedWorkflow.cs": "807b20a96b56ec927cffffc583c7560ff4dda45420706ca2ec4d645808785907",
+    "TrustedTemplate.cs": "429b233ea32b6795eae227a43a7facad9cf0fc03ae60329a9facada8fdac2a4c",
     "health.py": "33dd346912c464b9d2c774bbcfa2a8f7a5901ca2a3a9bd565f3df0f73e17489c",
     "tests/Fixtures.cs": "24c7d8db56fd899d31d05e19a660dcd412e84198e0cb434277fd9b7d7f9c669b",
     "tests/TrustedWorkflowL0.cs": "4ccd4dcd62c979262a81ff65c49b6350eb0dd534a83dcbf4b7042e8e415fd717"

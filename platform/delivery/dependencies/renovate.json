@@ -1857,6 +1857,20 @@
           "custom.regex"
         ],
         "matchPackageNames": [
+          "Microsoft.AspNetCore.WebUtilities"
+        ],
+        "enabled": true,
+        "groupName": "CI execution",
+        "registryUrls": [
+          "https://api.nuget.org/v3/index.json"
+        ],
+        "allowedVersions": "[8.0.34,8.1.0)"
+      },
+      {
+        "matchManagers": [
+          "custom.regex"
+        ],
+        "matchPackageNames": [
           "dotnet/runtime"
         ],
         "enabled": true,
@@ -2928,6 +2942,17 @@
         ],
         "datasourceTemplate": "nuget",
         "depNameTemplate": "System.Formats.Asn1"
+      },
+      {
+        "customType": "regex",
+        "managerFilePatterns": [
+          "/^platform/delivery/ci/runner/source\\.lock\\.json$/"
+        ],
+        "matchStrings": [
+          "\"Microsoft\\.AspNetCore\\.WebUtilities\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
+        ],
+        "datasourceTemplate": "nuget",
+        "depNameTemplate": "Microsoft.AspNetCore.WebUtilities"
       },
       {
         "customType": "regex",

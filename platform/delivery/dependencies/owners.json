@@ -776,7 +776,8 @@
         "ghcr.io/actions/actions-runner",
         "dotnet/runtime",
         "System.Security.Cryptography.Pkcs",
-        "System.Formats.Asn1"
+        "System.Formats.Asn1",
+        "Microsoft.AspNetCore.WebUtilities"
       ]
     },
     "actions": {
