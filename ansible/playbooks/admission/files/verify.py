@@ -90,6 +90,8 @@ def network_guard_probes(namespace, policy):
         peers = 'from' if direction == 'ingress' else 'to'
         document['spec'][direction] = [{peers: [{'ipBlock': {'cidr': '0.0.0.0/0'}}]}]
         require_denied(probe('create', document), direction)
+        document['spec'][direction] = [{peers: [{'namespaceSelector': {}}]}]
+        require_denied(probe('create', document), direction)
     if (not isinstance(policy, dict) or policy.get('kind', 'NetworkPolicy') != 'NetworkPolicy' or
             policy.get('apiVersion', 'networking.k8s.io/v1') != 'networking.k8s.io/v1' or
             policy.get('metadata', {}).get('namespace') != namespace or
@@ -110,6 +112,8 @@ def network_guard_probes(namespace, policy):
         require_denied(probe('replace', document), direction)
         peers = 'from' if direction == 'ingress' else 'to'
         document['spec'][direction] = [{peers: [{'ipBlock': {'cidr': '0.0.0.0/0'}}]}]
+        require_denied(probe('replace', document), direction)
+        document['spec'][direction] = [{peers: [{'namespaceSelector': {}}]}]
         require_denied(probe('replace', document), direction)
     if probe('replace', baseline).returncode:
         raise RuntimeError('Workload network guard UPDATE control changed during probes')
@@ -138,6 +142,8 @@ def network_guard_unselected_probe():
 def network_guard_inventory(workloads):
     count = 0
     target = None
+    def constrained(selector):
+        return bool(selector.get('matchLabels') or selector.get('matchExpressions'))
     for workload in workloads:
         if workload['metadata'].get('labels', {}).get('cloudlab.io/owner') != 'service-platform':
             raise RuntimeError('Workload network guard inventory requires platform-owned namespaces')
@@ -165,6 +171,11 @@ def network_guard_inventory(workloads):
                                 re.search(r'/0+$', peer['ipBlock'].get('cidr', '')) and
                                 not peer['ipBlock'].get('except') and
                                 not any(key in peer for key in ('namespaceSelector', 'podSelector'))
+                                for peer in restricted_peers)) or
+                            (not rule.get('ports') and any(
+                                'namespaceSelector' in peer and
+                                not constrained(peer['namespaceSelector']) and
+                                not constrained(peer.get('podSelector', {}))
                                 for peer in restricted_peers))):
                         raise RuntimeError('Existing workload NetworkPolicy has an unrestricted rule')
             count += 1
