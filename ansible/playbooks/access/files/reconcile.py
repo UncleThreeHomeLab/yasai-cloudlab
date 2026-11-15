@@ -26,6 +26,12 @@ authoritative withdrawal (Cloudflare record and tunnel entry absent; both
 private resolvers answer absent) and live route absence. Edge packet
 no-reachability stays a parent-run step: curl the retired hostname from an
 intended client (expect failure) with a live hostname as positive control.
+
+Preview DNS serves controller intent, never live routes: desired entries
+converge on both resolvers and every successful cycle republishes status
+observations copied from intent, so activation and tombstone proofs can
+complete. Invalid or unreadable intent retains resolvers; entries without
+both-hosts proof stay unpublished.
 """
 import base64
 import copy
@@ -45,6 +51,7 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, '/workspace/ansible')
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tailscale/files'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'platform/delivery/previews/runtime'))
 
 from dotenv import dotenv_values
 
@@ -53,6 +60,8 @@ import exposure as public_exposure
 from control import API as TailnetAPI
 from verify_access import ssh
 from playbooks.secrets.files.vault import fields
+from contract import (DNS_FRESHNESS, DNS_INTENT, DNS_INTENT_KEY, DNS_STATUS, DNS_STATUS_KEY, OWNER,
+                      dns_intent, dns_status)
 
 ROOT = Path(__file__).resolve().parents[4]
 WORK = Path('/infra-work/connectivity')
@@ -109,6 +118,9 @@ def configuration():
         raise RuntimeError('CONNECTIVITY_INTERVAL must be seconds') from None
     if not 60 <= config['interval'] <= 86400:
         raise RuntimeError('CONNECTIVITY_INTERVAL must be between 60 and 86400 seconds')
+    if config['interval'] > DNS_FRESHNESS:
+        print('CONNECTIVITY_INTERVAL exceeds preview DNS proof freshness; '
+              'observations may lapse between cycles', flush=True)
     # Export file inputs for SSH and vault subprocesses; explicit environment wins.
     for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'VM_PORT', 'VM_BECOME_PASSWORD',
                 'VM2_HOST', 'VM2_USER', 'VM2_PASSWORD', 'VM2_PORT', 'VM2_BECOME_PASSWORD',
@@ -271,6 +283,56 @@ def kubectl(host_prefix, *args, binary='k3s kubectl'):
     return json.loads(output)
 
 
+def kubectl_get_cm(binary):
+    """Fetch the controller-owned preview DNS intent; empty output stays unreadable.
+
+    The target is hardcoded: the agent reads intent only and writes status
+    only, never the reverse.
+    """
+    output = ssh('VM', os.environ['VM_HOST'],
+                 binary + ' get configmap ' + DNS_INTENT + ' -n argocd -o json')
+    if not output.strip():
+        raise RuntimeError('Preview DNS intent is unreadable; resolvers retained')
+    try:
+        return json.loads(output)
+    except ValueError:
+        raise RuntimeError('Preview DNS intent is unreadable; resolvers retained') from None
+
+
+def read_dns_intent(binary):
+    """Whole-generation preview DNS intent; invalid input retains resolvers."""
+    try:
+        return dns_intent(json.loads(kubectl_get_cm(binary)['data'][DNS_INTENT_KEY]))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise RuntimeError('Preview DNS intent is invalid; resolvers retained') from None
+
+
+def publish_dns_status(binary, intent, published, absent, hostnames, now):
+    """Publish observations copied from validated intent; failure keeps prior status.
+
+    Gateways and hostnames are copies of the intent values, never
+    reconstructed, after the caller verified gateway equality with the live
+    cluster. Every successful cycle republishes, including empty intent.
+    """
+    entries = {}
+    for instance, state in ([(item, 'published') for item in published]
+                            + [(item, 'absent') for item in absent]):
+        entries[instance] = {
+            'hostname': intent['entries'][instance]['hostname'],
+            'observations': [{'host': host, 'state': state, 'observedAt': now}
+                             for host in hostnames]}
+    status = {'format': 1, 'gateways': copy.deepcopy(intent['gateways']), 'entries': entries}
+    try:
+        dns_status(status)
+    except ValueError as error:
+        raise RuntimeError('Preview DNS status refused its contract; status unpublished') from error
+    manifest = {'apiVersion': 'v1', 'kind': 'ConfigMap',
+                'metadata': {'name': DNS_STATUS, 'namespace': 'argocd',
+                             'labels': {'cloudlab.io/owner': OWNER}},
+                'data': {DNS_STATUS_KEY: json.dumps(status, sort_keys=True)}}
+    ssh('VM', os.environ['VM_HOST'], binary + ' apply -f -', input=json.dumps(manifest))
+
+
 def discover_cluster():
     """Live routes, gateways, and certificate readiness; failure retains DNS."""
     binary = 'k3s kubectl' if ssh(
@@ -307,11 +369,21 @@ def discover_cluster():
     return {'private_routes': sorted(set(private)), 'public_routes': sorted(set(public)),
             'services': services,
             'cluster_gateway': service['spec']['clusterIP'], 'tailnet_gateway': addresses[0],
-            'certificates': certificates}
+            'certificates': certificates, 'binary': binary}
 
 
-def reconcile_dns(declared, servers, mapping, cluster):
-    """Published private names with live routes converge on both resolvers."""
+def reconcile_dns(declared, servers, mapping, cluster, now=None):
+    """Published private names with live routes converge on both resolvers.
+
+    Preview labels come from controller intent, never from live routes: the
+    controller needs published proof before it creates routes, so route-gated
+    serving deadlocks activation. Desired intent is served subject only to a
+    valid generation, live gateway equality, zone and label shape, no
+    collision with served static names, and the preview bound; live routes
+    and unrouted static names never suppress it. Every successful cycle
+    republishes status observations copied from intent.
+    """
+    now = int(time.time()) if now is None else now
     zone = declared['zone']
     certificate = cluster['certificates']['private']
     if certificate['names'] != ['*.' + zone, 'login.' + zone.removeprefix('internal.')]:
@@ -332,23 +404,39 @@ def reconcile_dns(declared, servers, mapping, cluster):
     platform = sorted(declared.get('platformNames', []))
     unrouted_platform = sorted(set(platform) - routed)
     desired_names = sorted(set(names) | set(platform))
-    # Preview set: instance hostnames among live private routes, excluding
-    # served static names. Declared-but-unrouted (blocked) names stay
-    # unserved; any candidate colliding with a served declared or platform
-    # name refuses the generation instead of dual-serving.
-    # Instance shape mirrors platform/delivery/previews/runtime/contract.py
-    # hostname(): catalog prefix (at most 30 chars) plus the 32-hex nonce.
-    cands = {label for label in (name[:-len(zone) - 1] for name in cluster['private_routes']
-                                 if name.endswith('.' + zone) and name[:-len(zone) - 1])
-             if '.' not in label and tailnet_policy.dns_label(label)
-             and re.fullmatch(r'[a-z0-9-]{1,30}-[a-f0-9]{32}', label)}
-    offenders = sorted(cands & set(desired_names))
+    # Preview set: desired intent labels, served with zero live routes. The
+    # static gate above stays untouched: blocked names report unready but
+    # never suppress the intent path or its status publication.
+    intent = read_dns_intent(cluster['binary'])
+    if intent['gateways'] != {'cluster': cluster['cluster_gateway'],
+                              'tailnet': cluster['tailnet_gateway']}:
+        raise RuntimeError('Preview DNS gateways differ from live gateways; resolvers retained')
+    labels = {}
+    for instance in sorted(intent['entries']):
+        entry = intent['entries'][instance]
+        label = (entry['hostname'][:-(len(zone) + 1)]
+                 if entry['hostname'].endswith('.' + zone) else '')
+        if not label or '.' in label or not tailnet_policy.dns_label(label):
+            raise RuntimeError('Preview DNS intent violates its zone or label shape; resolvers retained')
+        labels[instance] = label
+    desired = sorted(instance for instance in labels
+                     if intent['entries'][instance]['phase'] == 'desired')
+    retiring = sorted(instance for instance in labels
+                      if intent['entries'][instance]['phase'] == 'retiring')
+    offenders = sorted({labels[instance] for instance in desired} & set(desired_names))
     if offenders:
         raise RuntimeError('Private preview names collide with served names; resolvers retained: '
                            + ', '.join(offenders))
-    if len(cands) > 20:
+    if len(desired) > 20:
         raise RuntimeError('Private preview names exceed their bound; resolvers retained')
-    previews = sorted(cands - set(desired_names))
+    previews = sorted(labels[instance] for instance in desired)
+    # Live routes are informational only: desired labels with routes, and
+    # preview-shaped routes the intent never requested.
+    shaped = {label for label in routed
+              if '.' not in label and tailnet_policy.dns_label(label)
+              and re.fullmatch(r'[a-z0-9-]{1,30}-[a-f0-9]{32}', label)}
+    routed_previews = sorted({labels[instance] for instance in desired} & routed)
+    unintended_routes = sorted(shaped - set(labels.values()) - set(desired_names))
     payload = {'zone': zone, 'names': desired_names, 'identity_host': certificate['names'][1],
                'cluster_gateway': cluster['cluster_gateway'],
                'tailnet_gateway': cluster['tailnet_gateway'], 'nameservers': sorted(servers),
@@ -386,9 +474,33 @@ def reconcile_dns(declared, servers, mapping, cluster):
                                                 - set(desired_names) - set(previews)),
                              'added': sorted((set(desired_names) | set(previews))
                                             - set(current_names) - set(current_previews))}
+    # Retiring entries need both-hosts absent proof; an unproven entry stays
+    # unpublished while the rest still publish. Unparseable proof output is a
+    # machinery failure and blocks publication entirely.
+    proven, omitted = [], []
+    for instance in retiring:
+        fqdn = intent['entries'][instance]['hostname']
+        unproven = False
+        for hostname, (prefix, _) in sorted(hosts.items()):
+            try:
+                observed = json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
+                                          'python3 /var/lib/cloudlab/private-dns/dns_host.py absent ' + fqdn))
+            except ValueError:
+                raise RuntimeError('Preview DNS absent proof is unreadable; status unpublished') from None
+            except RuntimeError:
+                unproven = True
+                break
+            if not isinstance(observed, dict) or fqdn not in observed.get('absent', []):
+                unproven = True
+                break
+        (omitted if unproven else proven).append(instance)
+    publish_dns_status(cluster['binary'], intent, desired, proven, sorted(hosts), now)
     return {'ready': not blocked, 'names': names, 'blocked': blocked,
             'previews': previews, 'platform': platform,
-            'unrouted_platform': unrouted_platform, 'hosts': results}
+            'unrouted_platform': unrouted_platform, 'hosts': results,
+            'routed': routed_previews, 'unintended_routes': unintended_routes,
+            'intent': {'desired': desired, 'retiring': retiring},
+            'status': {'published': desired, 'absent': proven, 'omitted': omitted}}
 
 
 def cloudflare_inputs():
@@ -725,11 +837,20 @@ def redact(status):
         hosts = {host: {'changed': detail['changed'], 'digest': detail['digest'][:16],
                         'withdrawn': len(detail['withdrawn']), 'added': len(detail['added'])}
                  for host, detail in dns['hosts'].items()}
+        intent = dns.get('intent', {}) or {}
+        observed = dns.get('status', {}) or {}
         trimmed['dns'] = {'ready': dns['ready'], 'names': len(dns['names']),
                           'blocked': len(dns['blocked']),
                           'previews': len(dns.get('previews', [])),
                           'platform': len(dns.get('platform', [])),
                           'unrouted_platform': len(dns.get('unrouted_platform', [])),
+                          'routed': len(dns.get('routed', [])),
+                          'unintended_routes': len(dns.get('unintended_routes', [])),
+                          'intent': {'desired': len(intent.get('desired', [])),
+                                     'retiring': len(intent.get('retiring', []))},
+                          'status': {'published': len(observed.get('published', [])),
+                                     'absent': len(observed.get('absent', [])),
+                                     'omitted': len(observed.get('omitted', []))},
                           'hosts': hosts}
     retirement = trimmed.get('retirement')
     if isinstance(retirement, dict) and isinstance(retirement.get('hostnames'), dict):

@@ -16,6 +16,14 @@ GENERATED_CONFIGMAPS = ('kube-root-ca.crt', 'istio-ca-root-cert', 'istio-ca-crl'
 ANONYMOUS_INTERVAL = 900
 ORIGIN_VERSION = 2
 IMAGE = 'python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed'
+DNS_INTENT = 'cloudlab-preview-dns-intent'
+DNS_STATUS = 'cloudlab-preview-dns-status'
+DNS_INTENT_KEY = 'intent.json'
+DNS_STATUS_KEY = 'status.json'
+DNS_FRESHNESS = 600
+DNS_GATEWAY_NAMESPACE = 'cloudlab-gateway-private'
+DNS_CLUSTER_SERVICE = 'cloudlab-istio'
+DNS_TAILNET_SERVICE = 'cloudlab-tailnet'
 
 
 def digest(raw):
@@ -213,6 +221,75 @@ def catalog(value):
 
 def runtime_catalog(value):
     return _catalog(value, stored_approval)
+
+
+def dns_address(value):
+    if (not isinstance(value, str) or not re.fullmatch(r'(?:[0-9]{1,3}[.]){3}[0-9]{1,3}', value) or
+            any(int(part) > 255 for part in value.split('.'))):
+        raise ValueError('Preview DNS gateway address must be an IPv4 address')
+    return value
+
+
+def dns_gateways(value):
+    if not isinstance(value, dict) or set(value) != {'cluster', 'tailnet'}:
+        raise ValueError('Preview DNS gateways require their exact pair')
+    return {key: dns_address(value[key]) for key in ('cluster', 'tailnet')}
+
+
+def dns_hostname(value):
+    if (not isinstance(value, str) or len(value) > 253 or
+            not re.fullmatch(r'[a-z0-9-]{1,30}-[a-f0-9]{32}[.]internal[.][a-z0-9.-]+', value) or
+            any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', part) for part in value.split('.'))):
+        raise ValueError('Preview DNS hostname must be an instance origin')
+    return value
+
+
+def dns_intent(value):
+    """Full-state resolver intent: the controller renders desired plus retiring every cycle."""
+    if not isinstance(value, dict) or set(value) != {'format', 'gateways', 'entries'} or value.get('format') != 1:
+        raise ValueError('Preview DNS intent requires its exact contract')
+    dns_gateways(value['gateways'])
+    entries = value['entries']
+    if not isinstance(entries, dict) or len(entries) > 256:
+        raise ValueError('Preview DNS intent exceeds its bound')
+    for instance, entry in entries.items():
+        if not isinstance(instance, str) or not re.fullmatch('[a-f0-9]{32}', instance):
+            raise ValueError('Preview DNS intent instance must be an immutable random nonce')
+        if not isinstance(entry, dict) or set(entry) != {'hostname', 'phase'}:
+            raise ValueError('Preview DNS intent entry requires its exact contract')
+        if entry['phase'] not in ('desired', 'retiring'):
+            raise ValueError('Preview DNS intent phase must be desired or retiring')
+        dns_hostname(entry['hostname'])
+    return value
+
+
+def dns_status(value):
+    """Agent-published resolver observations; the controller only reads them."""
+    if not isinstance(value, dict) or set(value) != {'format', 'gateways', 'entries'} or value.get('format') != 1:
+        raise ValueError('Preview DNS status requires its exact contract')
+    dns_gateways(value['gateways'])
+    entries = value['entries']
+    if not isinstance(entries, dict) or len(entries) > 256:
+        raise ValueError('Preview DNS status exceeds its bound')
+    for instance, entry in entries.items():
+        if not isinstance(instance, str) or not re.fullmatch('[a-f0-9]{32}', instance):
+            raise ValueError('Preview DNS status instance must be an immutable random nonce')
+        if not isinstance(entry, dict) or set(entry) != {'hostname', 'observations'}:
+            raise ValueError('Preview DNS status entry requires its exact contract')
+        dns_hostname(entry['hostname'])
+        observations = entry['observations']
+        if not isinstance(observations, list) or not 1 <= len(observations) <= 8:
+            raise ValueError('Preview DNS status observations exceed their bound')
+        hosts = set()
+        for observation in observations:
+            if (not isinstance(observation, dict) or set(observation) != {'host', 'state', 'observedAt'} or
+                    not isinstance(observation['host'], str) or not observation['host'] or
+                    len(observation['host']) > 253 or observation['host'] in hosts or
+                    observation['state'] not in ('published', 'absent') or
+                    type(observation['observedAt']) is not int or observation['observedAt'] < 1):
+                raise ValueError('Preview DNS status observation requires its exact host proof')
+            hosts.add(observation['host'])
+    return value
 
 
 def origin(value):

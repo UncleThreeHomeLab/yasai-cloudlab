@@ -6,13 +6,13 @@ import time
 from pathlib import Path
 
 try:
-    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
+    from .contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, DNS_INTENT, DNS_STATUS, DNS_INTENT_KEY, DNS_STATUS_KEY, DNS_FRESHNESS, DNS_GATEWAY_NAMESPACE, DNS_CLUSTER_SERVICE, DNS_TAILNET_SERVICE, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob, dns_gateways, dns_intent, dns_status
     from .github import GitHub
     from .kube import Kubernetes, APIError, identity
     from .lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
     from .resources import resources, workload_keys, private_route, budget_quota
 except ImportError:
-    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob
+    from contract import OWNER, APPROVALS, STATE, IDENTITY_STATE, MAX_ACTIVE, ANONYMOUS_INTERVAL, ORIGIN_VERSION, DNS_INTENT, DNS_STATUS, DNS_INTENT_KEY, DNS_STATUS_KEY, DNS_FRESHNESS, DNS_GATEWAY_NAMESPACE, DNS_CLUSTER_SERVICE, DNS_TAILNET_SERVICE, approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, names, hostname, validate_pull, verify_blob, dns_gateways, dns_intent, dns_status
     from github import GitHub
     from kube import Kubernetes, APIError, identity
     from lifecycle import enroll, retirement, record_approval, owned, namespace_disposable
@@ -25,6 +25,14 @@ def contains(observed, expected):
     if isinstance(expected, list):
         return isinstance(observed, list) and len(observed) == len(expected) and all(contains(a, b) for a, b in zip(observed, expected))
     return observed == expected
+
+
+def dns_owned(obj):
+    meta = obj['metadata']
+    if (meta.get('labels', {}).get('cloudlab.io/owner') != OWNER or not meta.get('uid') or
+            meta.get('ownerReferences') or meta.get('finalizers')):
+        raise ValueError('Preview DNS ConfigMap has conflicting ownership')
+    return obj
 
 
 class Controller:
@@ -312,7 +320,94 @@ class Controller:
             owned(quota, row, self.object['metadata']['uid'], receipt['uid'])
         return quota
 
+    def dns_object(self, name, key, validate):
+        """Adopt one owned DNS ConfigMap for reading; a missing one stays missing."""
+        obj = self.kube.get(('v1', 'ConfigMap', 'argocd', name))
+        if obj is None:
+            return None
+        dns_owned(obj)
+        try:
+            return obj, validate(json.loads(obj['data'][key]))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('Preview DNS ConfigMap payload is invalid') from None
+
+    def gateway_addresses(self):
+        """Private gateway pair with the DNS reconciler's discovery semantics."""
+        service = self.kube.get(('v1', 'Service', DNS_GATEWAY_NAMESPACE, DNS_CLUSTER_SERVICE))
+        tailnet = self.kube.get(('v1', 'Service', DNS_GATEWAY_NAMESPACE, DNS_TAILNET_SERVICE))
+        if service is None or tailnet is None:
+            raise RuntimeError('Preview DNS gateway discovery is unavailable')
+        addresses = [row.get('ip') for row in tailnet.get('status', {}).get('loadBalancer', {}).get('ingress', [])
+                     if row.get('ip') and ':' not in row['ip']]
+        if len(addresses) != 1:
+            raise RuntimeError('Private gateway has no unique ready IPv4 address')
+        try:
+            return dns_gateways({'cluster': service.get('spec', {}).get('clusterIP'), 'tailnet': addresses[0]})
+        except ValueError:
+            raise ValueError('Preview DNS gateway discovery differs from its contract') from None
+
+    def render_intent(self, settings, desired):
+        """Full-state resolver intent from accepted approvals plus retiring records."""
+        gateways = self.gateway_addresses()
+        entries = {instance: {'hostname': hostname(row, settings), 'phase': 'desired'}
+                   for instance, row in desired.items()}
+        for instance, record in self.state['entries'].items():
+            if record['phase'] == 'retiring':
+                row = record_approval(instance, record)
+                entries[instance] = {'hostname': hostname(row, settings), 'phase': 'retiring'}
+            elif record['phase'] == 'retired':
+                entries.pop(instance, None)
+        intent = dns_intent({'format': 1, 'gateways': gateways, 'entries': entries})
+        data = {DNS_INTENT_KEY: json.dumps(intent, sort_keys=True)}
+        obj = self.kube.get(('v1', 'ConfigMap', 'argocd', DNS_INTENT))
+        if obj is None:
+            self.kube.create({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {
+                'name': DNS_INTENT, 'namespace': 'argocd', 'labels': {'cloudlab.io/owner': OWNER}}, 'data': data})
+            return intent
+        dns_owned(obj)
+        if obj['data'] != data:
+            updated = copy.deepcopy(obj)
+            updated['data'] = data
+            self.kube.replace(updated)
+        return intent
+
+    def withdraw_intent(self, instance):
+        """Retirement starts by withdrawing desired DNS intent; the tombstone needs absent proof."""
+        found = self.dns_object(DNS_INTENT, DNS_INTENT_KEY, dns_intent)
+        if found is None:
+            return
+        obj, intent = found
+        if intent['entries'].get(instance, {}).get('phase') != 'desired':
+            return
+        intent['entries'][instance]['phase'] = 'retiring'
+        updated = copy.deepcopy(obj)
+        updated['data'] = {DNS_INTENT_KEY: json.dumps(dns_intent(intent), sort_keys=True)}
+        self.kube.replace(updated)
+
+    def dns_proof(self, instance, want):
+        """Both-hosts fresh agent proof that one instance is published or absent."""
+        phase = 'desired' if want == 'published' else 'retiring'
+        intended = self.dns_object(DNS_INTENT, DNS_INTENT_KEY, dns_intent)
+        if intended is None:
+            return False
+        entry = intended[1]['entries'].get(instance)
+        if entry is None or entry['phase'] != phase:
+            return False
+        observed = self.dns_object(DNS_STATUS, DNS_STATUS_KEY, dns_status)
+        if observed is None or observed[1]['gateways'] != intended[1]['gateways']:
+            return False
+        status = observed[1]['entries'].get(instance)
+        if status is None or status['hostname'] != entry['hostname']:
+            return False
+        fresh = {row['host'] for row in status['observations']
+                 if row['state'] == want and 0 <= self.now - row['observedAt'] <= DNS_FRESHNESS}
+        return len(fresh) >= 2
+
     def retire(self, record, identity_state):
+        if record.get('phase') == 'retiring':
+            instance = (record.get('approval') or {}).get('instance')
+            if instance:
+                self.withdraw_intent(instance)
         row = record['approval']; n = names(row)
         namespace_key = ('v1', 'Namespace', '', n['namespace'])
         global_keys = [('argoproj.io/v1alpha1', kind, 'argocd', n['name'])
@@ -413,6 +508,8 @@ class Controller:
             return
         if _probe(namespace_key) is not None:
             raise ValueError('Preview namespace reappeared before retirement completion')
+        if not self.dns_proof(row['instance'], 'absent'):
+            return
         record.clear()
         record.update(phase='retired', approvalDigest=self.retiring_digest, expiresAt=self.retiring_expiry)
         self.save()
@@ -559,13 +656,18 @@ class Controller:
                         if obj['kind'] == 'ApplicationSet':
                             self.materialize(record, obj)
                     record.update(activatedAt=record.get('activatedAt', self.now))
-                    if self.publication_ready(row, settings):
+                    if self.dns_proof(row['instance'], 'published') and self.publication_ready(row, settings):
                         record['phase'] = 'active'
+                        record['dns'] = {'confirmedAt': self.now}
                     self.save()
                     self.capture_workloads(record)
             except (ValueError, RuntimeError):
                 failures += 1
                 continue
+        try:
+            self.render_intent(settings, desired)
+        except (ValueError, RuntimeError):
+            failures += 1
         return {'active': sum(r['phase'] == 'active' for r in self.state['entries'].values()),
                 'retiring': sum(r['phase'] == 'retiring' for r in self.state['entries'].values()),
                 'discovery_unavailable': unavailable, 'rejected': rejected, 'failures': failures}
