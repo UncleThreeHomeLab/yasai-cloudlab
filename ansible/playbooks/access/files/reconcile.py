@@ -332,11 +332,29 @@ def reconcile_dns(declared, servers, mapping, cluster):
     platform = sorted(declared.get('platformNames', []))
     unrouted_platform = sorted(set(platform) - routed)
     desired_names = sorted(set(names) | set(platform))
+    # Preview set: instance hostnames among live private routes, excluding
+    # served static names. Declared-but-unrouted (blocked) names stay
+    # unserved; any candidate colliding with a served declared or platform
+    # name refuses the generation instead of dual-serving.
+    # Instance shape mirrors platform/delivery/previews/runtime/contract.py
+    # hostname(): catalog prefix (at most 30 chars) plus the 32-hex nonce.
+    cands = {label for label in (name[:-len(zone) - 1] for name in cluster['private_routes']
+                                 if name.endswith('.' + zone) and name[:-len(zone) - 1])
+             if '.' not in label and tailnet_policy.dns_label(label)
+             and re.fullmatch(r'[a-z0-9-]{1,30}-[a-f0-9]{32}', label)}
+    offenders = sorted(cands & set(desired_names))
+    if offenders:
+        raise RuntimeError('Private preview names collide with served names; resolvers retained: '
+                           + ', '.join(offenders))
+    if len(cands) > 20:
+        raise RuntimeError('Private preview names exceed their bound; resolvers retained')
+    previews = sorted(cands - set(desired_names))
     payload = {'zone': zone, 'names': desired_names, 'identity_host': certificate['names'][1],
                'cluster_gateway': cluster['cluster_gateway'],
                'tailnet_gateway': cluster['tailnet_gateway'], 'nameservers': sorted(servers),
+               'previews': previews,
                'artifact': json.loads((ROOT / 'platform/connectivity/private-dns/artifact.lock.json')
-                                     .read_text())['sha256']}
+                                     .read_text())['binary_sha256']}
     import yaml
     inventory = yaml.safe_load((ROOT / 'ansible/inventory.yml').read_text())
     groups = inventory['all']['children']['k3s_cluster']['children']
@@ -349,8 +367,10 @@ def reconcile_dns(declared, servers, mapping, cluster):
             live = json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
                                   'cat /var/lib/cloudlab/private-dns/inputs.json'))
             current_names = sorted(live.get('names', []))
+            current_previews = sorted(live.get('previews', []))
         except (RuntimeError, ValueError):
             current_names = []
+            current_previews = []
         result = json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
                                 'python3 /var/lib/cloudlab/private-dns/dns_host.py',
                                 input=json.dumps(own)))
@@ -362,11 +382,13 @@ def reconcile_dns(declared, servers, mapping, cluster):
         if not result.get('dns_ready') or not digest or observed != digest:
             raise RuntimeError('Resolver drift on ' + hostname + '; retained generation kept')
         results[hostname] = {'changed': bool(result.get('changed')), 'digest': digest,
-                             'withdrawn': sorted(set(current_names) - set(desired_names)),
-                             'added': sorted(set(desired_names) - set(current_names))}
+                             'withdrawn': sorted((set(current_names) | set(current_previews))
+                                                - set(desired_names) - set(previews)),
+                             'added': sorted((set(desired_names) | set(previews))
+                                            - set(current_names) - set(current_previews))}
     return {'ready': not blocked, 'names': names, 'blocked': blocked,
-            'platform': platform, 'unrouted_platform': unrouted_platform,
-            'hosts': results}
+            'previews': previews, 'platform': platform,
+            'unrouted_platform': unrouted_platform, 'hosts': results}
 
 
 def cloudflare_inputs():
@@ -705,6 +727,7 @@ def redact(status):
                  for host, detail in dns['hosts'].items()}
         trimmed['dns'] = {'ready': dns['ready'], 'names': len(dns['names']),
                           'blocked': len(dns['blocked']),
+                          'previews': len(dns.get('previews', [])),
                           'platform': len(dns.get('platform', [])),
                           'unrouted_platform': len(dns.get('unrouted_platform', [])),
                           'hosts': hosts}

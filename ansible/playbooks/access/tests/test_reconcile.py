@@ -56,6 +56,98 @@ class DnsReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Resolver drift'):
             self.reconcile(fake_ssh)
 
+    def test_previews_served_from_live_instance_routes(self):
+        label = 'app-0123456789abcdef0123456789abcdef'
+        cluster = _cluster()
+        cluster['private_routes'] = [label + '.internal.example.test',
+                                     'other.internal.example.test']
+        seen = {}
+
+        def fake_ssh(prefix, host, command, input=None):
+            if command.startswith('cat /var/lib/cloudlab/private-dns/inputs.json'):
+                raise RuntimeError('no live generation')
+            if command.startswith('cat /var/lib/cloudlab/private-dns/generation'):
+                return self.digest
+            seen[prefix] = json.loads(input)
+            return json.dumps({'changed': True, 'dns_ready': True, 'digest': self.digest})
+
+        with patch.object(reconcile, 'ssh', side_effect=fake_ssh):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                result = reconcile.reconcile_dns(self.declared, self.servers,
+                                                 self.mapping, cluster)
+        self.assertEqual(result['previews'], [label])
+        self.assertTrue(result['ready'])
+        self.assertEqual(seen['VM']['previews'], [label])
+        self.assertEqual(seen['VM2']['previews'], [label])
+
+    def test_preview_churn_merges_into_withdrawn_and_added(self):
+        old = 'old-0123456789abcdef0123456789abcdef'
+        new = 'new-abcdef0123456789abcdef0123456789'
+        cluster = _cluster()
+        cluster['private_routes'] = [new + '.internal.example.test']
+
+        def fake_ssh(prefix, host, command, input=None):
+            if command.startswith('cat /var/lib/cloudlab/private-dns/inputs.json'):
+                return json.dumps({'names': ['a'], 'previews': [old]})
+            if command.startswith('cat /var/lib/cloudlab/private-dns/generation'):
+                return self.digest
+            return json.dumps({'changed': True, 'dns_ready': True, 'digest': self.digest})
+
+        with patch.object(reconcile, 'ssh', side_effect=fake_ssh):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                result = reconcile.reconcile_dns(self.declared, self.servers,
+                                                 self.mapping, cluster)
+        self.assertEqual(result['hosts']['cloudlab']['withdrawn'], ['a', old])
+        self.assertEqual(result['hosts']['cloudlab']['added'], [new])
+
+    def test_blocked_names_stay_unserved(self):
+        declared = dict(self.declared, services=[{'service': 'svc'}], names=['svc'])
+        cluster = _cluster()
+        cluster['services'] = ['svc']
+
+        def fake_ssh(prefix, host, command, input=None):
+            if command.startswith('cat /var/lib/cloudlab/private-dns/inputs.json'):
+                raise RuntimeError('no live generation')
+            if command.startswith('cat /var/lib/cloudlab/private-dns/generation'):
+                return self.digest
+            return json.dumps({'changed': True, 'dns_ready': True, 'digest': self.digest})
+
+        with patch.object(reconcile, 'ssh', side_effect=fake_ssh):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                result = reconcile.reconcile_dns(declared, self.servers,
+                                                 self.mapping, cluster)
+        self.assertEqual(result['blocked'], ['svc'])
+        self.assertEqual(result['previews'], [])
+        self.assertFalse(result['ready'])
+
+    def test_payload_artifact_pins_extracted_binary(self):
+        lock = json.loads((reconcile.ROOT / 'platform/connectivity/private-dns/artifact.lock.json')
+                          .read_text())
+        seen = {}
+
+        def fake_ssh(prefix, host, command, input=None):
+            if command.startswith('cat /var/lib/cloudlab/private-dns/inputs.json'):
+                raise RuntimeError('no live generation')
+            if command.startswith('cat /var/lib/cloudlab/private-dns/generation'):
+                return self.digest
+            seen[prefix] = json.loads(input)
+            return json.dumps({'changed': True, 'dns_ready': True, 'digest': self.digest})
+
+        result = self.reconcile(fake_ssh)
+        self.assertTrue(result['ready'])
+        self.assertEqual(seen['VM']['artifact'], lock['binary_sha256'])
+        self.assertEqual(seen['VM2']['artifact'], lock['binary_sha256'])
+
+    def test_redact_reports_preview_counts(self):
+        status = {'dns': {'ready': True, 'names': ['a'], 'blocked': [],
+                          'previews': ['p1', 'p2'], 'platform': [],
+                          'unrouted_platform': [],
+                          'hosts': {'h': {'changed': False, 'digest': 'd' * 64,
+                                         'withdrawn': ['x'], 'added': []}}}}
+        trimmed = reconcile.redact(status)
+        self.assertEqual(trimmed['dns']['previews'], 2)
+        self.assertNotIn('p1', json.dumps(trimmed))
+
 
 class PlanScopeTests(unittest.TestCase):
     def test_retirement_destroy_uses_service_resource(self):
@@ -166,3 +258,39 @@ class ReviewGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'lack approved services'):
                     reconcile.reconcile_dns(declared, DnsReceiptTests.servers,
                                             DnsReceiptTests.mapping, _cluster())
+
+    def test_preview_collision_with_declared_refuses(self):
+        label = 'app-0123456789abcdef0123456789abcdef'
+        declared = dict(DnsReceiptTests.declared, services=[{'service': 'svc'}],
+                        names=[label])
+        cluster = _cluster()
+        cluster['services'] = ['svc']
+        cluster['private_routes'] = [label + '.internal.example.test']
+        with patch.object(reconcile, 'ssh', side_effect=RuntimeError('no SSH in test')):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                with self.assertRaisesRegex(RuntimeError, 'collide.*' + label):
+                    reconcile.reconcile_dns(declared, DnsReceiptTests.servers,
+                                            DnsReceiptTests.mapping, cluster)
+
+    def test_preview_collision_with_platform_refuses(self):
+        label = 'app-0123456789abcdef0123456789abcdef'
+        declared = dict(DnsReceiptTests.declared, platformNames=[label])
+        cluster = _cluster()
+        cluster['private_routes'] = [label + '.internal.example.test']
+        with patch.object(reconcile, 'ssh', side_effect=RuntimeError('no SSH in test')):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                with self.assertRaisesRegex(RuntimeError, 'collide.*' + label):
+                    reconcile.reconcile_dns(declared, DnsReceiptTests.servers,
+                                            DnsReceiptTests.mapping, cluster)
+
+    def test_preview_overflow_refuses(self):
+        cluster = _cluster()
+        cluster['private_routes'] = [
+            'app%02d-0123456789abcdef0123456789abcdef.internal.example.test'
+            % index for index in range(21)]
+        with patch.object(reconcile, 'ssh', side_effect=RuntimeError('no SSH in test')):
+            with patch.dict(os.environ, {'VM_HOST': 'vm1', 'VM2_HOST': 'vm2'}):
+                with self.assertRaisesRegex(RuntimeError, 'exceed their bound'):
+                    reconcile.reconcile_dns(DnsReceiptTests.declared,
+                                            DnsReceiptTests.servers,
+                                            DnsReceiptTests.mapping, cluster)

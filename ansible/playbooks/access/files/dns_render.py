@@ -23,12 +23,20 @@ def configuration(payload):
         raise ValueError('Private DNS labels are invalid or ambiguous')
     if {'ns1', 'ns2'} & set(names):
         raise ValueError('Private DNS nameserver labels are reserved')
+    previews = payload['previews']
+    if len(previews) != len(set(previews)) or any(not re.fullmatch(
+            r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', n) for n in previews):
+        raise ValueError('Private DNS preview labels are invalid or ambiguous')
+    conflict = sorted((set(previews) & set(names)) | (set(previews) & {'ns1', 'ns2'}))
+    if conflict:
+        raise ValueError('Private DNS preview names collide with served names: '
+                         + ', '.join(conflict))
     tailnet = address(payload['tailnet_address'], '100.64.0.0/10')
     host = address(payload['host_address'], '10.44.0.0/30')
     # Gateways are optional only before the first publication; records need them.
     gateway = address(payload['cluster_gateway'], '10.43.0.0/16') if payload.get('cluster_gateway') else None
     vip = address(payload['tailnet_gateway'], '100.64.0.0/10') if payload.get('tailnet_gateway') else None
-    if names and (gateway is None or vip is None):
+    if (names or previews) and (gateway is None or vip is None):
         raise ValueError('Published private names require both gateway addresses')
     servers = [address(x, '100.64.0.0/10') for x in payload['nameservers']]
     if len(servers) != 2 or len(set(servers)) != 2:
@@ -51,6 +59,20 @@ def configuration(payload):
         files[view + '.zone'] = header + ''.join(
             f'ns{i + 1} IN A {value}\n' for i, value in enumerate(ns)) + ''.join(
             f'{name} IN A {target}\n' for name in sorted(names))
+    # Preview instances resolve through hosts-first stanzas in both views; the
+    # file plugin serves everything else. O(names+previews) <= 40: declared
+    # names <= 20 (policy bound) and previews <= 20 (reconciler refuses more).
+    # fallthrough is load-bearing: without it, names absent from hosts answer
+    # SERVFAIL instead of reaching the zone file (pinned v1.14.7 hosts.go).
+    hosts = {}
+    for view, target in [('tailnet', vip), ('internal', gateway)]:
+        hosts[view] = ''
+        if previews:
+            hosts[view] = ('    hosts /dev/null {\n' + ''.join(
+                f'        {target} {name}.{zone}\n' for name in sorted(previews))
+                + '        ttl 30\n        no_reverse\n        reload 0\n'
+                + '        fallthrough\n    }\n')
+    hosts_tailnet, hosts_internal = hosts['tailnet'], hosts['internal']
     # Files are relative to the service WorkingDirectory; validation uses the same bytes.
     files['Corefile'] = f'''{zone}:53 {{
     bind {tailnet}
@@ -58,7 +80,7 @@ def configuration(payload):
         allow net 100.64.0.0/10
         block
     }}
-    file tailnet.zone {zone} {{
+{hosts_tailnet}    file tailnet.zone {zone} {{
         reload 0
     }}
 }}
@@ -68,7 +90,7 @@ def configuration(payload):
         allow net 127.0.0.1/32 10.44.0.0/30 10.42.0.0/16
         block
     }}
-    file internal.zone {zone} {{
+{hosts_internal}    file internal.zone {zone} {{
         reload 0
     }}
 }}
