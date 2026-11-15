@@ -147,7 +147,7 @@ def render_objects(files, documents, *, release='cloudlab-public-root', namespac
 def consumer_contract(public, consumer):
     """Validate supplied context only; callers must authenticate public authority."""
     from playbooks.argocd.files.github_setup import repository
-    from playbooks.argocd.files.service_activation import catalog_path
+    from playbooks.argocd.files.service_activation import catalog_path, consumer_paths
     if not isinstance(public, dict) or consumer not in CONSUMERS:
         raise ValueError('Consumer source acceptance refused')
     repository(public.get('repository'))
@@ -167,7 +167,7 @@ def consumer_contract(public, consumer):
                 or type(settings.get('paused', False)) is not bool): raise ValueError('Consumer source acceptance refused')
         paths = [catalog_path(context['services'].get('catalogPath', catalog_path())), 'platform/observability.yaml']
     elif consumer == 'services':
-        paths = [catalog_path(context['services'].get('catalogPath', catalog_path())), 'identity/argo-values.yaml']
+        paths = consumer_paths(context['services'].get('catalogPath'))
     else:
         paths = ['platform/permissions.yaml']
     enabled = settings.get('enabled', False)
@@ -193,13 +193,13 @@ def consumer_contract(public, consumer):
 def validate_consumer_acceptance(receipt, repository, contract):
     """Check a finite consumer proof; supplied contracts alone grant no authority."""
     from playbooks.argocd.files.github_setup import repository as repository_name
-    from playbooks.argocd.files.service_activation import catalog_path
+    from playbooks.argocd.files.service_activation import catalog_path, consumer_paths
     try:
         repository_name(repository)
         consumer = contract['consumer']
         paths = contract['paths']
         expected_paths = ([catalog_path(paths[0]), 'platform/observability.yaml'] if consumer == 'observability'
-            else [catalog_path(paths[0]), 'identity/argo-values.yaml'] if consumer == 'services'
+            else consumer_paths(paths[0]) if consumer == 'services'
             else ['platform/permissions.yaml'] if consumer == 'permissions' else None)
         if (set(contract) != {'version', 'consumer', 'enabled', 'receiptPath', 'paths', 'acceptanceCommitment', 'context'}
                 or contract['version'] != CONSUMER_ACCEPTANCE_VERSION or contract['enabled'] is not True
@@ -457,7 +457,7 @@ def consumer_payload(values, public, repository, head, consumer):
 def commitment_receipt(consumer, repository, revision, nonce, catalog='services/catalog.json'):
     """Compute the generic acceptance commitment and exact receipt for any consumer."""
     from playbooks.argocd.files.github_setup import repository as repository_name
-    from playbooks.argocd.files.service_activation import catalog_path
+    from playbooks.argocd.files.service_activation import catalog_path, consumer_paths
     repository_name(repository)
     if not re.fullmatch('[a-f0-9]{40}', revision or '') or not re.fullmatch('[a-f0-9]{64}', nonce or ''):
         raise ValueError('Receipt requires an immutable revision and a fresh 64-hex nonce')
@@ -467,10 +467,26 @@ def commitment_receipt(consumer, repository, revision, nonce, catalog='services/
         commitment = hashlib.sha256(preimage.encode()).hexdigest()
         validate_acceptance(receipt, repository, commitment)
         return commitment, receipt, ACCEPTANCE_PATH
+    if consumer == 'previews':
+        if catalog != 'services/catalog.json':
+            raise ValueError('Previews receipts use the fixed catalog path')
+        paths = ['previews/catalog.yaml']
+        receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'paths': paths,
+                   'revision': revision, 'nonce': nonce}
+        preimage = '\n'.join([receipt['version'], consumer, repository, str(len(paths)), *paths, revision, nonce, ''])
+        commitment = hashlib.sha256(preimage.encode()).hexdigest()
+        # Previews stay receipt-only: CONSUMERS/contract/validate/payload/spec intentionally
+        # exclude previews, so this branch self-checks its fixed shape inline instead of
+        # calling validate_consumer_acceptance; the native previews gate verifies it.
+        if (set(receipt) != {'version', 'consumer', 'paths', 'revision', 'nonce'}
+                or receipt['version'] != CONSUMER_ACCEPTANCE_VERSION or receipt['paths'] != paths
+                or not hmac.compare_digest(hashlib.sha256(preimage.encode()).hexdigest(), commitment)):
+            raise ValueError('Previews source acceptance refused')
+        return commitment, receipt, 'platform/acceptance/previews.yaml'
     if consumer not in CONSUMERS:
         raise ValueError('Unsupported acceptance consumer')
     paths = ([catalog_path(catalog), 'platform/observability.yaml'] if consumer == 'observability'
-             else [catalog_path(catalog), 'identity/argo-values.yaml'] if consumer == 'services'
+             else consumer_paths(catalog) if consumer == 'services'
              else ['platform/permissions.yaml'])
     receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'paths': paths,
                'revision': revision, 'nonce': nonce}
@@ -488,6 +504,7 @@ if __name__ == '__main__':
         try:
             _, _, consumer, repository, revision, nonce, *rest = sys.argv
             if len(rest) > 1: raise ValueError('usage')
+            if consumer == 'previews' and rest: raise ValueError('previews receipts use the fixed catalog path')
             commitment, receipt, path = commitment_receipt(consumer, repository, revision, nonce, *(rest or ['services/catalog.json']))
             print(json.dumps({'receiptPath': path, 'acceptanceCommitment': commitment, 'receipt': receipt}, indent=2, sort_keys=True))
         except (ValueError, RuntimeError) as error:
