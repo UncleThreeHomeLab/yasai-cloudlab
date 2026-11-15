@@ -12,13 +12,14 @@ import time
 
 try:
     from .dns_render import configuration
-    from .dns_wire import absent_answer, private_answer, query
+    from .dns_wire import absent_answer, nodata_answer, private_answer, query
 except ImportError:
     from dns_render import configuration
-    from dns_wire import absent_answer, private_answer, query
+    from dns_wire import absent_answer, nodata_answer, private_answer, query
 
 BASE = Path('/etc/cloudlab-dns')
 STATE = Path('/var/lib/cloudlab/private-dns')
+BINARY = Path('/usr/local/bin/cloudlab-coredns')
 SERVICE = 'cloudlab-private-dns'
 RESOLVER = Path('/etc/resolv.conf')
 # Initial authority before the first Git convergence; the reconciler replaces it.
@@ -52,6 +53,12 @@ def validate_answers(payload, port=53):
             if payload.get('identity_host') and expected:
                 private_answer(address, payload['identity_host'], expected,
                                port=port, source=source, tcp=tcp)
+            if payload['previews'] and expected:
+                for preview in payload['previews']:
+                    private_answer(address, preview + '.' + payload['zone'], expected,
+                                   port=port, source=source, tcp=tcp)
+                    nodata_answer(address, preview + '.' + payload['zone'],
+                                  port=port, source=source, tcp=tcp)
             absent_answer(address, 'nonexistent-cloudlab-proof.' + payload['zone'],
                           port=port, source=source, tcp=tcp)
     if not query('127.0.0.1', 'github.com', port=port)['addresses']:
@@ -64,11 +71,15 @@ def digest_for(payload):
     Both resolvers must report the same digest when serving the same names;
     hashing the rendered files (which embed per-host binds) made cross-host
     generation proofs unsatisfiable.
+
+    The previews key rolls the generation once on first converge; empty
+    previews render byte-identical files, so the rollover is behavior-zero.
     """
     content = {'names': sorted(payload['names']), 'zone': payload['zone'],
                'identity_host': payload.get('identity_host'),
                'cluster_gateway': payload.get('cluster_gateway'),
                'tailnet_gateway': payload.get('tailnet_gateway'),
+               'previews': sorted(payload['previews']),
                'artifact': payload['artifact']}
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
@@ -80,6 +91,7 @@ def adopt(payload):
     finished servers instead of wiping them; fresh servers get the initial
     authority. The reconciler always sends complete payloads, so Git intent -
     including an explicit empty publication - still converges exactly.
+    Previews inherit like names and need both gateway addresses when served.
     """
     try:
         existing = json.loads((STATE / 'inputs.json').read_text())
@@ -90,6 +102,8 @@ def adopt(payload):
         merged['zone'] = existing.get('zone') or INITIAL_ZONE
     if merged.get('names') is None:
         merged['names'] = existing.get('names') or []
+    if merged.get('previews') is None:
+        merged['previews'] = existing.get('previews') or []
     if merged.get('identity_host') is None:
         merged['identity_host'] = existing.get('identity_host')
     for gateway in ('cluster_gateway', 'tailnet_gateway'):
@@ -97,13 +111,18 @@ def adopt(payload):
             merged[gateway] = existing.get(gateway)
     if merged.get('cluster_gateway') is None or merged.get('tailnet_gateway') is None:
         merged['cluster_gateway'] = merged['tailnet_gateway'] = None
-        if merged['names']:
+        if merged['names'] or merged['previews']:
             raise ValueError('Published private names require both gateway addresses')
     return merged
 
 
 def configure(payload):
     payload = adopt(payload)
+    # The payload pins the extracted binary, not the release tarball; refuse
+    # before touching any resolver state when the install differs.
+    observed = hashlib.sha256(BINARY.resolve().read_bytes()).hexdigest()
+    if observed != payload['artifact']:
+        raise RuntimeError('Installed DNS binary does not match the pinned checksum')
     original = STATE / 'resolv.conf.original'
     resolver = RESOLVER
     if not original.exists():

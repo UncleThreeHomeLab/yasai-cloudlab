@@ -54,27 +54,30 @@ def query(address, name, *, port=53, source=None, tcp=False, record_type=1):
     if received != identity or not flags & 0x8000 or flags & 0x200 or questions != 1:
         raise ValueError('Invalid or truncated DNS response')
     offset = name_end(data, 12) + 4
-    addresses = []
+    addresses, ttls = [], []
     for _ in range(answers):
         offset = name_end(data, offset)
-        kind, family, _, size = struct.unpack('!HHIH', data[offset:offset + 10])
+        kind, family, ttl, size = struct.unpack('!HHIH', data[offset:offset + 10])
         offset += 10
         if kind == 1 and family == 1 and size == 4:
             addresses.append(socket.inet_ntoa(data[offset:offset + 4]))
+            ttls.append(ttl)
         offset += size
     return {'rcode': flags & 15, 'authoritative': bool(flags & 0x400), 'addresses': addresses,
-            **({'answer_count': answers} if record_type != 1 else {})}
+            'ttls': ttls, **({'answer_count': answers} if record_type != 1 else {})}
 
 
 def nodata_answer(address, name, **kwargs):
     if query(address, name, record_type=28, **kwargs) != {
-            'rcode': 0, 'authoritative': True, 'addresses': [], 'answer_count': 0}:
+            'rcode': 0, 'authoritative': True, 'addresses': [], 'ttls': [],
+            'answer_count': 0}:
         raise RuntimeError('Existing private preview name did not return authoritative AAAA NODATA')
 
 
 def private_answer(address, name, expected, **kwargs):
     result = query(address, name, **kwargs)
-    if result != {'rcode': 0, 'authoritative': True, 'addresses': [expected]}:
+    if result != {'rcode': 0, 'authoritative': True, 'addresses': [expected],
+                  'ttls': [30]}:
         raise RuntimeError('Private DNS answer did not match the selected view')
 
 

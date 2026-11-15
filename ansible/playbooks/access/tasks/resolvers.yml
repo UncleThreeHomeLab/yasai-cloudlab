@@ -3,6 +3,13 @@
   ansible.builtin.set_fact:
     access_dns_release: "{{ lookup('file', '/workspace/platform/connectivity/private-dns/artifact.lock.json') | from_json }}"
 
+- name: Require pinned DNS binary checksum
+  ansible.builtin.assert:
+    that:
+      - access_dns_release.binary_sha256 is defined
+      - access_dns_release.binary_sha256 is match('^[a-f0-9]{64}$')
+    fail_msg: Pinned DNS release lacks its verified binary checksum; refusing before any host change.
+
 - name: Create DNS configuration and private recovery directories
   ansible.builtin.file:
     path: '{{ item.path }}'
@@ -98,7 +105,7 @@
           'host_address': wireguard_address,
           'nameservers': [hostvars['cloudlab'].access_dns_tailnet.stdout | trim,
                           hostvars['cloudlab-worker'].access_dns_tailnet.stdout | trim],
-          'artifact': access_dns_release.sha256,
+          'artifact': access_dns_release.binary_sha256,
           'service_changed': access_dns_service.changed or access_dns_binary.changed} | to_json }}
   register: access_dns_configured
   changed_when: access_dns_configured.rc == 0 and (access_dns_configured.stdout | from_json).changed
