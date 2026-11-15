@@ -1,0 +1,216 @@
+{
+  "arc": {
+    "template": {
+      "spec": {
+        "volumes": [
+          {
+            "name": "workspace",
+            "emptyDir": {
+              "sizeLimit": "16Gi"
+            }
+          },
+          {
+            "name": "builder-state",
+            "emptyDir": {
+              "sizeLimit": "12Gi"
+            }
+          },
+          {
+            "name": "builder-run",
+            "emptyDir": {
+              "sizeLimit": "1Gi"
+            }
+          },
+          {
+            "name": "builder-tmp",
+            "emptyDir": {
+              "sizeLimit": "3Gi"
+            }
+          },
+          {
+            "name": "builder-ids",
+            "configMap": {
+              "name": "cloudlab-buildkit-ids"
+            }
+          },
+          {
+            "name": "health",
+            "projected": {
+              "defaultMode": 288,
+              "sources": [
+                {
+                  "serviceAccountToken": {
+                    "path": "token",
+                    "expirationSeconds": 600
+                  }
+                },
+                {
+                  "configMap": {
+                    "name": "kube-root-ca.crt",
+                    "items": [
+                      {
+                        "key": "ca.crt",
+                        "path": "ca.crt"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "eligibility",
+            "configMap": {
+              "name": "cloudlab-ci-eligibility-publish",
+              "defaultMode": 292
+            }
+          },
+          {
+            "name": "testing",
+            "configMap": {
+              "name": "cloudlab-testing",
+              "defaultMode": 292,
+              "optional": true
+            }
+          },
+          {
+            "name": "test-pull",
+            "secret": {
+              "secretName": "harbor-test-pull",
+              "defaultMode": 288,
+              "optional": true,
+              "items": [
+                {
+                  "key": ".dockerconfigjson",
+                  "path": "config.json"
+                }
+              ]
+            }
+          },
+          {
+            "name": "publish-config",
+            "configMap": {
+              "name": "cloudlab-publishing",
+              "defaultMode": 288
+            }
+          },
+          {
+            "name": "publish-pull",
+            "secret": {
+              "secretName": "cloudlab-publish-pull",
+              "defaultMode": 288
+            }
+          },
+          {
+            "name": "publish-push",
+            "secret": {
+              "secretName": "cloudlab-publish-push",
+              "defaultMode": 288
+            }
+          }
+        ],
+        "containers": [
+          {
+            "name": "runner",
+            "image": "",
+            "imagePullPolicy": "Always",
+            "command": [
+              "/bin/bash",
+              "-ec"
+            ],
+            "env": [
+              {
+                "name": "BUILDKIT_HOST",
+                "value": "tcp://127.0.0.1:1234"
+              }
+            ],
+            "securityContext": {
+              "runAsUser": 1001,
+              "runAsGroup": 1001,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "appArmorProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "256Mi",
+                "ephemeral-storage": "1Gi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "2Gi",
+                "ephemeral-storage": "8Gi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "workspace",
+                "mountPath": "/home/runner/_work"
+              },
+              {
+                "name": "health",
+                "mountPath": "/var/run/cloudlab-health",
+                "readOnly": true
+              },
+              {
+                "name": "eligibility",
+                "mountPath": "/etc/cloudlab-runner",
+                "readOnly": true
+              },
+              {
+                "name": "testing",
+                "mountPath": "/run/cloudlab-test/config",
+                "readOnly": true
+              },
+              {
+                "name": "test-pull",
+                "mountPath": "/run/cloudlab-test/registry",
+                "readOnly": true
+              },
+              {
+                "name": "publish-config",
+                "mountPath": "/run/cloudlab-publisher/config",
+                "readOnly": true
+              },
+              {
+                "name": "publish-pull",
+                "mountPath": "/run/cloudlab-publisher/pull",
+                "readOnly": true
+              },
+              {
+                "name": "publish-push",
+                "mountPath": "/run/cloudlab-publisher/push",
+                "readOnly": true
+              }
+            ],
+            "args": [
+              "python3 -I -S /usr/local/libexec/cloudlab-ci-health.py && exec /home/runner/run.sh"
+            ],
+            "livenessProbe": {
+              "initialDelaySeconds": 10,
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 3,
+              "exec": {
+                "command": [
+                  "python3",
+                  "-I",
+                  "-S",
+                  "/usr/local/libexec/cloudlab-ci-health.py"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

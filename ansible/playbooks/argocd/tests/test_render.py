@@ -291,6 +291,30 @@ class RenderTests(unittest.TestCase):
             names = {row['name']: row['value'] for row in pool['parameters']}
             self.assertEqual(names['arc.controllerServiceAccount.name'], 'cloudlab-{{ .application }}-controller')
 
+    def test_per_application_ci_sets_pin_publisher_valuefiles_matrix(self):
+        values = {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+                  'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                         'valuesRevision': 'b' * 40}},
+                  'ci': {'enabled': True, 'poolEnabled': True}}
+        rows = {obj['metadata']['name']: obj for obj in self.root_with(values) if obj['kind'] == 'ApplicationSet'}
+        for component in ('controller', 'runner'):
+            helm = rows['cloudlab-ci-application-' + component]['spec']['template']['spec']['sources'][0]['helm']
+            self.assertEqual(helm['valueFiles'], ['values.json'])
+        overlay = rows['cloudlab-ci-application-publisher']['spec']['template']['spec']['sources'][0]['helm']['valueFiles']
+        self.assertEqual(overlay[0], 'values.json')
+        # Visibility x release-mode matrix: public overlays drop the private signer mount.
+        names = ('values-publisher-public-manual.json', 'values-publisher-public.json',
+                 'values-publisher-manual.json', 'values-publisher.json')
+        for name in names:
+            self.assertIn(name, overlay[1])
+        positions = [overlay[1].index(name) for name in names]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('eq .source.visibility "public"', overlay[1])
+        self.assertEqual(overlay[1].count('eq .publishing.releaseMode "manual"'), 2)
+        pool = render.ROOT / 'platform/delivery/ci/pool'
+        for name in names:
+            self.assertTrue((pool / name).is_file(), name)
+
     def test_public_project_cannot_create_privileged_platform_objects(self):
         project = next(x['spec'] for x in self.data['roots'] if x['kind'] == 'AppProject' and x['metadata']['name'] == 'cloudlab-public')
         self.assertEqual(project['clusterResourceWhitelist'], [])
