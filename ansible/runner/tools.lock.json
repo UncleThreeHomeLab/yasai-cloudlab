@@ -1,6 +1,6 @@
 {
   "tofu": {
-    "version": "1.13.1",
+    "version": "1.13.0",
     "url": "https://github.com/opentofu/opentofu/releases/download/v1.13.1/tofu_1.13.1_linux_amd64.zip",
     "sha256": "8ccbc6f8ee21d2827715f3c6e08a9b3e0209b1e62057c05067ef117e047c1a80"
   },
