@@ -29,7 +29,7 @@ spec:
     - name: meta
       expression: variables.target.metadata
     - name: state
-      expression: "request.namespace == 'argocd' && request.resource.resource == 'configmaps' && request.name == 'cloudlab-preview-state'"
+      expression: "request.namespace == 'argocd' && request.resource.resource == 'configmaps' && (request.name == 'cloudlab-preview-state' || request.name == 'cloudlab-preview-dns-intent')"
     - name: targetNamespace
       expression: {{ if eq $type "namespaces" }}"request.name"{{ else if eq $type "objects" }}"request.namespace == 'argocd' ? 'cloudlab-' + request.name : request.namespace"{{ else }}"request.namespace"{{ end }}
     - name: owned
