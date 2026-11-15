@@ -88,10 +88,12 @@ class ServiceActivationTests(unittest.TestCase):
                         'syncPolicy': {'automated': {'prune': False}}, 'sources': [
                     {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'],
                      'path': 'platform/delivery/services', 'helm': {
-                         'valueFiles': ['$values/services/catalog.json', '$values/identity/argo-values.yaml'],
+                         'valueFiles': ['$values/services/catalog.json', '$values/identity/argo-values.yaml',
+                                        '$values/platform/access/policy.yaml', '$exposures/services/exposures.yaml'],
                          'valuesObject': {'repository': evidence['repository'], 'revision': evidence['revision'],
                                           'telemetry': evidence['telemetry']}}},
-                    {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'}]},
+                    {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'},
+                    {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'], 'ref': 'exposures'}]},
                'status': {'health': {'status': 'Healthy'}, 'sync': {'status': 'Synced'}}}
         return parent, app
 

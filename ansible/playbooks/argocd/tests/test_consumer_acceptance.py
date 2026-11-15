@@ -22,7 +22,7 @@ REPOSITORY = 'https://github.com/example/private.git'
 
 def fixture(consumer='observability', path='services/catalog-v2.yaml'):
     paths = ([path, 'platform/observability.yaml'] if consumer == 'observability'
-             else [path, 'identity/argo-values.yaml'] if consumer == 'services' else ['platform/permissions.yaml'])
+             else [path, 'identity/argo-values.yaml', 'platform/access/policy.yaml'] if consumer == 'services' else ['platform/permissions.yaml'])
     receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': consumer, 'paths': paths, 'revision': 'b' * 40, 'nonce': '1' * 64}
     digest = hashlib.sha256(('\n'.join([receipt['version'], consumer, REPOSITORY, str(len(paths)), *paths,
         receipt['revision'], receipt['nonce'], ''])).encode()).hexdigest()

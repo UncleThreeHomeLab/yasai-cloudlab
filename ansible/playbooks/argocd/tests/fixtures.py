@@ -105,8 +105,8 @@ def namespace_probe(document):
 
 def services_approval(public, repository, revision='b' * 40):
     from private_sources import CONSUMER_ACCEPTANCE_VERSION
-    from service_activation import catalog_path
-    paths = [catalog_path(public['services'].get('catalogPath', catalog_path())), 'identity/argo-values.yaml']
+    from service_activation import consumer_paths
+    paths = consumer_paths(public['services'].get('catalogPath'))
     receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': 'services', 'paths': paths,
         'revision': revision, 'nonce': '2' * 64}
     commitment = hashlib.sha256(('\n'.join([receipt['version'], 'services', repository, str(len(paths)), *paths,

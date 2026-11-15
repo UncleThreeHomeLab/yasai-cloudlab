@@ -13,6 +13,20 @@ def catalog_path(value='services/catalog.json'):
     return value
 
 
+# Fixed services receipt paths verbatim from gitops/roots/public/templates/services.yaml:89
+# (the gate PATHS_LF printf): the selected catalog first, then these in order.
+GATE_FIXED_PATHS = ('identity/argo-values.yaml', 'platform/access/policy.yaml')
+
+
+def consumer_paths(catalog=None):
+    """Services consumer receipt paths in native gate order: catalog, argo-values, access policy.
+
+    The two-path composition already fails the native gate since 7943734, so this
+    alignment restores no previously passing shape; it matches what Argo verifies.
+    """
+    return [catalog_path(catalog_path() if catalog is None else catalog), *GATE_FIXED_PATHS]
+
+
 def prepare(public, private_repository, private_revision, catalog=None, *, namespace_declaration=None, acceptance=None):
     """Capture already validated non-secret inputs at the identity source revision."""
     try:
@@ -75,7 +89,7 @@ def validate(evidence, target, root=None, *, allow_missing_namespace_guard=False
             validate_consumer_acceptance(evidence['acceptanceReceipt'], evidence['private_repository'], {
                 'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': 'services', 'enabled': True,
                 'receiptPath': 'platform/acceptance/services.yaml',
-                'paths': [path, 'identity/argo-values.yaml'],
+                'paths': consumer_paths(path),
                 'acceptanceCommitment': evidence['acceptanceCommitment'], 'context': {}})
         except ValueError as error:
             raise RuntimeError('Service source acceptance receipt is invalid') from error
@@ -135,14 +149,15 @@ def validate(evidence, target, root=None, *, allow_missing_namespace_guard=False
 
 def sources_match(app, evidence):
     sources = app.get('spec', {}).get('sources', [])
-    return (len(sources) == 2 and sources[0].get('repoURL') == evidence['repository']
+    return (len(sources) == 3 and sources[0].get('repoURL') == evidence['repository']
             and sources[0].get('targetRevision') == evidence['revision']
             and sources[0].get('path') == 'platform/delivery/services'
             and sources[0].get('helm', {}).get('valueFiles') ==
-                ['$values/' + catalog_path(evidence.get('catalogPath', catalog_path())), '$values/identity/argo-values.yaml']
+                ['$values/' + item for item in consumer_paths(evidence.get('catalogPath'))] + ['$exposures/services/exposures.yaml']
             and sources[0].get('helm', {}).get('valuesObject') ==
                 {'repository': evidence['repository'], 'revision': evidence['revision'], 'telemetry': evidence['telemetry']}
-            and sources[1] == {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'})
+            and sources[1] == {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'}
+            and sources[2] == {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'], 'ref': 'exposures'})
 
 
 def catalog_parent(evidence, read):
