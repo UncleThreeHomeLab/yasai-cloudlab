@@ -291,6 +291,100 @@ class RenderTests(unittest.TestCase):
             names = {row['name']: row['value'] for row in pool['parameters']}
             self.assertEqual(names['arc.controllerServiceAccount.name'], 'cloudlab-{{ .application }}-controller')
 
+    def inner_with(self, template, context):
+        with tempfile.TemporaryDirectory() as folder:
+            chart = Path(folder) / 'cell'
+            (chart / 'templates').mkdir(parents=True)
+            (chart / 'Chart.yaml').write_text('apiVersion: v2\nname: cell\nversion: 0.1.0\n')
+            (chart / 'templates/out.yaml').write_text('result: {{ tpl .Values.inner .Values.ctx | quote }}\n')
+            result = subprocess.run(['helm', 'template', 'cell', str(chart), '-f', '-'],
+                                    input=json.dumps({'inner': template, 'ctx': context}),
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return yaml.safe_load(result.stdout)['result']
+
+    def publisher_cell(self, visibility, release_mode, release_visibility):
+        return {
+            'component': 'publisher',
+            'registration': {
+                'application': 'demo',
+                'source': {'repository': 'ExampleOrg/demo', 'repositoryId': '123456', 'visibility': visibility},
+                'ci': {'profile': visibility + '-main', 'approval': {'revision': 'a' * 40},
+                       'jobs': {'test': True, 'publish': True}},
+                'publishing': {'registry': 'registry.example.com',
+                               'releaseRepository': 'ExampleOrg/demo-release', 'releaseRepositoryId': 7,
+                               'releaseVisibility': release_visibility, 'releaseMode': release_mode,
+                               'workflowIdentity': 'https://github.com/ExampleOrg/demo/.github/workflows/ci.yaml@refs/heads/main'}},
+            'images': {'runner': 'registry.example.com/cloudlab-public/ci-runner@sha256:' + 'a' * 64,
+                       'builder': 'registry.example.com/cloudlab-public/ci-builder@sha256:' + 'b' * 64},
+            'arc': {'enabled': True, 'githubConfigUrl': 'https://github.com/ExampleOrg/demo',
+                    'githubConfigSecret': 'github-arc-public' if visibility == 'public' else 'github-arc',
+                    'runnerScaleSetName': 'cloudlab-demo-publish'}}
+
+    def pool_with(self, overlay, values, *, success=True):
+        pool = render.ROOT / 'platform/delivery/ci/pool'
+        with tempfile.TemporaryDirectory() as folder:
+            cell = Path(folder) / 'cell.json'
+            cell.write_text(json.dumps(values))
+            result = subprocess.run(
+                ['helm', 'template', 'pool', str(pool), '-f', str(pool / 'values.json'),
+                 '-f', str(pool / overlay), '-f', str(cell),
+                 '-n', 'cloudlab-ci-%s-demo' % values['registration']['source']['visibility'],
+                 '--set', 'arc.template.spec.containers[0].image=' + values['images']['runner'],
+                 '--set', 'arc.template.spec.initContainers[0].image=' + values['images']['builder']],
+                capture_output=True, text=True, timeout=120)
+        if not success:
+            self.assertNotEqual(result.returncode, 0)
+            return []
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+
+    def test_per_application_ci_sets_pin_publisher_valuefiles_matrix(self):
+        values = {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+                  'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                         'valuesRevision': 'b' * 40}},
+                  'ci': {'enabled': True, 'poolEnabled': True}}
+        rows = {obj['metadata']['name']: obj for obj in self.root_with(values) if obj['kind'] == 'ApplicationSet'}
+        for component in ('controller', 'runner'):
+            helm = rows['cloudlab-ci-application-' + component]['spec']['template']['spec']['sources'][0]['helm']
+            self.assertEqual(helm['valueFiles'], ['values.json'])
+        overlay = rows['cloudlab-ci-application-publisher']['spec']['template']['spec']['sources'][0]['helm']['valueFiles']
+        self.assertEqual(overlay[0], 'values.json')
+        # Visibility x release-mode matrix: evaluate the inner template per cell, not its text.
+        cells = (('public', 'manual', 'values-publisher-public-manual.json'),
+                 ('public', 'automatic', 'values-publisher-public.json'),
+                 ('private', 'manual', 'values-publisher-manual.json'),
+                 ('private', 'automatic', 'values-publisher.json'))
+        for visibility, mode, name in cells:
+            with self.subTest(visibility=visibility, mode=mode):
+                context = {'source': {'visibility': visibility}, 'publishing': {'releaseMode': mode}}
+                self.assertEqual(self.inner_with(overlay[1], context), name)
+        # A missing publishing key defaults to automatic.
+        for visibility, name in (('public', 'values-publisher-public.json'), ('private', 'values-publisher.json')):
+            with self.subTest(visibility=visibility, mode='absent'):
+                self.assertEqual(self.inner_with(overlay[1], {'source': {'visibility': visibility}}), name)
+        # One visibility branch with one release-mode branch per side.
+        self.assertEqual(overlay[1].count('eq .source.visibility "public"'), 1)
+        self.assertEqual(overlay[1].count('eq .publishing.releaseMode "manual"'), 2)
+        pool = render.ROOT / 'platform/delivery/ci/pool'
+        for _, _, name in cells:
+            self.assertTrue((pool / name).is_file(), name)
+        # Each overlay satisfies exactly its guard branch.
+        for visibility, mode, name in cells:
+            with self.subTest(overlay=name):
+                release_visibility = 'private' if mode == 'manual' or visibility == 'private' else 'public'
+                rendered = self.pool_with(name, self.publisher_cell(visibility, mode, release_visibility))
+                config = json.loads(next(obj for obj in rendered if obj['kind'] == 'ConfigMap'
+                                         and obj['metadata']['name'] == 'cloudlab-publishing')['data']['config.json'])
+                self.assertEqual((config['visibility'], config['release_mode']), (visibility, mode))
+                externals = {obj['metadata']['name'] for obj in rendered if obj['kind'] == 'ExternalSecret'}
+                self.assertEqual('cloudlab-release' in externals, mode == 'automatic')
+                self.assertEqual('cloudlab-ci-signing' in externals, visibility == 'private')
+        # Cross-wired overlays fail closed on both axes.
+        self.pool_with('values-publisher.json', self.publisher_cell('public', 'automatic', 'public'), success=False)
+        self.pool_with('values-publisher-public.json', self.publisher_cell('private', 'automatic', 'private'), success=False)
+        self.pool_with('values-publisher-public.json', self.publisher_cell('public', 'manual', 'private'), success=False)
+
     def test_public_project_cannot_create_privileged_platform_objects(self):
         project = next(x['spec'] for x in self.data['roots'] if x['kind'] == 'AppProject' and x['metadata']['name'] == 'cloudlab-public')
         self.assertEqual(project['clusterResourceWhitelist'], [])

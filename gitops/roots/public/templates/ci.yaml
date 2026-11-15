@@ -171,9 +171,10 @@ spec:
             # Publisher pools layer a publisher overlay over values.json:
             # --set cannot extend lists (it replaces them with sparse nils),
             # so the publisher volumes and mounts live in a value file. The
-            # chart pins every entry; keep the files in sync. Manual promotion
-            # uses the overlay without the release App mount.
-            valueFiles: [values.json{{ if $publishPool }}, '{{ "{{ if and (hasKey . \"publishing\") (hasKey .publishing \"releaseMode\") (eq .publishing.releaseMode \"manual\") }}" }}values-publisher-manual.json{{ "{{ else }}" }}values-publisher.json{{ "{{ end }}" }}'{{ end }}]
+            # chart pins every entry; keep the four files in sync. Manual
+            # promotion uses the overlay without the release App mount, and
+            # public pools use the overlays without the private signer mount.
+            valueFiles: [values.json{{ if $publishPool }}, '{{ "{{ if eq .source.visibility \"public\" }}" }}{{ "{{ if and (hasKey . \"publishing\") (hasKey .publishing \"releaseMode\") (eq .publishing.releaseMode \"manual\") }}" }}values-publisher-public-manual.json{{ "{{ else }}" }}values-publisher-public.json{{ "{{ end }}" }}{{ "{{ else }}" }}{{ "{{ if and (hasKey . \"publishing\") (hasKey .publishing \"releaseMode\") (eq .publishing.releaseMode \"manual\") }}" }}values-publisher-manual.json{{ "{{ else }}" }}values-publisher.json{{ "{{ end }}" }}{{ "{{ end }}" }}'{{ end }}]
             values: |
               component: {{ $component }}
               registration:
