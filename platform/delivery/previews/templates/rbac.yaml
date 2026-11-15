@@ -86,6 +86,9 @@ rules:
   - {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [cloudlab-preview-inventory], verbs: [bind]}
   - {apiGroups: [rbac.authorization.k8s.io], resources: [rolebindings], verbs: [create]}
   - {apiGroups: [''], resources: [configmaps, resourcequotas, limitranges], verbs: [create, update, delete]}
+  # Native gateway discovery for DNS intent: the controller GETs the two
+  # private gateway services by name (namespace pinned in code); nothing else.
+  - {apiGroups: [''], resources: [services], resourceNames: [cloudlab-istio, cloudlab-tailnet], verbs: [get]}
   - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [create, update, delete]}
   - {apiGroups: [gateway.networking.k8s.io], resources: [gateways, httproutes], verbs: [create, update, delete]}
   - {apiGroups: [security.istio.io], resources: [authorizationpolicies, peerauthentications, requestauthentications], verbs: [create, update, delete]}
@@ -109,6 +112,11 @@ rules: []
 rules:
   - {apiGroups: [''], resources: [configmaps], resourceNames: [cloudlab-preview-approvals, cloudlab-preview-state], verbs: [get]}
   - {apiGroups: [''], resources: [configmaps], resourceNames: [cloudlab-preview-state], verbs: [update]}
+  - {apiGroups: [''], resources: [configmaps], resourceNames: [cloudlab-preview-dns-intent, cloudlab-preview-dns-status], verbs: [get, update]}
+  # Kubernetes cannot constrain collection POST to fixed names; the controller
+  # creates only its owner-labeled state and DNS ConfigMaps for clean-checkout
+  # self-bootstrap and adopts only exact-owner objects.
+  - {apiGroups: [''], resources: [configmaps], verbs: [create]}
   {{- if .Values.catalog.ownership }}
   - apiGroups: [argoproj.io]
     resources: [applicationsets, appprojects]

@@ -145,6 +145,7 @@ class FakeKube:
         self.state_obj = state_obj
         self.extra = extra or {}
         self.created = []
+        self.replaced = []
 
     def get(self, key):
         if tuple(key) == ('v1', 'ConfigMap', 'argocd', contract.STATE):
@@ -159,7 +160,13 @@ class FakeKube:
         return created
 
     def replace(self, obj):
-        self.state_obj = obj
+        meta = obj['metadata']
+        if meta.get('namespace') == 'argocd' and meta.get('name') == contract.STATE:
+            self.state_obj = obj
+            return obj
+        key = ('v1', obj['kind'], meta.get('namespace', ''), meta['name'])
+        self.extra[key] = copy.deepcopy(obj)
+        self.replaced.append(key)
         return obj
 
 
@@ -186,16 +193,77 @@ def retiring_controller(kube):
     return controller.Controller(kube, None, NOW)
 
 
-class DeniedFakeKube(FakeKube):
-    """Ownership-scoped reads: everything outside the state object denies."""
+GATEWAYS = {'cluster': '10.96.0.1', 'tailnet': '100.64.0.1'}
 
-    def __init__(self, state_obj, code=403):
-        super().__init__(state_obj)
+
+def state_object_with(entries):
+    obj = state_object()
+    obj['data'] = {'state.json': json.dumps({'format': 1, 'entries': entries})}
+    return obj
+
+
+def dns_cm(name, key, payload):
+    return {'apiVersion': 'v1', 'kind': 'ConfigMap',
+            'metadata': {'name': name, 'namespace': 'argocd', 'uid': name + '-uid',
+                         'resourceVersion': '1',
+                         'labels': {'cloudlab.io/owner': contract.OWNER}},
+            'data': {key: json.dumps(payload)}}
+
+
+def intent_doc(row, settings, phase='desired', gateways=GATEWAYS):
+    return {'format': 1, 'gateways': dict(gateways),
+            'entries': {row['instance']: {'hostname': contract.hostname(row, settings),
+                                          'phase': phase}}}
+
+
+def status_doc(row, settings, state='published', observed_at=NOW, gateways=GATEWAYS):
+    return {'format': 1, 'gateways': dict(gateways),
+            'entries': {row['instance']: {'hostname': contract.hostname(row, settings),
+                                          'observations': [
+                                              {'host': host, 'state': state,
+                                               'observedAt': observed_at}
+                                              for host in ('resolver-a', 'resolver-b')]}}}
+
+
+def dns_extra(row, settings, phase='retiring', state='absent', observed_at=NOW,
+              gateways=GATEWAYS, status_gateways=None):
+    return {
+        ('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT): dns_cm(
+            contract.DNS_INTENT, contract.DNS_INTENT_KEY,
+            intent_doc(row, settings, phase, gateways)),
+        ('v1', 'ConfigMap', 'argocd', contract.DNS_STATUS): dns_cm(
+            contract.DNS_STATUS, contract.DNS_STATUS_KEY,
+            status_doc(row, settings, state, observed_at,
+                       status_gateways or gateways))}
+
+
+def gateway_services(cluster='10.96.0.1', tailnet='100.64.0.1'):
+    return {
+        ('v1', 'Service', 'cloudlab-gateway-private', 'cloudlab-istio'): {
+            'apiVersion': 'v1', 'kind': 'Service',
+            'metadata': {'name': 'cloudlab-istio',
+                         'namespace': 'cloudlab-gateway-private'},
+            'spec': {'clusterIP': cluster}},
+        ('v1', 'Service', 'cloudlab-gateway-private', 'cloudlab-tailnet'): {
+            'apiVersion': 'v1', 'kind': 'Service',
+            'metadata': {'name': 'cloudlab-tailnet',
+                         'namespace': 'cloudlab-gateway-private'},
+            'spec': {},
+            'status': {'loadBalancer': {'ingress': [{'ip': tailnet}]}}}}
+
+
+class DeniedFakeKube(FakeKube):
+    """Ownership-scoped reads: preview resources deny; served extras stay readable."""
+
+    def __init__(self, state_obj, code=403, extra=None):
+        super().__init__(state_obj, extra)
         self.code = code
 
     def get(self, key):
         if tuple(key) == ('v1', 'ConfigMap', 'argocd', contract.STATE):
             return self.state_obj
+        if tuple(key) in self.extra:
+            return self.extra[tuple(key)]
         raise APIError(self.code)
 
 
@@ -245,9 +313,12 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         self.assertEqual(len(merged['approvals']), 1)
 
     def test_null_uid_absent_namespace_retire_proceeds(self):
-        row = contract.request(prices_request())
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
         record = retiring_record(row)
-        ctrl = retiring_controller(FakeKube(state_object()))
+        ctrl = retiring_controller(
+            FakeKube(state_object(), dns_extra(row, settings)))
         ctrl.retiring_digest = record['approvalDigest']
         ctrl.retiring_expiry = row['expiresAt']
         ctrl.retire(record, {'entries': {}})
@@ -256,7 +327,8 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         namespace_key = ('v1', 'Namespace', '',
                          'cloudlab-preview-' + row['instance'])
         present = retiring_controller(FakeKube(
-            state_object(), {namespace_key: {'metadata': {'uid': 'ns-uid'}}}))
+            state_object(), {**dns_extra(row, settings),
+                             namespace_key: {'metadata': {'uid': 'ns-uid'}}}))
         record = retiring_record(row)
         present.retiring_digest = record['approvalDigest']
         present.retiring_expiry = row['expiresAt']
@@ -264,15 +336,19 @@ class PreviewCompiledInputsTests(unittest.TestCase):
             present.retire(record, {'entries': {}})
 
     def test_null_uid_denied_reads_retire_as_absent(self):
-        row = contract.request(prices_request())
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
         record = retiring_record(row)
-        ctrl = retiring_controller(DeniedFakeKube(state_object()))
+        ctrl = retiring_controller(DeniedFakeKube(
+            state_object(), extra=dns_extra(row, settings)))
         ctrl.retiring_digest = record['approvalDigest']
         ctrl.retiring_expiry = row['expiresAt']
         ctrl.retire(record, {'entries': {}})
         self.assertEqual(record['phase'], 'retired')
         # Only authorization denials count as absent; other failures surface.
-        failing = retiring_controller(DeniedFakeKube(state_object(), code=500))
+        failing = retiring_controller(DeniedFakeKube(
+            state_object(), code=500, extra=dns_extra(row, settings)))
         record = retiring_record(row)
         failing.retiring_digest = record['approvalDigest']
         failing.retiring_expiry = row['expiresAt']
@@ -280,7 +356,9 @@ class PreviewCompiledInputsTests(unittest.TestCase):
             failing.retire(record, {'entries': {}})
 
     def test_uid_bearing_denied_reads_stay_fatal(self):
-        row = contract.request(prices_request())
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
         namespace_key = ('v1', 'Namespace', '',
                          'cloudlab-preview-' + row['instance'])
 
@@ -292,11 +370,265 @@ class PreviewCompiledInputsTests(unittest.TestCase):
 
         record = retiring_record(row)
         record['resources'][0]['uid'] = 'ns-uid'
-        ctrl = retiring_controller(VanishedNamespaceKube(state_object()))
+        ctrl = retiring_controller(VanishedNamespaceKube(
+            state_object(), extra=dns_extra(row, settings)))
         ctrl.retiring_digest = record['approvalDigest']
         ctrl.retiring_expiry = row['expiresAt']
         with self.assertRaises(APIError):
             ctrl.retire(record, {'entries': {}})
+
+    def test_dns_contract_accepts_valid_intent_and_status(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
+        intent = intent_doc(row, settings)
+        self.assertEqual(contract.dns_intent(copy.deepcopy(intent)), intent)
+        status = status_doc(row, settings)
+        self.assertEqual(contract.dns_status(copy.deepcopy(status)), status)
+        retiring = contract.dns_intent(intent_doc(row, settings, phase='retiring'))
+        self.assertEqual(retiring['entries'][row['instance']]['phase'], 'retiring')
+        absent = contract.dns_status(status_doc(row, settings, state='absent'))
+        observations = absent['entries'][row['instance']]['observations']
+        self.assertEqual([row['state'] for row in observations], ['absent', 'absent'])
+
+    def test_dns_contract_rejects_malformed_payloads(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
+        host = contract.hostname(row, settings)
+        many = {('%032x' % n): {'hostname': host, 'phase': 'desired'}
+                for n in range(257)}
+        intent_cases = {
+            'format': {**intent_doc(row, settings), 'format': 2},
+            'gateways': {**intent_doc(row, settings), 'gateways': {'cluster': 'None'}},
+            'entries bound': {**intent_doc(row, settings), 'entries': many},
+            'instance': {'format': 1, 'gateways': dict(GATEWAYS),
+                         'entries': {'zzz': {'hostname': host, 'phase': 'desired'}}},
+            'entry keys': {'format': 1, 'gateways': dict(GATEWAYS),
+                           'entries': {row['instance']: {'hostname': host}}},
+            'phase': intent_doc(row, settings, phase='pending'),
+            'hostname': {'format': 1, 'gateways': dict(GATEWAYS),
+                         'entries': {row['instance']: {'hostname': 'not-an-origin',
+                                                       'phase': 'desired'}}}}
+        for name, bad in intent_cases.items():
+            with self.subTest(payload=name):
+                with self.assertRaises(ValueError):
+                    contract.dns_intent(copy.deepcopy(bad))
+        observation = {'host': 'resolver-a', 'state': 'published', 'observedAt': NOW}
+        status_cases = {
+            'format': {**status_doc(row, settings), 'format': 2},
+            'observations empty': {'format': 1, 'gateways': dict(GATEWAYS),
+                                    'entries': {row['instance']: {'hostname': host,
+                                                                  'observations': []}}},
+            'observations bound': {'format': 1, 'gateways': dict(GATEWAYS),
+                                    'entries': {row['instance']: {
+                                        'hostname': host,
+                                        'observations': [
+                                            dict(observation, host='resolver-%d' % n)
+                                            for n in range(9)]}}},
+            'duplicate host': {'format': 1, 'gateways': dict(GATEWAYS),
+                               'entries': {row['instance']: {
+                                   'hostname': host,
+                                   'observations': [observation, dict(observation)]}}},
+            'state': {'format': 1, 'gateways': dict(GATEWAYS),
+                      'entries': {row['instance']: {
+                          'hostname': host,
+                          'observations': [dict(observation, state='weird')]}}},
+            'observedAt': {'format': 1, 'gateways': dict(GATEWAYS),
+                           'entries': {row['instance']: {
+                               'hostname': host,
+                               'observations': [dict(observation, observedAt=0)]}}}}
+        for name, bad in status_cases.items():
+            with self.subTest(payload=name):
+                with self.assertRaises(ValueError):
+                    contract.dns_status(copy.deepcopy(bad))
+
+    def test_gateway_discovery_requires_unique_ready_ipv4(self):
+        tailnet_key = ('v1', 'Service', 'cloudlab-gateway-private', 'cloudlab-tailnet')
+        istio_key = ('v1', 'Service', 'cloudlab-gateway-private', 'cloudlab-istio')
+        ctrl = retiring_controller(FakeKube(state_object(), gateway_services()))
+        self.assertEqual(ctrl.gateway_addresses(), GATEWAYS)
+        # IPv6 ingress rows are ignored; the single IPv4 still wins.
+        dual = gateway_services()
+        dual[tailnet_key]['status']['loadBalancer']['ingress'].append({'ip': 'fd00::1'})
+        self.assertEqual(
+            retiring_controller(FakeKube(state_object(), dual)).gateway_addresses(),
+            GATEWAYS)
+        # Missing services stay unavailable; zero or two IPv4 rows refuse.
+        with self.assertRaises(RuntimeError):
+            retiring_controller(FakeKube(state_object())).gateway_addresses()
+        half = gateway_services()
+        del half[istio_key]
+        with self.assertRaises(RuntimeError):
+            retiring_controller(FakeKube(state_object(), half)).gateway_addresses()
+        none = gateway_services()
+        none[tailnet_key]['status']['loadBalancer']['ingress'] = []
+        with self.assertRaises(RuntimeError):
+            retiring_controller(FakeKube(state_object(), none)).gateway_addresses()
+        two = gateway_services()
+        two[tailnet_key]['status']['loadBalancer']['ingress'].append({'ip': '100.64.0.2'})
+        with self.assertRaises(RuntimeError):
+            retiring_controller(FakeKube(state_object(), two)).gateway_addresses()
+        # A headless cluster service never enters intent.
+        with self.assertRaises(ValueError):
+            retiring_controller(
+                FakeKube(state_object(), gateway_services(cluster='None'))
+            ).gateway_addresses()
+
+    def test_render_intent_writes_full_desired_plus_retiring(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
+        orphan = contract.request(prices_request(pullRequest=43))
+        tomb = contract.request(prices_request(pullRequest=44))
+        entries = {row['instance']: retiring_record(row),
+                   orphan['instance']: retiring_record(orphan),
+                   tomb['instance']: {
+                       'phase': 'retired',
+                       'approvalDigest': contract.digest(contract.canonical(tomb)),
+                       'expiresAt': tomb['expiresAt']}}
+        desired = {row['instance']: row, tomb['instance']: tomb}
+        kube = FakeKube(state_object_with(entries), gateway_services())
+        intent = retiring_controller(kube).render_intent(settings, desired)
+        self.assertEqual(contract.dns_intent(copy.deepcopy(intent)), intent)
+        self.assertEqual(intent['gateways'], GATEWAYS)
+        self.assertEqual(intent['entries'], {
+            row['instance']: {'hostname': contract.hostname(row, settings),
+                              'phase': 'retiring'},
+            orphan['instance']: {'hostname': contract.hostname(orphan, settings),
+                                 'phase': 'retiring'}})
+        created = kube.created[0]
+        self.assertEqual(created['metadata']['labels'], {'cloudlab.io/owner': contract.OWNER})
+        self.assertEqual(json.loads(created['data'][contract.DNS_INTENT_KEY]), intent)
+        # A converged render writes nothing.
+        seeded = dict(gateway_services())
+        converged = dns_cm(contract.DNS_INTENT, contract.DNS_INTENT_KEY, intent)
+        converged['data'] = {contract.DNS_INTENT_KEY: json.dumps(intent, sort_keys=True)}
+        seeded[('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT)] = converged
+        settled = FakeKube(state_object_with(entries), seeded)
+        self.assertEqual(
+            retiring_controller(settled).render_intent(settings, desired), intent)
+        self.assertEqual(settled.replaced, [])
+
+    def test_retire_withdraws_intent_then_requires_absent_proof(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
+        intent_key = ('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT)
+        status_key = ('v1', 'ConfigMap', 'argocd', contract.DNS_STATUS)
+        kube = FakeKube(state_object(), {**gateway_services(), **dns_extra(
+            row, settings, phase='desired', state='published')})
+        record = retiring_record(row)
+        ctrl = retiring_controller(kube)
+        ctrl.retiring_digest = record['approvalDigest']
+        ctrl.retiring_expiry = row['expiresAt']
+        ctrl.retire(record, {'entries': {}})
+        # Published status blocks the tombstone, but desired intent is withdrawn.
+        self.assertEqual(record['phase'], 'retiring')
+        flipped = json.loads(kube.extra[intent_key]['data'][contract.DNS_INTENT_KEY])
+        self.assertEqual(flipped['entries'][row['instance']]['phase'], 'retiring')
+        # Fresh absent proof on both hosts completes the tombstone, and the
+        # dns receipt drops with the record.
+        digest, expiry = record['approvalDigest'], row['expiresAt']
+        record['dns'] = {'confirmedAt': NOW - 10}
+        kube.extra[status_key] = dns_cm(
+            contract.DNS_STATUS, contract.DNS_STATUS_KEY,
+            status_doc(row, settings, state='absent'))
+        ctrl.retire(record, {'entries': {}})
+        self.assertEqual(record, {'phase': 'retired', 'approvalDigest': digest,
+                                 'expiresAt': expiry})
+
+    def test_absent_proof_requires_both_hosts_fresh_and_matching(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        row = settings['approvals'][0]
+        ctrl = retiring_controller(
+            FakeKube(state_object(), dns_extra(row, settings)))
+        self.assertTrue(ctrl.dns_proof(row['instance'], 'absent'))
+        self.assertFalse(ctrl.dns_proof(row['instance'], 'published'))
+        self.assertFalse(ctrl.dns_proof('0' * 32, 'absent'))
+        bare = retiring_controller(FakeKube(state_object()))
+        self.assertFalse(bare.dns_proof(row['instance'], 'absent'))
+        # Stale, future, or single-host observations prove nothing.
+        stale = retiring_controller(FakeKube(state_object(), dns_extra(
+            row, settings, observed_at=NOW - 601)))
+        self.assertFalse(stale.dns_proof(row['instance'], 'absent'))
+        future = retiring_controller(FakeKube(state_object(), dns_extra(
+            row, settings, observed_at=NOW + 1)))
+        self.assertFalse(future.dns_proof(row['instance'], 'absent'))
+        single = status_doc(row, settings, state='absent')
+        single['entries'][row['instance']]['observations'].pop()
+        lonely = retiring_controller(FakeKube(state_object(), {
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT): dns_cm(
+                contract.DNS_INTENT, contract.DNS_INTENT_KEY,
+                intent_doc(row, settings, phase='retiring')),
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_STATUS): dns_cm(
+                contract.DNS_STATUS, contract.DNS_STATUS_KEY, single)}))
+        self.assertFalse(lonely.dns_proof(row['instance'], 'absent'))
+        # Serving gateways or hostnames must match live intent exactly.
+        moved = retiring_controller(FakeKube(state_object(), dns_extra(
+            row, settings, status_gateways={'cluster': '10.96.0.2',
+                                            'tailnet': '100.64.0.1'})))
+        self.assertFalse(moved.dns_proof(row['instance'], 'absent'))
+        renamed = status_doc(row, settings, state='absent')
+        renamed['entries'][row['instance']]['hostname'] = (
+            'previews-' + '0' * 32 + '.internal.example.test')
+        foreign = retiring_controller(FakeKube(state_object(), {
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT): dns_cm(
+                contract.DNS_INTENT, contract.DNS_INTENT_KEY,
+                intent_doc(row, settings, phase='retiring')),
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_STATUS): dns_cm(
+                contract.DNS_STATUS, contract.DNS_STATUS_KEY, renamed)}))
+        self.assertFalse(foreign.dns_proof(row['instance'], 'absent'))
+        # Published proof binds the desired phase the same way.
+        wanted = retiring_controller(FakeKube(state_object(), dns_extra(
+            row, settings, phase='desired', state='published')))
+        self.assertTrue(wanted.dns_proof(row['instance'], 'published'))
+        # Corrupt or foreign payloads fail closed instead of proving anything.
+        corrupt = dns_cm(contract.DNS_STATUS, contract.DNS_STATUS_KEY, {'format': 1})
+        broken = retiring_controller(FakeKube(state_object(), {
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT): dns_cm(
+                contract.DNS_INTENT, contract.DNS_INTENT_KEY,
+                intent_doc(row, settings, phase='retiring')),
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_STATUS): corrupt}))
+        with self.assertRaises(ValueError):
+            broken.dns_proof(row['instance'], 'absent')
+        hostile = dns_cm(contract.DNS_INTENT, contract.DNS_INTENT_KEY,
+                         intent_doc(row, settings, phase='retiring'))
+        hostile['metadata']['labels']['cloudlab.io/owner'] = 'someone-else'
+        refused = retiring_controller(FakeKube(state_object(), {
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_INTENT): hostile,
+            ('v1', 'ConfigMap', 'argocd', contract.DNS_STATUS): dns_cm(
+                contract.DNS_STATUS, contract.DNS_STATUS_KEY,
+                status_doc(row, settings, state='absent'))}))
+        with self.assertRaises(ValueError):
+            refused.dns_proof(row['instance'], 'absent')
+
+    def test_rendered_rbac_grants_dns_configmaps_and_gateway_reads(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        documents = render({
+            'enabled': True,
+            'permissionsEnabled': True,
+            'platformRepository': 'https://github.com/example/platform.git',
+            'catalog': settings})
+        role = next(doc for doc in documents
+                    if doc.get('kind') == 'Role'
+                    and doc['metadata']['name'] == 'cloudlab-previews')
+        self.assertIn(
+            {'apiGroups': [''], 'resources': ['configmaps'],
+             'resourceNames': ['cloudlab-preview-dns-intent', 'cloudlab-preview-dns-status'],
+             'verbs': ['get', 'update']},
+            role['rules'])
+        self.assertIn({'apiGroups': [''], 'resources': ['configmaps'], 'verbs': ['create']},
+                      role['rules'])
+        cluster = next(doc for doc in documents
+                       if doc.get('kind') == 'ClusterRole'
+                       and doc['metadata']['name'] == 'cloudlab-previews')
+        self.assertIn(
+            {'apiGroups': [''], 'resources': ['services'],
+             'resourceNames': ['cloudlab-istio', 'cloudlab-tailnet'], 'verbs': ['get']},
+            cluster['rules'])
 
     def test_rendered_controller_carries_catalog_and_stays_suspended(self):
         settings = contract.runtime_catalog(
