@@ -1,5 +1,5 @@
 {
-  "version": "v4.3.0",
+  "version": "4.3.2",
   "purpose": "Kubernetes 1.34-1.37 compatible runner tooling; controller adoption requires separate compatibility and ownership gates",
   "sha256": {
     "amd64": "86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb",
