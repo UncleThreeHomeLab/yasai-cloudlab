@@ -73,8 +73,14 @@ def main(argv=None):
     os.environ[FIELD] = secret
     print('maintenance launcher: starting profile maintenance (compose args: ' +
           ' '.join(args) + ')', flush=True)
+    overlay = ROOT / 'platform' / 'delivery' / 'dependencies' / 'compose.maintenance.yaml'
+    if not overlay.is_file():
+        print('maintenance launcher: overlay not found: ' + str(overlay),
+              file=sys.stderr)
+        return 1
     try:
-        os.execvp('docker', ['docker', 'compose', '--profile', 'maintenance', *args])
+        os.execvp('docker', ['docker', 'compose', '-f', str(ROOT / 'compose.yaml'),
+                             '-f', str(overlay), '--profile', 'maintenance', *args])
     except OSError:
         print('maintenance launcher: docker compose is required on PATH',
               file=sys.stderr)
