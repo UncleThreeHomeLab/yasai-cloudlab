@@ -630,6 +630,30 @@ class PreviewCompiledInputsTests(unittest.TestCase):
              'resourceNames': ['cloudlab-istio', 'cloudlab-tailnet'], 'verbs': ['get']},
             cluster['rules'])
 
+    def test_rendered_objects_policy_admits_only_state_and_dns_intent(self):
+        settings = contract.runtime_catalog(
+            contract.requested_catalog(catalog(prices_request())))
+        documents = render({
+            'enabled': True,
+            'permissionsEnabled': True,
+            'platformRepository': 'https://github.com/example/platform.git',
+            'catalog': settings})
+        policy = next(doc for doc in documents
+                      if doc.get('kind') == 'ValidatingAdmissionPolicy'
+                      and doc['metadata']['name'] == 'cloudlab-preview-objects')
+        state = next(variable for variable in policy['spec']['variables']
+                     if variable['name'] == 'state')
+        self.assertEqual(
+            state['expression'],
+            "request.namespace == 'argocd' && request.resource.resource == 'configmaps'"
+            " && (request.name == 'cloudlab-preview-state'"
+            " || request.name == 'cloudlab-preview-dns-intent')")
+        bound = next(doc for doc in documents
+                     if doc.get('kind') == 'ValidatingAdmissionPolicyBinding'
+                     and doc['metadata']['name'] == 'cloudlab-preview-objects')
+        self.assertNotIn('cloudlab-preview-dns-status',
+                         yaml.safe_dump([policy, bound]))
+
     def test_rendered_controller_carries_catalog_and_stays_suspended(self):
         settings = contract.runtime_catalog(
             contract.requested_catalog(catalog(prices_request())))
