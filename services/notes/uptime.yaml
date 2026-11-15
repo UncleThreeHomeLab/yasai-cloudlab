@@ -10,4 +10,4 @@ independentMonitoring:
   path: /health
   expectedStatus: 200
   intervalSeconds: 300
-  notificationProfile: operator-email
+  notificationProfile: approved-operator-email
