@@ -1,7 +1,7 @@
 """Launch the maintenance compose profile with the vault-held writer token.
 
 Reads the service-account token from .env, fetches RENOVATE_TOKEN from the
-renovate-maintenance vault item, validates it, and execs docker compose with
+renovate-maintenance vault item, validates it, and runs docker compose with
 the maintenance profile. The token travels in the child environment only.
 """
 # Custom launcher, not `op run --env-file`: the native form would inject every
@@ -9,6 +9,7 @@ the maintenance profile. The token travels in the child environment only.
 # OP_SERVICE_ACCOUNT_TOKEN for its own op authentication, validates the vault
 # field, and adds just RENOVATE_TOKEN to the child.
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -79,12 +80,17 @@ def main(argv=None):
               file=sys.stderr)
         return 1
     try:
-        os.execvp('docker', ['docker', 'compose', '-f', str(ROOT / 'compose.yaml'),
-                             '-f', str(overlay), '--profile', 'maintenance', *args])
+        completed = subprocess.run(
+            ['docker', 'compose', '-f', str(ROOT / 'compose.yaml'),
+             '-f', str(overlay), '--profile', 'maintenance', *args],
+            check=False)
     except OSError:
         print('maintenance launcher: docker compose is required on PATH',
               file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        return 130
+    return completed.returncode
 
 
 if __name__ == '__main__':
