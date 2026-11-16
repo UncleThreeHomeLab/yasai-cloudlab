@@ -80,7 +80,7 @@ permissions:
 ci:
   enabled: true
   poolEnabled: false
-  applicationCapacity: 4
+  applicationCapacity: 5
 rollouts:
   enabled: true
 previews:
