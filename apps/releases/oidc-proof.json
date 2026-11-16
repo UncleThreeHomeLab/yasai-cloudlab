@@ -1,0 +1,9 @@
+{
+  "components": {
+    "api": "sha256:b08e1744dbd941932d631e96c88d0f0dd74cab7cb6978b0ddae0951d92907013"
+  },
+  "digest": "sha256:b08e1744dbd941932d631e96c88d0f0dd74cab7cb6978b0ddae0951d92907013",
+  "primary_component": "api",
+  "source_revision": "288ca9538eae7f8b9c3f3fe1b21f67e97bd2ec28",
+  "workflow_run_id": "43780892380"
+}
