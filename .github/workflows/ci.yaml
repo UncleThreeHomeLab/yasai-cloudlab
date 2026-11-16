@@ -7,6 +7,10 @@ permissions:
   id-token: write
 jobs:
   publish:
-    uses: UncleThreeHomeLab/yasai-cloudlab/.github/workflows/application-publish.yaml@f383689d790e39b90045260de0b632ff9d9297c0
+    uses: UncleThreeHomeLab/yasai-cloudlab/.github/workflows/application-publish.yaml@1e351b76e08820515d4c9a8b84ee273c9ff9a024
     with:
       application: oidc-proof
+  publish-u3proof:
+    uses: UncleThreeHomeLab/yasai-cloudlab/.github/workflows/application-publish.yaml@1e351b76e08820515d4c9a8b84ee273c9ff9a024
+    with:
+      application: u3proof
