@@ -418,11 +418,150 @@ class RenderTests(unittest.TestCase):
     def test_source_failure_or_application_removal_cannot_prune(self):
         controller = next(x for x in self.data['operator'] if x['kind'] == 'Deployment' and x['metadata']['name'] == 'argocd-applicationset-controller')
         self.assertIn('--policy=create-update', controller['spec']['template']['spec']['containers'][0]['args'])
-        self.assertIn('--enable-policy-override=false', controller['spec']['template']['spec']['containers'][0]['args'])
+        self.assertIn('--enable-policy-override=true', controller['spec']['template']['spec']['containers'][0]['args'])
         for app in [x for x in self.data['roots'] if x['kind'] == 'Application']:
             self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
             self.assertNotIn('finalizers', app['metadata'])
             self.assertIn('FailOnSharedResource=true', app['spec']['syncPolicy']['syncOptions'])
+
+    def ci_allowlist_values(self):
+        # Mirror the services/permissions/private-sources/previews/observability
+        # acceptance inputs so every roots-rendered set is present at once.
+        return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+                'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                       'valuesRevision': 'b' * 40}},
+                'ci': {'enabled': True, 'poolEnabled': True},
+                'services': {'enabled': True, 'revision': 'c' * 40, 'acceptanceCommitment': '2' * 64},
+                'permissions': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64},
+                'privateSources': {'enabled': True, 'revision': 'c' * 40, 'acceptanceCommitment': '3' * 64},
+                'previews': {'enabled': True, 'configuration': {'enabled': True, 'revision': 'd' * 40,
+                                                                'acceptanceCommitment': '4' * 64, 'permissionsEnabled': True}},
+                'observability': {'enabled': True, 'configuration': {'enabled': True, 'revision': 'e' * 40,
+                                                                     'acceptanceCommitment': '5' * 64, 'paused': False}}}
+
+    def assert_ci_sync_allowlist(self, sets):
+        sync = {'applicationsSync': 'sync', 'preserveResourcesOnDeletion': False}
+        retain = {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True}
+        expected = {'cloudlab-ci-application-controller': sync, 'cloudlab-ci-application-runner': sync,
+                    'cloudlab-ci-application-publisher': sync, 'cloudlab-ci-controller': retain,
+                    'cloudlab-ci-pool': retain, 'cloudlab-harbor': retain, 'cloudlab-harbor-configuration': retain,
+                    'cloudlab-identity': retain, 'cloudlab-observability-gitops': retain,
+                    'cloudlab-permissions': retain, 'cloudlab-previews': retain,
+                    'cloudlab-private-sources': retain, 'cloudlab-services': retain}
+        self.assertEqual({name for name, policy in expected.items() if policy == sync},
+                         {'cloudlab-ci-application-controller', 'cloudlab-ci-application-runner',
+                          'cloudlab-ci-application-publisher'})
+        by_name = {obj['metadata']['name']: obj for obj in sets}
+        self.assertEqual(set(by_name), set(expected))
+        for name, policy in expected.items():
+            self.assertEqual(by_name[name]['spec'].get('syncPolicy'), policy, name)
+
+    def test_only_the_three_ci_application_sets_may_pin_sync(self):
+        # Coverage: all 13 roots-rendered sets (ci, ci-application, harbor,
+        # identity, observability-gitops, permissions, previews, private-sources,
+        # services). The service catalog/composition children and the previews
+        # resources.py children are pinned by the dedicated children test below.
+        # Only the 3 per-application CI sets may pin sync; everything else pins
+        # create-update + preserve.
+        sets = [obj for obj in self.root_with(self.ci_allowlist_values()) if obj['kind'] == 'ApplicationSet']
+        self.assert_ci_sync_allowlist(sets)
+
+    def test_ci_sync_allowlist_rejects_a_fourth_pinned_set(self):
+        import copy
+        sets = [obj for obj in self.root_with(self.ci_allowlist_values()) if obj['kind'] == 'ApplicationSet']
+        mutated = copy.deepcopy(sets)
+        victim = next(obj for obj in mutated if obj['metadata']['name'] == 'cloudlab-services')
+        victim['spec']['syncPolicy'] = {'applicationsSync': 'sync', 'preserveResourcesOnDeletion': False}
+        with self.assertRaises(AssertionError):
+            self.assert_ci_sync_allowlist(mutated)
+
+    def services_with(self, values, template):
+        chart = render.ROOT / 'platform/delivery/services'
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'values.yaml'
+            path.write_text(yaml.safe_dump(values))
+            result = subprocess.run(['helm', 'template', '--kube-version', '1.36', '-f', str(path),
+                                     str(chart), '--show-only', template],
+                                    capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+
+    def test_service_catalog_composition_and_preview_children_pin_create_update(self):
+        retain = {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True}
+        values = {'repository': 'https://github.com/example/platform.git', 'revision': 'd' * 40, 'catalog': [{
+            'approval': {'name': 'prices', 'repository': 'https://github.com/example/prices.git', 'revision': 'c' * 40,
+                         'valuesPath': 'apps/prices.yaml', 'namespace': 'cloudlab-app-prices',
+                         'secretReferences': [], 'configMaps': [], 'egress': []},
+            'definition': {'name': 'prices', 'owner': 'platform', 'image': 'python:3.13-slim-bookworm@sha256:' + 'a' * 64,
+                           'replicas': 1, 'command': ['python'], 'ports': [{'name': 'http', 'port': 8080}],
+                           'health': {'readiness': {'path': '/', 'port': 'http'}, 'liveness': {'path': '/', 'port': 'http'}},
+                           'resources': {'requests': {'cpu': '50m', 'memory': '32Mi'},
+                                         'limits': {'cpu': '200m', 'memory': '128Mi'}},
+                           'environment': {}, 'secrets': [], 'configMaps': [],
+                           'persistence': {'enabled': False, 'size': '1Gi', 'mountPath': '/data', 'retention': 'retain'},
+                           'exposure': {'class': 'none'}, 'data': {}, 'oidc': {'enabled': False},
+                           'monitoring': {'enabled': False}, 'rollouts': {'enabled': False}, 'initCommand': []},
+            'publication': 'ready'}]}
+        children = [obj for obj in self.services_with(values, 'templates/catalog.yaml') if obj['kind'] == 'ApplicationSet']
+        self.assertEqual({obj['metadata']['name'] for obj in children}, {'prices'})
+        for obj in children:
+            self.assertEqual(obj['spec'].get('syncPolicy'), retain, obj['metadata']['name'])
+        image = 'registry.example.invalid/app@sha256:' + 'a' * 64
+        values['catalog'] = [{
+            'approval': {'name': 'example', 'repository': 'https://github.com/example/app.git', 'revision': 'c' * 40,
+                         'valuesPath': 'apps/example.yaml', 'namespace': 'cloudlab-app-example',
+                         'secretReferences': [], 'configMaps': [],
+                         'composition': {'chart': {'repository': 'https://github.com/example/comp.git',
+                                                   'revision': 'e' * 40, 'path': 'charts/app'},
+                                         'imageValues': {'main': 'image.main'}, 'images': {'main': image},
+                                         'workloads': [{'name': 'backend', 'replicas': 1,
+                                                        'podSpec': {'serviceAccountName': 'backend', 'containers': [
+                                                            {'name': 'app', 'image': image}]},
+                                                        'preset': 'application-no-api'}],
+                                         'claims': [],
+                                         'budget': {'requests.cpu': '100m', 'requests.memory': '128Mi',
+                                                    'limits.cpu': '200m', 'limits.memory': '256Mi', 'pods': 2,
+                                                    'persistentvolumeclaims': 0, 'requests.storage': '1Gi'},
+                                         'backends': {}, 'secrets': []}},
+            'definition': {'name': 'example', 'owner': 'platform',
+                           'image': 'python:3.13-slim-bookworm@sha256:' + 'b' * 64,
+                           'replicas': 1, 'command': ['run'], 'ports': [{'name': 'http', 'port': 8080}],
+                           'health': {'readiness': {'path': '/', 'port': 'http'}, 'liveness': {'path': '/', 'port': 'http'}},
+                           'resources': {'requests': {'cpu': '50m', 'memory': '32Mi'},
+                                         'limits': {'cpu': '200m', 'memory': '128Mi'}},
+                           'environment': {}, 'secrets': [], 'configMaps': [],
+                           'persistence': {'enabled': False, 'size': '1Gi', 'mountPath': '/data', 'retention': 'retain'},
+                           'exposure': {'class': 'none'}, 'data': {}, 'oidc': {'enabled': False},
+                           'monitoring': {'enabled': False}, 'rollouts': {'enabled': False}, 'initCommand': []},
+            'publication': 'ready'}]
+        profiles = [obj for obj in self.services_with(values, 'templates/composition-state.yaml')
+                    if obj['kind'] == 'ApplicationSet']
+        self.assertEqual({obj['metadata']['name'] for obj in profiles}, {'example-profile'})
+        for obj in profiles:
+            self.assertEqual(obj['spec'].get('syncPolicy'), retain, obj['metadata']['name'])
+        import sys
+        runtime = render.ROOT / 'platform/delivery/previews/runtime'
+        sys.path.insert(0, str(runtime))
+        import contract
+        import resources
+        self.assertEqual(Path(contract.__file__).parent, runtime)
+        self.assertEqual(Path(resources.__file__).parent, runtime)
+        row = contract.request({'service': 'prices', 'repository': 'example/prices', 'repositoryId': 123456,
+                                'pullRequest': 42, 'sourceRevision': 'e' * 40, 'image': contract.IMAGE,
+                                'platformRevision': 'f' * 40, 'profile': 'synthetic',
+                                'definition': {'profile': 'synthetic', 'message': 'allowlist probe'},
+                                'createdAt': 1790000000 - 60, 'expiresAt': 1790000000 + 3540})
+        namespace = 'cloudlab-preview-' + row['instance']
+        settings = contract.runtime_catalog(
+            {'hostname': 'previews.internal.example.test', 'issuer': 'https://login.example.test/realms/applications',
+             'approvals': [row], 'privateDiscovery': False,
+             'ownership': {namespace: row['instance'] + ':' + contract.digest(contract.canonical(row))},
+             'artifacts': {}})
+        generated = [obj for obj in resources.resources(row, settings, 'https://github.com/example/platform.git',
+                                                        'allowlist-probe') if obj['kind'] == 'ApplicationSet']
+        self.assertEqual(len(generated), 1)
+        for obj in generated:
+            self.assertEqual(obj['spec'].get('syncPolicy'), retain, obj['metadata']['name'])
 
     def test_root_applications_use_only_the_verified_apply_migration_option(self):
         for app in [x for x in self.data['roots'] if x['kind'] == 'Application']:

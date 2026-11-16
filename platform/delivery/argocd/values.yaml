@@ -159,7 +159,8 @@ argo-cd:
   notifications:
     enabled: false
   applicationSet:
-    extraArgs: [--policy=create-update, --enable-policy-override=false]
+    # Global default stays create-update; only cloudlab-ci-application-* may declare sync.
+    extraArgs: [--policy=create-update, --enable-policy-override=true]
     replicas: 1
     resources:
       requests:
