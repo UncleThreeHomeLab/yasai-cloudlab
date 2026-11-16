@@ -418,11 +418,28 @@ class RenderTests(unittest.TestCase):
     def test_source_failure_or_application_removal_cannot_prune(self):
         controller = next(x for x in self.data['operator'] if x['kind'] == 'Deployment' and x['metadata']['name'] == 'argocd-applicationset-controller')
         self.assertIn('--policy=create-update', controller['spec']['template']['spec']['containers'][0]['args'])
-        self.assertIn('--enable-policy-override=false', controller['spec']['template']['spec']['containers'][0]['args'])
+        self.assertIn('--enable-policy-override=true', controller['spec']['template']['spec']['containers'][0]['args'])
         for app in [x for x in self.data['roots'] if x['kind'] == 'Application']:
             self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
             self.assertNotIn('finalizers', app['metadata'])
             self.assertIn('FailOnSharedResource=true', app['spec']['syncPolicy']['syncOptions'])
+        # Allowlist: only the 3 per-application CI sets may pin sync; everything else
+        # pins create-update + preserve. Boundary: roots-rendered sets only; service
+        # catalog/composition sets are review-gated, previews resources.py is covered
+        # by its own compiled-inputs test.
+        values = {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
+                  'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
+                                                         'valuesRevision': 'b' * 40}},
+                  'ci': {'enabled': True, 'poolEnabled': True}}
+        sets = [obj for obj in self.root_with(values) if obj['kind'] == 'ApplicationSet']
+        pinned = {obj['metadata']['name'] for obj in sets
+                  if obj['spec'].get('syncPolicy') == {'applicationsSync': 'sync', 'preserveResourcesOnDeletion': False}}
+        self.assertEqual(pinned, {'cloudlab-ci-application-controller', 'cloudlab-ci-application-runner',
+                                  'cloudlab-ci-application-publisher'})
+        for obj in sets:
+            if obj['metadata']['name'] not in pinned:
+                self.assertEqual(obj['spec'].get('syncPolicy'),
+                                 {'applicationsSync': 'create-update', 'preserveResourcesOnDeletion': True})
 
     def test_root_applications_use_only_the_verified_apply_migration_option(self):
         for app in [x for x in self.data['roots'] if x['kind'] == 'Application']:

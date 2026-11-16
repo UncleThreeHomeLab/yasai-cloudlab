@@ -254,7 +254,7 @@ def context(config, state=None, *, profile=REGISTRY_PROFILE):
     args = containers[0].get('args', []) if len(containers) == 1 else []
     if (len(images) != 1 or len(containers) != 1 or containers[0].get('image') != images[0]
             or [arg for arg in args if arg.startswith('--policy')] != ['--policy=create-update']
-            or [arg for arg in args if arg.startswith('--enable-policy-override')] != ['--enable-policy-override=false']
+            or [arg for arg in args if arg.startswith('--enable-policy-override')] != ['--enable-policy-override=true']
             or not controller.get('metadata', {}).get('uid') or controller['metadata'].get('deletionTimestamp')
             or controller.get('spec', {}).get('replicas') != 1 or controller.get('status', {}).get('availableReplicas') != 1
             or controller.get('status', {}).get('observedGeneration') != controller['metadata'].get('generation')):
