@@ -408,8 +408,10 @@ def verify(config, github):
     """Read-only proof that live state matches accepted Git intent; never mutates."""
     try:
         planned = reconcile_harbor(config, github, apply_allowed=False)
-        proof = {'verified': True, 'revision': planned['revision'], 'plan': planned['plan'],
-                 'drifted': bool(planned.get('drifted')),
+        drifted = bool(planned.get('drifted'))
+        proof = {'inspected': True, 'verified': not drifted,
+                 'revision': planned['revision'], 'plan': planned['plan'],
+                 'drifted': drifted,
                  'approved': bool(planned.get('approved', False)),
                  'retained': planned['retained']}
     except RuntimeError as error:
