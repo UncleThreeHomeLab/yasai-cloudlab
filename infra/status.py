@@ -101,12 +101,12 @@ def validate_expectations(document, contract):
     return {'roots': enabled, 'maximum_observation_age_seconds': age}
 
 
-def validate_snapshot(raw, contract):
+def validate_snapshot(raw, contract, expected_root):
     """Previous snapshot actions, or None when absent or unusable."""
     try:
         _contract_lists(contract)
         if (not isinstance(raw, dict) or set(raw) != {'root', 'actions'}
-                or not isinstance(raw.get('root'), str)
+                or raw.get('root') != expected_root
                 or not isinstance(raw.get('actions'), dict)
                 or set(raw['actions']) != set(contract['actions'])):
             return None
@@ -267,7 +267,7 @@ def compile_all(contract, expectations, observed, previous_docs, now):
         else:
             document, completed_at = None, None
         previous = validate_snapshot((previous_docs or {}).get(root),
-                                     contract) or {}
+                                     contract, root) or {}
         snapshots[root] = compile_root(
             root, enabled=expectations['roots'].get(root) is True,
             document=document, completed_at=completed_at, previous=previous,
