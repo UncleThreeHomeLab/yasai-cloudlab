@@ -5,6 +5,12 @@ grafanaHost: grafana.internal.example.invalid
 kialiHost: kiali.internal.example.invalid
 loginHost: login.example.invalid
 apiPeers: []
+# Set observabilityInputs.apiServerPeers in private platform/observability.yaml.
+# Inspect `kubectl -n default get service kubernetes -o yaml` and
+# `kubectl -n default get endpointslices -l kubernetes.io/service-name=kubernetes -o yaml`.
+# Use Service and backend host CIDR/port pairs (/32 or /128; 443 or 6443).
+# Review and update the private declaration after a rebuild or endpoint change.
+apiServerPeers: []
 serviceMetrics: {}
 serviceRules: {}
 serviceLogs: {}
