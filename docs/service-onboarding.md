@@ -132,50 +132,12 @@ The retained `harbor_native_handoff=true` task registers the reviewed handoff. R
 resources keep their separate native provider owner.
 Validated idle captured monthly recovery is preserved through same-resource handoff; its offsite window and cleanup owner remain unchanged.
 
-Native ApplicationSet catalog ownership requires `privateSources.acceptanceCommitment`
-once `identity.argo` is bound. The reviewed public SHA-256 commitment
-binds one private receipt at `platform/acceptance/private-sources.yaml` to an
-immutable catalog revision. Its exact fields are `version`
-(`cloudlab-private-source-acceptance/v1`), `consumer` (`private-sources`), `revision`
-(40 lowercase hex characters), and a fresh cryptographically random `nonce`
-(64 lowercase hex characters). Keep the receipt, source address and revision private.
-The native AppSet and generated child declare
-`Prune=false,Delete=false`; the native owner also declares create-update retention.
-Verification refuses missing or mismatched receipts. The commitment hashes UTF-8 fields separated by
-LF: version, consumer, designated private URL, `platform/sources.yaml`, revision,
-nonce, followed by a final LF.
-
-The native generator merges a fixed consumer row with the exact private receipt,
-so missing input reaches validation. The isolated
-[native qualification procedure](../verification/integration/private_source_acceptance.py)
-uses fixed `cloudlab-prices-source-proof`, `cloudlab-prices-observability-proof`
-and `cloudlab-prices-permissions-proof` scopes. Its guarded seed/adopt interface checks
-the same Application and resource UIDs across owner transfer; it does not
-authorize production adoption.
-
-The registry receipt above is operational. The separate
-`cloudlab-consumer-source-acceptance/v1` binds permissions through its native
-ApplicationSet; observability controller integration remains pending.
-Receipts use `platform/acceptance/observability.yaml` or
-`platform/acceptance/permissions.yaml`, paired with
-`observability.configuration.acceptanceCommitment` or `permissions.acceptanceCommitment`.
-Its receipt fields are `version`, `consumer`, ordered `paths`, `revision` and
-`nonce`. Observability binds the selected `services.catalogPath` followed by
-`platform/observability.yaml`; permissions binds `platform/permissions.yaml`.
-`read_consumer` authenticates current protected public approval and reads the
-complete bundle at one accepted commit. Owners still validate their document
-profiles. Permissions use normalized `cloudlab-permissions-input/v2`: the native
-Git generator extracts `permissions` into fixed inline chart values; unrelated
-root fields are not an authorization interface. One native validating admission policy owns private
-subject/profile/scope validation before Application updates. Public profiles have
-an independent owner at the same immutable chart pin. Start with an empty assignment
-list; converge catalog pin changes before adding IDs. Adding or reusing IDs requires
-complete old-state convergence at the same catalog pin. Missing profile
-projection pauses Application updates until its independent public owner restores it. Remove an ID,
-observe binding absence and fresh denial before reusing it. Production activation
-requires complete native invalid-input repair and separately established evaluator
-effectiveness. Stored declarations, status and admitted-source convergence alone
-do not authorize activation.
+Native ApplicationSets read the designated private repository's protected `main`.
+Services, source registrations, observability and previews read their complete
+values bundle from one checkout. Permissions read `platform/permissions.yaml`
+through their native Git generator and retain admission validation of subjects,
+profiles and scopes. Public chart revisions remain immutable pins. Missing or
+invalid inputs block reconciliation and preserve existing resources.
 
 Additional isolated private roots use `platform/sources.yaml` in the designated
 private configuration repository. Most applications use the existing service
@@ -189,15 +151,10 @@ sources:
     path: gitops
 ```
 
-Merge the complete list through a reviewed private PR and record its immutable
-catalog commit. Publish a fresh `platform/acceptance/private-sources.yaml` receipt
-in a later private commit, setting its `revision` to the catalog commit, not the
-receipt commit. Approve the matching public `privateSources.acceptanceCommitment`,
-then verify native reconciliation: the catalog and child Applications must be
-Healthy/Synced and their repository ExternalSecrets Ready. Catalog, receipt-publication
-and identity-binding revisions are independent. Argo maintains the restricted
-project, repository credential and isolated `cloudlab-private-example` namespace;
-registration changes need no Ansible apply.
+Merge the complete list through a reviewed private PR. Verify the catalog and
+child Applications are Healthy/Synced and repository ExternalSecrets Ready.
+Argo maintains each restricted project, repository credential and isolated
+`cloudlab-private-example` namespace; registration changes need no Ansible apply.
 Private roots accept branches, tags and commit pins; verification snapshots declared
 symbolic refs in the designated repository through its authenticated reader.
 Invalid YAML or unavailable Git blocks reconciliation and preserves accepted resources.
@@ -986,7 +943,7 @@ explicit service-access choice.
    activating its source. Foreign namespaces, projects or ApplicationSets block
    activation; composition admission must already be ready. Existing installations
    require the read-only adoption guard before accepting the root-owned catalog.
-   After acceptance, Argo reads private `services/catalog.json` from protected
+   After adoption, Argo reads private `services/catalog.json` from protected
    `main`, deploys supported changes and repairs drift without a service apply.
    Identity provisioning, data preparation and access publication still use their
    owning procedures below.
@@ -1537,7 +1494,7 @@ Skip this step when `definition.oidc.enabled` is false.
 ### 9.4 Complete workload retirement — Agent
 
 Set the catalog entry to `publication: retired`, remove its private policy
-entries in the same atomic private PR, and merge with its rotated acceptance.
+entries in the same atomic private PR, and merge the reviewed complete declaration.
 Argo removes only tracked service-owned workload resources, including its
 Deployment/Rollout, Service and routes, without cascading into retained
 resources. This is workload removal, not merely scaling replicas to zero.

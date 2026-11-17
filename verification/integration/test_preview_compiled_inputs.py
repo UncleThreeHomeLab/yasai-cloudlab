@@ -112,16 +112,8 @@ def root_fails(values):
     return result.returncode != 0
 
 
-def previews_commitment(repository, revision, nonce,
-                        paths=('previews/catalog.yaml',)):
-    preimage = '\n'.join(['cloudlab-consumer-source-acceptance/v1', 'previews',
-                          repository, str(len(paths)), *paths, revision, nonce, ''])
-    return hashlib.sha256(preimage.encode()).hexdigest()
-
-
 def enabled_writer(**overrides):
-    configuration = {'enabled': True, 'revision': 'a' * 40,
-                     'acceptanceCommitment': '1' * 64, 'permissionsEnabled': False}
+    configuration = {'enabled': True, 'revision': 'a' * 40, 'permissionsEnabled': False}
     configuration.update(overrides)
     return {'identity': {'argo': {
         'valuesRepository': 'https://github.com/example/private.git',
@@ -746,11 +738,7 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         self.assertEqual(parent['spec']['syncPolicy'],
                          {'applicationsSync': 'create-update',
                           'preserveResourcesOnDeletion': True})
-        generators = parent['spec']['generators'][0]['merge']['generators']
-        self.assertEqual(generators[0], {'list': {'elements': [{'consumer': 'previews'}]}})
-        self.assertEqual(generators[1], {'git': {
-            'repoURL': 'https://github.com/example/private.git', 'revision': 'main',
-            'files': [{'path': 'platform/acceptance/previews.yaml'}]}})
+        self.assertEqual(parent['spec']['generators'], [{'list': {'elements': [{'consumer': 'previews'}]}}])
         application = parent['spec']['template']
         self.assertEqual(application['metadata']['labels']['cloudlab.io/owner'],
                          'preview-platform')
@@ -768,10 +756,7 @@ class PreviewCompiledInputsTests(unittest.TestCase):
                           'platformRepository': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git'})
         self.assertEqual(values['repoURL'], 'https://github.com/example/private.git')
         self.assertEqual(values['ref'], 'values')
-        self.assertIn('Consumer source acceptance refused', values['targetRevision'])
-        self.assertIn('"previews"', values['targetRevision'])
-        self.assertIn('previews/catalog.yaml', values['targetRevision'])
-        self.assertIn('1' * 64, values['targetRevision'])
+        self.assertEqual(values['targetRevision'], 'main')
         self.assertEqual(application['spec']['destination'],
                          {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'})
         self.assertEqual(application['spec']['syncPolicy']['automated'],
@@ -779,27 +764,12 @@ class PreviewCompiledInputsTests(unittest.TestCase):
         self.assertIn('FailOnSharedResource=true',
                       application['spec']['syncPolicy']['syncOptions'])
 
-    def test_writer_rejects_unreviewed_revision_or_commitment(self):
+    def test_writer_rejects_invalid_revision_or_permissions_type(self):
         for bad in ('', 'main', 'a' * 39):
             with self.subTest(revision=bad):
                 self.assertTrue(root_fails(enabled_writer(revision=bad)))
-        for bad in ('', '1' * 63, True):
-            with self.subTest(commitment=bad):
-                self.assertTrue(root_fails(enabled_writer(acceptanceCommitment=bad)))
         self.assertTrue(root_fails(enabled_writer(permissionsEnabled='false')))
         self.assertTrue(root_fails({'previews': {'configuration': {'enabled': 'true'}}}))
-
-    def test_acceptance_commitment_binds_exact_private_revision(self):
-        commitment = previews_commitment('https://github.com/example/private.git',
-                                         'a' * 40, 'b' * 64)
-        self.assertEqual(commitment,
-                         'ee04a45dfb3d81a69f537c8610e47b599e39cc06605c3fa093297a1d03945018')
-        for changed in (previews_commitment('https://github.com/example/other.git', 'a' * 40, 'b' * 64),
-                        previews_commitment('https://github.com/example/private.git', 'c' * 40, 'b' * 64),
-                        previews_commitment('https://github.com/example/private.git', 'a' * 40, 'd' * 64),
-                        previews_commitment('https://github.com/example/private.git', 'a' * 40, 'b' * 64,
-                                            paths=('previews/other.yaml',))):
-            self.assertNotEqual(changed, commitment)
 
 
 class PreviewProofQuotaTests(unittest.TestCase):

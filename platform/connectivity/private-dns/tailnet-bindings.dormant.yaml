@@ -28,4 +28,3 @@ owners:
   credentials: none (enrollment secrets stay out of Git and pods)
   deletionPolicy: Removing this file removes the dormant intent only; policy grants, resolver records, and routes are unchanged; no access exists to revoke
 blocked: "Live tailnet allow/deny from scoped clients explicitly unverified: no 2-node K3s/iSCSI environment (Q4). Recovery access stays intact via independent SSH under bootstrap. No enrollment, device, or privilege expansion."
-acceptance: Ad-hoc offline checks prove the allow/deny pair and split-DNS zone binding validate, unrelated policy zones and DNS entries are preserved by the additive rule, and invalid sources retain last-valid state.

@@ -21,27 +21,13 @@
     },
     "permissions": {
       "type": "object",
-      "required": [
-        "acceptanceCommitment"
-      ],
-      "properties": {
-        "acceptanceCommitment": {
-          "type": "string",
-          "pattern": "^([a-f0-9]{64})?$"
-        }
-      }
+      "required": [],
+      "properties": {}
     },
     "services": {
       "type": "object",
-      "required": [
-        "acceptanceCommitment"
-      ],
-      "properties": {
-        "acceptanceCommitment": {
-          "type": "string",
-          "pattern": "^([a-f0-9]{64})?$"
-        }
-      }
+      "required": [],
+      "properties": {}
     },
     "identity": {
       "type": "object",
@@ -88,30 +74,16 @@
     },
     "privateSources": {
       "type": "object",
-      "required": [
-        "acceptanceCommitment"
-      ],
-      "properties": {
-        "acceptanceCommitment": {
-          "type": "string",
-          "pattern": "^([a-f0-9]{64})?$"
-        }
-      }
+      "required": [],
+      "properties": {}
     },
     "observability": {
       "type": "object",
       "properties": {
         "configuration": {
           "type": "object",
-          "required": [
-            "acceptanceCommitment"
-          ],
-          "properties": {
-            "acceptanceCommitment": {
-              "type": "string",
-              "pattern": "^([a-f0-9]{64})?$"
-            }
-          }
+          "required": [],
+          "properties": {}
         }
       }
     },
@@ -120,15 +92,8 @@
       "properties": {
         "configuration": {
           "type": "object",
-          "required": [
-            "acceptanceCommitment"
-          ],
-          "properties": {
-            "acceptanceCommitment": {
-              "type": "string",
-              "pattern": "^([a-f0-9]{64})?$"
-            }
-          }
+          "required": [],
+          "properties": {}
         }
       }
     }

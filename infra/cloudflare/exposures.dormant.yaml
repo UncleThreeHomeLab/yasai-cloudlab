@@ -38,4 +38,3 @@ owners:
   credentials: none (provider credentials stay in the secrets manager, never in Git)
   deletionPolicy: Removing this file removes the dormant intent only; shared gateways, policies, secrets, and retained data are preserved; no DNS, route, or grant exists to revoke
 blocked: "Live public DNS/tunnel/TLS plus retirement reachability explicitly unverified: no trusted Cloudflare executor or immutable revision/receipt owner (Q3), so live stays dormant. No live run attempted or passed."
-acceptance: Ad-hoc offline checks prove schema/render/plan/leak conformance on disposable hostnames, hostname uniqueness across sources by string comparison only, and retired semantics with source-failure retention.

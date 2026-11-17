@@ -216,7 +216,7 @@ def published_approval(fetch, public_repository, deadline):
 def consumer_declaration(consumer, evidence, repository, *, first_binding=None, recovery=None):
     """Authenticate current approval once; polling never reads credentials or Git."""
     from playbooks.argocd.files import source_snapshot
-    from playbooks.argocd.files.private_sources import consumer_contract, validate_consumer_acceptance, acceptance_spec, render_objects
+    from playbooks.argocd.files.private_sources import consumer_contract, source_spec, render_objects
     label = consumer.capitalize()
     if not isinstance(evidence, dict) or not isinstance(evidence.get('contract'), dict):
         raise RuntimeError(label + ' verification requires its authenticated contract')
@@ -226,12 +226,10 @@ def consumer_declaration(consumer, evidence, repository, *, first_binding=None, 
     with verification_fetch(public_repository, deadline, first_binding=first_binding, recovery=recovery) as fetch:
         public, revision = published_approval(fetch, public_repository, deadline)
         current = consumer_contract(public, consumer)
-        if (not current['enabled'] or current != contract or revision != evidence.get('publicRevision')
-                or evidence.get('acceptanceCommitment') != current['acceptanceCommitment']):
+        if (not current['enabled'] or current != contract or revision != evidence.get('publicRevision')):
             raise RuntimeError(label + ' approval differs from current protected public intent')
-        validate_consumer_acceptance(evidence.get('acceptanceReceipt'), repository, current)
-        if evidence.get('acceptedRevision') != evidence['acceptanceReceipt']['revision']:
-            raise RuntimeError(label + ' revision differs from its approved receipt')
+        if not re.fullmatch('[a-f0-9]{40}', evidence.get('sourceRevision', '')):
+            raise RuntimeError(label + ' source snapshot is invalid')
         files = source_snapshot.chart_files({'repository': public_repository, 'revision': revision,
             'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
         if consumer == 'permissions':
@@ -243,7 +241,7 @@ def consumer_declaration(consumer, evidence, repository, *, first_binding=None, 
     if pending is not None:
         from playbooks.argocd.files.source_transition import pending_root_context
         pending_root_context(pending, public, first_binding=first_binding is not None)
-    expected = acceptance_spec(public, repository, evidence['acceptedRevision'], files=files, consumer=consumer)
+    expected = source_spec(public, repository, evidence['sourceRevision'], files=files, consumer=consumer)
     if expected != evidence.get('applicationSet'):
         raise RuntimeError(label + ' parent differs from its authenticated native declaration')
     if consumer != 'permissions':
@@ -251,7 +249,7 @@ def consumer_declaration(consumer, evidence, repository, *, first_binding=None, 
         return {'parent': expected}
     projection = render_objects(profile_files, [{'mode': 'profiles', 'context': {
         'repository': public_repository, 'revision': current['context']['permissions']['revision'],
-        'commitment': current['acceptanceCommitment'], 'namespace': 'argocd'}}])
+        'namespace': 'argocd'}}])
     policies = [row for row in render_objects(policy_files, [])
         if row['kind'] in ('ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding')
         and row['metadata']['name'] in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')]
@@ -261,7 +259,7 @@ def consumer_declaration(consumer, evidence, repository, *, first_binding=None, 
                 for name in ('cloudlab-permissions-input', 'cloudlab-permissions-profiles')}):
         raise RuntimeError('Permissions require their canonical public projection and input policy')
     roots = render_objects(files, [public | {'identity': public['identity'] | {'argo': {
-        'valuesRepository': repository, 'valuesRevision': evidence['acceptedRevision']}}}])
+        'valuesRepository': repository, 'valuesRevision': evidence['sourceRevision']}}}])
     profile_apps = [row for row in roots if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions-profiles']
     if len(profile_apps) != 1:
         raise RuntimeError('Permissions public profile owner is missing')
@@ -297,12 +295,13 @@ def permissions_healthy(evidence, repository, expected):
     child = get('application.argoproj.io', name) or {}
     child_meta = child.get('metadata', {})
     desired = copy.deepcopy(expected['template']['spec'])
-    actual_source = child.get('spec', {}).get('source', {})
-    # Admission owns normalized private semantics; readiness observes its admitted
-    # source and proves that it belongs to this exact accepted parent revision.
-    desired['source'].setdefault('helm', {})['valuesObject'] = actual_source.get('helm', {}).get('valuesObject')
+    # Admission validates semantics; readiness compares the authenticated private snapshot.
+    if (not isinstance(evidence, dict) or not isinstance(evidence.get('input'), dict)
+            or not isinstance(evidence.get('sourceRevision'), str)
+            or not re.fullmatch('[a-f0-9]{40}', evidence['sourceRevision'])):
+        return False
+    desired['source'].setdefault('helm', {})['valuesObject'] = {'permissions': copy.deepcopy(evidence['input'])}
     annotations = copy.deepcopy(expected['template']['metadata']['annotations'])
-    annotations['cloudlab.io/permission-revision'] = evidence['acceptedRevision']
     owner = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet', 'name': name,
         'uid': meta['uid'], 'controller': True, 'blockOwnerDeletion': True}
     if (not isinstance(child_meta.get('uid'), str) or not child_meta['uid']
@@ -311,6 +310,8 @@ def permissions_healthy(evidence, repository, expected):
             or child_meta.get('labels', {}).get('cloudlab.io/owner') != 'permissions-platform'
             or any(child_meta.get('annotations', {}).get(key) != value for key, value in annotations.items())
             or child.get('spec') != desired
+            or json.dumps(child.get('spec', {}).get('source', {}).get('helm', {}).get('valuesObject'), sort_keys=True)
+                != json.dumps(desired['source']['helm']['valuesObject'], sort_keys=True)
             or not isinstance(desired['source']['helm']['valuesObject'], dict)
             or set(desired['source']['helm']['valuesObject']) != {'permissions'}
             or child.get('status', {}).get('sync', {}).get('comparedTo', {}).get('source') != desired['source']
@@ -389,9 +390,6 @@ def observability_healthy(repository, evidence, declaration, read):
     meta, spec, status = app['metadata'], app.get('spec', {}), app.get('status', {})
     paused = declaration.get('paused', False)
     desired = copy.deepcopy(declaration['parent']['template']['spec'])
-    for source in desired['sources']:
-        if isinstance(source.get('targetRevision'), str) and 'Consumer source acceptance refused' in source['targetRevision']:
-            source['targetRevision'] = evidence['acceptedRevision']
     pmeta = parent.get('metadata', {})
     if (not pmeta.get('uid') or pmeta.get('deletionTimestamp') or pmeta.get('ownerReferences') or pmeta.get('finalizers')
             or pmeta.get('labels', {}).get('cloudlab.io/owner') != 'observability-platform'
@@ -465,7 +463,7 @@ def run(payload):
         catalog = get('application.argoproj.io', APP) or {}
         evidence = {'repository': payload['public_repository'], 'revision': payload['platform_revision'],
                     'private_repository': repository}
-        evidence.update({key: payload.get(key) for key in ('acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')})
+        evidence.update({key: payload.get(key) for key in ('applicationSet',)})
         prepared_contract(evidence, get)
         if (catalog.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or catalog.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != TRACKING

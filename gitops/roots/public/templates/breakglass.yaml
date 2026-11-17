@@ -3,10 +3,6 @@
 {{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" ($permissions.revision | default ""))) -}}
 {{- fail "Breakglass requires admission, External Secrets and an immutable public revision" -}}
 {{- end -}}
-{{- $acceptance := $permissions.acceptanceCommitment -}}
-{{- if not (regexMatch "^[a-f0-9]{64}$" ($acceptance | default "")) -}}
-{{- fail "Breakglass requires the reviewed permissions acceptance commitment" -}}
-{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject

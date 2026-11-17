@@ -19,7 +19,7 @@ class RenderTests(unittest.TestCase):
         self.root_with({'permissions': {'enabled': 'true'}}, success=False)
 
     def test_enabled_permissions_without_binding_omit_consumers_but_validate_prerequisites(self):
-        values = {'permissions': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64}}
+        values = {'permissions': {'enabled': True, 'revision': 'a' * 40}}
         self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
                              for row in self.root_with(values)))
         for pin in ('', 'main', 'a' * 39):
@@ -29,9 +29,6 @@ class RenderTests(unittest.TestCase):
                 ('externalSecrets', {'enabled': False}), ('externalSecrets', {'reconcile': False})):
             with self.subTest(field=field, configuration=configuration):
                 self.root_with(values | {field: configuration}, success=False)
-        for commitment in ('', '1' * 63, True):
-            with self.subTest(commitment=commitment):
-                self.root_with(values | {'permissions': values['permissions'] | {'acceptanceCommitment': commitment}}, success=False)
 
     def test_enabled_public_only_payload_retains_bootstrap_flag_without_permission_consumers(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -39,7 +36,7 @@ class RenderTests(unittest.TestCase):
             shutil.copytree(render.PUBLIC, public)
             values = yaml.safe_load((public / 'values.yaml').read_text())
             values['identity'].pop('argo', None)
-            values['permissions'] = {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64}
+            values['permissions'] = {'enabled': True, 'revision': 'a' * 40}
             (public / 'values.yaml').write_text(yaml.safe_dump(values))
             with patch.object(render, 'PUBLIC', public):
                 data = payload()
@@ -49,10 +46,10 @@ class RenderTests(unittest.TestCase):
             self.assertFalse(any(row['metadata']['name'] in ('cloudlab-permissions', 'cloudlab-permissions-source')
                                  for row in data['roots']))
 
-    def test_permissions_use_accepted_immutable_source_and_rbac_only_project(self):
-        values = {'permissions': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64}, 'identity': {'argo': {
+    def test_permissions_use_private_git_and_rbac_only_project(self):
+        values = {'permissions': {'enabled': True, 'revision': 'a' * 40}, 'identity': {'argo': {
             'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}},
-            'services': {'acceptanceCommitment': '2' * 64}}
+            'services': {}}
         rows = self.root_with(values)
         parent = next(row for row in rows if row['kind'] == 'ApplicationSet' and row['metadata']['name'] == 'cloudlab-permissions')
         self.assertFalse(any(row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions' for row in rows))
@@ -60,12 +57,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(application['spec']['source'],
             {'repoURL': 'https://github.com/UncleThreeHomeLab/yasai-cloudlab.git', 'targetRevision': 'a' * 40,
              'path': 'platform/connectivity/permissions', 'helm': {'releaseName': 'cloudlab-permissions'}})
-        generators = parent['spec']['generators'][0]['matrix']['generators']
-        self.assertEqual(generators[0], {'git': {
-                'repoURL': values['identity']['argo']['valuesRepository'], 'revision': 'main',
-                'files': [{'path': 'platform/acceptance/permissions.yaml'}]}})
-        self.assertIn('Consumer source acceptance refused', generators[1]['git']['revision'])
-        self.assertEqual(generators[1]['git']['files'], [{'path': 'platform/permissions.yaml'}])
+        self.assertEqual(parent['spec']['generators'], [{'git': {
+            'repoURL': values['identity']['argo']['valuesRepository'], 'revision': 'main',
+            'files': [{'path': 'platform/permissions.yaml'}]}}])
         self.assertEqual(application['metadata']['namespace'], 'argocd')
         self.assertIn('{{ .permissions | toJson }}', parent['spec']['templatePatch'])
         profile = next(row for row in rows if row['kind'] == 'Application' and row['metadata']['name'] == 'cloudlab-permissions-profiles')
@@ -100,7 +94,7 @@ class RenderTests(unittest.TestCase):
         for configuration, identity in (({'enabled': False}, {}), ({'enabled': True}, {}),
                 ({'enabled': False}, {'argo': {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}})):
             values = {'certificates': {'configuration': configuration}, 'identity': identity}
-            if identity: values['services'] = {'acceptanceCommitment': '2' * 64}
+            if identity: values['services'] = {}
             objects = self.root_with(values)
             self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-certificates' for obj in objects))
             self.assertFalse(any(obj['metadata']['name'] == 'cloudlab-certificates-source' for obj in objects))
@@ -111,7 +105,7 @@ class RenderTests(unittest.TestCase):
         values = {'repository': 'https://github.com/example/platform.git', 'identity': {'argo': {
             'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}},
             'certificates': {'configuration': {'enabled': True, 'revision': 'a' * 40}},
-            'services': {'acceptanceCommitment': '2' * 64}}
+            'services': {}}
         objects = self.root_with(values)
         app = next(obj for obj in objects if obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-certificates')
         self.assertEqual(app['spec']['sources'], [
@@ -137,7 +131,7 @@ class RenderTests(unittest.TestCase):
     def test_native_certificate_configuration_rejects_bad_present_binding_pin_and_prerequisites(self):
         values = {'identity': {'argo': {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}},
                   'certificates': {'configuration': {'enabled': True, 'revision': 'a' * 40}},
-                  'services': {'acceptanceCommitment': '2' * 64}}
+                  'services': {}}
         for revision in ('main', None, 'short'):
             with self.subTest(revision=revision):
                 self.root_with(values | {'certificates': {'configuration': {'enabled': True, 'revision': revision}}}, success=False)
@@ -152,7 +146,7 @@ class RenderTests(unittest.TestCase):
     def test_native_access_disabled_and_initial_unbound_root_preserve_legacy_owner(self):
         binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
         for values in ({}, {'access': {'configuration': {'enabled': True}}}, {'identity': {'argo': binding}, 'access': {'configuration': {'enabled': False}}}):
-            if 'identity' in values: values = values | {'services': {'acceptanceCommitment': '2' * 64}}
+            if 'identity' in values: values = values | {'services': {}}
             objects = self.root_with(values)
             self.assertFalse(any(o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-access' for o in objects))
             self.assertFalse(any(o['metadata']['name'] == 'cloudlab-access-source' for o in objects))
@@ -162,7 +156,7 @@ class RenderTests(unittest.TestCase):
     def test_native_access_uses_only_approved_private_revision_and_project_scoped_retained_reader(self):
         binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
         values = {'identity': {'argo': binding}, 'access': {'configuration': {'enabled': True, 'revision': 'a' * 40}},
-                  'services': {'acceptanceCommitment': '2' * 64}}
+                  'services': {}}
         objects = self.root_with(values)
         app = next(o for o in objects if o['kind'] == 'Application' and o['metadata']['name'] == 'cloudlab-access')
         self.assertIsNone(app['spec']['source'])
@@ -173,7 +167,7 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
         self.assertNotIn('finalizers', app['metadata'])
         baseline = self.root_with({'identity': {'argo': binding}, 'access': {'configuration': {'enabled': False}},
-                                     'services': {'acceptanceCommitment': '2' * 64}})
+                                     'services': {}})
         for name in ('cloudlab-tailscale-operator', 'cloudlab-access'):
             project = next(o['spec'] for o in objects if o['kind'] == 'AppProject' and o['metadata']['name'] == name)
             old = next(o['spec'] for o in baseline if o['kind'] == 'AppProject' and o['metadata']['name'] == name)
@@ -190,7 +184,7 @@ class RenderTests(unittest.TestCase):
     def test_native_access_bad_present_binding_pin_and_prerequisites_fail_closed(self):
         binding = {'valuesRepository': 'https://github.com/example/private.git', 'valuesRevision': 'b' * 40}
         values = {'identity': {'argo': binding}, 'access': {'configuration': {'enabled': True, 'revision': 'a' * 40}},
-                  'services': {'acceptanceCommitment': '2' * 64}}
+                  'services': {}}
         for bad in ({}, None, False, binding | {'valuesRevision': 'main'}):
             self.root_with(values | {'identity': {'argo': bad}}, success=False)
         for pin in ('main', '', 'a' * 39):
@@ -226,7 +220,7 @@ class RenderTests(unittest.TestCase):
         return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
 
     def test_present_empty_private_binding_is_invalid_but_absent_binding_is_safe(self):
-        values = {'identity': {'enabled': True}, 'services': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '2' * 64}}
+        values = {'identity': {'enabled': True}, 'services': {'enabled': True, 'revision': 'a' * 40}}
         self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-services'
                              for obj in self.root_with(values)))
         for binding in ({}, None, False):
@@ -238,7 +232,7 @@ class RenderTests(unittest.TestCase):
         values = {'repository': 'https://github.com/example/platform.git', 'revision': 'main',
                   'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
                                                        'valuesRevision': 'b' * 40}},
-                  'services': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '2' * 64}}
+                  'services': {'enabled': True, 'revision': 'a' * 40}}
         for pin in ('a' * 40, 'c' * 40):
             values['services']['revision'] = pin
             rows = self.root_with(values)
@@ -254,8 +248,7 @@ class RenderTests(unittest.TestCase):
                               '$values/platform/access/policy.yaml', '$exposures/services/exposures.yaml'])
             self.assertEqual(app['spec']['sources'][1]['repoURL'], values['identity']['argo']['valuesRepository'])
             self.assertEqual(app['spec']['sources'][1]['ref'], 'values')
-            self.assertIn('Consumer source acceptance refused', app['spec']['sources'][1]['targetRevision'])
-            self.assertIn('"services"', app['spec']['sources'][1]['targetRevision'])
+            self.assertEqual(app['spec']['sources'][1]['targetRevision'], 'main')
             self.assertFalse(app['spec']['syncPolicy']['automated']['prune'])
             self.assertNotIn('finalizers', app['metadata'])
             self.assertEqual(app['metadata']['annotations']['argocd.argoproj.io/tracking-id'],
@@ -263,16 +256,14 @@ class RenderTests(unittest.TestCase):
         values['services']['revision'] = 'main'
         self.root_with(values, success=False)
         values['services']['revision'] = 'a' * 40
-        values['services']['acceptanceCommitment'] = 'main'
-        self.root_with(values, success=False)
-        values['services']['acceptanceCommitment'] = '2' * 64
         values['services']['revision'] = None
         self.root_with(values, success=False)
         values['services']['enabled'] = False
+        values['services']['revision'] = 'a' * 40
         rows = self.root_with(values)
         self.assertFalse(any(obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-services' for obj in rows))
         self.assertFalse(any(obj['kind'] == 'Application' and obj['metadata']['name'] == 'cloudlab-services' for obj in rows))
-        values['services'] = {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '2' * 64}
+        values['services'] = {'enabled': True, 'revision': 'a' * 40}
         values['identity']['argo']['valuesRevision'] = 'main'
         self.root_with(values, success=False)
 
@@ -400,7 +391,7 @@ class RenderTests(unittest.TestCase):
             with self.subTest(enabled=enabled): self.root_with({'privateSources': {'enabled': enabled}}, success=False)
         values['identity'] = {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
                                                       'valuesRevision': 'b' * 40}}
-        values['services'] = {'acceptanceCommitment': '2' * 64}
+        values['services'] = {}
         values['privateSources']['revision'] = 'c' * 40
         parent = next(obj for obj in self.root_with(values) if obj['kind'] == 'ApplicationSet' and obj['metadata']['name'] == 'cloudlab-private-sources')
         app = {'spec': parent['spec']['template']['spec'], 'metadata': parent['spec']['template']['metadata']}
@@ -426,18 +417,16 @@ class RenderTests(unittest.TestCase):
 
     def ci_allowlist_values(self):
         # Mirror the services/permissions/private-sources/previews/observability
-        # acceptance inputs so every roots-rendered set is present at once.
+        # inputs so every roots-rendered set is present at once.
         return {'repository': 'https://github.com/example/platform.git', 'revision': 'a' * 40,
                 'identity': {'enabled': True, 'argo': {'valuesRepository': 'https://github.com/example/private.git',
                                                        'valuesRevision': 'b' * 40}},
                 'ci': {'enabled': True, 'poolEnabled': True},
-                'services': {'enabled': True, 'revision': 'c' * 40, 'acceptanceCommitment': '2' * 64},
-                'permissions': {'enabled': True, 'revision': 'a' * 40, 'acceptanceCommitment': '1' * 64},
-                'privateSources': {'enabled': True, 'revision': 'c' * 40, 'acceptanceCommitment': '3' * 64},
-                'previews': {'enabled': True, 'configuration': {'enabled': True, 'revision': 'd' * 40,
-                                                                'acceptanceCommitment': '4' * 64, 'permissionsEnabled': True}},
-                'observability': {'enabled': True, 'configuration': {'enabled': True, 'revision': 'e' * 40,
-                                                                     'acceptanceCommitment': '5' * 64, 'paused': False}}}
+                'services': {'enabled': True, 'revision': 'c' * 40},
+                'permissions': {'enabled': True, 'revision': 'a' * 40},
+                'privateSources': {'enabled': True, 'revision': 'c' * 40},
+                'previews': {'enabled': True, 'configuration': {'enabled': True, 'revision': 'd' * 40, 'permissionsEnabled': True}},
+                'observability': {'enabled': True, 'configuration': {'enabled': True, 'revision': 'e' * 40, 'paused': False}}}
 
     def assert_ci_sync_allowlist(self, sets):
         sync = {'applicationsSync': 'sync', 'preserveResourcesOnDeletion': False}

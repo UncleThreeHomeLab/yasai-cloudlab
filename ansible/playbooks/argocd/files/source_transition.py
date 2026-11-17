@@ -34,14 +34,6 @@ def quiet(obj):
                 obj.get('status', {}).get('operationState', {}).get('phase') in (None, 'Succeeded'))
 
 
-def binding_receipt_guard(evidence, target):
-    """The binding revision must be Git-accepted; host input alone never retargets it."""
-    if not isinstance(evidence, dict) or not evidence.get('required'):
-        return
-    if evidence.get('acceptanceReceipt', {}).get('revision') != target['valuesRevision']:
-        raise RuntimeError('Identity binding revision differs from its Git-accepted receipt')
-
-
 def _namespace_version(state):
     if 'namespaceGuardContract' not in state:
         return False
@@ -294,7 +286,6 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     if checkpoint['target'] != target:
         raise RuntimeError('Complete the pending native identity binding at its recorded private revision')
     validate_private(checkpoint.get('privateActivation'), target)
-    binding_receipt_guard(checkpoint.get('privateActivation'), target)
     for key, kind, name in (('root_uid', 'application.argoproj.io', ROOT_APP),
                            ('controller_uid', 'statefulset', CONTROLLER),
                            ('project_uid', 'appproject.argoproj.io', 'cloudlab-root')):
@@ -358,7 +349,7 @@ def hydrate_binding(path, checkpoint, payload, target, *, data_held=False):
     previous = checkpoint['privateActivation']
     if any(current.get(key) != previous.get(key) for key in
            ('required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry',
-            'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')):
+            'applicationSet')):
         raise RuntimeError('Private activation retry cannot change its recorded registry or sources')
     if current['policies'] != previous['policies']:
         previous['policies'] = current['policies']
@@ -397,7 +388,7 @@ def pending_private_target(binding, evidence, root):
     recorded = pending_identity_checkpoint(target)
     fields = ('phase', 'target', 'publicRevision', 'originalSource', 'patchedSource', 'root_uid', 'controller_uid', 'project_uid')
     projection = ('required', 'repository', 'revision', 'private_repository', 'private_revision', 'registry',
-        'policies', 'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet')
+        'policies', 'applicationSet')
     if (any(key not in recorded or recorded[key] != binding.get(key) for key in fields)
             or not isinstance(recorded['publicRevision'], str) or not re.fullmatch('[a-f0-9]{40}', recorded['publicRevision'])
             or not isinstance(binding.get('privateActivation'), dict)
@@ -473,7 +464,6 @@ def bind_identity_locked(payload, target):
     except ImportError:
         from private_activation import preflight
     preflight(payload.get('argo', {}).get('privateActivation'), target, get, get('application.argoproj.io', ROOT_APP))
-    binding_receipt_guard(payload.get('argo', {}).get('privateActivation'), target)
     access_evidence = access_guard(payload.get('argo', {}).get('accessActivation'), target, get, get('application.argoproj.io', ROOT_APP))
     if checkpoint and checkpoint.get('phase') != 'accepted':
         hydrate_binding(path, checkpoint, payload, target, data_held=True)
@@ -622,7 +612,6 @@ def run(payload):
         return {'changed': True, 'source_transition': 'accepted'}
 
 
-
 def pending_root_authority(recovery, repository, *, first_binding=False):
     """Reload the pending operation; caller context alone grants no authority."""
     try:
@@ -724,7 +713,6 @@ def pending_root_context(recovery, public, *, first_binding=False):
     if not compatible(overrides, approved):
         raise RuntimeError('Identity installation recovery conflicts with current public authority')
     return root, targets
-
 
 
 if __name__ == '__main__':

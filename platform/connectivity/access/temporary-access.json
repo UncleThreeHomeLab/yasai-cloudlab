@@ -4,7 +4,6 @@
   "selected": "telekom/k8s-breakglass v0.3.0-rc.20 (human-only)",
   "install": "platform/connectivity/permissions/breakglass at the pinned platform revision",
   "blocked": "Private approval declarations (A1-priv/A5) and live proof through the Git-declared backend path (A2-activ/A6-live). Trial install retires after Git sync verifies.",
-  "acceptance": "One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path; one UI/API parity scenario proves identical requester isolation, self-approval rejection and changed-scope rejection.",
   "bounds": {
     "diagnosticsMinutes": 15,
     "identityEditsMinutes": 10,

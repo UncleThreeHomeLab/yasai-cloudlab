@@ -558,7 +558,7 @@ class AlternatePathTests(unittest.TestCase):
         values = {'identity': {'argo': {
             'valuesRepository': 'https://github.com/example/private.git',
             'valuesRevision': 'b' * 40}},
-            'services': {'acceptanceCommitment': '2' * 64}}
+            'services': {}}
         values['services'].update(services)
         return values
 
