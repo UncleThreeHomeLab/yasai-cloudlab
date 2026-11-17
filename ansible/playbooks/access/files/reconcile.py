@@ -629,18 +629,23 @@ def verify_retirement(base, credentials, retired_public, withdrawn_private, clus
                            'routeAbsent': route_gone,
                            'verified': dns_gone and tunnel_gone and route_gone}
     if withdrawn_private:
-        confirmed = {}
+        confirmed = []
+        requested = set(withdrawn_private)
         for prefix in ('VM', 'VM2'):
             try:
                 observed = json.loads(ssh(prefix, os.environ[prefix + '_HOST'],
                                           'python3 /var/lib/cloudlab/private-dns/dns_host.py absent '
                                           + ' '.join(sorted(withdrawn_private))))
-            except ValueError:
-                raise RuntimeError('Resolver retirement proof failed; retained generation kept')
-            for name in observed.get('absent', []):
-                confirmed[name] = confirmed.get(name, 0) + 1
+                absent = observed['absent']
+                if (not isinstance(absent, list) or
+                        any(not isinstance(name, str) for name in absent) or
+                        len(absent) != len(set(absent)) or not set(absent) <= requested):
+                    raise ValueError
+                confirmed.append(set(absent))
+            except (ValueError, TypeError, KeyError):
+                raise RuntimeError('Resolver retirement proof failed; retained generation kept') from None
         for hostname in sorted(withdrawn_private):
-            dns_gone = confirmed.get(hostname, 0) == 2
+            dns_gone = all(hostname in absent for absent in confirmed)
             route_gone = hostname not in cluster['private_routes']
             proof[hostname] = {'dnsWithdrawn': dns_gone, 'routeAbsent': route_gone,
                                'verified': dns_gone and route_gone}
@@ -927,8 +932,21 @@ def once(config, github):
                 base, _, credentials, _ = cloudflare_inputs()
                 base = {'account_id': base['account_id'], 'zone_id': base['zone_id'],
                         'tunnel_id': base['tunnel_id']}
-            status['retirement'] = verify_retirement(base, credentials, retired_public,
-                                                     withdrawn_private, discover_cluster())
+            requested = set(retired_public) | withdrawn_private
+            if set(retired_public) & withdrawn_private:
+                raise RuntimeError('Retirement proof failed; retained generation kept')
+            retirement = verify_retirement(base, credentials, retired_public,
+                                           withdrawn_private, discover_cluster())
+            rows = retirement.get('hostnames') if isinstance(retirement, dict) else None
+            if (not isinstance(rows, dict) or set(rows) != requested or
+                    any(not isinstance(row, dict) or type(row.get('verified')) is not bool
+                        for row in rows.values()) or
+                    type(retirement.get('verified')) is not bool or
+                    retirement['verified'] != all(row['verified'] for row in rows.values())):
+                raise RuntimeError('Retirement proof failed; retained generation kept')
+            status['retirement'] = retirement
+            if not retirement['verified']:
+                failed = True
         except RuntimeError as error:
             failed = True
             status['retirement'] = {'verified': False, 'error': str(error)}
