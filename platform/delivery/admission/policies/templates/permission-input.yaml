@@ -42,7 +42,7 @@ spec:
       has(object.metadata.annotations) ? object.metadata.annotations : {}
   - name: protected
     expression: |-
-      ['cloudlab.io/permission-input-version', 'cloudlab.io/permission-revision', 'cloudlab.io/permission-commitment', 'cloudlab.io/permission-public-revision', 'argocd.argoproj.io/tracking-id', 'argocd.argoproj.io/compare-options', 'argocd.argoproj.io/sync-options']
+      ['cloudlab.io/permission-input-version', 'cloudlab.io/permission-public-revision', 'argocd.argoproj.io/tracking-id', 'argocd.argoproj.io/compare-options', 'argocd.argoproj.io/sync-options']
   - name: spec
     expression: |-
       dyn(object.spec)
@@ -110,8 +110,6 @@ spec:
   - expression: |-
       variables.protected.all(k, k in variables.annotations) &&
        variables.annotations['cloudlab.io/permission-input-version'] == 'cloudlab-permissions-input/v2' &&
-       variables.annotations['cloudlab.io/permission-revision'].matches('^[a-f0-9]{40}$') &&
-       variables.annotations['cloudlab.io/permission-commitment'].matches('^[a-f0-9]{64}$') &&
        variables.annotations['cloudlab.io/permission-public-revision'].matches('^[a-f0-9]{40}$') &&
        variables.annotations['argocd.argoproj.io/tracking-id'] == 'cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-permissions'
       &&
@@ -128,8 +126,7 @@ spec:
       variables.unchanged ||
       (request.userInfo.username == 'system:serviceaccount:argocd:argocd-applicationset-controller' &&
        params.data.inputVersion == 'cloudlab-permissions-input/v2' && params.data.namespace == 'argocd' &&
-       params.data.revision == variables.annotations['cloudlab.io/permission-public-revision'] &&
-       params.data.commitment == variables.annotations['cloudlab.io/permission-commitment'])
+       params.data.revision == variables.annotations['cloudlab.io/permission-public-revision'])
     message: Only the native permission parent can change specifications and provenance against current public approval.
   - expression: |-
       variables.unchanged ||

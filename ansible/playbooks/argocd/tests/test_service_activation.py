@@ -58,20 +58,9 @@ class ServiceActivationTests(unittest.TestCase):
         for extra in ({'namespaceGuard': None}, {'namespaceAuthority': None}, {'namespaceAuthority': [{}]}):
             with self.subTest(extra=extra), self.assertRaises(RuntimeError):
                 validate(dict(self.evidence, **extra), self.target)
-        for field, value in [('acceptanceCommitment', '0' * 64), ('acceptedRevision', 'd' * 40)]:
-            with self.subTest(field=field), self.assertRaises(RuntimeError):
-                validate(dict(self.evidence, **{field: value}), self.target)
         dropped = dict(self.evidence); dropped.pop('applicationSet')
         with self.assertRaises(RuntimeError): validate(dropped, self.target)
 
-    def test_prepare_without_acceptance_is_refused(self):
-        from service_activation import prepare
-        root = Path(__file__).resolve().parents[4]
-        public = yaml.safe_load((root / 'gitops/roots/public/values.yaml').read_text())
-        public['repository'] = 'https://github.com/example/platform.git'
-        with self.assertRaisesRegex(RuntimeError, 'authenticated receipt'):
-            prepare(public, self.target['valuesRepository'], self.target['valuesRevision'],
-                    {'catalog': [], 'dataApprovals': {}})
 
     def catalog_objects(self):
         from service_activation import APP, OWNER, TRACKING
@@ -92,7 +81,7 @@ class ServiceActivationTests(unittest.TestCase):
                                         '$values/platform/access/policy.yaml', '$exposures/services/exposures.yaml'],
                          'valuesObject': {'repository': evidence['repository'], 'revision': evidence['revision'],
                                           'telemetry': evidence['telemetry']}}},
-                    {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'},
+                    {'repoURL': evidence['private_repository'], 'targetRevision': 'main', 'ref': 'values'},
                     {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'], 'ref': 'exposures'}]},
                'status': {'health': {'status': 'Healthy'}, 'sync': {'status': 'Synced'}}}
         return parent, app

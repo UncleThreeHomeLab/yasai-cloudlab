@@ -51,15 +51,6 @@ def first_binding_observation(*, patched=True, replicas=1):
     return public, objects, binding
 
 
-def source_approval(public, repository, revision='d' * 40):
-    receipt = {'version': 'cloudlab-private-source-acceptance/v1', 'consumer': 'private-sources',
-        'revision': revision, 'nonce': '1' * 64}
-    commitment = hashlib.sha256(('\n'.join([receipt['version'], receipt['consumer'], repository,
-        'platform/sources.yaml', revision, receipt['nonce'], ''])).encode()).hexdigest()
-    public['privateSources']['acceptanceCommitment'] = commitment
-    return {'acceptanceCommitment': commitment, 'acceptedRevision': revision, 'acceptanceReceipt': receipt}
-
-
 def private_policies(evidence):
     return {('validatingpolicy.policies.kyverno.io', name): {
         'metadata': {'uid': name + '-uid', 'generation': 2, 'annotations': {
@@ -103,18 +94,6 @@ def namespace_probe(document):
         NAMESPACE_GUARD_NAME + "' denied request: " + namespace_guard_desired()[0]['spec']['validations'][0]['message'])
 
 
-def services_approval(public, repository, revision='b' * 40):
-    from private_sources import CONSUMER_ACCEPTANCE_VERSION
-    from service_activation import consumer_paths
-    paths = consumer_paths(public['services'].get('catalogPath'))
-    receipt = {'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': 'services', 'paths': paths,
-        'revision': revision, 'nonce': '2' * 64}
-    commitment = hashlib.sha256(('\n'.join([receipt['version'], 'services', repository, str(len(paths)), *paths,
-        revision, receipt['nonce'], ''])).encode()).hexdigest()
-    public['services']['acceptanceCommitment'] = commitment
-    return {'acceptanceCommitment': commitment, 'acceptedRevision': revision, 'acceptanceReceipt': receipt}
-
-
 def binding_fixture(required=True, *, repository='https://github.com/example/platform.git',
                     private_repository='https://github.com/example/private.git'):
     from service_activation import prepare
@@ -124,10 +103,8 @@ def binding_fixture(required=True, *, repository='https://github.com/example/pla
     public = yaml.safe_load((root / 'gitops/roots/public/values.yaml').read_text())
     public['repository'] = repository
     public['services']['enabled'] = required
-    acceptance = services_approval(public, private_repository) if required else None
     evidence = prepare(public, target['valuesRepository'], target['valuesRevision'],
-                       {'catalog': [], 'dataApprovals': {}} if required else None,
-                       acceptance=acceptance)
+                       {'catalog': [], 'dataApprovals': {}} if required else None)
     objects = {
         ('application.argoproj.io', 'cloudlab-public-root'): {
             'metadata': {'uid': 'root', 'resourceVersion': '1'},
@@ -147,7 +124,7 @@ def binding_fixture(required=True, *, repository='https://github.com/example/pla
                    'accessActivation': access_evidence(repository, target),
                    'dataActivation': data_evidence(repository, target),
                    'privateActivation': prepare_private(public, target['valuesRepository'], target['valuesRevision'],
-                       {'sources': []}, acceptance=source_approval(public, private_repository))}}
+                       {'sources': []})}}
     if required:
         objects.update(namespace_policies(evidence['namespaceGuard']))
     original = copy.deepcopy(objects['application.argoproj.io', 'cloudlab-public-root']['spec']['source'])

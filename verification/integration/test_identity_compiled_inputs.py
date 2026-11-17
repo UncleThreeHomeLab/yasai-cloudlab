@@ -103,7 +103,7 @@ class CompiledInputsRoundTripTests(unittest.TestCase):
         values = {'identity': {'argo': {
             'valuesRepository': 'https://github.com/example/private.git',
             'valuesRevision': 'b' * 40}},
-            'services': {'acceptanceCommitment': '2' * 64}}
+            'services': {}}
         rendered = subprocess.check_output(
             ['helm', 'template', 'root', str(ROOT / 'gitops/roots/public'), '-f', '-'],
             input=json.dumps(values), text=True, timeout=120)

@@ -195,5 +195,5 @@ paths:
     notes: Opaque by design; use is exceptional and separately reviewed.
 unsupported:
   - Temporary grants: k8s-breakglass v0.3.0-rc.20 selected and Git-declared (see temporary-access-selection.yaml and breakglass/); adapter contract active; live proof through the Git path pending, then trial-writer retirement.
-  - Private assignment content: opaque private Git; bounded by acceptance, admission and zero active assignments.
+  - Private assignment content: opaque private Git; bounded by native admission and zero active assignments.
   - Live corroboration: this contract is verified against declarations only and stays dormant; no live claim passes without a scoped cluster check proving binding absence plus fresh denial. Cluster reads need a separate scoped check.

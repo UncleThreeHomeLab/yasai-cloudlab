@@ -42,16 +42,16 @@ def prepare(parent, public):
     if len(public_sources) != 1 or public_sources[0].get('targetRevision') != public_revision:
         raise ValueError('Live parent does not bind the committed public revision')
     private = [s for s in sources if s.get('repoURL') != repository]
-    accepted = {s.get('targetRevision') for s in private}
-    if len(private) < 1 or len(accepted) != 1:
-        raise ValueError('Live parent lacks exactly one private source revision')
-    accepted_revision = accepted.pop()
-    if not re.fullmatch(HEX40, accepted_revision or ''):
-        raise ValueError('Accepted private revision is not an exact commit')
-    if not paused:
-        revisions = parent.get('status', {}).get('sync', {}).get('revisions', [])
-        if accepted_revision not in revisions or public_revision not in revisions:
-            raise ValueError('Live parent spec and sync status disagree')
+    if len(private) != 1 or private[0].get('targetRevision') != 'main':
+        raise ValueError('Live parent must use its designated private main source')
+    revisions = parent.get('status', {}).get('sync', {}).get('revisions', [])
+    private_index = sources.index(private[0])
+    if (not isinstance(revisions, list) or len(revisions) != len(sources)
+            or not re.fullmatch(HEX40, revisions[private_index] or '')):
+        raise ValueError('Live parent lacks an immutable resolved private revision')
+    source_revision = revisions[private_index]
+    if not paused and revisions[sources.index(public_sources[0])] != public_revision:
+        raise ValueError('Live parent public source and sync status disagree')
     digests = {annotations.get('cloudlab.io/observability-input-digest')}
     for source in sources:
         values = (source.get('helm') or {}).get('valuesObject', {})
@@ -65,7 +65,7 @@ def prepare(parent, public):
         raise ValueError('Observed input digest is malformed')
     return {'native': {'repository': repository, 'configuration_revision': public_revision,
                        'digest': digest},
-            'acceptedRevision': accepted_revision, 'paused': paused,
+            'sourceRevision': source_revision, 'paused': paused,
             'applicationSet': sets[0]['spec'], 'public_revision': public_revision}
 
 

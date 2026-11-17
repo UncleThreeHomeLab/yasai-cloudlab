@@ -16,7 +16,7 @@ import private_verify as verify_module
 from private_verify import healthy, configuration_healthy, credential_owner, controller_items, observability_healthy, run
 from private_activation import APP, OWNER, TRACKING
 from controller_stability import fingerprint
-from fixtures import source_approval, first_binding_observation
+from fixtures import first_binding_observation
 
 
 
@@ -261,9 +261,8 @@ class TelemetryConvergenceTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[4]
         chart = root / 'gitops/roots/public'
         values = {'identity': {'enabled': True, 'argo': target},
-                  'services': {'acceptanceCommitment': '3' * 64},
-                  'observability': {'configuration': {'enabled': True, 'paused': paused, 'revision': 'e' * 40,
-                                                      'acceptanceCommitment': '1' * 64}}}
+                  'services': {},
+                  'observability': {'configuration': {'enabled': True, 'paused': paused, 'revision': 'e' * 40}}}
         command = ['helm', 'template', 'cloudlab-public-root', str(chart), '-n', 'argocd',
                    '--kube-version', '1.36.5', '-f', '-']
         result = subprocess.run(command, input=yaml.safe_dump(values).encode(), capture_output=True)
@@ -271,11 +270,8 @@ class TelemetryConvergenceTests(unittest.TestCase):
         parent = next(obj for obj in yaml.safe_load_all(result.stdout) if obj and obj['kind'] == 'ApplicationSet'
                       and obj['metadata']['name'] == 'cloudlab-observability-gitops')
         declaration = {'parent': parent['spec'], 'paused': paused}
-        evidence = {'acceptedRevision': 'b' * 40}
+        evidence = {'sourceRevision': 'b' * 40}
         desired = copy.deepcopy(parent['spec']['template']['spec'])
-        for source in desired['sources']:
-            if isinstance(source.get('targetRevision'), str) and 'Consumer source acceptance refused' in source['targetRevision']:
-                source['targetRevision'] = 'b' * 40
         objects = {
             ('applicationset.argoproj.io', 'cloudlab-observability-gitops'): {
                 'metadata': {'uid': 'telemetry-parent', 'labels': {'cloudlab.io/owner': 'observability-platform'},
@@ -342,7 +338,7 @@ class TelemetryConvergenceTests(unittest.TestCase):
         repository, _, parented, objects, target = self.telemetry_fixture()
         declaration = {'parent': parented['parent']}
         observability = {'contract': {'context': {'observability': {'configuration': {'enabled': True}}}},
-                         'acceptedRevision': 'b' * 40}
+                         'sourceRevision': 'b' * 40}
         payload = {'configuration_repository': repository, 'configuration_revision': 'd' * 40,
                    'sources': [], 'observability': observability}
         def request(*args): return json.dumps({'items': []})

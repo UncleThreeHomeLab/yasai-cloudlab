@@ -36,7 +36,7 @@ def retained_claim():
 def evaluate(payload):
     n = payload['native']
     assert re.fullmatch(HEX40, n['configuration_revision'])
-    assert re.fullmatch(HEX40, payload['acceptedRevision'])
+    assert re.fullmatch(HEX40, payload['sourceRevision'])
     assert re.fullmatch(HEX64, n['digest'])
     comp = native.completion(n, paused=False)
     if comp['retirement']['fence'] != 'retiring':

@@ -6,7 +6,6 @@ import subprocess
 import unittest
 
 import yaml
-from fixtures import source_approval
 
 from private_sources import PEM_TEMPLATE, registry, validate_registry, verification_payload
 

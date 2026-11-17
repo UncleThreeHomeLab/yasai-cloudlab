@@ -13,26 +13,20 @@ def catalog_path(value='services/catalog.json'):
     return value
 
 
-# Fixed services receipt paths verbatim from gitops/roots/public/templates/services.yaml:89
-# (the gate PATHS_LF printf): the selected catalog first, then these in order.
-GATE_FIXED_PATHS = ('identity/argo-values.yaml', 'platform/access/policy.yaml')
+FIXED_PATHS = ('identity/argo-values.yaml', 'platform/access/policy.yaml')
 
 
 def consumer_paths(catalog=None):
-    """Services consumer receipt paths in native gate order: catalog, argo-values, access policy.
-
-    The two-path composition already fails the native gate since 7943734, so this
-    alignment restores no previously passing shape; it matches what Argo verifies.
-    """
-    return [catalog_path(catalog_path() if catalog is None else catalog), *GATE_FIXED_PATHS]
+    """All service values belong to one complete private source checkout."""
+    return [catalog_path(catalog_path() if catalog is None else catalog), *FIXED_PATHS]
 
 
-def prepare(public, private_repository, private_revision, catalog=None, *, namespace_declaration=None, acceptance=None):
+def prepare(public, private_repository, private_revision, catalog=None, *, namespace_declaration=None):
     """Capture already validated non-secret inputs at the identity source revision."""
     try:
-        from .private_sources import acceptance_spec, consumer_contract, validate_consumer_acceptance
+        from .private_sources import source_spec
     except ImportError:
-        from private_sources import acceptance_spec, consumer_contract, validate_consumer_acceptance
+        from private_sources import source_spec
     evidence = {'required': public.get('services', {}).get('enabled', False),
                      'repository': public['repository'],
                      'revision': public.get('services', {}).get('revision'),
@@ -50,15 +44,7 @@ def prepare(public, private_repository, private_revision, catalog=None, *, names
                 'platform/delivery/admission/policies/templates/workload-namespace.yaml').read_text())
         namespace_guard_desired(namespace_declaration)
         evidence['namespaceGuard'] = copy.deepcopy(namespace_declaration)
-        if (not isinstance(acceptance, dict)
-                or set(acceptance) != {'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt'}
-                or acceptance.get('acceptanceCommitment') != public['services'].get('acceptanceCommitment')):
-            raise RuntimeError('Service source acceptance requires its authenticated receipt')
-        validate_consumer_acceptance(acceptance['acceptanceReceipt'], private_repository,
-                                     consumer_contract(public, 'services'))
-        if acceptance['acceptanceReceipt']['revision'] != acceptance['acceptedRevision']:
-            raise RuntimeError('Service source acceptance revision differs from its approved receipt')
-        evidence.update(acceptance, applicationSet=acceptance_spec(
+        evidence.update(applicationSet=source_spec(
             public, private_repository, private_revision, consumer='services'))
     return validate(evidence,
                     {'valuesRepository': private_repository, 'valuesRevision': private_revision})
@@ -66,8 +52,8 @@ def prepare(public, private_repository, private_revision, catalog=None, *, names
 
 def validate(evidence, target, root=None, *, allow_missing_namespace_guard=False):
     required = {'required', 'repository', 'revision', 'private_repository', 'private_revision', 'telemetry', 'catalog'}
-    accepted = {'acceptanceCommitment', 'acceptedRevision', 'acceptanceReceipt', 'applicationSet'}
-    if (not isinstance(evidence, dict) or not required <= set(evidence) <= required | {'existing', 'catalogPath', 'namespaceGuard', 'namespaceAuthority'} | accepted
+    native = {'applicationSet'}
+    if (not isinstance(evidence, dict) or not required <= set(evidence) <= required | {'existing', 'catalogPath', 'namespaceGuard', 'namespaceAuthority'} | native
             or type(evidence['required']) is not bool or type(evidence['telemetry']) is not bool
             or set(target) != {'valuesRepository', 'valuesRevision'}
             or evidence['private_repository'] != target['valuesRepository']
@@ -75,26 +61,9 @@ def validate(evidence, target, root=None, *, allow_missing_namespace_guard=False
             or not re.fullmatch('[a-f0-9]{40}', evidence['private_revision'] or '')):
         raise RuntimeError('Service activation inputs do not match the recorded private source')
     path = catalog_path(evidence.get('catalogPath', catalog_path()))
-    if evidence['required'] or accepted & set(evidence):
-        if (not accepted <= set(evidence) or not evidence['required']
-                or not isinstance(evidence['acceptanceCommitment'], str) or not re.fullmatch('[a-f0-9]{64}', evidence['acceptanceCommitment'])
-                or not isinstance(evidence['acceptedRevision'], str) or not re.fullmatch('[a-f0-9]{40}', evidence['acceptedRevision'])
-                or not isinstance(evidence['applicationSet'], dict)):
-            raise RuntimeError('Enabled service catalog requires complete native approval evidence')
-        try:
-            from .private_sources import CONSUMER_ACCEPTANCE_VERSION, validate_consumer_acceptance
-        except ImportError:
-            from private_sources import CONSUMER_ACCEPTANCE_VERSION, validate_consumer_acceptance
-        try:
-            validate_consumer_acceptance(evidence['acceptanceReceipt'], evidence['private_repository'], {
-                'version': CONSUMER_ACCEPTANCE_VERSION, 'consumer': 'services', 'enabled': True,
-                'receiptPath': 'platform/acceptance/services.yaml',
-                'paths': consumer_paths(path),
-                'acceptanceCommitment': evidence['acceptanceCommitment'], 'context': {}})
-        except ValueError as error:
-            raise RuntimeError('Service source acceptance receipt is invalid') from error
-        if evidence['acceptanceReceipt']['revision'] != evidence['acceptedRevision']:
-            raise RuntimeError('Service source acceptance revision differs from its approved receipt')
+    if evidence['required'] or native & set(evidence):
+        if not evidence['required'] or not isinstance(evidence.get('applicationSet'), dict):
+            raise RuntimeError('Enabled catalog requires its native source declaration')
     pattern = r'https://github[.]com/([A-Za-z0-9-]+)/[A-Za-z0-9_.-]+[.]git'
     public = re.fullmatch(pattern, evidence['repository'] or '')
     private = re.fullmatch(pattern, evidence['private_repository'] or '')
@@ -110,8 +79,7 @@ def validate(evidence, target, root=None, *, allow_missing_namespace_guard=False
                 or root.get('metadata', {}).get('finalizers')
                 or source.get('repoURL') != evidence['repository']
                 or any(key in overrides and overrides[key] != value for key, value in
-                       (('enabled', evidence['required']), ('revision', evidence['revision']), ('catalogPath', path),
-                        ('acceptanceCommitment', evidence.get('acceptanceCommitment', ''))))):
+                       (('enabled', evidence['required']), ('revision', evidence['revision']), ('catalogPath', path)))):
             raise RuntimeError('Service activation differs from the current public root')
     if evidence['required']:
         from playbooks.admission.files.namespace_guard import namespace_guard_desired
@@ -156,7 +124,7 @@ def sources_match(app, evidence):
                 ['$values/' + item for item in consumer_paths(evidence.get('catalogPath'))] + ['$exposures/services/exposures.yaml']
             and sources[0].get('helm', {}).get('valuesObject') ==
                 {'repository': evidence['repository'], 'revision': evidence['revision'], 'telemetry': evidence['telemetry']}
-            and sources[1] == {'repoURL': evidence['private_repository'], 'targetRevision': evidence['acceptedRevision'], 'ref': 'values'}
+            and sources[1] == {'repoURL': evidence['private_repository'], 'targetRevision': 'main', 'ref': 'values'}
             and sources[2] == {'repoURL': evidence['repository'], 'targetRevision': evidence['revision'], 'ref': 'exposures'})
 
 

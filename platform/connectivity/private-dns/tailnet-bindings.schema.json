@@ -157,9 +157,6 @@
     "blocked": {
       "type": "string",
       "minLength": 1
-    },
-    "acceptance": {
-      "type": "string"
     }
   }
 }

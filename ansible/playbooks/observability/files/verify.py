@@ -20,9 +20,6 @@ def parent_ok(ev, decl, paused):
     p = get('applicationset.argoproj.io', 'cloudlab-observability-gitops') or {}
     a = get('application.argoproj.io', 'cloudlab-observability-gitops') or {}
     want = copy.deepcopy(decl['parent']['template']['spec'])
-    for s in want['sources']:
-        if isinstance(s.get('targetRevision'), str) and 'Consumer source acceptance refused' in s['targetRevision']:
-            s['targetRevision'] = ev['acceptedRevision']
     if p.get('spec') != decl['parent'] or a.get('spec') != want:
         return False
     if a.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/skip-reconcile') != str(paused).lower():
@@ -39,7 +36,7 @@ def parent_ok(ev, decl, paused):
         return False
     st = a.get('status', {})
     revs = st.get('sync', {}).get('revisions', [])
-    if revs != [decl['public_revision'], ev['acceptedRevision']] and not paused:
+    if revs != [decl['public_revision'], ev['sourceRevision']] and not paused:
         return False
     if not paused:
         compared = st.get('sync', {}).get('comparedTo', {}).get('sources', [])
@@ -53,7 +50,7 @@ def parent_ok(ev, decl, paused):
         return False
     return {'reported_revisions': revs, 'digest': ev['native']['digest'],
             'public_revision': decl['public_revision'],
-            'private_revision': ev['acceptedRevision']}
+            'private_revision': ev['sourceRevision']}
 
 
 def storage_ok():
@@ -104,7 +101,7 @@ def quiescent(n, native_mod, paused, timeout=60):
 def run(payload):
     n = payload['native']
     assert re.fullmatch(HEX40, n['configuration_revision'])
-    assert re.fullmatch(HEX40, payload['acceptedRevision'])
+    assert re.fullmatch(HEX40, payload['sourceRevision'])
     assert re.fullmatch(HEX64, n['digest'])
     paused = bool(payload['paused'])
     native.executor(n, paused=paused)

@@ -49,18 +49,15 @@ identity:
 services:
   enabled: true
   revision: 7daa87a3ca38392a48c39783bee9441c9d7c1dda
-  acceptanceCommitment: '439dee7f3841f8b695c09fee18d6addd0538e258d7d51dd26d9d04c8865522d5'
 privateSources:
   enabled: true
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
-  acceptanceCommitment: '42f6b76048fb5fcaf0413067f4e27f14831993b1a678ebc286eccf3448ab8376'
 observability:
   enabled: true
   configuration:
     enabled: true
     paused: false
     revision: 20f16e16604da8090a5af3071accd447e8fff272
-    acceptanceCommitment: '62f066439b9491d5a8c533d221a7ba939b722a6c821f27688b5300db00497f7c'
 harbor:
   enabled: true
   installation:
@@ -68,15 +65,9 @@ harbor:
 admission:
   enabled: true
 permissions:
-  # Verify-first activation: 1) promote the service catalog pin first,
-  # 2) run lab verify to qualify the exact admission guard, 3) pin the reviewed
-  # revision, 4) record the acceptance commitment, 5) enable with private active
-  # assignments: []. Keep verified guard bytes unchanged; verify sources/zero
-  # bindings before assignment. Initial activation is staged, not an atomic
-  # cross-Application dependency. Breakglass reuses this pin and commitment.
+  # Verify admission and public chart pins before enabling private assignments.
   enabled: true
-  revision: d9d639881301e62487c73a9a4fbdc6c0f2eba966
-  acceptanceCommitment: '7f0f7c97532d86bba26d18ec89019eb8c3c7865b07fbe9247eb29fd1f27184e2'
+  revision: b530c9d7847101a258b5dd1c08a9fae2e98f6675
 ci:
   enabled: true
   poolEnabled: false
@@ -88,5 +79,4 @@ previews:
   configuration:
     enabled: true
     revision: 9e41a17fb37e34637757767afb5d8e0c3f58eeb3
-    acceptanceCommitment: 621ad767a0bb7a1e576db8954eb45f265689409817a096484065d52b241594fd
     permissionsEnabled: true

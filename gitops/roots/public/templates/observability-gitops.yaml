@@ -2,20 +2,10 @@
 {{- if or (not (kindIs "map" $configuration)) (not (kindIs "bool" $configuration.enabled)) }}
 {{- fail "Observability configuration requires a YAML boolean enabled setting" }}
 {{- end }}
-{{- $acceptance := $configuration.acceptanceCommitment }}
-{{- if and (hasKey $configuration "acceptanceCommitment") (not (kindIs "string" $acceptance)) }}
-{{- fail "Observability acceptance commitment must be an empty string or SHA-256" }}
-{{- end }}
-{{- if and $acceptance (not (regexMatch "^[a-f0-9]{64}$" $acceptance)) }}
-{{- fail "Observability acceptance commitment must be an empty string or SHA-256" }}
-{{- end }}
 {{- if and $configuration.enabled (hasKey .Values.identity "argo") }}
 {{- $catalogPath := .Values.services.catalogPath | default "services/catalog.json" }}
 {{- if or (not (kindIs "string" $catalogPath)) (gt (len $catalogPath) 128) (not (regexMatch "^services/catalog(-[a-z0-9]+(-[a-z0-9]+)*)?[.](json|yaml)$" $catalogPath)) }}
 {{- fail "Observability catalog must use the approved bounded service catalog path" }}
-{{- end }}
-{{- if not (regexMatch "^[a-f0-9]{64}$" ($acceptance | default "")) }}
-{{- fail "Enabled observability configuration requires a reviewed acceptance commitment" }}
 {{- end }}
 {{- if or (not (eq .Values.observability.enabled true)) (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" ($configuration.revision | default ""))) (not (regexMatch "^[a-f0-9]{40}$" (.Values.services.revision | default ""))) }}
 {{- fail "Observability configuration requires admission, External Secrets and reviewed immutable platform and service revisions" }}
@@ -71,15 +61,8 @@ spec:
   goTemplate: true
   goTemplateOptions: ['missingkey=error']
   generators:
-    - merge:
-        mergeKeys: [consumer]
-        generators:
-          - list:
-              elements: [{consumer: observability}]
-          - git:
-              repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
-              revision: main
-              files: [{path: platform/acceptance/observability.yaml}]
+    - list:
+        elements: [{consumer: observability}]
   syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
   template:
     metadata:
@@ -91,10 +74,9 @@ spec:
         argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-observability-gitops
         argocd.argoproj.io/skip-reconcile: {{ $configuration.paused | quote }}
     spec:
-{{- $gate := .Files.Get "consumer-source-acceptance.tmpl" | replace "@@VERSION@@" ("cloudlab-consumer-source-acceptance/v1" | toJson) | replace "@@CONSUMER@@" ("observability" | toJson) | replace "@@PRIVATE_REPOSITORY@@" (.Values.identity.argo.valuesRepository | toJson) | replace "@@COMMITMENT@@" ($acceptance | toJson) | replace "@@PATHS_LF@@" ((printf "%s\nplatform/observability.yaml" $catalogPath) | toJson) | trim }}
 {{- $spec := dict "project" "cloudlab-observability-gitops" "sources" (list
   (dict "repoURL" .Values.repository "targetRevision" $configuration.revision "path" "platform/observability/gitops" "helm" (dict "releaseName" "cloudlab-observability-gitops" "valueFiles" (list (printf "$values/%s" $catalogPath) "$values/platform/observability.yaml") "valuesObject" (dict "nativeSource" (dict "repository" .Values.repository "revision" $configuration.revision "valuesRepository" .Values.identity.argo.valuesRepository))))
-  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $gate "ref" "values"))
+  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" "main" "ref" "values"))
   "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
   "syncPolicy" (dict "automated" (dict "enabled" (not $configuration.paused) "prune" false "selfHeal" (not $configuration.paused) "allowEmpty" false)
     "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false")) }}

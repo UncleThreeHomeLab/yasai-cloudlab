@@ -8,7 +8,6 @@ scope: Backend selection for temporary Kubernetes RBAC grants through reviewed p
 selected: telekom/k8s-breakglass v0.3.0-rc.20
 reviewed: 2026-11-08
 blocked: "Git-declared install at platform/connectivity/permissions/breakglass (pinned v0.3.0-rc.20, sha256-verified manifests). Remaining gates: private approval declarations (A1-priv/A5), live proof through the Git path (A2-activ/A6-live), trial-writer retirement after Git sync verifies."
-acceptance: One disposable scoped request proves independent approval, bounded access and denial after expiry through the actual backend path.
 boundsRef: platform/connectivity/access/temporary-access.json
 bounds:
   diagnosticsMinutes: 15
