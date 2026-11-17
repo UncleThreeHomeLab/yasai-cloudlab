@@ -58,7 +58,7 @@ observability:
   configuration:
     enabled: true
     paused: false
-    revision: 20f16e16604da8090a5af3071accd447e8fff272
+    revision: 10a86eedfe7081ec6c3096c3870ecf428ec73d18
 harbor:
   enabled: true
   installation:
