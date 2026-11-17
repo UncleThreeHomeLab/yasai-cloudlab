@@ -248,19 +248,9 @@ class Controller:
         if len(receipts) != len(record['resources']) or any(
                 key != ('v1', 'Namespace', '', namespace) and key[2] != namespace and key not in keys for key in receipts):
             raise ValueError('Absent namespace cleanup has ambiguous or foreign receipt scope')
-        # A record whose receipts carry no creation UID never materialized
-        # anything, so ownership-scoped read denials count as absent. Any
-        # receipt with a UID keeps denials fatal: surviving controls must be
-        # verified before retirement, never assumed away.
-        allow_denied = all(item.get('uid') is None for item in record['resources'])
         pending = []
         for key in keys:
-            try:
-                obj = self.kube.get(key)
-            except APIError as error:
-                if error.code != 403 or not allow_denied:
-                    raise
-                continue
+            obj = self.kube.get(key)
             if obj is None:
                 continue
             receipt = receipts.get(key)
@@ -420,6 +410,9 @@ class Controller:
             raise ValueError('Preview retirement receipts are malformed')
         namespaces = [item for item in receipts if item['key'][1] == 'Namespace']
         namespace_receipt = namespaces[0] if len(namespaces) == 1 else None
+        namespace = self.kube.get(namespace_key)
+        for key in global_keys:
+            self.kube.get(key)
         if receipts:
             if (namespace_receipt is None or namespace_receipt['key'] != list(namespace_key) or
                     namespace_receipt.get('collision') or namespace_receipt.get('generated') or
@@ -429,29 +422,12 @@ class Controller:
             if namespace_receipt.get('uid') is None:
                 # A never-materialized namespace retires only while absent; a present
                 # namespace is never touched without its creation UID receipt.
-                # Reads are ownership-scoped, so a denial without a UID receipt
-                # means there is nothing of ours to delete.
-                try:
-                    absent_probe = self.kube.get(namespace_key) is not None
-                except APIError as error:
-                    if error.code != 403:
-                        raise
-                    absent_probe = False
-                if absent_probe:
+                if namespace is not None:
                     raise ValueError('Preview retirement lacks its unique original namespace receipt')
             elif not isinstance(namespace_receipt.get('uid'), str) or not namespace_receipt['uid']:
                 raise ValueError('Preview retirement lacks its unique original namespace receipt')
         elif record.get('activatedAt') is not None:
             raise ValueError('Activated preview cannot have empty creation history')
-        if namespace_receipt is not None and namespace_receipt.get('uid') is None:
-            try:
-                namespace = self.kube.get(namespace_key)
-            except APIError as error:
-                if error.code != 403:
-                    raise
-                namespace = None
-        else:
-            namespace = self.kube.get(namespace_key)
         if namespace is None:
             if not self.absent_controls(record, n['namespace'], global_keys):
                 return
@@ -491,22 +467,9 @@ class Controller:
                     {r['uid'] for r in record['resources'] if r['uid']}, namespace_receipt['uid'])
                 if not self.remove(record, namespace_receipt):
                     return
-        if namespace_receipt is not None and namespace_receipt.get('uid') is None:
-            # Never materialized: ownership-scoped reads deny what was never
-            # created, which counts as absent for retirement purposes.
-            def _probe(key):
-                try:
-                    return self.kube.get(key)
-                except APIError as error:
-                    if error.code != 403:
-                        raise
-                    return None
-        else:
-            def _probe(key):
-                return self.kube.get(key)
-        if any(_probe(key) is not None for key in global_keys):
+        if any(self.kube.get(key) is not None for key in global_keys):
             return
-        if _probe(namespace_key) is not None:
+        if self.kube.get(namespace_key) is not None:
             raise ValueError('Preview namespace reappeared before retirement completion')
         if not self.dns_proof(row['instance'], 'absent'):
             return
