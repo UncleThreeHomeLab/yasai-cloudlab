@@ -46,7 +46,6 @@
       "custom.regex",
       "helmv3",
       "pip_requirements",
-      "docker-compose",
       "npm"
     ],
     "ignorePaths": [
@@ -772,126 +771,6 @@
           "minor"
         ],
         "enabled": false
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/data/tests/compose.provider-proof.yaml"
-        ],
-        "matchPackageNames": [
-          "ghcr.io/cloudnative-pg/postgresql"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/data/tests/compose.provider-proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
-        ],
-        "matchPackageNames": [
-          "chrislusf/seaweedfs"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/data/tests/compose.s3-provider-proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml"
-        ],
-        "matchPackageNames": [
-          "rancher/k3s"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/keycloak/tests/compose.identity-operator-proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
-        ],
-        "matchPackageNames": [
-          "cloudflare/cloudflared",
-          "ghcr.io/cloudnative-pg/postgresql",
-          "quay.io/adorsys/keycloak-config-cli",
-          "quay.io/keycloak/keycloak"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/keycloak/tests/compose.identity-proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/observability/tests/compose.proof.yaml"
-        ],
-        "matchPackageNames": [
-          "docker.io/grafana/alloy",
-          "docker.io/grafana/loki",
-          "docker.io/grafana/tempo",
-          "quay.io/prometheus/alertmanager",
-          "quay.io/prometheus/prometheus"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/observability/tests/compose.proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/observability/tests/compose.provider-proof.yaml"
-        ],
-        "matchPackageNames": [
-          "docker.io/grafana/grafana"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/observability/tests/compose.provider-proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/observability/tests/compose.sso-proof.yaml"
-        ],
-        "matchPackageNames": [
-          "docker.io/grafana/grafana",
-          "quay.io/keycloak/keycloak"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/observability/tests/compose.sso-proof.yaml"
-      },
-      {
-        "matchManagers": [
-          "docker-compose"
-        ],
-        "matchFileNames": [
-          "ansible/playbooks/services/compose.proof.yaml"
-        ],
-        "matchPackageNames": [
-          "python"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "pin:ansible/playbooks/services/compose.proof.yaml"
       },
       {
         "matchManagers": [
@@ -3241,18 +3120,6 @@
         "/^apps/notes/requirements\\.txt$/",
         "/^apps/notes/telemetry-requirements\\.txt$/",
         "/^ansible/playbooks/observability/tests/requirements\\.txt$/"
-      ]
-    },
-    "docker-compose": {
-      "managerFilePatterns": [
-        "/^ansible/playbooks/data/tests/compose\\.provider-proof\\.yaml$/",
-        "/^ansible/playbooks/data/tests/compose\\.s3-provider-proof\\.yaml$/",
-        "/^ansible/playbooks/keycloak/tests/compose\\.identity-operator-proof\\.yaml$/",
-        "/^ansible/playbooks/keycloak/tests/compose\\.identity-proof\\.yaml$/",
-        "/^ansible/playbooks/observability/tests/compose\\.proof\\.yaml$/",
-        "/^ansible/playbooks/observability/tests/compose\\.provider-proof\\.yaml$/",
-        "/^ansible/playbooks/observability/tests/compose\\.sso-proof\\.yaml$/",
-        "/^ansible/playbooks/services/compose\\.proof\\.yaml$/"
       ]
     },
     "npm": {
