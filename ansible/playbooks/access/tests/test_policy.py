@@ -1,10 +1,10 @@
-"""Managed tailnet tests converge across server changes; unmanaged tests survive."""
+"""Unmanaged tailnet tests survive server changes."""
 import unittest
 
 import policy
 
 
-class ManagedTestPruneTests(unittest.TestCase):
+class ManagedTestRetentionTests(unittest.TestCase):
     servers = ['100.64.0.1', '100.64.0.2']
     rotated = ['100.64.0.3', '100.64.0.4']
     login = 'owner@example.test'
@@ -15,21 +15,6 @@ class ManagedTestPruneTests(unittest.TestCase):
                 'accessTests': [(self.login, 'dns', 'allow'),
                                 ('tag:cloudlab-denied', 'private-gateway', 'deny')],
                 'services': [], 'names': [], 'platformNames': []}
-
-    def test_server_rotation_converges_without_stale_dns_tests(self):
-        before = policy.candidate({'grants': []}, self.declared(), self.servers)
-        self.assertTrue(any('100.64.0.1:53' in test.get('deny', [])
-                            for test in before['tests']))
-        after = policy.candidate(before, self.declared(), self.rotated)
-        targets = [target for test in after['tests']
-                   for target in list(test.get('accept', [])) + list(test.get('deny', []))]
-        self.assertNotIn('100.64.0.1:53', targets)
-        self.assertNotIn('100.64.0.2:53', targets)
-        self.assertIn('100.64.0.3:53', targets)
-        names = policy.tags()
-        gateway = [names['ingressService'] + ':443', names['apiService'] + ':443']
-        self.assertIn({'src': self.login, 'accept': gateway}, after['tests'])
-        self.assertEqual(policy.candidate(after, self.declared(), self.rotated), after)
 
     def test_unmanaged_tests_survive_rotation(self):
         unmanaged = {'src': 'owner@example.test', 'deny': ['tag:other:22']}

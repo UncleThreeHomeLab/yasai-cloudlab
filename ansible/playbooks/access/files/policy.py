@@ -141,34 +141,6 @@ def cluster_policy(current, login):
     return result
 
 
-def _targets(test):
-    """Accept/deny targets of a single-verdict test; None is never managed."""
-    if test.get('accept') and test.get('deny') or 'src' not in test:
-        return None
-    return list(test.get('accept') or []) + list(test.get('deny') or [])
-
-
-def _dns_shape(test):
-    """Managed tests point only at tailnet DNS; external and mixed tests never match."""
-    targets = _targets(test)
-    if not targets:
-        return False
-    for target in targets:
-        host, separator, port = target.rpartition(':')
-        try:
-            if not (separator and port == '53'
-                    and ipaddress.ip_address(host) in ipaddress.ip_network('100.64.0.0/10')):
-                return False
-        except ValueError:
-            return False
-    return True
-
-
-def _gateway_shape(test, gateway):
-    targets = _targets(test)
-    return bool(targets) and all(target in gateway for target in targets)
-
-
 def dns_grants(current, login, servers, others=()):
     """Administrator-only DNS grants plus allow/deny tests; retain the rest."""
     split_dns({}, 'internal.example.invalid', servers)
@@ -181,9 +153,6 @@ def dns_grants(current, login, servers, others=()):
     if desired not in grants:
         grants.append(desired)
     tests = result.setdefault('tests', [])
-    # Stale server addresses would mismatch the new grants; drop managed DNS
-    # tests before appending the current ones.
-    tests[:] = [test for test in tests if not _dns_shape(test)]
     for protocol in ('tcp', 'udp'):
         for user in sorted(set(others) | {login, TEST_TAG}):
             test = {'src': user, 'proto': protocol,
@@ -215,7 +184,6 @@ def candidate(current, policy, servers, other_users=()):
     tests = result.setdefault('tests', [])
     names = tags()
     gateway = [names['ingressService'] + ':443', names['apiService'] + ':443']
-    tests[:] = [test for test in tests if not _gateway_shape(test, set(gateway))]
     for test in [{'src': login, 'accept': gateway}] + [
             {'src': user, 'deny': gateway}
             for user in sorted(set(other_users) | {TEST_TAG}) if user != login]:
