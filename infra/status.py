@@ -42,6 +42,8 @@ def _contract_lists(contract):
     age = contract.get('maximum_observation_age_seconds')
     if type(age) is not int or not 60 <= age <= MAX_AGE_SECONDS:
         fail('Status contract is invalid')
+    if type(contract.get('snapshot_format')) is not int or contract['snapshot_format'] != 2:
+        fail('Status contract is invalid')
     return contract
 
 
@@ -105,8 +107,14 @@ def validate_snapshot(raw, contract, expected_root):
     """Previous snapshot actions, or None when absent or unusable."""
     try:
         _contract_lists(contract)
-        if (not isinstance(raw, dict) or set(raw) != {'root', 'actions'}
-                or raw.get('root') != expected_root
+        if not isinstance(raw, dict):
+            return None
+        legacy = set(raw) == {'root', 'actions'}
+        if (not legacy and (set(raw) != {'format', 'root', 'actions'}
+                            or type(raw.get('format')) is not int
+                            or raw['format'] != contract['snapshot_format'])):
+            return None
+        if (raw.get('root') != expected_root
                 or not isinstance(raw.get('actions'), dict)
                 or set(raw['actions']) != set(contract['actions'])):
             return None
@@ -117,6 +125,11 @@ def validate_snapshot(raw, contract, expected_root):
                     'failure', 'changes', 'last_success_at'}:
                 return None
             checked[action] = _evidence(contract, **record)
+        if legacy and expected_root == 'cloudflare':
+            checked['verify'] = _evidence(
+                contract, revision=None, started_at=None, completed_at=None,
+                result='unavailable', failure='none', changes=None,
+                last_success_at=None)
         return checked
     except ValueError:
         return None
@@ -176,15 +189,28 @@ def _loop_actions(section, completed_at, contract):
     return converged, dict(converged)
 
 
-def _verify_action(section, completed_at, contract):
-    if type(section.get('verified')) is not bool or section.get('skipped'):
-        return None
-    verified = section['verified']
+def _verify_action(section, completed_at, contract, *, cloudflare=True):
+    verified = section.get('verified')
+    drifted = section.get('drifted')
+    if not cloudflare:
+        if type(verified) is not bool or section.get('skipped'):
+            return None
+        result = 'success' if verified else 'failure'
+        failure = 'none' if verified else 'operation'
+    elif type(drifted) is bool and drifted:
+        result, failure = 'drift', 'none'
+    elif type(verified) is not bool or section.get('skipped') or (
+            'drifted' in section and type(drifted) is not bool):
+        result, failure = 'unavailable', 'none'
+    elif verified and drifted is not False:
+        result, failure = 'unavailable', 'none'
+    else:
+        result = 'success' if verified else 'failure'
+        failure = 'none' if verified else 'operation'
     return _evidence(contract, revision=_sha(section.get('revision')),
                      started_at=completed_at, completed_at=completed_at,
-                     result='success' if verified else 'failure',
-                     failure='none' if verified else 'operation',
-                     changes=0 if verified else None, last_success_at=None)
+                     result=result, failure=failure,
+                     changes=0 if result == 'success' else None, last_success_at=None)
 
 
 def compile_root(root, *, enabled, document, completed_at, previous,
@@ -209,8 +235,9 @@ def compile_root(root, *, enabled, document, completed_at, previous,
         if isinstance(candidate, dict):
             section = candidate
     if section is not None and completed_at is not None:
-        if 'verified' in section:
-            verify = _verify_action(section, completed_at, contract)
+        if 'verified' in section or (root == 'cloudflare' and 'ready' not in section):
+            verify = _verify_action(section, completed_at, contract,
+                                    cloudflare=root == 'cloudflare')
             if verify is not None:
                 fresh['verify'] = verify
         elif 'ready' in section:
@@ -219,6 +246,10 @@ def compile_root(root, *, enabled, document, completed_at, previous,
                 fresh['apply'] = apply
             if drift is not None:
                 fresh['drift'] = drift
+            if root == 'cloudflare' and apply is None and drift is None:
+                fresh['verify'] = _verify_action({}, completed_at, contract)
+    elif enabled and root == 'cloudflare':
+        fresh['verify'] = _verify_action({}, None, contract)
     actions = {}
     for action in contract['actions']:
         carried = previous.get(action)
@@ -249,7 +280,7 @@ def compile_root(root, *, enabled, document, completed_at, previous,
             record['result'] = 'unavailable'
             record['failure'] = 'none'
         actions[action] = record
-    return {'root': root, 'actions': actions}
+    return {'format': contract['snapshot_format'], 'root': root, 'actions': actions}
 
 
 def compile_all(contract, expectations, observed, previous_docs, now):
@@ -290,7 +321,11 @@ def metrics(snapshots, now, contract):
              '# TYPE cloudlab_status_changes gauge']
     for root in sorted(snapshots):
         snapshot = snapshots[root]
-        if (not isinstance(snapshot, dict) or snapshot.get('root') != root
+        if (not isinstance(snapshot, dict)
+                or set(snapshot) != {'format', 'root', 'actions'}
+                or type(snapshot.get('format')) is not int
+                or snapshot['format'] != contract['snapshot_format']
+                or snapshot.get('root') != root
                 or not isinstance(snapshot.get('actions'), dict)
                 or set(snapshot['actions']) != set(contract['actions'])):
             fail('Status metrics require every root snapshot')

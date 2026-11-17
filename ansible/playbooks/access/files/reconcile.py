@@ -1016,9 +1016,13 @@ def verify(config, github):
     if cluster is not None:
         try:
             planned = reconcile_cloudflare(config, github, cluster, apply_allowed=False)
-            proof['cloudflare'] = {'verified': True, 'revision': planned['revision'],
-                                   'plan': planned['plan'], 'drifted': bool(planned.get('drifted')),
+            drifted = bool(planned.get('drifted'))
+            proof['cloudflare'] = {'inspected': True, 'verified': not drifted,
+                                   'revision': planned['revision'], 'plan': planned['plan'],
+                                   'drifted': drifted,
                                    'approved': bool(planned.get('approved', False))}
+            if drifted:
+                failed = True
         except RuntimeError as error:
             failed = True
             proof['cloudflare'] = {'verified': False, 'error': str(error)}

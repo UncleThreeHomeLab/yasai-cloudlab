@@ -1,5 +1,6 @@
 {
   "format": 1,
+  "snapshot_format": 2,
   "roots": ["cloudflare", "github"],
   "actions": ["apply", "drift", "verify"],
   "fields": ["revision", "started_at", "completed_at", "result", "failure", "changes", "last_success_at"],
