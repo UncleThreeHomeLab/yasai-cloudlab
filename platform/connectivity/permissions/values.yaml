@@ -1,7 +1,4 @@
-# Verify-first activation order: 1) promote the service catalog pin first,
-# 2) verify the admission guard, 3) pin the permissions revision,
-# 4) record the acceptance commitment, 5) enable with zero assignments and
-# verify zero bindings. Empty-grant fixture: gitops/fixtures/public/permissions-empty.yaml.
+# Verify admission and public chart pins before enabling private assignments.
 # Repair = fix the source forward (last-valid retained, never empty-apply);
 # narrow = reduce scope; retire with state: retired and assignments: [].
 # Required private platform/permissions.yaml example (existing identities only):
@@ -18,5 +15,5 @@
 # fresh request denial. RBAC is additive; existing streams can survive revocation.
 # Missing/invalid sources retain prior grants; disabling the owner does not revoke.
 mode: bindings
-context: {repository: '', revision: '', commitment: '', namespace: argocd}
+context: {repository: '', revision: '', namespace: argocd}
 permissions: {}

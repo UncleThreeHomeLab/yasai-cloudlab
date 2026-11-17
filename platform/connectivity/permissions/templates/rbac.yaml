@@ -32,7 +32,7 @@
 {{- end -}}
 {{- end -}}
 {{- if eq .Values.mode "profiles" }}
-{{- $projection := dict "inputVersion" "cloudlab-permissions-input/v2" "repository" .Values.context.repository "revision" .Values.context.revision "commitment" .Values.context.commitment "namespace" .Values.context.namespace -}}
+{{- $projection := dict "inputVersion" "cloudlab-permissions-input/v2" "repository" .Values.context.repository "revision" .Values.context.revision "namespace" .Values.context.namespace -}}
 {{- range $name, $profile := $profiles -}}
 {{- $_ := set $projection (printf "%s.namespace" $name) (gt (len $profile.namespaceRules) 0 | toString) -}}
 {{- $_ := set $projection (printf "%s.cluster" $name) (gt (len $profile.clusterRules) 0 | toString) -}}
