@@ -6,7 +6,6 @@
 // the writer on stdin. Raw logs stay in tmpfs. Modes: once (default, one
 // 120s poll for ad-hoc operator use) or loop (consume until terminated).
 const fs = require('node:fs');
-const {spawnSync} = require('node:child_process');
 
 let last = null;
 
@@ -19,33 +18,15 @@ function consume() {
     process.exitCode = 1;
     return true;
   }
-  let scoped = '';
+  // ponytail: reject pending requests until exact-head qualification exists.
+  let operation = '';
   try {
-    const token = process.env.RENOVATE_TOKEN || '';
-    if (!token || /\s/.test(token)) throw new Error('writer token missing');
-    const request = JSON.parse(input);
-    request.token = token;
-    scoped = JSON.stringify(request);
-    if (scoped.length > 16384) throw new Error('scoped request exceeds 16 KiB');
-  } catch {
-    scoped = '';
-  }
-  const result = scoped ? spawnSync(process.execPath, ['/trusted/renovate-run.cjs'], {
-    input: scoped, env: {PATH: process.env.PATH}, encoding: 'utf8', timeout: 1810000,
-    maxBuffer: 16384
-  }) : {status: 1, stdout: ''};
-  scoped = '';
-  // Raw Renovate logs stay in tmpfs. Only its allowlisted result leaves.
-  if (result.status === 0 && result.stdout.length < 1024) {
-    fs.writeFileSync('/handoff/result.tmp', result.stdout, {mode: 0o600});
-    fs.renameSync('/handoff/result.tmp', '/handoff/result.json');
-  } else {
-    let operation = '';
-    try { operation = JSON.parse(input).operation; } catch {}
-    fs.writeFileSync('/handoff/result.tmp', JSON.stringify({operation, passed: false}), {mode: 0o600});
-    fs.renameSync('/handoff/result.tmp', '/handoff/result.json');
-    process.exitCode = 1;
-  }
+    const value = JSON.parse(input).operation;
+    if (typeof value === 'string' && /^[a-f0-9]{32}$/.test(value)) operation = value;
+  } catch {}
+  fs.writeFileSync('/handoff/result.tmp', JSON.stringify({operation, passed: false}), {mode: 0o600});
+  fs.renameSync('/handoff/result.tmp', '/handoff/result.json');
+  process.exitCode = 1;
   return true;
 }
 

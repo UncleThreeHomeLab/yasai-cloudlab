@@ -1,3 +1,6 @@
+// ponytail: block direct proposals until exact-head qualification exists.
+process.stderr.write('Maintenance proposal unavailable; candidate qualification is required\n');
+process.exit(1);
 // Token enters on stdin; neither a key nor candidate code enters this container.
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');

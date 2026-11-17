@@ -190,13 +190,8 @@ function runPropose(request, timeoutMs) {
   throw new Error('handoff result timeout; trusted writer gave no result');
 }
 
-function readyCheck(receipt, files, baseSha) {
-  for (const [key, file] of Object.entries(files)) {
-    if (receipt.bindings[key] !== sha256File(file)) return {passed: false, reason: `stale ${key}`};
-  }
-  if (receipt.repository == null || receipt.base == null) return {passed: false, reason: 'receipt missing bindings'};
-  if (receipt.baseSha !== baseSha) return {passed: false, reason: 'stale base SHA'};
-  return {passed: true};
+function readyCheck() {
+  return {passed: false, reason: 'candidate qualification unavailable'};
 }
 
 function parseArgs(argv) {
@@ -320,6 +315,8 @@ function main() {
       const qualified = runQualify(stagesDir, lockDoc.image);
       stages.push({name: 'qualify', passed: qualified});
       if (!qualified) throw new Error('toolchain qualification failed');
+      // ponytail: candidate evidence is unavailable; enable proposals only after exact-head qualification exists.
+      throw new Error('candidate qualification unavailable; no proposal');
       const request = {operation: crypto.randomBytes(16).toString('hex'),
         repository, base, ownerPaths: resolved.ownerPaths,
         dependencies: resolved.dependencies, expiresAt: now + 120};
