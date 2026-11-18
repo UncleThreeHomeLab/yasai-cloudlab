@@ -109,9 +109,10 @@ def main(store_name):
 
 if __name__ == '__main__':
     try:
-        main(sys.argv[1])
-        if sys.argv[2:] == ['argo']:
+        if sys.argv[2:] == ['drift-only']:
             operator_drift()
+        else:
+            main(sys.argv[1])
     except Exception:
         print('External Secrets proof failed; details withheld to protect credentials.', file=sys.stderr)
         sys.exit(1)

@@ -51,10 +51,12 @@ class StorageOwnershipTests(unittest.TestCase):
                 apply.assert_not_called()
                 self.assertEqual(json.loads((self.base / 'ownership.json').read_text())['phase'], 'accepted')
 
-    def test_interruption_injection_is_forbidden_after_release(self):
+    def test_unknown_storage_action_is_refused_without_writes(self):
         self.state('released')
-        with self.assertRaisesRegex(RuntimeError, 'precede writer release'):
-            bootstrap.run(self.payload, 'seed-stop')
+        with patch.object(bootstrap, 'seed') as apply, \
+                self.assertRaisesRegex(RuntimeError, 'Unknown storage ownership action'):
+            bootstrap.run(self.payload, 'migrate')
+        apply.assert_not_called()
 
     def test_identity_content_and_attachment_loss_fail_closed(self):
         for before, after in (({'pvc': 'original'}, {'pvc': 'replacement'}),
@@ -70,7 +72,7 @@ class StorageOwnershipTests(unittest.TestCase):
         self.assertTrue(bootstrap.owned(obj, {'metadata': {'managedFields': [{
             'manager': 'argocd-controller', 'operation': 'Apply', 'fieldsV1': {'f:spec': {}}}]}}))
 
-    def test_seed_interruption_resumes_without_reapplying_then_accepts_once(self):
+    def test_seed_releases_then_resumes_without_reapplying_and_accepts_once(self):
         obj = {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'longhorn-system'}}
         self.payload['items'] = [obj]
         live = {'metadata': {'uid': 'original', 'managedFields': [{'manager': 'cloudlab'}]}}
@@ -80,10 +82,11 @@ class StorageOwnershipTests(unittest.TestCase):
                 patch.object(bootstrap, 'kube') as kube, patch.object(bootstrap, 'seed') as seed, \
                 patch.object(bootstrap.handoff_fixture, 'prepare', return_value=fixture), \
                 patch.object(bootstrap.handoff_fixture, 'verify'):
-            first = bootstrap.run(self.payload, 'seed-stop')
-            self.assertEqual(first['phase'], 'seeded')
+            first = bootstrap.run(self.payload, 'seed')
+            self.assertEqual(first['phase'], 'released')
             second = bootstrap.run(self.payload, 'seed')
             self.assertEqual(second['phase'], 'released')
+            self.assertFalse(second['changed'])
             seed.assert_called_once_with([obj])
             self.assertIn('--dry-run=server', kube.call_args.args)
             self.assertNotIn('--force-conflicts', kube.call_args.args)

@@ -1,4 +1,6 @@
 ---
+- name: Refuse setup on an already completed server
+  ansible.builtin.import_playbook: host/000-setup-gate.yml
 - name: Run host/010-bootstrap.yml
   ansible.builtin.import_playbook: host/010-bootstrap.yml
 - name: Run network/010-firewall.yml

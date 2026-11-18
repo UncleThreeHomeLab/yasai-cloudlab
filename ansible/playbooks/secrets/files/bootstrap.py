@@ -116,11 +116,8 @@ def suspended(app):
 
 
 def run(objects, action, revision=None):
-    if action not in ('seed', 'seed-stop', 'release', 'accept', 'recover', 'notify'):
+    if action not in ('seed', 'release', 'accept', 'recover', 'notify'):
         raise RuntimeError('Unknown ESO ownership action')
-    stop_after_seed = action == 'seed-stop'
-    if stop_after_seed:
-        action = 'seed'
     os.umask(0o077)
     BASE.mkdir(parents=True, exist_ok=True, mode=0o750)
     if BASE.resolve() != BASE.absolute():
@@ -176,8 +173,6 @@ def run(objects, action, revision=None):
             return {'changed': changed, 'bootstrap_token_owner': 'ansible'}
         if state['phase'] == 'recovering' and action != 'recover':
             raise RuntimeError('Resume the explicit ESO recovery before normal apply')
-        if stop_after_seed and state['phase'] not in ('seeding', 'seeded'):
-            raise RuntimeError('ESO interruption proof must run before the bootstrap writer is released')
         if action == 'recover':
             current_app = get(app) or {}
             if state['phase'] not in ('released', 'accepted', 'recovering') or not suspended(current_app):
@@ -203,13 +198,6 @@ def run(objects, action, revision=None):
             state.update(phase='seeded')
             record(state)
             changed = True
-        if stop_after_seed and state['phase'] == 'seeded':
-            if not state.get('interruption_test_completed'):
-                state['interruption_test_completed'] = True
-                record(state)
-                changed = True
-            return {'changed': changed, 'phase': 'seeded', 'owner': 'cloudlab-bootstrap',
-                    'interruption_test_completed': True}
         if action == 'release' and state['phase'] == 'seeded':
             if get(app) or not get(token):
                 raise RuntimeError('ESO release requires its bootstrap token and no Argo writer')

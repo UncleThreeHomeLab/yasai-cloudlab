@@ -8,7 +8,7 @@
           {{ {'apiVersion': 'v1', 'kind': 'Namespace',
               'metadata': {'generateName': 'cloudlab-verify-'}} | to_json }}
       register: smoke_namespace_created
-      changed_when: true
+      changed_when: false
 
     - name: Save the namespace owned by this verification
       ansible.builtin.set_fact:
@@ -29,7 +29,7 @@
                                 'limits': {'cpu': '100m', 'memory': '32Mi'}}}]}}
              | to_json }}
       loop: "{{ groups['k3s_cluster'] }}"
-      changed_when: true
+      changed_when: false
 
     - name: Create a ClusterIP service for each node's test pod
       ansible.builtin.command:
@@ -40,7 +40,7 @@
               'spec': {'selector': {'app': item},
                        'ports': [{'port': 80, 'targetPort': 8080}]}} | to_json }}
       loop: "{{ groups['k3s_cluster'] }}"
-      changed_when: true
+      changed_when: false
 
     - name: Wait for both test pods
       ansible.builtin.command:
@@ -84,4 +84,4 @@
       ansible.builtin.command:
         argv: [/usr/local/bin/k3s, kubectl, delete, namespace, "{{ smoke_namespace }}", '--ignore-not-found=true', '--wait=true', '--timeout=90s']
       when: smoke_namespace is defined
-      changed_when: true
+      changed_when: false

@@ -72,7 +72,7 @@ def begin(payload):
 
 
 def run(payload, action):
-    if action not in ('credential-seed', 'seed', 'seed-stop', 'configure', 'accept', 'recover'):
+    if action not in ('credential-seed', 'seed', 'configure', 'accept', 'recover'):
         raise RuntimeError('Unknown backup ownership action')
     os.umask(0o077)
     if BASE.resolve() != BASE.absolute():
@@ -85,8 +85,6 @@ def run(payload, action):
         state = json.loads(path.read_text()) if path.exists() else begin(payload)
         if state['phase'] not in ('preparing', 'seeded', 'released', 'accepted', 'recovering'):
             raise RuntimeError('Unknown backup ownership checkpoint')
-        if action == 'seed-stop' and state['phase'] not in ('preparing', 'seeded'):
-            raise RuntimeError('Backup interruption fixture must precede writer release')
         changed = False
         if action == 'credential-seed':
             if state['phase'] == 'preparing':
@@ -104,7 +102,7 @@ def run(payload, action):
             raise RuntimeError('Finish the backup handoff before changing its destination or policy')
         if state['phase'] == 'recovering' and action != 'recover':
             raise RuntimeError('Resume explicit backup recovery before normal reconciliation')
-        if action in ('seed', 'seed-stop') and state['phase'] == 'preparing':
+        if action == 'seed' and state['phase'] == 'preparing':
             if get(payload['app']):
                 raise RuntimeError('Backup seeding refuses a competing Argo writer')
             state['digest'] = digest

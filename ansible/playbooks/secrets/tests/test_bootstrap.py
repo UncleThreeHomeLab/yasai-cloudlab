@@ -27,7 +27,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse(bootstrap.argo_owned({'kind': 'Deployment'}, current))
         self.assertTrue(bootstrap.argo_owned({'kind': 'Deployment'}, marker_only))
 
-    def test_new_seed_interruption_release_and_adoption_preserve_token(self):
+    def test_new_seed_release_and_adoption_preserve_token(self):
         live = {}
         token = {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {
             'name': 'onepassword-token', 'namespace': 'external-secrets', 'uid': 'token-uid'},
@@ -45,7 +45,7 @@ class BootstrapTests(unittest.TestCase):
                 patch.object(bootstrap, 'get', side_effect=lambda obj: live.get(bootstrap.key(obj))), \
                 patch.object(bootstrap, 'apply', side_effect=apply) as writer, patch.object(bootstrap, 'kube'), \
                 patch.object(bootstrap, 'consumer_identities', return_value={'consumer': {'uid': 'original', 'content': 'same'}}):
-            self.assertEqual(bootstrap.run(OBJECTS, 'seed-stop')['phase'], 'seeded')
+            self.assertEqual(bootstrap.run(OBJECTS, 'seed')['phase'], 'seeded')
             self.assertNotIn(bootstrap.key(OBJECTS[1]), live)
             live[bootstrap.key(token)] = copy.deepcopy(token)
             self.assertEqual(bootstrap.run(OBJECTS, 'release')['phase'], 'released')
@@ -60,14 +60,15 @@ class BootstrapTests(unittest.TestCase):
             writer.assert_not_called()
             self.assertEqual(live[bootstrap.key(token)], token)
 
-    def test_interruption_checkpoint_is_repeatable_before_release(self):
+    def test_seeded_checkpoint_resumes_without_restarting_writes(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
             (base / bootstrap.CHECKPOINT).write_text(json.dumps(
                 dict(phase='seeded', digest=DIGEST, owner='cloudlab-bootstrap', identities={})))
             with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'apply') as apply:
-                self.assertTrue(bootstrap.run(OBJECTS, 'seed-stop')['interruption_test_completed'])
-                self.assertFalse(bootstrap.run(OBJECTS, 'seed-stop')['changed'])
+                result = bootstrap.run(OBJECTS, 'seed')
+                self.assertEqual(result['phase'], 'seeded')
+                self.assertFalse(result['changed'])
                 apply.assert_not_called()
 
     def test_released_and_accepted_never_restart_bootstrap_writes(self):

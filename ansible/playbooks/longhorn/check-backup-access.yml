@@ -1,0 +1,16 @@
+---
+- name: Prove B2 credential access with a disposable object
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [vars.yml]
+  tasks:
+    - name: Prove B2 credential access with a disposable object
+      when: longhorn_backup_enabled | bool
+      block:
+        - name: Read synchronized private destination inputs
+          ansible.builtin.import_tasks: tasks/backup-read.yml
+
+        - name: Prove B2 list, write, read and delete access
+          ansible.builtin.import_tasks: tasks/backup-access.yml

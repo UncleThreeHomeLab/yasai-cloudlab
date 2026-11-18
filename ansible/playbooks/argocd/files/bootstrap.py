@@ -226,8 +226,6 @@ def run(payload):
         repair_changed = resume_identity_binding() if state.get('phase') == 'accepted' else False
         if state.get('phase') not in ('seeding', 'seeded', 'argo-requested', 'accepted'):
             raise RuntimeError('Unknown GitOps checkpoint phase')
-        if payload.get('stop_after_seed') and state['phase'] == 'accepted' and not state.get('interruption_test_completed'):
-            raise RuntimeError('Initial interruption proof cannot be injected after adoption')
         if state['phase'] == 'seeding':
             if state['version'] != payload['version']:
                 raise RuntimeError('Finish the checkpointed bootstrap before changing versions')
@@ -244,12 +242,6 @@ def run(payload):
             state.update(phase='seeded', identities=identity(operator))
             atomic(state)
         if state['phase'] == 'seeded':
-            if payload.get('stop_after_seed') and not state.get('interruption_test_completed'):
-                state['interruption_test_completed'] = True
-                atomic(state)
-                print(json.dumps({'changed': True, 'owner': 'cloudlab-bootstrap',
-                                  'bootstrap_phase': 'seeded', 'interrupted_fixture': True}))
-                return
             # After this boundary bootstrap never reapplies operator resources.
             if not get('application.argoproj.io', 'cloudlab-public-root'):
                 apply([x for x in roots if x['kind'] == 'Application' and x['metadata']['name'] == 'cloudlab-public-root'])

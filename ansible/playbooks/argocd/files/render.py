@@ -87,7 +87,6 @@ def committed_payload():
     if result.stdout.strip():
         raise RuntimeError('Commit the reviewed GitOps inputs before live bootstrap')
     data['revision'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
-    data['stop_after_seed'] = os.environ.get('LAB_GITOPS_STOP_AFTER_SEED') == '1'
     source = yaml.safe_load((PUBLIC / 'values.yaml').read_text())
     if (not re.fullmatch(r'https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git', source['repository']) or
             not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_-]*', source['revision'])):
