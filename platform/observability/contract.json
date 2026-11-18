@@ -71,12 +71,11 @@
     "api_requests_per_minute": 10,
     "owner_prefix": "cloudlab-owned:",
     "monitors": [
-      "notes-health",
-      "notification-proof"
+      "notes-health"
     ],
-    "ownership_keys": "One cloudlab-owned:<key> monitor per declared service key ([a-z][a-z0-9-]{0,31}); notification-proof keeps its disposable fixture scope and explicit URL migration rule",
+    "ownership_keys": "One cloudlab-owned:<key> monitor per declared service key ([a-z][a-z0-9-]{0,31})",
+    "deletion": "deletionPolicy Delete in a complete declaration removes only the owned monitor whose endpoint still matches; undeclared owned monitors are retained",
     "endpoint": "Uncached public /health checks web, API, SQL and S3; private services and human authentication need separate checks",
-    "fixture": "Only /monitoring-proof/ready and /monitoring-proof/failed; never stop production to demonstrate an outage",
     "notification_delivery": "Provider status alone is insufficient; confirm failure and recovery emails before acceptance",
     "tailnet": "Hosted public monitoring has no private identity; private probes require separately authorized independent execution"
   },

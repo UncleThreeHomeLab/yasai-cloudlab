@@ -124,7 +124,7 @@ def probe(url, expected_status):
 
 
 def monitor_key(key):
-    # Any declared service key may own one monitor; the fixture key keeps its proof scope.
+    # Any declared service key may own one monitor.
     if not isinstance(key, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', key):
         raise ValueError('Monitor scope or contact is invalid')
     return key
@@ -141,10 +141,15 @@ def declared(declaration, host, contact):
     if not isinstance(declaration, dict):
         raise ValueError('Monitor declaration is invalid')
     monitoring = declaration.get('independentMonitoring')
-    if (set(declaration) != {'service', 'independentMonitoring'} or
-            not isinstance(monitoring, dict) or
+    if (set(declaration) - {'service', 'independentMonitoring',
+                             'deletionPolicy'}
+            or 'service' not in declaration
+            or 'independentMonitoring' not in declaration
+            or not isinstance(monitoring, dict) or
             set(monitoring) != {'exposureReference', 'path', 'expectedStatus',
                                 'intervalSeconds', 'notificationProfile'}):
+        raise ValueError('Monitor declaration is invalid')
+    if declaration.get('deletionPolicy', 'Retain') not in ('Retain', 'Delete'):
         raise ValueError('Monitor declaration is invalid')
     monitor_key(declaration['service'])
     if (not isinstance(monitoring['exposureReference'], str) or not re.fullmatch(
@@ -209,15 +214,10 @@ def normalized(row):
     return result
 
 
-def reconcile(api, key, url, identifier, *, apply=False, allow_fixture_change=False):
+def reconcile(api, key, url, identifier, *, apply=False):
     target = desired(key, url, identifier)
     current = owned(monitors(api), key)
-    if current and key == 'notification-proof':
-        parsed = urllib.parse.urlsplit(target['url'])
-        allowed = ['https://' + parsed.netloc + '/monitoring-proof/' + state for state in ('ready', 'failed')]
-        if target['url'] not in allowed or current['url'] not in allowed:
-            raise RuntimeError('Disposable monitor scope changed; refuse mutation')
-    if current and current['url'] != target['url'] and not (key == 'notification-proof' and allow_fixture_change):
+    if current and current['url'] != target['url']:
         raise RuntimeError('Existing monitor endpoint changed; explicit migration required')
     if current and current.get('status') == 'PAUSED':
         raise RuntimeError('Owned monitor is paused; resume requires explicit supported lifecycle action')
@@ -252,7 +252,3 @@ def remove_owned(api, key, expected_url):
     if owned(monitors(api), key):
         raise RuntimeError('Owned monitor deletion did not converge')
     return {'removed': True}
-
-
-def remove_fixture(api, expected_url):
-    return remove_owned(api, 'notification-proof', expected_url)
