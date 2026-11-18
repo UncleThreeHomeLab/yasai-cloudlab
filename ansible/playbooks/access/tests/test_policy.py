@@ -62,3 +62,17 @@ class PrivateExposureTests(unittest.TestCase):
         document['privateDNS'] = {'names': ['prices']}
         with self.assertRaises(Exception):
             policy.validate_policy(document)
+
+
+class DuplicateKeyTests(unittest.TestCase):
+    def test_duplicate_top_level_key_refused_before_acceptance(self):
+        with self.assertRaisesRegex(ValueError, 'uplicate key'):
+            policy.loads('tailnet: {}\ntailnet: {}\n')
+
+    def test_duplicate_nested_route_key_refused_before_acceptance(self):
+        with self.assertRaisesRegex(ValueError, 'uplicate key'):
+            policy.loads('privateDNS:\n  services:\n    - service: prices\n      port: 8080\n      port: 9090\n')
+
+    def test_unique_keys_parse(self):
+        self.assertEqual(policy.loads('tailnet: {zone: internal.example.test}\n'),
+                         {'tailnet': {'zone': 'internal.example.test'}})

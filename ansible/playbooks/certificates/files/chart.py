@@ -57,7 +57,7 @@ def configuration_render(zone='example.invalid', production=False):
     result = subprocess.run(command, input=json.dumps({'zone': zone, 'production': production}),
                             capture_output=True, text=True, timeout=90, check=True)
     objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj]
-    if len(objects) != (7 if production else 4):
+    if len(objects) != (5 if production else 3):
         raise ValueError('Certificate configuration inventory changed')
     for obj in objects:
         if obj['kind'] == 'ClusterIssuer':

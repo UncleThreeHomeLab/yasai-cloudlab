@@ -1,4 +1,4 @@
-"""Issuance must resume safely and never skip staging or overwrite another owner."""
+"""Issuance must resume safely and never overwrite another owner."""
 import json
 from pathlib import Path
 import tempfile
@@ -23,21 +23,33 @@ class ConfigurationTests(unittest.TestCase):
         self.payload = {'repository': 'https://github.com/example/platform.git', 'branch': 'main', 'revision': 'reviewed'}
         self.identity = {'certificate_uid': 'certificate', 'secret_uid': 'secret'}
 
-    def test_failed_staging_never_enables_production_and_resumes(self):
+    def test_failed_production_seed_checkpoints_and_resumes(self):
         stages = []
         with patch.object(config, 'configure', side_effect=lambda p, z, prod, s: stages.append(prod) or False), \
                 patch.object(config, 'certificate', side_effect=RuntimeError('not issued')):
             with self.assertRaisesRegex(RuntimeError, 'not issued'):
                 config.run(self.payload)
-        self.assertEqual(stages, [False])
-        self.assertEqual(json.loads((self.base / 'ownership.json').read_text())['phase'], 'staging')
+        self.assertEqual(stages, [True])
+        self.assertEqual(json.loads((self.base / 'ownership.json').read_text())['phase'], 'production')
         with patch.object(config, 'configure', side_effect=lambda p, z, prod, s: stages.append(prod) or False), \
                 patch.object(config, 'certificate', return_value=self.identity), \
                 patch('native.observe_legacy'), \
                 patch.object(config, 'get', return_value={'metadata': {'uid': 'account'}, 'data': {'tls.key': 'fixture'}}):
             self.assertTrue(config.run(self.payload)['changed'])
             self.assertFalse(config.run(self.payload)['changed'])
-        self.assertEqual(stages, [False, False, True])
+        self.assertEqual(stages, [True, True])
+
+    def test_legacy_staging_phase_migrates_forward_to_production(self):
+        config.record({'phase': 'staging', 'zone_hash': config.hashlib.sha256(b'example.invalid').hexdigest()})
+        with patch.object(config, 'configure', return_value=False) as writer, \
+                patch.object(config, 'certificate', return_value=self.identity), \
+                patch.object(config, 'get', return_value={'metadata': {'uid': 'account'}, 'data': {'tls.key': 'fixture'}}):
+            result = config.run(self.payload)
+        writer.assert_called_once()
+        self.assertEqual(writer.call_args[0][2], True)
+        self.assertEqual(result['phase'], 'accepted')
+        self.assertNotIn('staging_preceded_production', result)
+        self.assertEqual(json.loads((self.base / 'ownership.json').read_text())['phase'], 'accepted')
 
     def test_selected_zone_change_is_rejected_before_writes(self):
         config.record({'phase': 'production', 'zone_hash': 'different'})

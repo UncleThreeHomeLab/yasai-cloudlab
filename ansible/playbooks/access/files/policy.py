@@ -12,6 +12,7 @@ import re
 
 import yaml
 from jsonschema import validate
+from yaml.resolver import BaseResolver
 
 ROOT = Path(__file__).resolve().parents[4]
 SCHEMA = ROOT / 'platform/connectivity/access/policy.schema.json'
@@ -21,6 +22,34 @@ INVENTORY = ROOT / 'ansible/inventory.yml'
 PROFILE = 'operator-private-access'
 TEST_TAG = 'tag:cloudlab-denied'
 RESERVED_NAMES = {'ns1', 'ns2', 's3', 'identity-admin', 'cd', 'api'}
+
+
+class _UniqueLoader(yaml.SafeLoader):
+    """YAML loader that refuses duplicate keys instead of silently keeping one."""
+
+
+def _unique_mapping(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        if key_node.tag == 'tag:yaml.org,2002:merge':
+            continue
+        key = loader.construct_object(key_node, deep=True)
+        try:
+            duplicate = key in seen
+        except TypeError:
+            raise ValueError('Unacceptable mapping key before acceptance: %r' % (key_node.value,))
+        if duplicate:
+            raise ValueError('Duplicate key refused before acceptance: %r' % (key,))
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
+
+
+def loads(text):
+    """Parse an acceptance input; duplicate keys fail closed before validation."""
+    return yaml.load(text, Loader=_UniqueLoader)
 
 
 def dns_label(value):

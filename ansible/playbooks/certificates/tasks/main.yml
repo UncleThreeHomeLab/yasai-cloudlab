@@ -19,13 +19,6 @@
     mode: '0600'
   loop: [initial_bootstrap.py, native.py, inputs.py, kube.py, verify.py]
 
-- name: Install the pinned certificate renewal tool
-  ansible.builtin.get_url:
-    url: '{{ certificates_lock.renewal_tool.url }}'
-    checksum: 'sha256:{{ certificates_lock.renewal_tool.sha256 }}'
-    dest: /usr/local/bin/cloudlab-cmctl
-    mode: '0755'
-
 - name: Require certificate inspection tooling
   ansible.builtin.apt:
     name: [openssl, ca-certificates]

@@ -11,6 +11,7 @@ adapters:
     owner: connectivity/permissions owner
     install: platform/connectivity/permissions/breakglass at the pinned platform revision
     credentials: none held; human OIDC via Keycloak only, no service credentials in the adapter
+    trust: IdentityProvider/ClusterConfig trust activates only after the private OIDC gate (A1-priv/A5); OIDC client-secret and offline refresh-token values ride ESO-delivered Secrets (Retain) referenced by name/key only, never inline; spec.oidcAuth.rotatedRefreshTokenKey stays empty (in-memory rotation cache, ESO remains sole persisted writer); spec.oidcAuth.fallbackPolicy stays None (hard fail, no silent fallback)
     expiry: session TTL within shared bounds (15/10/5 minutes); maxValidFor at or under the bound; no renewal
     deletion: sessions expire by TTL and are deleted on revocation; removal is followed by binding absence plus fresh denial
     idempotency: issuance and revocation carry durable session IDs; repeat revocation is a no-op and repeat issuance binds to the existing approval, never duplicating grants
