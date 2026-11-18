@@ -1,3 +1,4 @@
+# Vault item cnpg-keycloak (username/password). Shapes: platform/data/contract.json.
 {{- include "cloudlab.data.normalize" . -}}
 {{- $settings := .dataSettings -}}
 {{- if $settings.identity.enabled }}
@@ -21,8 +22,8 @@ spec:
       metadata:
         labels: {cnpg.io/reload: 'true'}
       data:
-        username: '{{ `{{ .username }}` }}'
-        password: '{{ `{{ .password }}` }}'
+        username: '{{ `{{- $value := index . "username" -}}{{- if not $value -}}{{- fail "Required data secret field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
+        password: '{{ `{{- $value := index . "password" -}}{{- if not $value -}}{{- fail "Required data secret field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
   dataFrom: [{extract: {key: cnpg-keycloak}}]
 ---
 apiVersion: postgresql.cnpg.io/v1

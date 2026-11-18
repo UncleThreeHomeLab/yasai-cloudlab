@@ -137,10 +137,10 @@ class RecoveryTests(unittest.TestCase):
                 verify_archive(root / 'unsafe.tgz', root / 'restore', POLICY)
             self.assertFalse((root / 'escape').exists())
 
-    def test_normal_window_has_no_implicit_initial_or_cleanup_exception(self):
+    def test_normal_window_has_no_implicit_exception(self):
         self.assertEqual(seconds_remaining(datetime(2026, 10, 1, tzinfo=timezone.utc)), 86400)
         self.assertEqual(seconds_remaining(datetime(2026, 10, 2, tzinfo=timezone.utc)), 0)
-        with patch('write_window.seconds_remaining', return_value=0), patch('write_window._initial', False):
+        with patch('write_window.seconds_remaining', return_value=0):
             with self.assertRaisesRegex(RuntimeError, 'require day 1 UTC'):
                 require_window()
             repository = object.__new__(Repository)

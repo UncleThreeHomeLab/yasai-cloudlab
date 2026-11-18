@@ -8,7 +8,7 @@ import sys
 import time
 import urllib.parse
 
-from write_window import require_window, initial_active, replacement_active, REPLACEMENT_TAG
+from write_window import require_window
 from capture import digest, verify_archive
 
 FIELDS = ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_ENDPOINT', 'BUCKET',
@@ -85,16 +85,11 @@ class Repository:
         writer_s3 = S3(self.values)
         self.initialize()
         snapshots = self.snapshots()
-        if initial_active() and any('verified' in s.get('tags', []) for s in snapshots):
-            raise RuntimeError('Initial exception already consumed by a verified snapshot; use monthly recovery')
         if any(policy['tag'] not in s.get('tags', []) for s in snapshots):
             raise RuntimeError('Repository contains unrelated snapshots; refusing retention')
         # Resume an interrupted replacement without accumulating a third generation.
         verified = [s for s in snapshots if 'verified' in s.get('tags', [])]
         keep_previous = max(verified, key=lambda s: s['time']) if verified else None
-        replacement_test = replacement_active()
-        if replacement_test and (not keep_previous or any(REPLACEMENT_TAG in s.get('tags', []) and 'verified' in s.get('tags', []) for s in snapshots)):
-            raise RuntimeError('Replacement test requires a previous generation and an unused exception')
         if keep_previous:
             reader.retrieve(keep_previous['id'], staging / 'previous-verified', policy)
             shutil.rmtree(staging / 'previous-verified')
@@ -122,8 +117,7 @@ class Repository:
         manifest, seconds = reader.retrieve(snapshot, staging / 'retrieved', policy, digest(archive))
         if keep_previous and keep_previous['id'] not in {s['id'] for s in self.snapshots()}:
             raise RuntimeError('Previous verified generation disappeared before replacement verification')
-        tags = 'verified,' + REPLACEMENT_TAG if replacement_test else 'verified'
-        self.run('tag', '--add', tags, snapshot, write=True)
+        self.run('tag', '--add', 'verified', snapshot, write=True)
         snapshots = self.snapshots()
         retained = [s for s in snapshots if generation in s.get('tags', []) and 'verified' in s.get('tags', [])]
         if len(retained) != 1:
@@ -140,8 +134,7 @@ class Repository:
         final = self.snapshots()
         if len(final) != 1 or final[0]['id'] != keep:
             raise RuntimeError('Retention did not leave exactly one verified replacement')
-        return {'retention_proof': REPLACEMENT_TAG if replacement_test else None,
-                'previous_verified': bool(keep_previous),
+        return {'previous_verified': bool(keep_previous),
                 'previous_preserved_until_verified': bool(keep_previous),
                 'retained_generations': len(final), 'snapshot': keep, 'captured_at': manifest['captured_at'], 'verified_at': time.time(),
                 'retrieval_seconds': seconds, 'archive_bytes': archive.stat().st_size,

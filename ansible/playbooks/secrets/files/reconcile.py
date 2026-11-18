@@ -2,7 +2,8 @@
 
 Trusted executor for credential provisioning. Control machine only: reads the
 administrator's private-config checkout (reviewed main, clean tree) or one
-explicit catalog file, derives missing-item requests from approved catalog
+explicit catalog file inside a reviewed clean checkout, derives missing-item
+requests from approved catalog
 bindings, and creates them with EMPTY required fields through the shared
 provisioner. The user fills values in 1Password; ESO resumes delivery on its
 refresh interval. Never fills, overwrites, rotates, or deletes values. ESO
@@ -483,8 +484,15 @@ def catalog_requests(document):
 def cycle(arguments, profiles):
     if arguments.catalog_file:
         catalog_path = Path(arguments.catalog_file)
+        try:
+            revision = run_git(catalog_path.parent, 'rev-parse', 'HEAD').strip()
+            dirty = run_git(catalog_path.parent, 'status', '--porcelain').strip()
+        except ValueError:
+            fail('Catalog file checkout must be a git checkout at a reviewed commit')
+        if dirty or not re.fullmatch(r'[a-f0-9]{40}', revision):
+            fail('Catalog file checkout must be clean at a reviewed commit')
         document = load_document(catalog_path)
-        source = {'selected': catalog_path.name}
+        source = {'selected': catalog_path.name, 'revision': revision}
     else:
         private = Path(arguments.private_dir)
         if not CATALOG_PATH_PATTERN.fullmatch(arguments.catalog_path):
