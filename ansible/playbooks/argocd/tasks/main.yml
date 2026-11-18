@@ -34,6 +34,7 @@
 - name: Install the packaged Argo input and recovery interfaces
   ansible.builtin.import_tasks: runtime.yml
 
+# LAB_GITOPS_ACTION=source-migrate stays working; run() retirement waits for a native successor.
 - name: Migrate the existing public source through a checkpointed controller pause
   ansible.builtin.command:
     argv: [python3, /opt/cloudlab/gitops/source_transition.py]

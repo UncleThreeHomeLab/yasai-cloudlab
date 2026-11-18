@@ -78,10 +78,11 @@ def verify_pod(document):
 
 def denied_application(payload, case, suffix):
     name = 'cloudlab-denied-' + case + '-' + suffix
+    # Project validation precedes source fetch, so the denial verdicts are identical without fixture files.
     app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
         'metadata': {'name': name, 'namespace': 'argocd', 'labels': {'cloudlab.io/verification': 'gitops'}},
         'spec': {'project': 'cloudlab-public',
-            'source': {'repoURL': payload['repository'], 'targetRevision': payload['revision'], 'path': 'gitops/fixtures/public'},
+            'source': {'repoURL': payload['repository'], 'targetRevision': payload['revision'], 'path': 'gitops/fixtures/intentionally-missing'},
             'destination': {'server': 'https://kubernetes.default.svc', 'namespace': payload['public_namespace']}}}
     if case == 'source':
         app['spec']['source']['repoURL'] = 'https://github.com/example/forbidden.git'
@@ -102,6 +103,7 @@ def denied_application(payload, case, suffix):
 
 
 def public_lifecycle(payload):
+    """Admit a permitted spec without syncing fixture files, then re-prove root convergence."""
     name, namespace = 'cloudlab-public-fixture', payload['public_namespace']
     def configmap():
         text = kube('get', 'configmap', name, '-n', namespace, '--ignore-not-found', '-o', 'json')
@@ -113,25 +115,28 @@ def public_lifecycle(payload):
         spec = previous[0]['spec']
         if (spec.get('project') != 'cloudlab-public' or
                 spec.get('source', {}).get('repoURL') != payload['repository'] or
-                spec.get('source', {}).get('path') not in ('gitops/fixtures/public', 'gitops/fixtures/intentionally-missing') or
-                spec.get('destination', {}).get('namespace') != namespace):
+                spec.get('source', {}).get('targetRevision') != payload['revision'] or
+                spec.get('source', {}).get('path') != 'gitops/fixtures/intentionally-missing' or
+                spec.get('destination', {}).get('namespace') != namespace or
+                spec.get('syncPolicy', {}).get('automated')):
             raise RuntimeError('Existing public fixture configuration has a different owner')
+    # Manual sync: the controller validates and admits the permitted spec but syncs nothing.
     app = {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
         'metadata': {'name': name, 'namespace': 'argocd', 'labels': {'cloudlab.io/verification': 'gitops-public-fixture'}},
         'spec': {'project': 'cloudlab-public', 'source': {'repoURL': payload['repository'],
-            'targetRevision': payload['revision'], 'path': 'gitops/fixtures/public'},
-            'destination': {'server': 'https://kubernetes.default.svc', 'namespace': namespace},
-            'syncPolicy': {'automated': {'prune': False, 'selfHeal': True, 'allowEmpty': False},
-                           'syncOptions': ['FailOnSharedResource=true']}}}
+            'targetRevision': payload['revision'], 'path': 'gitops/fixtures/intentionally-missing'},
+            'destination': {'server': 'https://kubernetes.default.svc', 'namespace': namespace}}}
     kube('apply', '--server-side', '--field-manager=cloudlab-gitops-verifier', '-f', '-', document=app)
     try:
-        wait_application(name, payload['revision'])
-        initial = configmap()
-        if not initial:
-            raise RuntimeError('Public fixture did not reconcile')
-        uid, data = initial['metadata']['uid'], initial['data']
-        if data.get('purpose') != 'Disposable GitOps authorization and reconciliation checks.':
-            raise RuntimeError('Public reconciliation probe differs from its committed source')
+        def admitted():
+            current = get('application.argoproj.io', name)
+            if not current:
+                return False
+            if any(c['type'] == 'InvalidSpecError' for c in current.get('status', {}).get('conditions', [])):
+                raise RuntimeError('Project rejected the permitted public fixture')
+            return any(key in current.get('status', {}) for key in ('reconciledAt', 'sync', 'conditions', 'summary', 'resources'))
+        wait_result(admitted, 'Permitted public fixture admission')
+        wait_roots(payload)
     finally:
         kube('delete', 'application.argoproj.io', name, '-n', 'argocd', '--ignore-not-found',
              '--wait=true', '--timeout=60s')
