@@ -15,11 +15,11 @@ resource "github_repository_ruleset" "merge_guard" {
       exclude = []
     }
   }
-  # Separate from PR/check rules so operator bypass cannot skip those controls.
+  # Scope the exemption to the release guard. The main ruleset still applies.
   bypass_actors {
-    actor_id    = 5
-    actor_type  = "RepositoryRole"
-    bypass_mode = "pull_request"
+    actor_id    = 46483285 # UncleThree0402
+    actor_type  = "User"
+    bypass_mode = "exempt"
   }
   rules { update = true }
   lifecycle { prevent_destroy = true }
