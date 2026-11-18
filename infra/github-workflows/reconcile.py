@@ -334,6 +334,7 @@ def plan_owned_scope(document):
 def reconcile():
     """Plan governance always; apply only the merged approval binding."""
     revision = reviewed_revision()
+    started_at = int(time.time())
     binding = (ROOT / DECLARATION).read_bytes()
     public = declaration(binding)
     backend, credentials, passphrase, private = github_inputs()
@@ -352,6 +353,7 @@ def reconcile():
     os.chmod(directory / 'desired.tfvars.json', 0o600)
     environment = tofu_environment(backend, credentials, passphrase)
     tofu(directory, environment, 'init', '-input=false', '-reconfigure')
+    heartbeat(revision, started_at)
     planned = subprocess.run(['tofu', 'plan', '-input=false', '-detailed-exitcode',
                               '-out=plan', '-var-file=desired.tfvars.json'],
                              cwd=directory, env=environment, capture_output=True,
@@ -380,6 +382,7 @@ def reconcile():
                 'github_repository_ruleset.tag_guard[0]'}
     if not expected <= set(state):
         fail('Governance apply requires its initial import first')
+    heartbeat(revision, started_at)
     applied = subprocess.run(['tofu', 'apply', '-input=false', '-auto-approve', 'plan'],
                              cwd=directory, env=environment, capture_output=True,
                              text=True, timeout=600)
@@ -389,11 +392,26 @@ def reconcile():
             'changes': changes, 'unsupported_prerequisites': unsupported, 'approved': True}
 
 
+def atomic_write(path, text):
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(text)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def heartbeat(revision, started_at):
+    """Running evidence before long plan/apply; terminal report overwrites."""
+    WORK.mkdir(parents=True, exist_ok=True)
+    record = {'revision': revision, 'started_at': started_at,
+              'completed_at': None, 'result': 'running', 'failure': 'none',
+              'changes': None}
+    atomic_write(WORK / 'status.json',
+                 json.dumps({'governance': record}, sort_keys=True))
+
+
 def report(status):
     WORK.mkdir(parents=True, exist_ok=True)
-    path = WORK / 'status.json'
-    path.write_text(json.dumps(status, sort_keys=True))
-    os.chmod(path, 0o600)
+    atomic_write(WORK / 'status.json', json.dumps(status, sort_keys=True))
     print(json.dumps(status, sort_keys=True), flush=True)
 
 

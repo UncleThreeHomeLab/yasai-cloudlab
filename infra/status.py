@@ -1,16 +1,19 @@
 """External-owner status evidence compiler for infra/status.contract.json.
 
-Terminal evidence only. Root executors publish loop status or verify proofs;
-they never publish running heartbeats, so this module emits no running
-results and fabricates none. Each root yields one atomic snapshot with one
-evidence record per contract action: revision, started/completed times,
-result, failure category, change count, and the preserved last success.
+Root executors publish loop status, verify proofs, or running heartbeats;
+this module emits running only from an explicit heartbeat and fabricates
+none. Each root yields one atomic snapshot with one evidence record per
+contract action: revision, started/completed times, result, failure
+category, change count, and the preserved last success.
 
-Completion times come from the source evidence file write time; root
-executors publish completion evidence, not per-action start times, so
-started_at always equals completed_at. Actions absent from the current
-source carry their previous record forward and age honestly. Disabled,
-missing, future, or stale evidence reports unavailable, never healthy.
+Terminal completion times come from the source evidence file write time;
+root executors publish completion evidence, not per-action start times, so
+terminal started_at always equals completed_at. Running heartbeats carry
+their own started_at with completed_at None; fresh running stays running,
+stale running becomes failure/interrupted, and missing, future, or
+stale-beyond-observation evidence reports unavailable, never healthy.
+Actions absent from the current source carry their previous record forward
+and age honestly. Disabled evidence reports unavailable, never healthy.
 No endpoints, names, plans, diagnostics, or error text ever enter a
 snapshot or metric.
 """
@@ -23,6 +26,7 @@ SHA = re.compile(r'[a-f0-9]{40}')
 LABEL = re.compile(r'[a-z][a-z0-9_]*')
 MAX_TIMESTAMP = 4102444800
 MAX_AGE_SECONDS = 86400
+MAX_RUNNING_AGE_SECONDS = 3600
 MAX_CHANGES = 1000000
 MAX_METRIC_AGE = 999999999
 
@@ -41,6 +45,9 @@ def _contract_lists(contract):
             fail('Status contract is invalid')
     age = contract.get('maximum_observation_age_seconds')
     if type(age) is not int or not 60 <= age <= MAX_AGE_SECONDS:
+        fail('Status contract is invalid')
+    running = contract.get('maximum_running_age_seconds')
+    if type(running) is not int or running != MAX_RUNNING_AGE_SECONDS:
         fail('Status contract is invalid')
     if type(contract.get('snapshot_format')) is not int or contract['snapshot_format'] != 2:
         fail('Status contract is invalid')
@@ -145,6 +152,26 @@ def _reported_changes(section):
     return 'invalid'
 
 
+def _running_action(section, contract):
+    """Running heartbeat evidence for apply; None keeps carried evidence."""
+    if (section.get('result') != 'running' or 'ready' in section
+            or 'verified' in section or section.get('skipped')):
+        return None
+    if section.get('completed_at') is not None:
+        return None
+    if section.get('failure') != 'none' or section.get('changes') is not None:
+        return None
+    started = section.get('started_at')
+    if not _moment(started):
+        return None
+    revision = _sha(section.get('revision'))
+    if revision is None:
+        return None
+    return _evidence(contract, revision=revision, started_at=started,
+                     completed_at=None, result='running', failure='none',
+                     changes=None, last_success_at=None)
+
+
 def _loop_actions(section, completed_at, contract):
     """Apply/drift evidence from one loop section; None keeps carried evidence."""
     ready = section.get('ready')
@@ -235,7 +262,10 @@ def compile_root(root, *, enabled, document, completed_at, previous,
         if isinstance(candidate, dict):
             section = candidate
     if section is not None and completed_at is not None:
-        if 'verified' in section or (root == 'cloudflare' and 'ready' not in section):
+        running = _running_action(section, contract)
+        if running is not None:
+            fresh['apply'] = running
+        elif 'verified' in section or (root == 'cloudflare' and 'ready' not in section):
             verify = _verify_action(section, completed_at, contract,
                                     cloudflare=root == 'cloudflare')
             if verify is not None:
@@ -269,11 +299,29 @@ def compile_root(root, *, enabled, document, completed_at, previous,
             record['last_success_at'] = record['completed_at']
         elif carried is not None and record['last_success_at'] is None:
             record['last_success_at'] = carried['last_success_at']
-        completed = record['completed_at']
-        if (completed is None or completed > now
-                or now - completed > maximum_age):
-            record['result'] = 'unavailable'
-            record['failure'] = 'none'
+        if record['result'] == 'running':
+            started = record['started_at']
+            if (started is None or started > now
+                    or now - started > maximum_age):
+                record['result'] = 'unavailable'
+                record['failure'] = 'none'
+            elif now - started > contract['maximum_running_age_seconds']:
+                record['result'] = 'failure'
+                record['failure'] = 'interrupted'
+        elif (record['result'] == 'failure'
+                and record['failure'] == 'interrupted'
+                and record['completed_at'] is None):
+            started = record['started_at']
+            if (started is None or started > now
+                    or now - started > maximum_age):
+                record['result'] = 'unavailable'
+                record['failure'] = 'none'
+        else:
+            completed = record['completed_at']
+            if (completed is None or completed > now
+                    or now - completed > maximum_age):
+                record['result'] = 'unavailable'
+                record['failure'] = 'none'
         if not enabled:
             # A disabled executor never appears healthy, however fresh its
             # carried evidence is; last success stays visible history.
