@@ -597,7 +597,7 @@ Keep section 4's platform prerequisites and section 5.1's approved test environm
 
 
 4. For automatic promotion, confirm the destination has the required server-enforced release merge guard:
-   approved administrators merge through PRs; release Apps cannot merge.
+   the designated operator merges through PRs. Release Apps cannot merge.
    Use the existing [workflow policy owner](../infra/github-workflows/merge-guard.tf).
    Private exact-revision approval does not waive this guard. If the destination
    cannot enforce it, stop publishing rather than bypassing the check.

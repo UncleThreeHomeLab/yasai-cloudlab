@@ -23,10 +23,12 @@ run "scoped_release_permissions" {
   }
   assert {
     condition = (github_repository_ruleset.merge_guard[0].rules[0].update &&
-      github_repository_ruleset.merge_guard[0].bypass_actors[0].actor_id == 5 &&
-      github_repository_ruleset.merge_guard[0].bypass_actors[0].bypass_mode == "pull_request" &&
+      length(github_repository_ruleset.merge_guard[0].bypass_actors) == 1 &&
+      github_repository_ruleset.merge_guard[0].bypass_actors[0].actor_id == 46483285 &&
+      github_repository_ruleset.merge_guard[0].bypass_actors[0].actor_type == "User" &&
+      github_repository_ruleset.merge_guard[0].bypass_actors[0].bypass_mode == "exempt" &&
     github_repository_ruleset.merge_guard[0].repository == "public-gitops")
-    error_message = "Release Apps cannot merge; only repository admins can update main through a PR."
+    error_message = "Only the designated GitHub user is exempt from the release merge guard."
   }
   assert {
     condition = length(github_workflow_repository_permissions.release) == 2 && alltrue([
