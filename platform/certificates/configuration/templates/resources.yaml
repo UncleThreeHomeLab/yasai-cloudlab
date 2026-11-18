@@ -11,45 +11,26 @@ metadata:
     pod-security.kubernetes.io/enforce-version: v1.36
     istio-injection: disabled
 {{- end }}
-{{- range $stage := list "staging" "production" }}
-{{- if or (eq $stage "staging") $.Values.production }}
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: cloudlab-acme-{{ $stage }}
+  name: cloudlab-acme-production
   annotations:
-    argocd.argoproj.io/sync-wave: {{ if eq $stage "staging" }}'-20'{{ else }}'0'{{ end }}
+    argocd.argoproj.io/sync-wave: '0'
 spec:
   acme:
-    server: {{ if eq $stage "staging" }}https://acme-staging-v02.api.letsencrypt.org/directory{{ else }}https://acme-v02.api.letsencrypt.org/directory{{ end }}
+    server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: cloudlab-acme-{{ $stage }}
+      name: cloudlab-acme-production
     solvers:
       - selector:
-          dnsZones: [{{ $.Values.zone | quote }}]
+          dnsZones: [{{ .Values.zone | quote }}]
         dns01:
           cloudflare:
             apiTokenSecretRef:
               name: cloudlab-dns01
               key: API_TOKEN
-{{- end }}
-{{- end }}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: cloudlab-staging
-  namespace: cert-manager
-  annotations: {argocd.argoproj.io/sync-wave: '-10'}
-spec:
-  secretName: cloudlab-staging-tls
-  revisionHistoryLimit: 2
-  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
-  issuerRef: {name: cloudlab-acme-staging, kind: ClusterIssuer}
-  dnsNames:
-    - {{ printf "*.%s" .Values.zone | quote }}
-    - {{ printf "*.internal.%s" .Values.zone | quote }}
 {{- if .Values.production }}
 {{- range $type := list "public" "private" }}
 ---

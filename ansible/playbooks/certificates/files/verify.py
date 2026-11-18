@@ -1,4 +1,4 @@
-"""Prove DNS-01 renewal, Secret delivery and retained certificate identities."""
+"""Prove DNS-01 issuance, renewal schedules, Secret delivery and retained identities."""
 import base64
 import fcntl
 import hashlib
@@ -78,7 +78,7 @@ def verify(payload):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = json.loads((BASE / 'ownership.json').read_text())
         if state['phase'] != 'accepted':
-            raise RuntimeError('Accept staging and production issuance before certificate verification')
+            raise RuntimeError('Accept production issuance before certificate verification')
         wait(lambda: application_ready('cloudlab-cert-manager', payload['revision']), 'certificate operator convergence')
         def configuration_ready():
             native = payload.get('native')
@@ -94,31 +94,13 @@ def verify(payload):
             if not current['renewal_time_present']:
                 raise RuntimeError('Production certificate has no renewal schedule')
             delivery(namespace, payload['probe_image'], current['certificate_hash'])
-        original = fingerprint('cloudlab-staging', 'cert-manager')
-        result = subprocess.run(['/usr/local/bin/cloudlab-cmctl', 'renew', 'cloudlab-staging',
-                                 '-n', 'cert-manager', '--kubeconfig=/etc/rancher/k3s/k3s.yaml'],
-                                capture_output=True, text=True, timeout=60)
-        if result.returncode:
-            raise RuntimeError('Staging renewal request failed; private diagnostics withheld')
-        def renewed():
-            obj = get('certificate.cert-manager.io', 'cloudlab-staging', 'cert-manager')
-            if not ready(obj) or obj.get('status', {}).get('revision', 0) <= original['revision']:
-                return False
-            current = fingerprint('cloudlab-staging', 'cert-manager')
-            if any(current[key] != original[key] for key in ('certificate_uid', 'secret_uid')):
-                raise RuntimeError('Staging renewal replaced a retained object')
-            return (current['certificate_hash'] != original['certificate_hash']
-                    and current['private_key_hash'] != original['private_key_hash']
-                    and current['renewal_time_present'])
-        wait(renewed, 'staging renewal and private key rotation')
         # The declared solver is DNS-01; renewal succeeds without any HTTP challenge listener.
-        for name in ('cloudlab-acme-staging', 'cloudlab-acme-production'):
-            issuer = get('clusterissuer.cert-manager.io', name)
-            if not ready(issuer) or any('dns01' not in solver or 'http01' in solver
-                                       for solver in issuer['spec']['acme']['solvers']):
-                raise RuntimeError('Certificate issuer readiness or DNS-only policy changed')
-        wait(configuration_ready, 'post-renewal convergence')
-        return {'staging_issuance_and_renewal': True, 'private_key_rotated': True,
+        issuer = get('clusterissuer.cert-manager.io', 'cloudlab-acme-production')
+        if not ready(issuer) or any('dns01' not in solver or 'http01' in solver
+                                   for solver in issuer['spec']['acme']['solvers']):
+            raise RuntimeError('Certificate issuer readiness or DNS-only policy changed')
+        wait(configuration_ready, 'post-verification convergence')
+        return {'production_issuance_and_renewal_schedules': True,
                 'certificate_and_secret_uids_preserved': True, 'production_certificates': 2,
                 'production_renewal_schedules_present': True, 'production_chains_trusted': True,
                 'mounted_secret_delivery': True, 'http_challenges': False}

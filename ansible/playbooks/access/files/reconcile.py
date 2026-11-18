@@ -234,9 +234,8 @@ def reconcile_tailnet(config, github):
     if raw is None:
         return {'ready': False, 'skipped': True, 'reason': 'no tailnet declaration',
                 'revision': revision}
-    import yaml
     try:
-        declared = tailnet_policy.validate_policy(yaml.safe_load(raw))
+        declared = tailnet_policy.validate_policy(tailnet_policy.loads(raw))
     except Exception as error:
         raise RuntimeError('Tailnet declaration invalid; last-valid policy retained') from error
     if declared['administrator'] != config['administrator']:
@@ -972,9 +971,8 @@ def verify(config, github):
             failed = True
             declared = None
         else:
-            import yaml
             try:
-                declared = tailnet_policy.validate_policy(yaml.safe_load(raw))
+                declared = tailnet_policy.validate_policy(tailnet_policy.loads(raw))
             except Exception as error:
                 raise RuntimeError('Tailnet declaration invalid') from error
             if declared['administrator'] != config['administrator']:

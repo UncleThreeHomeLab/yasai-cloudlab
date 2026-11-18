@@ -13,16 +13,15 @@ import vendor_chart
 
 
 class CertificateChartTests(unittest.TestCase):
-    def test_configuration_waves_gate_staging_before_production_without_changing_inventory(self):
+    def test_configuration_waves_gate_issuer_before_gateway_certificates(self):
         for production in (False, True):
             resources = chart.configuration_render(production=production)
             for resource in resources:
                 name = resource['metadata']['name']
                 expected = (-30 if resource['kind'] == 'Namespace' else
-                            -20 if name == 'cloudlab-acme-staging' else
-                            -10 if name == 'cloudlab-staging' else
                             0 if name == 'cloudlab-acme-production' else 10)
                 self.assertEqual(resource['metadata']['annotations'], {'argocd.argoproj.io/sync-wave': str(expected)})
+            self.assertFalse(any('staging' in resource['metadata']['name'] for resource in resources))
 
     def test_native_argo_routes_attach_only_to_the_matching_gateway_exposure(self):
         namespaces = {o['metadata']['name']: o['metadata']['labels']
@@ -97,11 +96,11 @@ class CertificateChartTests(unittest.TestCase):
         self.assertEqual(set(secret['target']['template']['data']), {'API_TOKEN', 'ZONE_ID'})
         self.assertFalse(any(obj['kind'] == 'Secret' for obj in self.objects))
 
-    def test_staging_excludes_production_and_invalid_zone_is_rejected(self):
+    def test_production_flag_gates_gateway_certificates_and_invalid_zone_is_rejected(self):
         objects = chart.configuration_render()
-        self.assertFalse(any(obj['metadata']['name'] == 'cloudlab-acme-production' for obj in objects))
-        self.assertEqual(sum(obj['kind'] == 'Certificate' for obj in objects), 1)
-        self.assertEqual(sum(obj['kind'] == 'Certificate' for obj in chart.configuration_render(production=True)), 3)
+        self.assertTrue(any(obj['metadata']['name'] == 'cloudlab-acme-production' for obj in objects))
+        self.assertEqual(sum(obj['kind'] == 'Certificate' for obj in objects), 0)
+        self.assertEqual(sum(obj['kind'] == 'Certificate' for obj in chart.configuration_render(production=True)), 2)
         for zone in ['*.example.invalid', 'example.invalid/path', 'example.invalid\nother']:
             with self.subTest(zone=zone), self.assertRaises(subprocess.CalledProcessError):
                 chart.configuration_render(zone)

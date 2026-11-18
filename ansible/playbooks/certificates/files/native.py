@@ -22,9 +22,10 @@ def receipt(state):
             or not isinstance(state.get('application_uid'), str) or not state['application_uid']
             or not re.fullmatch('[a-f0-9]{64}', state.get('zone_hash', ''))
             or set(state.get('identities', {})) != {'public', 'private'}
-            or set(state.get('accounts', {})) != {'staging', 'production'}):
+            or set(state.get('accounts', {})) not in ({'production'}, {'staging', 'production'})
+            or ('staging' in state.get('accounts', {}) and 'staging' not in state)):
         raise RuntimeError('Accepted certificate ownership receipt is incomplete')
-    for identity in [state.get('staging', {})] + list(state['identities'].values()):
+    for identity in ([state['staging']] if 'staging' in state else []) + list(state['identities'].values()):
         if (set(identity) != {'certificate_uid', 'secret_uid'}
                 or any(not isinstance(value, str) or not value for value in identity.values())):
             raise RuntimeError('Retained certificate identities are incomplete')
@@ -44,11 +45,15 @@ def quiet(obj):
 
 def retained(state, *, expected_tls=None):
     result = {}
-    for key, name, namespace, identity in (
-            ('staging', 'cloudlab-staging', 'cert-manager', state['staging']),
-            *[(kind, 'cloudlab-gateway', 'cloudlab-gateway-' + kind, state['identities'][kind])
-              for kind in ('public', 'private')]):
+    entries = ([('staging', 'cloudlab-staging', 'cert-manager', state['staging'])]
+               if 'staging' in state else [])
+    entries += [(kind, 'cloudlab-gateway', 'cloudlab-gateway-' + kind, state['identities'][kind])
+                for kind in ('public', 'private')]
+    for key, name, namespace, identity in entries:
         obj = get('certificate.cert-manager.io', name, namespace)
+        if key == 'staging' and not obj:
+            # Retired staging issuance converged to absence; nothing to fence.
+            continue
         if not ready(obj) or obj['metadata']['uid'] != identity['certificate_uid']:
             raise RuntimeError('Retained certificate identity or current readiness changed')
         secret = get('secret', obj['spec']['secretName'], namespace)
@@ -60,6 +65,9 @@ def retained(state, *, expected_tls=None):
         result[key] = dict(identity, content=digest(secret['data']))
     for stage, expected in state['accounts'].items():
         secret = get('secret', 'cloudlab-acme-' + stage, 'cert-manager')
+        if stage == 'staging' and not secret:
+            # Retired staging account converged to absence; nothing to fence.
+            continue
         if (not secret or secret['metadata'].get('deletionTimestamp')
                 or {'uid': secret['metadata']['uid'], 'content': digest(secret.get('data', {}))} != expected):
             raise RuntimeError('Retained ACME account identity or content changed')

@@ -119,10 +119,10 @@ paths:
     fieldOwner: operator
     reconciler: none (manual drill, owner phase)
     credentials: provisioning token in local custody only; ESO stays read-only and untouched
-    retention: drill-only; remove the disposable item after verification
+    retention: drill-only; remove the disposable record only after denial/effectiveness checks, and the vault item only with separate exact authorization
     revocation: rotate after use; last-valid retained until the new value verifies; uncertain writes stay explicit with durable operation IDs until acceptance verifies
     standing: false
-    notes: "Vault CloudLab, item cloudlab-access-rotation-drill, field drill_secret. Order: create, verify acceptance, rotate, verify new acceptance plus old rejection, remove. Recovery: keep the prior value until the new one verifies; ESO never writes; token never leaves local custody."
+    notes: "Vault CloudLab, item cloudlab-access-rotation-drill, field drill_secret. Order: create, verify acceptance, rotate, verify new acceptance plus old rejection, remove. Recovery: keep the prior value until the new one verifies; ESO never writes; token never leaves local custody. Record removal needs binding absence plus fresh denial."
   - id: workload-identities
     subjects: per-workload ServiceAccounts
     source: owning workload charts

@@ -5,7 +5,12 @@
 # for reviewed runtime config through the pending private OIDC gate (A1-priv)
 # instead of serving a sample. Trial cluster-scoped resources retire before
 # Git sync takes ownership; trial namespaced resources linger until the Git
-# backend verifies.
+# backend verifies. Debug capability (debug CRDs, pod/exec RBAC, debug webhook
+# validators) ships with the pinned upstream bytes and renders pending live
+# inventory. Retire unused debug only after inventory proves no live
+# instances, in no-strand order (instances, bindings, policies, CRDs last;
+# finalizers observed); never strand finalizers or fail-closed webhooks. Real
+# emergency access stays out of that retirement scope.
 namespace: cloudlab-breakglass
 breakglass:
   version: v0.3.0-rc.20
