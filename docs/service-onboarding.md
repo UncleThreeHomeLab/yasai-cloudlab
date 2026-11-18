@@ -441,8 +441,8 @@ Keep organization policy unchanged and preserve workflow-token defaults:
 ### 5.1 Prepare the application files — Agent, then User
 
 1. **Agent:** use the application's existing test entrypoint, for example
-   `deploy/testing/run_tests.sh`. Run the checked-out source directly with
-   `cloudlab-test`, offline at `/app`, with fresh writable test state.
+   `deploy/testing/run_tests.sh`, run from the checked-out source with
+   fresh writable test state.
    The checked-out tracked source is read-only; tests receive no runner credentials.
 2. **Agent:** prepare a dependency-only test environment separately from reviewed application `main` (protected for public sources), using the procedure below.
    Do not bake application code or tests into the environment or build it inside PR/dev tests.
@@ -471,7 +471,7 @@ Keep test/build logic in the application repo. With an approved test environment
 and an existing `deploy/testing/run_tests.sh`, the test job runs:
 
 ```sh
-cloudlab-test --source . -- sh deploy/testing/run_tests.sh
+sh deploy/testing/run_tests.sh
 ```
 
 This job runs tests, not a Dockerfile build. It never prepares its own environment.
@@ -482,9 +482,8 @@ reviewed platform implementation under `platform/` and the application under
 `application/`, then run
 `python3 -I -S platform/platform/delivery/ci/publisher/publisher.py`.
 
-The pinned [application-test.yaml](../.github/workflows/application-test.yaml)
-runs direct tests through `cloudlab-test` using `deploy/testing/run_tests.sh`.
-For private sources, call this single-job workflow from `test` and approve each
+Run direct tests in the application repo using `deploy/testing/run_tests.sh`.
+For private sources, run this direct `test` job and approve each
 exact main SHA in the registration. Do not enable private PR/dev
 jobs or substitute a prior image-building revision. Public repository-owned jobs
 retain their protected-main and approved-workflow requirements.
@@ -762,7 +761,7 @@ Private paths are relative to the `PRIVATE_CONFIG_REPOSITORY` checkout
 3. Set `definition.ports`, `definition.health`, `definition.resources` and
    `definition.replicas` to match the application. Put non-secret settings in
    `definition.environment`.
-4. Use [the synthetic definition](../apps/synthetic.yaml) and
+4. Use [the service chart defaults](../charts/service/values.yaml) and
    [service schema](../charts/service/values.schema.json) for required fields.
    Keep the complete definition inside the catalog entry.
 
@@ -1299,8 +1298,8 @@ Source repository visibility does not change this path.
    A dashboard file does not enable scraping or ingestion.
    Keep `definition.monitoring.enabled` false; do not add an application-owned ServiceMonitor.
 4. **Agent:** use the owning service's accepted SLO thresholds and rules.
-   Notes thresholds live in `apps/notes/slo.json` with
-   `charts/service/release-policy.json`; their pinned rule file is
+   Notes thresholds stay pinned with
+   `charts/service/release-policy.json` in
    `platform/observability/prometheus/notes-slo.json`, rendered through the
    explicit native include in `platform/observability/prometheus/templates/notes-slo.yaml`.
    Do not copy those expressions as a generic onboarding template.

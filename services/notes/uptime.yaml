@@ -5,6 +5,7 @@
 # binding only. Merging this declaration is the approval for standing
 # reconciliation by the control-machine infra-uptime service.
 service: notes
+deletionPolicy: Delete
 independentMonitoring:
   exposureReference: public
   path: /health

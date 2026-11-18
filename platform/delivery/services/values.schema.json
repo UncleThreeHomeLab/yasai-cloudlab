@@ -32,22 +32,8 @@
             "allOf": [
               {
                 "if": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "composition"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "chartPath"
-                      ],
-                      "properties": {
-                        "chartPath": {
-                          "const": "apps/notes"
-                        }
-                      }
-                    }
+                  "required": [
+                    "composition"
                   ]
                 },
                 "then": {
@@ -65,22 +51,8 @@
               },
               {
                 "if": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "composition"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "chartPath"
-                      ],
-                      "properties": {
-                        "chartPath": {
-                          "const": "apps/notes"
-                        }
-                      }
-                    }
+                  "required": [
+                    "composition"
                   ]
                 },
                 "then": {
@@ -276,8 +248,7 @@
               },
               "chartPath": {
                 "enum": [
-                  "charts/service",
-                  "apps/notes"
+                  "charts/service"
                 ]
               },
               "artifact": {
@@ -1231,7 +1202,7 @@
               "required": [
                 "class"
               ],
-              "description": "Ordinary services declare the class signal only; hostname, access, path, and port come from exposure inputs. Notes and composition keep explicit addresses."
+              "description": "Ordinary services declare the class signal only; hostname, access, path, and port come from exposure inputs. Composition keeps explicit addresses."
             }
           ]
         },

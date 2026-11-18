@@ -30,7 +30,6 @@ rules: {{ if .retired }}[]{{ end }}
 {{- range .Values.catalog }}
 {{- $v := .definition }}{{- $a := .approval }}
 {{- $composition := $a.composition | default dict }}
-{{- $notes := eq ($a.chartPath | default "charts/service") "apps/notes" }}
 {{- $monitoring := include "cloudlab.service.monitoring" . | fromJson }}
 {{- $namespace := $a.namespace }}
 {{- $retired := eq (.publication | default "ready") "retired" }}
@@ -49,17 +48,7 @@ rules: {{ if .retired }}[]{{ end }}
 {{- range $exposures }}{{ if ne .class "none" }}{{ $classes = append $classes .class }}{{ end }}{{ end }}
 {{- $classes = $classes | uniq | sortAlpha }}
 {{- $targets := dict }}{{- $principals := list }}
-{{- if and $notes (not $composition) }}
-{{- $targets = $.Files.Get "notes-workloads.yaml" | fromYaml }}
-{{- if or (not (kindIs "map" $targets)) (ne (len $targets) 2) (not (hasKey $targets "web")) (not (hasKey $targets "api")) }}{{ fail "Notes requires its complete public workload-port asset" }}{{ end }}
-{{- range $target := $targets }}
-{{- if or (not (kindIs "map" $target)) (ne (len $target) 2) (not (kindIs "string" $target.name)) (not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" $target.name)) (not (kindIs "slice" $target.ports)) (eq (len $target.ports) 0) (gt (len $target.ports) 16) }}{{ fail "Notes workload-port asset is malformed" }}{{ end }}
-{{- range $target.ports }}
-{{- if or (not (regexMatch "^[1-9][0-9]{0,4}$" (toString .))) (gt (int .) 65535) }}{{ fail "Notes workload ports must be numeric TCP ports" }}{{ end }}
-{{- end }}
-{{- $principals = append $principals (printf "cluster.local/ns/%s/sa/%s" $namespace $target.name) }}
-{{- end }}
-{{- else if not $composition }}
+{{- if not $composition }}
 {{- $ports := list }}
 {{- range $v.ports }}
 {{- if or (not $monitoring.metrics.enabled) (ne (int .port) (int $monitoring.metrics.port)) }}{{ $ports = append $ports (printf "%d" (int .port)) }}{{ end }}
@@ -74,7 +63,7 @@ kind: AuthorizationPolicy
 metadata:
   name: platform-workloads
   namespace: {{ $namespace }}
-  {{- if or (and $notes (not $composition)) (and $composition (hasKey $composition "connections")) }}
+  {{- if and $composition (hasKey $composition "connections") }}
   annotations: {argocd.argoproj.io/sync-wave: '-1'}
   {{- end }}
 spec:
@@ -87,11 +76,7 @@ spec:
   rules: []
   {{- else }}
   {{- $accounts := list }}
-  {{- if $notes }}
-  {{- $accounts = list "notes-web" "notes-api" }}
-  {{- else }}
   {{- range $composition.workloads }}{{- if or (not (hasKey .podSpec "serviceAccountName")) (eq (.podSpec.serviceAccountName | toString) "") (eq (.podSpec.serviceAccountName | toString) "default") }}{{ fail "Composition workloads require their named service account" }}{{- end }}{{ $accounts = append $accounts .podSpec.serviceAccountName }}{{ end }}
-  {{- end }}
   rules:
     - from:
         - source:
@@ -100,30 +85,16 @@ spec:
               - {{ printf "cluster.local/ns/%s/sa/%s" $namespace . | quote }}
               {{- end }}
   {{- end }}
-  {{- else if $notes }}
-  rules: []
   {{- else }}
 {{ include "cloudlab.service.applicationRules" (dict "principals" $principals "ports" (index $targets "workload").ports "classes" $classes "exposures" $exposures "monitoring" $monitoring "retired" $retired) | indent 2 }}
   {{- end }}
-{{- if and $notes (not $composition) }}
-{{- range $component, $target := $targets }}
----
-apiVersion: security.istio.io/v1
-kind: AuthorizationPolicy
-metadata: {name: {{ printf "platform-notes-%s" $component }}, namespace: {{ $namespace }}}
-spec:
-  selector: {matchLabels: {cloudlab.io/owner: {{ $v.owner | quote }}, app.kubernetes.io/name: {{ $target.name | quote }}}}
-  action: ALLOW
-{{ include "cloudlab.service.applicationRules" (dict "principals" $principals "ports" ($target.ports | toStrings | uniq | sortAlpha) "classes" $classes "exposures" $exposures "monitoring" $monitoring "retired" $retired) | indent 2 }}
-{{- end }}
-{{- end }}
 {{- if $v.rollouts.enabled }}
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata: {name: release-scrapes, namespace: {{ $namespace }}}
 spec:
-  selector: {matchLabels: {app.kubernetes.io/name: {{ ternary "notes-web" $v.name $notes | quote }}}}
+  selector: {matchLabels: {app.kubernetes.io/name: {{ $v.name | quote }}}}
   action: ALLOW
   rules: {{ if $retired }}[]{{ end }}
   {{- if not $retired }}

@@ -3117,8 +3117,6 @@
     "pip_requirements": {
       "managerFilePatterns": [
         "/^ansible/runner/requirements\\.txt$/",
-        "/^apps/notes/requirements\\.txt$/",
-        "/^apps/notes/telemetry-requirements\\.txt$/",
         "/^ansible/playbooks/observability/tests/requirements\\.txt$/"
       ]
     },

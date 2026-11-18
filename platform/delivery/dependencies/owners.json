@@ -782,16 +782,14 @@
     },
     "actions": {
       "sources": [
-        ".github/workflows/application-publish.yaml",
-        ".github/workflows/application-test.yaml"
+        ".github/workflows/application-publish.yaml"
       ],
       "companions": [],
       "group": "actions",
       "updater": "actions",
       "checks": [],
       "writePaths": [
-        ".github/workflows/application-publish.yaml",
-        ".github/workflows/application-test.yaml"
+        ".github/workflows/application-publish.yaml"
       ],
       "nativeDependencies": []
     },
@@ -848,30 +846,6 @@
       "nativeDependencies": [
         "tailscale/tailscale"
       ]
-    },
-    "notes-package": {
-      "sources": [
-        "apps/notes/artifact.lock.json",
-        "apps/notes/Chart.yaml",
-        "apps/notes/requirements.txt",
-        "apps/notes/telemetry-requirements.txt"
-      ],
-      "companions": [
-        "apps/notes/charts/service-0.1.0.tgz",
-        "apps/notes/lib.zip"
-      ],
-      "group": "notes-package",
-      "updater": "package",
-      "checks": [
-        "module:playbooks.services.files.package"
-      ],
-      "writePaths": [
-        "apps/notes/artifact.lock.json",
-        "apps/notes/charts/service-0.1.0.tgz",
-        "apps/notes/lib.zip"
-      ],
-      "disposition": "first-party-package; application releases retain signed promotion ownership",
-      "nativeDependencies": []
     },
     "preview-package": {
       "sources": [],
@@ -1704,18 +1678,11 @@
     },
     "python-requirements": {
       "sources": [
-        "ansible/runner/requirements.txt",
-        "apps/notes/requirements.txt",
-        "apps/notes/telemetry-requirements.txt"
+        "ansible/runner/requirements.txt"
       ],
-      "companions": [
-        "apps/notes/lib.zip",
-        "apps/notes/artifact.lock.json"
-      ],
+      "companions": [],
       "writePaths": [
-        "ansible/runner/requirements.txt",
-        "apps/notes/requirements.txt",
-        "apps/notes/telemetry-requirements.txt"
+        "ansible/runner/requirements.txt"
       ],
       "group": "Python wheel requirements",
       "updater": "requirements",
@@ -1935,19 +1902,6 @@
       "nativeDependencies": [
         "ghcr.io/renovatebot/renovate"
       ]
-    },
-    "policy:application-releases": {
-      "sources": [
-        "apps/releases/notes.json"
-      ],
-      "companions": [],
-      "writePaths": [],
-      "group": "signed application release",
-      "updater": "native",
-      "disposition": "existing-owner",
-      "owner": "playbooks.services.files.release",
-      "checks": [],
-      "nativeDependencies": []
     },
     "tool:oauth2-proxy": {
       "sources": [],

@@ -1,7 +1,6 @@
 {{/* Workload API presets resolve only here, in the administrator-owned services chart.
 charts/service workloads are implicitly application-no-api and render no Role.
-The apps/notes fork passes validated YAML through this same renderer and
-resolves nothing itself. No preset lets a workload self-grant RBAC verbs.
+No preset lets a workload self-grant RBAC verbs.
 job-scoped stays retired: it was the only preset carrying write verbs (batch
 create/delete), and no supported workload requires them, so its Role always
 renders empty rules while its Binding stays as the retention record. The two
