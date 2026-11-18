@@ -1443,6 +1443,7 @@ Check all declared exposure hosts, regardless of source repo visibility.
 | Repo or owner | Path | Retirement effect |
 | --- | --- | --- |
 | Public GitOps | `services/exposures.yaml` | Set the entry to `publication: retired`; routes, DNS, and tunnel/Access withdraw |
+| Public GitOps | `services/<name>/uptime.yaml` | Set `deletionPolicy: Delete` and merge; the executor deletes only the owned endpoint-matching monitor, then remove the file after absence is confirmed |
 | Private GitOps | `platform/access/policy.yaml` | Remove the service entries; private DNS and routes withdraw |
 | Private GitOps | `services/catalog.json` | Keep the entry with `publication: retired`; preserve its definition, approval and data bindings |
 | Private identity owner | `identity/configmap.yaml` revocations | Persist the client tombstone; the writer disables the client |

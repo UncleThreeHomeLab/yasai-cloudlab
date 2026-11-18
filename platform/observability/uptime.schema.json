@@ -14,6 +14,11 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,30}$"
     },
+    "deletionPolicy": {
+      "enum": ["Retain", "Delete"],
+      "default": "Retain",
+      "description": "Delete removes only the owned monitor whose endpoint still matches this complete declaration; absent or Retain reconciles it. Undeclared owned monitors are always retained."
+    },
     "independentMonitoring": {
       "type": "object",
       "additionalProperties": false,
