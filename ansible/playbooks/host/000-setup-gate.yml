@@ -1,0 +1,20 @@
+---
+- name: Refuse setup on an already completed server
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Inspect the setup completion record
+      ansible.builtin.stat:
+        path: /var/lib/cloudlab/setup-completed.json
+      register: setup_completion
+      changed_when: false
+
+    - name: Refuse to re-run setup on a completed server
+      ansible.builtin.fail:
+        msg: >-
+          Setup already completed on this server. Re-running setup is refused;
+          run verify to re-check, or a named component operation for repair.
+          No mutation performed.
+      when: setup_completion.stat.exists

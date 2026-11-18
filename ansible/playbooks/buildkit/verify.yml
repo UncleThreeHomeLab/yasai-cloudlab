@@ -3,6 +3,8 @@
   ansible.builtin.import_playbook: verify-host.yml
 
 - name: Qualify isolated rootless builds without registry or runner credentials
+  # Bounded disposable fixtures only: this run creates one fixture namespace and
+  # always deletes exactly that namespace (UID-preconditioned); nothing persists.
   hosts: k3s_servers
   become: true
   gather_facts: false

@@ -37,20 +37,13 @@
 - name: Read synchronized private destination inputs
   ansible.builtin.import_tasks: backup-read.yml
 
-- name: Retain the monthly-only credential access check
-  ansible.builtin.import_tasks: backup-access.yml
-
 - name: Render the complete backup chart
   ansible.builtin.import_tasks: backup-render.yml
 
 - name: Seed and release backup declarations without a competing writer
   ansible.builtin.include_tasks: backup-action.yml
   vars:
-    longhorn_backup_action: "{{ 'seed-stop' if lookup('env', 'LAB_BACKUP_STOP_AFTER_SEED') == '1' else 'seed' }}"
-
-- name: Stop the explicit backup interruption fixture after its durable seed
-  ansible.builtin.meta: end_play
-  when: lookup('env', 'LAB_BACKUP_STOP_AFTER_SEED') == '1'
+    longhorn_backup_action: seed
 
 - name: Retain the earlier daily-schedule retirement guard
   ansible.builtin.import_tasks: backup-migrate.yml

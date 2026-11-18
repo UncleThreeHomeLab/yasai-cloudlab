@@ -28,7 +28,7 @@
           'cloud_backup': lookup('env', 'LAB_MONTHLY_PROOF') == '1',
           'backup': longhorn_backup_enabled} | to_json }}
   register: longhorn_proof
-  changed_when: true
+  changed_when: false
   no_log: true
   failed_when: false
 

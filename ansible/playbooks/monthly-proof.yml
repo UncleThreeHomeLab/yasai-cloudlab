@@ -1,0 +1,9 @@
+---
+- name: Prove monthly storage restore from external backup
+  ansible.builtin.import_playbook: longhorn/verify-storage.yml
+- name: Verify monthly recovery freshness
+  ansible.builtin.import_playbook: backup/verify.yml
+- name: Prove monthly B2 credential access
+  ansible.builtin.import_playbook: longhorn/check-backup-access.yml
+- name: Retire the legacy backup credential after ESO verification
+  ansible.builtin.import_playbook: longhorn/retire-legacy-backup-credential.yml

@@ -10,4 +10,10 @@
     src: '/workspace/ansible/playbooks/longhorn/files/{{ item }}'
     dest: '/var/lib/cloudlab/longhorn/{{ item }}'
     mode: '0640'
-  loop: [bootstrap.py, handoff_fixture.py, kube.py, verify_health.py, verify_gitops.py, backup_gitops.py, adopt_backup_target.py]
+  loop: [bootstrap.py, handoff_fixture.py, kube.py, verify_health.py, verify_gitops.py, backup_gitops.py, adopt_backup_target.py, backup_policy.py]
+
+- name: Install the authoritative storage backup policy
+  ansible.builtin.copy:
+    src: '/workspace/platform/storage/longhorn-backup/policy.json'
+    dest: /var/lib/cloudlab/longhorn/backup-policy.json
+    mode: '0640'

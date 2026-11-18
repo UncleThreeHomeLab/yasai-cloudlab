@@ -48,7 +48,8 @@ upgrades are managed separately.
    ```
 
    This applies twice, requires zero changes on the second apply on both VMs,
-   then verifies behaviour. Repeat runs preserve existing secrets and data.
+   then verifies behaviour and records completion. Completed servers refuse
+   repeat setup; verification stays repeatable.
    GitOps bootstrap requires verified Tailscale host access and a fresh recovery point.
 
 External resources use separate reviewed OpenTofu operations through Compose;

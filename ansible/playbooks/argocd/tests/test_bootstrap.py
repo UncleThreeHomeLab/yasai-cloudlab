@@ -89,19 +89,18 @@ class BootstrapTests(unittest.TestCase):
             self.assertFalse(bootstrap.grant_identity_source(project))
             self.assertEqual(write.call_count, 1)
 
-    def test_explicit_interruption_stops_before_root_creation_and_is_not_repeated(self):
+    def test_seeding_checkpoint_resumes_by_completing_the_seed(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
-            (base / 'checkpoint.json').write_text(json.dumps({'phase': 'seeded', 'identities': {}}))
+            (base / 'checkpoint.json').write_text(json.dumps({'phase': 'seeding', 'version': 'fixture'}))
             with patch.object(bootstrap, 'BASE', base), patch.object(bootstrap, 'apply') as apply, \
-                    patch.object(bootstrap, 'wait_application') as wait, contextlib.redirect_stdout(io.StringIO()) as output:
-                bootstrap.run({'operator': [], 'roots': [], 'stop_after_seed': True})
-                self.assertTrue(json.loads(output.getvalue())['interrupted_fixture'])
-                apply.assert_not_called()
-                wait.assert_not_called()
-            state = json.loads((base / 'checkpoint.json').read_text())
-            self.assertEqual(state['phase'], 'seeded')
-            self.assertTrue(state['interruption_test_completed'])
+                    patch.object(bootstrap, 'kube'), \
+                    patch.object(bootstrap, 'get', return_value={'metadata': {'uid': 'root'}}), \
+                    patch.object(bootstrap, 'wait_application', return_value='revision'), \
+                    patch.object(bootstrap, 'identity', return_value={}), contextlib.redirect_stdout(io.StringIO()):
+                bootstrap.run({'operator': [], 'roots': [], 'version': 'fixture', 'revision': 'revision'})
+                self.assertTrue(apply.called)
+            self.assertEqual(json.loads((base / 'checkpoint.json').read_text())['phase'], 'accepted')
 
     def test_resume_after_handoff_never_restarts_the_bootstrap_writer(self):
         for phase in ('seeded', 'argo-requested', 'accepted'):
