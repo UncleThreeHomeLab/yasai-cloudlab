@@ -1,3 +1,4 @@
+# Vault items: per-service application/migration database items (username/password). Shapes: platform/data/contract.json.
 {{- include "cloudlab.data.normalize" . -}}
 {{- $settings := .dataSettings -}}
 {{- $doomed := dict }}
@@ -40,8 +41,8 @@ spec:
       type: kubernetes.io/basic-auth
       metadata: {labels: {cnpg.io/reload: 'true'}}
       data:
-        username: '{{ `{{ .username }}` }}'
-        password: '{{ `{{ .password }}` }}'
+        username: '{{ `{{- $value := index . "username" -}}{{- if not $value -}}{{- fail "Required data secret field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
+        password: '{{ `{{- $value := index . "password" -}}{{- if not $value -}}{{- fail "Required data secret field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
   dataFrom:
     - extract: {key: {{ $entry.item }}}
 {{- end }}

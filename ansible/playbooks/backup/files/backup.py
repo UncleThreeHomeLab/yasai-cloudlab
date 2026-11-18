@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 
 from capture import capture, verify_archive, require_active_sqlite
 from repository import Repository, require_window
-from write_window import authorize_initial, authorize_replacement, REPLACEMENT_TAG
 
 BASE = Path('/var/lib/cloudlab/recovery')
 POLICY = json.loads(Path(__file__).with_name('policy.json').read_text())
@@ -53,14 +52,6 @@ def run(action):
                 pass
         freshness()
         return
-    replacement = action == 'replacement-test'
-    if replacement:
-        authorize_replacement()
-        action = 'monthly'
-    initial = action == 'initial'
-    if initial:
-        authorize_initial()
-        action = 'monthly'
     if action not in ('monthly', 'local-check'):
         raise RuntimeError('Expected monthly, local-check or freshness')
     if action == 'monthly':
@@ -69,16 +60,8 @@ def run(action):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if action == 'monthly' and (BASE / 'receipt.json').exists():
             receipt = json.loads((BASE / 'receipt.json').read_text())
-            if replacement and receipt.get('retention_proof') == REPLACEMENT_TAG:
-                freshness()
-                print('Replacement proof already recorded; no cloud operation needed.')
-                return
-            if initial:
-                freshness()
-                print('Initial recovery point already recorded; no cloud operation needed.')
-                return
             month = datetime.now(timezone.utc).strftime('%Y-%m')
-            if (not replacement and datetime.fromtimestamp(receipt['captured_at'], timezone.utc).strftime('%Y-%m') == month
+            if (datetime.fromtimestamp(receipt['captured_at'], timezone.utc).strftime('%Y-%m') == month
                     and receipt['retention_complete']):
                 freshness()
                 print('This monthly generation is already verified; no cloud operation needed.')
