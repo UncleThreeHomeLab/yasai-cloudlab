@@ -95,7 +95,6 @@ the grant. */}}
 {{- if ne (len $claimNames) (len ($claimNames | uniq)) }}{{ fail "Service storage claim names must be unique" }}{{- end }}
 {{- if gt $storageGi (index $storageBudget "storageGi") }}{{ fail "Service storage requests exceed their approved storage budget" }}{{- end }}
 {{- $releaseService := $v.name }}
-{{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}{{ $releaseService = "notes-web" }}{{- end }}
 {{- $namespace := printf "cloudlab-app-%s" $a.name }}
 {{- $artifact := $a.artifact | default dict }}
 {{- if $artifact }}
@@ -106,7 +105,6 @@ the grant. */}}
 {{- if not (or (hasPrefix (printf "%s/.github/workflows/application-publish.yaml@" (trimSuffix ".git" $.Values.repository)) .) (eq . (printf "https://github.com/%s/.github/workflows/ci.yaml@refs/heads/main" $artifact.sourceRepository))) }}{{ fail "Artifact signing identity must use the approved publishing workflow" }}{{- end }}
 {{- end }}
 {{- end }}
-{{- if and (eq ($a.chartPath | default "charts/service") "apps/notes") (ne $a.repository $.Values.repository) }}{{ fail "Notes composition requires the administrator-owned application source" }}{{- end }}
 {{- $classes := list }}
 {{- if $ordinary }}
 {{- if ne $v.exposure.class "none" }}{{ $classes = append $classes $v.exposure.class }}{{- end }}
@@ -322,15 +320,6 @@ spec:
       {{- $_ := set $workload "artifactPolicyHash" (printf "%s%s" (toJson $artifact) ($.Files.Get "sigstore-fulcio.crt") | sha256sum) }}
       {{- end }}
       {{- $helm := dict "valuesObject" $workload }}
-      {{- if eq ($a.chartPath | default "charts/service") "apps/notes" }}
-      {{- $_ := set $helm "valuesObject" (dict "definition" $workload "issuer" $.Values.issuer "telemetry" $.Values.telemetry "renderDisabled" $retired) }}
-      {{- $_ := set $helm.valuesObject "web" (dict "routeOnly" false "routeBackends" dict) }}
-      {{- $_ := set $helm.valuesObject "api" (dict "routeOnly" false "routeBackends" dict) }}
-      {{- if $artifact }}
-      {{- $_ := set $helm.valuesObject "packaged" true }}
-      {{- $_ := set $helm.valuesObject "imagePullSecrets" $workload.imagePullSecrets }}
-      {{- end }}
-      {{- end }}
       {{- $source := dict "repoURL" $.Values.repository "targetRevision" $.Values.revision "path" ($a.chartPath | default "charts/service") "helm" $helm }}
       {{- if and $composition (not $retired) }}
       {{- $images := include "cloudlab.composition.images" (dict "composition" $composition "artifact" $artifact) | fromJson }}

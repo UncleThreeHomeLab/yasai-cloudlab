@@ -181,7 +181,6 @@ spec:
                 application: '{{ "{{ .application }}" }}'
                 source: {{ "{{ .source | toJson }}" }}
                 ci: {{ "{{ .ci | toJson }}" }}
-                {{ "{{ if hasKey . \"testing\" }}" }}testing: {{ "{{ .testing | toJson }}" }}{{ "{{ end }}" }}
                 {{ "{{ if hasKey . \"publishing\" }}" }}publishing: {{ "{{ .publishing | toJson }}" }}{{ "{{ end }}" }}
               images: {{ "{{ .images | toJson }}" }}
               {{- if eq $component "controller" }}

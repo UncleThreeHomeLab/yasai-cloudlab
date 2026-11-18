@@ -1,9 +1,9 @@
 """Release records validate against their declarative contract and proposer.
 
-The release schema accepts the committed notes record and representative
-prices records, rejects malformed records, and agrees with
-release.validate() except for primary-component membership and digest
-equality, which stay enforced by the proposer alone.
+The release schema accepts representative prices records, rejects
+malformed records, and agrees with release.validate() except for
+primary-component membership and digest equality, which stay enforced by
+the proposer alone.
 """
 import copy
 import importlib.util
@@ -35,11 +35,6 @@ def prices(**overrides):
 
 
 class DeliveryCompiledInputsTests(unittest.TestCase):
-    def test_committed_notes_record_validates(self):
-        record = json.loads((ROOT / 'apps/releases/notes.json').read_text())
-        validate(record, SCHEMA)
-        self.assertEqual(release.validate(copy.deepcopy(record)), record)
-
     def test_single_and_multi_component_prices_records_validate(self):
         validate(prices(), SCHEMA)
         release.validate(prices())

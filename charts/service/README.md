@@ -1,6 +1,6 @@
 # Service contract
 
-Start with [the synthetic definition](../../apps/synthetic.yaml). The chart creates
+Start with [the service chart defaults](values.yaml). The chart creates
 only a workload, ServiceAccount, ClusterIP Service, optional routes and retained PVC.
 The platform owns namespaces, quotas, gateways, policies, data provisioning and
 ExternalSecret declarations. ApplicationSets use fixed projects, namespace destinations
