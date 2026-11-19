@@ -12,7 +12,7 @@
     - name: Require an explicit reviewed migration action before mutation
       ansible.builtin.assert:
         that: lookup('env', 'LAB_K3S_MIGRATION_ACTION') in ['migrate', 'rollback', 'accept']
-        fail_msg: Use the scoped runner migration or rollback operation with its access and recovery gates.
+        fail_msg: Set LAB_K3S_MIGRATION_ACTION to migrate, rollback, or accept before running this scoped migration with its access and recovery gates.
     - name: Create private migration checkpoint and tooling directories
       ansible.builtin.file:
         path: '{{ item }}'

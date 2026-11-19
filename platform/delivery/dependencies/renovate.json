@@ -73,7 +73,6 @@
           "python",
           "docker.io/library/python",
           "docker.io/library/golang",
-          "docker.io/grafana/k6",
           "docker.io/aquasec/trivy",
           "cgr.dev/chainguard/cosign",
           "reg.kyverno.io/kyverno/kyverno-cli",
@@ -1001,21 +1000,6 @@
           "custom.regex"
         ],
         "matchFileNames": [
-          "platform/observability/images.lock.json"
-        ],
-        "matchPackageNames": [
-          "docker.io/grafana/k6"
-        ],
-        "enabled": true,
-        "pinDigests": true,
-        "groupName": "observability",
-        "allowedVersions": "/^v?2[.]3(?:[.][0-9]+)?$/"
-      },
-      {
-        "matchManagers": [
-          "custom.regex"
-        ],
-        "matchFileNames": [
           "platform/harbor/images.lock.json"
         ],
         "matchPackageNames": [
@@ -1550,18 +1534,6 @@
         "pinDigests": true,
         "groupName": "bootstrap runner",
         "allowedVersions": "/^v?3[.]13(?:[.][0-9]+)?-slim-bookworm$/"
-      },
-      {
-        "matchManagers": [
-          "dockerfile"
-        ],
-        "matchFileNames": [
-          "ansible/runner/Dockerfile"
-        ],
-        "matchPackageNames": [
-          "docker.io/grafana/k6"
-        ],
-        "allowedVersions": "/^v?2[.]3(?:[.][0-9]+)?$/"
       },
       {
         "matchManagers": [
@@ -2353,18 +2325,6 @@
         ],
         "datasourceTemplate": "docker",
         "depNameTemplate": "quay.io/kiali/kiali",
-        "versioningTemplate": "docker"
-      },
-      {
-        "customType": "regex",
-        "managerFilePatterns": [
-          "/^platform/observability/images\\.lock\\.json$/"
-        ],
-        "matchStrings": [
-          "\"k6\"\\s*:\\s*\"docker\\.io/grafana/k6:(?<currentValue>[^\"\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
-        ],
-        "datasourceTemplate": "docker",
-        "depNameTemplate": "docker.io/grafana/k6",
         "versioningTemplate": "docker"
       },
       {

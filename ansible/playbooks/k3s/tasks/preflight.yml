@@ -25,5 +25,8 @@
   ansible.builtin.assert:
     that:
       - (k3s_installed.stdout | regex_findall('[0-9]+[.][0-9]+') | first) is version((k3s_version | regex_findall('[0-9]+[.][0-9]+') | first), '<=')
-    fail_msg: Minor-version downgrade requires the explicit Compose k3s-migrate workflow; never reuse a newer datastore.
+    fail_msg: >-
+      Minor-version downgrade requires the explicit scoped
+      playbooks/k3s/migrate.yml run with LAB_K3S_MIGRATION_ACTION and its
+      access and recovery gates; never reuse a newer datastore.
   when: k3s_installed.rc == 0

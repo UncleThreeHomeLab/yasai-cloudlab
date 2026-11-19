@@ -1,5 +1,3 @@
-FROM docker.io/grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34 AS k6
-
 FROM cgr.dev/chainguard/cosign@sha256:3fad8be83b93869051c08bb98f36612afe81dabe06c288e70e41ce09a037ba18 AS cosign
 
 FROM docker.io/aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 AS trivy
@@ -25,7 +23,6 @@ RUN --mount=type=cache,target=/root/go/pkg/mod --mount=type=cache,target=/root/.
 
 FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
 
-COPY --from=k6 /usr/bin/k6 /usr/local/bin/k6
 COPY --from=cosign /usr/bin/cosign /usr/local/bin/cosign
 COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY --from=crane /out/crane /usr/local/bin/crane

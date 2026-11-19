@@ -27,12 +27,13 @@
         },
         "query": "label_values(cloudlab_rollout_info, namespace)",
         "refresh": 1,
-        "multi": false,
-        "includeAll": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
         "sort": 1,
         "current": {
-          "text": "cloudlab-app-notes",
-          "value": "cloudlab-app-notes"
+          "text": "All",
+          "value": "$__all"
         }
       },
       {
@@ -45,12 +46,13 @@
         },
         "query": "label_values(cloudlab_rollout_info{namespace=~\"$namespace\"}, rollout)",
         "refresh": 1,
-        "multi": false,
-        "includeAll": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
         "sort": 1,
         "current": {
-          "text": "notes-web",
-          "value": "notes-web"
+          "text": "All",
+          "value": "$__all"
         }
       },
       {
@@ -308,14 +310,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\",backend=\"$rollout\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\"})",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\",backend=~\"$rollout$\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\"})",
           "legendFormat": "Stable",
           "instant": true,
           "range": false
         },
         {
           "refId": "B",
-          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\",backend=\"$rollout-canary\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\"})",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\",backend=~\"$rollout-canary$\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\"})",
           "legendFormat": "Canary",
           "instant": true,
           "range": false
@@ -731,7 +733,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\",backend=\"$rollout-canary\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=\"$rollout\"})",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\",backend=~\"$rollout-canary$\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\"})",
           "legendFormat": "Configured canary",
           "instant": false,
           "range": true

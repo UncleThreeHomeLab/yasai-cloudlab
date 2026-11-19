@@ -118,7 +118,7 @@ def run(actions):
     pools, checks, existing = 0, 0, 0
     for namespace in namespaces:
         name, labels = namespace['metadata']['name'], namespace['metadata'].get('labels', {})
-        role = 'controller' if name == 'cloudlab-ci-system' else 'qualification' if name.startswith('cloudlab-ci-proof-') else 'runner'
+        role = 'controller' if name == 'cloudlab-ci-system' else 'runner'
         if labels.get('cloudlab.io/owner') != 'ci-platform' or labels.get('cloudlab.io/ci-role') != role:
             raise RuntimeError('CI namespace escaped automatic policy selection')
         changed = kube('label', 'namespace', name, 'cloudlab.io/owner=unmanaged', '--overwrite',
