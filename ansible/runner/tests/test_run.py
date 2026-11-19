@@ -104,13 +104,15 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
             with self.subTest(action=action):
                 self.invoke(action).assert_called_once_with(expected)
 
-    def invoke(self, action='inspect'):
+    def invoke(self, action='inspect', git_returncode=0, git_stdout='f' * 40 + '\n'):
         with patch.object(runner.sys, 'argv', ['run.py', action]), \
                 patch.object(runner, 'dotenv_values', return_value=self.values), \
                 patch.object(runner.socket, 'gethostbyname',
                              side_effect=lambda host: {'server.example': '192.0.2.1',
                                                        'worker.example': '192.0.2.2'}[host]), \
                 patch.object(runner, 'gitops_preflight'), \
+                patch.object(runner.subprocess, 'run',
+                             return_value=Mock(returncode=git_returncode, stdout=git_stdout)), \
                 patch.object(runner, 'playbook') as playbook:
             runner.main()
             return playbook
@@ -151,13 +153,49 @@ with patch.object(runner,'dotenv_values',return_value={}), patch('dotenv.dotenv_
     def test_prove_applies_twice_then_verifies(self):
         playbook = self.invoke('prove')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                         ['playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml'])
+                         ['playbooks/setup.yml', 'playbooks/setup.yml', 'playbooks/verify.yml',
+                          'playbooks/secrets/accept.yml', 'playbooks/longhorn/accept.yml',
+                          'playbooks/longhorn/accept-backup.yml', 'playbooks/host/stamp-setup.yml'])
         self.assertEqual(playbook.call_args_list[1].kwargs, {'unchanged': True})
+        self.assertEqual(os.environ['LAB_SETUP_COMPLETED_REVISION'], 'f' * 40)
 
     def test_setup_converges_then_verifies(self):
         playbook = self.invoke('setup')
         self.assertEqual([call.args[0] for call in playbook.call_args_list],
-                         ['playbooks/setup.yml', 'playbooks/verify.yml'])
+                         ['playbooks/setup.yml', 'playbooks/verify.yml',
+                          'playbooks/secrets/accept.yml', 'playbooks/longhorn/accept.yml',
+                          'playbooks/longhorn/accept-backup.yml', 'playbooks/host/stamp-setup.yml'])
+        self.assertEqual(os.environ['LAB_SETUP_COMPLETED_REVISION'], 'f' * 40)
+
+    def test_monthly_proof_runs_its_verify_subset_without_setup(self):
+        window = Mock()
+        module = Mock()
+        module.require_window = window
+        with patch.dict(os.environ, {}, clear=True), patch.dict(sys.modules, {'monthly_window': module}):
+            playbook = self.invoke('monthly-proof')
+            self.assertEqual(os.environ['LAB_MONTHLY_PROOF'], '1')
+        window.assert_called_once_with(reserve=3600)
+        playbook.assert_called_once_with('playbooks/monthly-proof.yml')
+
+    def test_monthly_proof_needs_no_vault_token_but_refuses_outside_its_window(self):
+        del self.values['OP_SERVICE_ACCOUNT_TOKEN']
+        module = Mock()
+        module.require_window = Mock(side_effect=RuntimeError('B2 writes require day 1 UTC'))
+        with patch.dict(sys.modules, {'monthly_window': module}), \
+                patch.object(runner, 'playbook') as playbook:
+            with patch.object(runner.sys, 'argv', ['run.py', 'monthly-proof']):
+                with self.assertRaisesRegex(RuntimeError, 'day 1 UTC'):
+                    runner.main()
+            playbook.assert_not_called()
+        module.require_window = Mock()
+        with patch.dict(sys.modules, {'monthly_window': module}):
+            self.invoke('monthly-proof').assert_called_once_with('playbooks/monthly-proof.yml')
+
+    def test_setup_without_a_known_revision_leaves_completion_unrecorded(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(SystemExit, 'revision is unknown'):
+                self.invoke('setup', git_returncode=1, git_stdout='')
+            self.assertNotIn('LAB_SETUP_COMPLETED_REVISION', os.environ)
 
     def test_retired_apply_alias_refuses_before_credentials_or_hosts(self):
         with patch.object(runner.sys, 'argv', ['run.py', 'apply']), \

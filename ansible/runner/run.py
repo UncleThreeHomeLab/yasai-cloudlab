@@ -33,6 +33,15 @@ def gitops_preflight():
         raise SystemExit('Public GitOps preflight failed before host mutation.')
 
 
+def stamp_setup():
+    revision = subprocess.run(['git', '-C', '/workspace', 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True, check=False)
+    if revision.returncode or not revision.stdout.strip():
+        raise SystemExit('Setup completed but its revision is unknown; completion was not recorded.')
+    os.environ['LAB_SETUP_COMPLETED_REVISION'] = revision.stdout.strip()
+    playbook('playbooks/host/stamp-setup.yml')
+
+
 def main():
     if '/workspace' not in sys.path:
         sys.path.insert(0, '/workspace')
@@ -51,8 +60,7 @@ def main():
         sys.path.insert(0, '/workspace/ansible/playbooks/longhorn/files')
         from monthly_window import require_window
         require_window(reserve=3600)
-        if action == 'monthly-proof':
-            os.environ['LAB_MONTHLY_PROOF'] = '1'
+        os.environ['LAB_MONTHLY_PROOF'] = '1'
     if action == 'syntax':
         for path in sorted(Path('/workspace/ansible/playbooks').glob('**/*.yml')):
             if path.parent == Path('/workspace/ansible/playbooks') or path.parent.parent == Path('/workspace/ansible/playbooks'):
@@ -78,6 +86,7 @@ def main():
     for name in ('PRIVATE_ACCESS_HOSTS', 'CLOUDFLARE_HUMAN_EMAIL',
                  'CLOUDFLARE_IDP_ID', 'ACCESS_FREE_TIER_CONFIRMED'):
         os.environ[name] = values.get(name) or ''
+    # Monthly proof uses live cluster credentials only, never the vault token.
     if action in {'setup', 'prove', 'verify'} and not os.environ['OP_SERVICE_ACCOUNT_TOKEN']:
         raise SystemExit('Missing .env inputs: OP_SERVICE_ACCOUNT_TOKEN')
     required = tuple(prefix + suffix for prefix in ('VM', 'VM2')
@@ -118,12 +127,18 @@ def main():
         playbook('playbooks/' + action + '.yml')
     elif action in {'baseline', 'storage-check'}:
         playbook({'baseline': 'playbooks/baseline.yml', 'storage-check': 'playbooks/longhorn/check-host.yml'}[action])
+    elif action == 'monthly-proof':
+        playbook('playbooks/monthly-proof.yml')
     else:
         gitops_preflight()
         playbook('playbooks/setup.yml')
         if action == 'prove':
             playbook('playbooks/setup.yml', unchanged=True)
         playbook('playbooks/verify.yml')
+        playbook('playbooks/secrets/accept.yml')
+        playbook('playbooks/longhorn/accept.yml')
+        playbook('playbooks/longhorn/accept-backup.yml')
+        stamp_setup()
 
 
 if __name__ == '__main__':

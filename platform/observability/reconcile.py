@@ -8,7 +8,9 @@ declaration is the approval: standing reconciliation applies. Provider guards
 (Free eligibility, registered-email contact, duplicate detection, explicit URL
 migration, paused refusal, uncertain-mutation recovery) fail closed.
 Unrelated monitors are never adopted; undeclared owned monitors are retained
-and reported, never deleted.
+and reported, never deleted. Deletion requires an explicit deletionPolicy
+Delete declaration in the accepted complete revision and removes only the
+owned monitor whose endpoint still matches that declaration.
 
 Each cycle also exports redacted external-owner status snapshots per
 infra/status.contract.json. Disabled, missing, future, or stale evidence
@@ -246,6 +248,16 @@ def reconcile_uptime(revision, docs, errors, entries, profiles, *,
             target = uptimerobot.declared(docs[key], host,
                                           profiles[monitoring[
                                               'notificationProfile']])
+            if docs[key].get('deletionPolicy', 'Retain') == 'Delete':
+                current = uptimerobot.owned(rows, key)
+                if current is not None and apply_allowed:
+                    uptimerobot.remove_owned(api, key, target['url'])
+                    applied += 1
+                monitors[key] = {
+                    'configured': current is None or apply_allowed,
+                    'changes': int(current is not None),
+                    'deletionPolicy': 'Delete'}
+                continue
             plan = uptimerobot.reconcile(api, key, target['url'],
                                          profiles[monitoring[
                                              'notificationProfile']])

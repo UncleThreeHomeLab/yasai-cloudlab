@@ -165,7 +165,7 @@ def owned(obj, current):
 
 
 def run(payload, action):
-    if action not in ('seed', 'seed-stop', 'accept', 'recover'):
+    if action not in ('seed', 'accept', 'recover'):
         raise RuntimeError('Unknown storage ownership action')
     objects, config = payload['items'], payload['fixture']
     generated = payload.get('generated', [])
@@ -179,7 +179,7 @@ def run(payload, action):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         path = BASE / 'ownership.json'
         if not path.exists():
-            if action not in ('seed', 'seed-stop') or get(APP):
+            if action != 'seed' or get(APP):
                 raise RuntimeError('Storage seed requires no competing Argo writer')
             existing = identities(inventory)
             if existing and len(existing) != len(inventory):
@@ -225,7 +225,7 @@ def run(payload, action):
             record(state)
             changed = True
         if state['phase'] in ('preparing', 'seeding'):
-            if action not in ('seed', 'seed-stop') or get(APP):
+            if action != 'seed' or get(APP):
                 raise RuntimeError('Storage seeding refuses a competing writer')
             if state['phase'] == 'preparing':
                 if state['fixture']:
@@ -241,14 +241,7 @@ def run(payload, action):
             state.update(phase='seeded', identities=identities(inventory))
             record(state)
             changed = True
-        if action == 'seed-stop':
-            if state['phase'] != 'seeded':
-                raise RuntimeError('Storage interruption proof must precede writer release')
-            if not state.get('interruption_test_completed'):
-                state['interruption_test_completed'] = True
-                record(state)
-                changed = True
-        elif state['phase'] == 'seeded':
+        if state['phase'] == 'seeded':
             if action != 'seed' or get(APP):
                 raise RuntimeError('Storage writer release refuses a competing writer')
             # A fresh installation gets the same attached fixture before adoption.

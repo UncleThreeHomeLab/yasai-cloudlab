@@ -1,0 +1,23 @@
+---
+- name: Record completed setup on each server
+  hosts: k3s_cluster
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the reviewed setup revision before stamping completion
+      ansible.builtin.assert:
+        that: lookup('env', 'LAB_SETUP_COMPLETED_REVISION') | length > 0
+        fail_msg: Setup completion stamp requires its reviewed revision.
+
+    - name: Create the setup completion directory
+      ansible.builtin.file:
+        path: /var/lib/cloudlab
+        state: directory
+        mode: '0755'
+
+    - name: Record the completed setup revision
+      ansible.builtin.copy:
+        content: "{{ {'completed': true, 'revision': lookup('env', 'LAB_SETUP_COMPLETED_REVISION')} | to_json }}"
+        dest: /var/lib/cloudlab/setup-completed.json
+        mode: '0640'

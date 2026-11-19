@@ -29,4 +29,7 @@
 - name: Require live authoritative answers and retained forwarding
   ansible.builtin.assert:
     that: access_dns_checked.rc == 0 and (access_dns_checked.stdout | from_json).dns_ready
-    fail_msg: Independent private DNS failed its live proof; run setup to upgrade pre-declaration resolvers, then inspect the retained generation.
+    fail_msg: >-
+      Independent private DNS failed its live proof; converge resolvers through
+      the accepted Git declarations and standing connectivity reconciler, then
+      inspect the retained generation.

@@ -71,15 +71,6 @@
 {{- $_ := set .Values "policyName" $policy }}
 {{- $_ := set .Values "manageSharedResources" $shared }}
 {{- if hasKey .Values "workflowTemplates" }}{{ $_ := unset .Values "workflowTemplates" }}{{- end }}
-{{- if and (eq $comp "runner") (hasKey $r "testing") }}
-{{- $image := $r.testing.image }}
-{{- $private := eq $vis "private" }}
-{{- $project := ternary "cloudlab-private" "cloudlab-public" $private }}
-{{- if not (regexMatch (printf "^[^/]+/%s/" $project) $image) }}{{ fail "Test environment must match the pool visibility" }}{{- end }}
-{{- $_ := set .Values "testing" (dict "image" $image) }}
-{{- else }}
-{{- if hasKey .Values "testing" }}{{ $_ := unset .Values "testing" }}{{- end }}
-{{- end }}
 {{- if eq $comp "publisher" }}
 {{- $p := $r.publishing }}
 {{- $releaseVis := $p.releaseVisibility | default $vis }}

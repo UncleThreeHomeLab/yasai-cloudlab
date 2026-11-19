@@ -93,7 +93,7 @@ class BackupOwnershipTests(unittest.TestCase):
                 backup.run(self.payload, 'recover')
             apply.assert_not_called()
 
-    def test_interruption_resumes_without_reapplying_and_preserves_identity(self):
+    def test_seed_resumes_without_reapplying_and_preserves_identity(self):
         self.payload = payload({'store': 'cloudlab', 'bucket': 'fixture-bucket', 'region': 'fixture-region'})
         self.payload['enabled'] = True
         self.payload['revision'] = 'reviewed'
@@ -124,7 +124,7 @@ class BackupOwnershipTests(unittest.TestCase):
                 patch.object(backup, 'secret_receipt', return_value=credential), \
                 patch.object(backup, 'apply') as apply, patch.object(backup, 'kube', side_effect=kube):
             self.assertEqual(backup.run(seed_payload, 'credential-seed')['phase'], 'preparing')
-            self.assertEqual(backup.run(self.payload, 'seed-stop')['phase'], 'seeded')
+            self.assertEqual(backup.run(self.payload, 'seed')['phase'], 'released')
             apply.reset_mock()
             self.assertFalse(backup.run(seed_payload, 'credential-seed')['changed'])
             self.assertEqual(backup.run(self.payload, 'seed')['phase'], 'released')
@@ -136,12 +136,14 @@ class BackupOwnershipTests(unittest.TestCase):
             self.assertEqual(backup.run(self.payload, 'accept')['phase'], 'accepted')
             self.assertFalse(backup.run(self.payload, 'accept')['changed'])
 
-    def test_interruption_after_release_is_forbidden(self):
+    def test_unknown_backup_action_is_refused_without_writes(self):
         self.state('released')
-        with self.assertRaisesRegex(RuntimeError, 'precede writer release'):
-            backup.run(self.payload, 'seed-stop')
+        with patch.object(backup, 'apply') as apply, \
+                self.assertRaisesRegex(RuntimeError, 'Unknown backup ownership action'):
+            backup.run(self.payload, 'migrate')
+        apply.assert_not_called()
 
-    def test_changed_credential_blocks_release_after_interruption(self):
+    def test_changed_credential_blocks_release_after_seed(self):
         self.state('seeded')
         with patch.object(backup, 'get', return_value=None), \
                 patch.object(backup, 'identities', return_value={}), \

@@ -17,8 +17,6 @@
   ansible.builtin.import_playbook: longhorn/verify-storage.yml
 - name: Verify external credential delivery
   ansible.builtin.import_playbook: secrets/verify.yml
-- name: Accept verified storage ownership
-  ansible.builtin.import_playbook: longhorn/verify-controller.yml
 - name: Verify independent local control plane recovery
   ansible.builtin.import_playbook: backup/verify.yml
 - name: Verify backup credential handoff

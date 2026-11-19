@@ -86,35 +86,31 @@ def run(payload):
         if not path.exists():
             protected = [('namespace', 'cloudlab-gateway-public', None),
                          ('namespace', 'cloudlab-gateway-private', None),
-                         ('certificate.cert-manager.io', 'cloudlab-staging', 'cert-manager')]
-            for stage in ('staging', 'production'):
-                protected.extend([('clusterissuer.cert-manager.io', 'cloudlab-acme-' + stage, None),
-                                  ('secret', 'cloudlab-acme-' + stage, 'cert-manager')])
+                         ('clusterissuer.cert-manager.io', 'cloudlab-acme-production', None),
+                         ('secret', 'cloudlab-acme-production', 'cert-manager')]
             if any(get(*identity) for identity in protected):
                 raise RuntimeError('Certificate configuration refuses existing resources without an ownership checkpoint')
-        state = json.loads(path.read_text()) if path.exists() else {'phase': 'staging', 'zone_hash': zone_hash}
-        if state.get('zone_hash') != zone_hash or state.get('phase') not in ('staging', 'production', 'accepted'):
+        state = json.loads(path.read_text()) if path.exists() else {'phase': 'production', 'zone_hash': zone_hash}
+        if state.get('zone_hash') != zone_hash:
             raise RuntimeError('DNS zone or certificate checkpoint changed; preserve issued credentials and review migration')
-        changed = False
-        if state['phase'] == 'staging':
-            record(state)
-            changed |= configure(payload, selected_zone, False, state)
-            state['staging'] = certificate('cloudlab-staging', 'cert-manager')
+        if state.get('phase') == 'staging':
+            # A legacy seed converged the retired staging phase only; it moves
+            # forward to production without requiring the staging certificate.
             state['phase'] = 'production'
             record(state)
-            changed = True
+        if state.get('phase') not in ('production', 'accepted'):
+            raise RuntimeError('DNS zone or certificate checkpoint changed; preserve issued credentials and review migration')
+        if not path.exists():
+            record(state)
+        changed = False
         changed |= configure(payload, selected_zone, True, state)
-        if certificate('cloudlab-staging', 'cert-manager') != state['staging']:
-            raise RuntimeError('Staging certificate or Secret identity changed')
         identities = {kind: certificate('cloudlab-gateway', 'cloudlab-gateway-' + kind)
                       for kind in ('public', 'private')}
-        accounts = {}
-        for stage in ('staging', 'production'):
-            secret = get('secret', 'cloudlab-acme-' + stage, 'cert-manager')
-            if not secret or not secret.get('data'):
-                raise RuntimeError('Certificate account credential is missing')
-            accounts[stage] = {'uid': secret['metadata']['uid'],
-                'content': hashlib.sha256(json.dumps(secret['data'], sort_keys=True).encode()).hexdigest()}
+        secret = get('secret', 'cloudlab-acme-production', 'cert-manager')
+        if not secret or not secret.get('data'):
+            raise RuntimeError('Certificate account credential is missing')
+        accounts = {'production': {'uid': secret['metadata']['uid'],
+            'content': hashlib.sha256(json.dumps(secret['data'], sort_keys=True).encode()).hexdigest()}}
         if 'accounts' in state and state['accounts'] != accounts:
             raise RuntimeError('Certificate account credential identity or content changed')
         if 'identities' in state and state['identities'] != identities:
@@ -124,7 +120,7 @@ def run(payload):
             record(state)
             changed = True
         return {'changed': changed, 'phase': state['phase'], 'production_certificates': 2,
-                'staging_preceded_production': True, 'credential_owner': 'external-secrets'}
+                'credential_owner': 'external-secrets'}
 
 
 if __name__ == '__main__':

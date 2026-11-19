@@ -1,4 +1,7 @@
-"""Create missing task-owned vault items without exposing the local writer token."""
+"""Create missing task-owned vault items without exposing the local writer token.
+
+Missing items only; never overwrites, rotates, or deletes. Field sets follow
+their owning component contracts; ESO stays the sole read-only synchronizer."""
 import json
 import os
 import re

@@ -65,3 +65,26 @@ class ApprovalTests(unittest.TestCase):
     def test_malformed_binding_fails_loudly(self):
         with self.assertRaises(Exception):
             exposure.validate_approval('revision: %s\n' % self.revision)
+
+    def test_duplicate_binding_key_refused_before_acceptance(self):
+        with self.assertRaisesRegex(ValueError, 'uplicate key'):
+            exposure.validate_approval(
+                'revision: %s\nplan: %s\nplan: %s\n' % (self.revision, self.plan, self.plan))
+
+
+class DuplicateKeyTests(unittest.TestCase):
+    def test_duplicate_service_key_refused_before_acceptance(self):
+        text = ('exposures:\n  prices:\n    service: prices\n    publication: published\n'
+                '    exposure: {class: public, hostname: prices.example.test, access: public,'
+                ' backend: web, path: /, port: 8080}\n  prices:\n    service: prices\n'
+                '    publication: retired\n    exposure: {class: public,'
+                ' hostname: prices.example.test, access: public, backend: web, path: /, port: 8080}\n')
+        with self.assertRaisesRegex(ValueError, 'uplicate key'):
+            exposure.validate_bundle(text, 'example.test')
+
+    def test_duplicate_route_field_refused_before_acceptance(self):
+        text = ('exposures:\n  prices:\n    service: prices\n    publication: published\n'
+                '    exposure: {class: public, hostname: prices.example.test, access: public,'
+                ' backend: web, path: /, path: /other, port: 8080}\n')
+        with self.assertRaisesRegex(ValueError, 'uplicate key'):
+            exposure.validate_bundle(text, 'example.test')

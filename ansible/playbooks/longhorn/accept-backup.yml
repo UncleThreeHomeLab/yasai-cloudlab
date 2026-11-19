@@ -1,0 +1,29 @@
+---
+- name: Accept backup declarations after preserved credential checks
+  hosts: k3s_servers
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files: [vars.yml]
+  tasks:
+    - name: Accept backup declarations after preserved credential checks
+      when: longhorn_backup_gitops_enabled | bool
+      block:
+        - name: Install the storage module's bounded tooling
+          ansible.builtin.import_tasks: tasks/controller-tooling.yml
+
+        - name: Read current private inputs for backup ownership acceptance
+          ansible.builtin.import_tasks: tasks/backup-read.yml
+
+        - name: Render current backup ownership acceptance inputs
+          ansible.builtin.import_tasks: tasks/backup-render.yml
+
+        - name: Accept Argo backup declarations only after preserved credential checks
+          ansible.builtin.include_tasks: tasks/backup-action.yml
+          vars:
+            longhorn_backup_action: accept
+
+        - name: Prove backup declaration drift repair without changing its schedule
+          ansible.builtin.command:
+            argv: [python3, /var/lib/cloudlab/longhorn/verify_gitops.py, backup]
+          changed_when: true

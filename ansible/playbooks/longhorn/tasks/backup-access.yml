@@ -20,10 +20,8 @@
   no_log: true
   changed_when: false
   failed_when: false
-  when: lookup('env', 'LAB_MONTHLY_PROOF') == '1'
 
 - name: Require B2 list, write, read and delete access
   ansible.builtin.assert:
     that: longhorn_backup_access.rc == 0
     fail_msg: B2 access check failed using the 1Password item; existing backup target was not switched.
-  when: lookup('env', 'LAB_MONTHLY_PROOF') == '1'

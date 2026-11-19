@@ -53,6 +53,7 @@
       "Omitted clients"
     ],
     "removal": "Explicit retirement (client disabled plus persistent tombstone) required; retired client IDs are never reused and reconciliation refuses a removed client still present; preserve unrelated users and vault credentials",
+    "proof_retirement": "Retire proof enrollment branches, Jobs, credential mounts, proof-only users/groups and ExternalSecrets only after confirming disabled state and remaining real consumers; the real application-owner path shares the /proof-credentials mount, so keep the mount until that path migrates; never delete vault items",
     "groups": "Match full /platform-admin, /developer and /viewer paths; never subgroup basenames"
   },
   "sessions": {
