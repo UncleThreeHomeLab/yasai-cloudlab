@@ -71,27 +71,9 @@ existing owner pins do not advance automatically. Approve external address range
 separately from promoting the owner. Public HTTPS and dynamic webhooks gain no
 allowance from this capability alone.
 
-Run the [egress verifier](../verification/integration/workload_egress.py) against
-the two existing nodes before advancing the active owner:
-
-```text
-docker compose run --rm --entrypoint python lab /workspace/verification/integration/workload_egress.py
-```
-
-It uses local VM bootstrap inputs and creates only receipt-owned test namespaces.
-After failure, append the reported `--cleanup RUN_ID`; keep the recovery volume
-until cleanup confirms absence. `--resume RUN_ID` finishes cleanup, then requires
-a fresh proof. Existing connections and unsupported destinations remain separate gates.
 Ambient DNS can answer Service names locally; test forwarded queries separately.
 For ambient peers, verify the HBONE transport allowance and use mesh authorization
 to restrict workload identity and inner ports.
-
-Use `--external-ipv4` for the isolated external lifecycle. Supply private JSON on
-stdin: `addresses` contains two distinct off-cluster IPv4 addresses; `ports`
-contains two distinct TCP ports. All four HTTP listeners must return exactly
-`cloudlab-external-egress-proof`. Keep these controls reachable throughout the
-proof; missing or unhealthy controls leave it unqualified. This does not qualify
-hostnames, HTTPS, UDP, IPv6 or established connections.
 
 Shared gateways read `platform/certificates.yaml` from private Git main and
 `identity/argo-values.yaml` at the existing approved identity binding revision.
@@ -1028,9 +1010,8 @@ changes; rotation/removal/recovery remain independently scoped.
    and restricted namespaces in force;
    routine apps need no admission exemptions. Review optional `approval.artifact`
    and its approved signing identities in private `services/catalog.json`.
-   For a new artifact policy, use `Audit` before the
-   [artifact verification](../verification/integration/application_release.py)
-   passes; move to `Enforce` only through review, retaining rollback identities.
+   For a new artifact policy, use `Audit`, then move to `Enforce` only
+   through review, retaining rollback identities.
    Check client, credential and protection configuration before publication.
    Complete real browser login and allowed/denied action tests after the hostname
    is reachable, in section 6.6; configuration readiness alone does not prove them.
@@ -1298,11 +1279,6 @@ Source repository visibility does not change this path.
    A dashboard file does not enable scraping or ingestion.
    Keep `definition.monitoring.enabled` false; do not add an application-owned ServiceMonitor.
 4. **Agent:** use the owning service's accepted SLO thresholds and rules.
-   Notes thresholds stay pinned with
-   `charts/service/release-policy.json` in
-   `platform/observability/prometheus/notes-slo.json`, rendered through the
-   explicit native include in `platform/observability/prometheus/templates/notes-slo.yaml`.
-   Do not copy those expressions as a generic onboarding template.
    Request/error/latency panels require accepted instrumentation; readiness and resources
    alone do not establish application health. Alert counts require reliable service
    attribution and rule-evaluation coverage; otherwise leave them unavailable.

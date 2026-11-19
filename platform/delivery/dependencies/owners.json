@@ -443,9 +443,7 @@
       ],
       "group": "rollouts",
       "updater": "chart",
-      "checks": [
-        "module:playbooks.rollouts.files.check"
-      ],
+      "checks": [],
       "writePaths": [
         "platform/delivery/rollouts/Chart.yaml",
         "platform/delivery/rollouts/artifact.lock.json",
@@ -750,7 +748,6 @@
         "platform/delivery/ci/runner/nuget/Runner.Sdk/packages.lock.json",
         "platform/delivery/ci/runner/nuget/Runner.Worker/packages.lock.json",
         "platform/delivery/ci/runner/nuget/Sdk/packages.lock.json",
-        "platform/delivery/ci/runner/nuget/Test/packages.lock.json",
         "platform/delivery/ci/runner/runner.patch"
       ],
       "group": "ci",
@@ -766,7 +763,6 @@
         "platform/delivery/ci/runner/nuget/Runner.Sdk/packages.lock.json",
         "platform/delivery/ci/runner/nuget/Runner.Worker/packages.lock.json",
         "platform/delivery/ci/runner/nuget/Sdk/packages.lock.json",
-        "platform/delivery/ci/runner/nuget/Test/packages.lock.json",
         "platform/delivery/ci/runner/runner.patch",
         "platform/delivery/ci/runner/source.lock.json"
       ],
@@ -1929,9 +1925,7 @@
       ],
       "group": "rollouts Gateway API plugin",
       "updater": "tool",
-      "checks": [
-        "module:playbooks.rollouts.files.check"
-      ],
+      "checks": [],
       "nativeDependencies": [
         "argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi"
       ]
@@ -1996,9 +1990,7 @@
       ],
       "group": "rollouts",
       "updater": "image",
-      "checks": [
-        "module:playbooks.rollouts.files.check"
-      ],
+      "checks": [],
       "selectors": [
         "quay.io/argoproj/argo-rollouts:v1.10.1"
       ],

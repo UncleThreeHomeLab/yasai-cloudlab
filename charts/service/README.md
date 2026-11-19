@@ -140,11 +140,8 @@ Registry verification uses a pull-only credential copy in Kyverno's namespace;
 Kyverno receives no application Secret collection permissions.
 The exact declared bootstrap image remains an explicit unsigned recovery exception.
 Retain approved signing identities and registry artifacts for rollback.
-After a release converges, run `docker compose run --rm --entrypoint python
-infra-harbor /workspace/verification/integration/application_release.py`. This
-tests enforcement only against named server dry-runs, retains its registry proof
-artifacts and pulls the approved digest on both node host networks. Change the
-production policy to `Enforce` only after this check passes.
+After a release converges, change the production policy to `Enforce` only
+after manual review, retaining rollback identities.
 The complete reviewed definition supplies Helm values. When the chart and definition
 share the platform repository, one pinned source uses those values directly. A separate
 repository uses its approved immutable values source; the complete definition still

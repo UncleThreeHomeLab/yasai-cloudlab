@@ -150,18 +150,10 @@ function loadState(file) {
   return state;
 }
 
+// Native toolchain qualification retired with validate.cjs and fixture/; no
+// replacement exists, so the qualify stage stays fail-closed (see readyCheck).
 function runQualify(stagesDir, image) {
-  const result = spawnSync(process.execPath, [path.join(stagesDir, 'qualify.cjs')], {
-    encoding: 'utf8', timeout: QUALIFY_TIMEOUT_MS, maxBuffer: 1024 * 1024,
-    env: {PATH: process.env.PATH, HOME: process.env.HOME || '/tmp/home',
-      DEPENDENCY_RENOVATE_IMAGE: image}
-  });
-  if (result.status !== 0) return false;
-  try {
-    return JSON.parse(result.stdout.trim()).passed === true;
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 function runPropose(request, timeoutMs) {
