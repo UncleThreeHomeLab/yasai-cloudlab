@@ -8,7 +8,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -570,3 +572,52 @@ class DnsStatusPublishTests(unittest.TestCase):
                     config = reconcile.configuration()
         self.assertEqual(config['interval'], 300)
         silent.assert_not_called()
+
+
+class RetirementJournalTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        worker = patch.object(reconcile, 'WORK', Path(self.folder.name))
+        worker.start()
+        self.addCleanup(worker.stop)
+        self.journal = Path(self.folder.name) / 'retirement-pending.json'
+
+    def test_missing_journal_starts_empty(self):
+        self.assertEqual(reconcile.load_pending(), {'public': [], 'private': []})
+
+    def test_round_trip_persists_sorted_names_with_owner_only_mode(self):
+        reconcile.save_pending(['b.example.test', 'a.example.test'], ['x.internal.example.test'])
+        self.assertEqual(reconcile.load_pending(),
+                         {'public': ['a.example.test', 'b.example.test'],
+                          'private': ['x.internal.example.test']})
+        self.assertEqual(self.journal.stat().st_mode & 0o777, 0o600)
+
+    def test_invalid_journal_refuses_the_cycle(self):
+        bodies = ['not-json', '{"public": []}', '{"public": ["a.example.test"], "private": "x"}',
+                  '{"public": [""], "private": []}', '{"public": ["has space.test"], "private": []}',
+                  '{"public": ["bad/name.test"], "private": []}',
+                  '{"public": ["-leading.test"], "private": []}',
+                  '{"public": ["%s.test"], "private": []}' % ('x' * 300),
+                  '{"public": ["dup.example.test", "dup.example.test"], "private": []}']
+        for body in bodies:
+            with self.subTest(body=body[:40]):
+                self.journal.write_text(body)
+                with self.assertRaises(RuntimeError):
+                    reconcile.load_pending()
+
+    def test_oversized_pending_names_refuse_to_persist(self):
+        with self.assertRaises(RuntimeError):
+            reconcile.save_pending(['h%d.example.test' % n for n in range(65)], [])
+
+    def test_foreign_journal_owner_refuses_the_cycle(self):
+        reconcile.save_pending(['a.example.test'], [])
+        with patch.object(os, 'geteuid', return_value=os.geteuid() + 1):
+            with self.assertRaises(RuntimeError):
+                reconcile.load_pending()
+
+    def test_tofu_timeout_keeps_shared_state(self):
+        with patch.object(reconcile.subprocess, 'run',
+                          side_effect=subprocess.TimeoutExpired('tofu', 600)):
+            with self.assertRaisesRegex(RuntimeError, 'timed out; shared state retained'):
+                reconcile.tofu(Path('.'), {}, 'plan')

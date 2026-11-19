@@ -176,8 +176,7 @@ spec:
            'pod-security.kubernetes.io/enforce-version', 'pod-security.kubernetes.io/audit',
            'pod-security.kubernetes.io/warn'].all(k, k in object.metadata.labels) &&
           object.metadata.labels['cloudlab.io/owner'] == 'ci-platform' &&
-          object.metadata.labels['cloudlab.io/ci-role'] == (object.metadata.name == 'cloudlab-ci-system' ? 'controller' :
-            object.metadata.name.startsWith('cloudlab-ci-proof-') ? 'qualification' : 'runner') &&
+          object.metadata.labels['cloudlab.io/ci-role'] == (object.metadata.name == 'cloudlab-ci-system' ? 'controller' : 'runner') &&
           object.metadata.labels['pod-security.kubernetes.io/enforce'] ==
             (object.metadata.name == 'cloudlab-ci-system' ? 'restricted' : 'baseline') &&
           object.metadata.labels['pod-security.kubernetes.io/enforce-version'] == 'v1.36' &&

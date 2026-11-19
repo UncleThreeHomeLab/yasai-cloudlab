@@ -70,6 +70,10 @@ POLICY_PATH = 'platform/access/policy.yaml'
 EXPOSURES_PATH = 'services/exposures.yaml'
 APPROVAL_PATH = 'platform/access/cloudflare-approval.yaml'
 MAX_FILE_BYTES = 65536
+RETIREMENT_JOURNAL = 'retirement-pending.json'
+MAX_PENDING_NAMES = 64
+MAX_JOURNAL_BYTES = 16384
+HOSTNAME_SHAPE = re.compile(r'[A-Za-z0-9]([A-Za-z0-9._-]{0,251}[A-Za-z0-9])?')
 RESOLVER_FILES = ('dns_host.py', 'dns_render.py', 'dns_wire.py')
 RESOLVER_DIR = '/var/lib/cloudlab/private-dns'
 
@@ -558,8 +562,11 @@ plan {
 
 
 def tofu(directory, environment, *args, timeout=600):
-    result = subprocess.run(['tofu', *args], cwd=directory, env=environment,
-                            capture_output=True, text=True, timeout=timeout)
+    try:
+        result = subprocess.run(['tofu', *args], cwd=directory, env=environment,
+                                capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Native Cloudflare operation timed out; shared state retained') from None
     if result.returncode:
         raise RuntimeError('Native Cloudflare operation failed; shared state retained')
     return result.stdout
@@ -649,6 +656,51 @@ def verify_retirement(base, credentials, retired_public, withdrawn_private, clus
             proof[hostname] = {'dnsWithdrawn': dns_gone, 'routeAbsent': route_gone,
                                'verified': dns_gone and route_gone}
     return {'verified': all(row['verified'] for row in proof.values()), 'hostnames': proof}
+
+
+def atomic_write(path, text):
+    """Crash-safe 0600 file replacement; mirrors the governance reconciler."""
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(text)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def load_pending():
+    """Still-unverified retirement names; any violation refuses the cycle."""
+    path = WORK / RETIREMENT_JOURNAL
+    if not path.exists():
+        return {'public': [], 'private': []}
+    if path.stat().st_uid != os.geteuid():
+        raise RuntimeError('Retirement journal ownership changed; retained generation kept')
+    raw = path.read_bytes()
+    if len(raw) > MAX_JOURNAL_BYTES:
+        raise RuntimeError('Retirement journal exceeds its bound; retained generation kept')
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        raise RuntimeError('Retirement journal is unreadable; retained generation kept') from None
+    if (not isinstance(document, dict) or set(document) != {'public', 'private'}
+            or any(not isinstance(document[key], list) for key in ('public', 'private'))
+            or sum(len(document[key]) for key in ('public', 'private')) > MAX_PENDING_NAMES
+            or any(not isinstance(name, str) or not HOSTNAME_SHAPE.fullmatch(name)
+                   for key in ('public', 'private') for name in document[key])
+            or any(len(set(document[key])) != len(document[key])
+                   for key in ('public', 'private'))):
+        raise RuntimeError('Retirement journal violates its contract; retained generation kept')
+    return document
+
+
+def save_pending(public, private):
+    """Persist still-unverified names; verified names are dropped, never re-added."""
+    pending = {'public': sorted(set(public)), 'private': sorted(set(private))}
+    if sum(len(names) for names in pending.values()) > MAX_PENDING_NAMES:
+        raise RuntimeError('Retirement journal exceeds its bound; retained generation kept')
+    text = json.dumps(pending, sort_keys=True)
+    if len(text.encode()) > MAX_JOURNAL_BYTES:
+        raise RuntimeError('Retirement journal exceeds its bound; retained generation kept')
+    WORK.mkdir(parents=True, exist_ok=True)
+    atomic_write(WORK / RETIREMENT_JOURNAL, text)
 
 
 def retired_hostnames(state_document, current):
@@ -761,6 +813,8 @@ def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
     desired = dict(base, applications=dict(base['applications']) | compiled['applications'],
                    service_exposures=compiled['service_exposures'])
     directory = WORK / 'cloudflare'
+    # Start-of-cycle cleanup covers this ephemeral workspace only; shared
+    # remote state is never deleted here and survives every failure path.
     if directory.exists():
         shutil.rmtree(directory)
     shutil.copytree(ROOT / 'infra/cloudflare', directory,
@@ -771,10 +825,13 @@ def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
     # Ephemeral work dir: the image provider mirror plus the version constraint
     # pins the provider; init records its lockfile fresh every run.
     tofu(directory, environment, 'init', '-input=false', '-reconfigure')
-    planned = subprocess.run(['tofu', 'plan', '-input=false', '-detailed-exitcode',
-                              '-out=plan', '-var-file=desired.tfvars.json'],
-                             cwd=directory, env=environment, capture_output=True,
-                             text=True, timeout=600)
+    try:
+        planned = subprocess.run(['tofu', 'plan', '-input=false', '-detailed-exitcode',
+                                  '-out=plan', '-var-file=desired.tfvars.json'],
+                                 cwd=directory, env=environment, capture_output=True,
+                                 text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Native Cloudflare plan timed out; shared state retained') from None
     if planned.returncode not in (0, 2):
         raise RuntimeError('Native Cloudflare plan failed; shared state retained')
     document = json.loads(tofu(directory, environment, 'show', '-json', 'plan'))
@@ -816,9 +873,12 @@ def reconcile_cloudflare(config, github, cluster, *, apply_allowed=True):
                 'published': published, 'retired': retired, 'drifted': True,
                 'approved': approved, 'pending_review': True}
     tofu(directory, environment, 'init', '-input=false', '-reconfigure')
-    applied = subprocess.run(['tofu', 'apply', '-input=false', '-auto-approve', 'plan'],
-                             cwd=directory, env=environment, capture_output=True,
-                             text=True, timeout=600)
+    try:
+        applied = subprocess.run(['tofu', 'apply', '-input=false', '-auto-approve', 'plan'],
+                                 cwd=directory, env=environment, capture_output=True,
+                                 text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Native Cloudflare apply timed out; inspect shared state before retrying') from None
     if applied.returncode:
         raise RuntimeError('Native Cloudflare apply failed; inspect shared state before retrying')
     return {'ready': True, 'changed': True, 'revision': revision, 'plan': digest,
@@ -923,7 +983,18 @@ def once(config, github):
         zone = (tailnet or {}).get('zone', '')
         for detail in status['dns']['hosts'].values():
             withdrawn_private.update(label + '.' + zone for label in detail.get('withdrawn', []))
-    if (retired_public or withdrawn_private) and cluster:
+    try:
+        journal = load_pending()
+    except RuntimeError as error:
+        failed = True
+        status['retirement'] = {'verified': False, 'error': str(error)}
+        journal = None
+    if journal is not None:
+        retired_public = sorted(set(retired_public) | set(journal['public']))
+        withdrawn_private = set(withdrawn_private) | set(journal['private'])
+    if journal is None:
+        pass  # Journal violation already recorded above; nothing further is provable.
+    elif (retired_public or withdrawn_private) and cluster:
         try:
             ensure_resolver_scripts()
             base = credentials = None
@@ -934,6 +1005,7 @@ def once(config, github):
             requested = set(retired_public) | withdrawn_private
             if set(retired_public) & withdrawn_private:
                 raise RuntimeError('Retirement proof failed; retained generation kept')
+            save_pending(retired_public, sorted(withdrawn_private))
             retirement = verify_retirement(base, credentials, retired_public,
                                            withdrawn_private, discover_cluster())
             rows = retirement.get('hostnames') if isinstance(retirement, dict) else None
@@ -943,6 +1015,8 @@ def once(config, github):
                     type(retirement.get('verified')) is not bool or
                     retirement['verified'] != all(row['verified'] for row in rows.values())):
                 raise RuntimeError('Retirement proof failed; retained generation kept')
+            save_pending([name for name in retired_public if not rows[name]['verified']],
+                         sorted(name for name in withdrawn_private if not rows[name]['verified']))
             status['retirement'] = retirement
             if not retirement['verified']:
                 failed = True
@@ -950,8 +1024,18 @@ def once(config, github):
             failed = True
             status['retirement'] = {'verified': False, 'error': str(error)}
     elif not cluster:
-        status['retirement'] = {'verified': False, 'skipped': True}
-        failed = True
+        if retired_public or withdrawn_private:
+            try:
+                save_pending(retired_public, sorted(withdrawn_private))
+            except RuntimeError as error:
+                failed = True
+                status['retirement'] = {'verified': False, 'error': str(error)}
+            else:
+                status['retirement'] = {'verified': False, 'skipped': True}
+                failed = True
+        else:
+            status['retirement'] = {'verified': False, 'skipped': True}
+            failed = True
     else:
         status['retirement'] = {'verified': True, 'hostnames': {}}
     status['ok'] = not failed
