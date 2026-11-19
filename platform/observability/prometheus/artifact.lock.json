@@ -3,7 +3,7 @@
   "version": "92.3.1",
   "appVersion": "v0.94.1",
   "url": "https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-92.3.1/kube-prometheus-stack-92.3.1.tgz",
-  "sha256": "f38a02d00b2a3d1a7f657a43c0ed591b6bdb456f65e89abfa34b132376a50a78",
+  "sha256": "1f4f7623412946549de097d6326b7aa732b7ae400e12f357d175a7317c788d32",
   "archive": "charts/kube-prometheus-stack-92.3.1.tgz",
-  "upstream_sha256": "5c976ae9562ec3b28b571f38e109e5d3f2ea3355573da416cd06be52dce6bd6a"
+  "upstream_sha256": "6a033d8bfa3861897e6787221b5c8b61262ad98d177cca4a2b27c9f8f5cc6b63"
 }

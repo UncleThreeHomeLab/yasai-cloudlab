@@ -26,10 +26,6 @@ services:
         source: .
         target: /candidate
         read_only: true
-      - type: bind
-        source: ./platform/delivery/dependencies/fixture
-        target: /fixture
-        read_only: true
       - type: volume
         source: maintenance_state
         target: /maintenance/state
