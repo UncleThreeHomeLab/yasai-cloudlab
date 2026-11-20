@@ -1,36 +1,43 @@
 ---
-- name: Sync the verification implementation before running it
-  ansible.builtin.copy:
-    src: '{{ item.src }}'
-    dest: '/opt/cloudlab/gitops/{{ item.dest }}'
-    owner: root
-    group: root
-    mode: '0600'
-  loop:
-    - {src: /workspace/ansible/playbooks/argocd/files/verify.py, dest: verify.py}
-    - {src: /workspace/ansible/playbooks/argocd/files/bootstrap.py, dest: bootstrap.py}
-    - {src: /workspace/verification/integration/controller_stability.py,
-       dest: controller_stability.py}
 - name: Render committed GitOps verification inputs
   ansible.builtin.command:
-    argv: [python, /workspace/ansible/playbooks/argocd/files/render.py]
+    argv: [python, /workspace/ansible/playbooks/argocd/files/render.py, verify]
   delegate_to: localhost
   become: false
   register: gitops_verification_payload
   changed_when: false
   no_log: true
-- name: Prove public source restrictions and private Argo access
+- name: Prepare reviewed Argo boundary declarations
   ansible.builtin.command:
-    argv: [python3, /opt/cloudlab/gitops/verify.py]
+    argv: [python, /workspace/ansible/playbooks/argocd/files/observe.py, prepare]
     stdin: '{{ gitops_verification_payload.stdout }}'
+  delegate_to: localhost
+  become: false
+  register: gitops_observation_inputs
+  changed_when: false
+  no_log: true
+- name: Observe GitOps convergence and Argo authorization configuration
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -IB
+      - -c
+      - >-
+        stability = {"__name__": "controller_stability"};
+        exec(compile({{ lookup('file', '/workspace/verification/integration/controller_stability.py', rstrip=false) | to_json }},
+        "controller_stability.py", "exec"), stability);
+        exec(compile({{ lookup('file', '/workspace/ansible/playbooks/argocd/files/observe.py', rstrip=false) | to_json }},
+        "observe.py", "exec"), {"__name__": "__main__", "fingerprint": stability["fingerprint"]})
+    expand_argument_vars: false
+    stdin: '{{ gitops_observation_inputs.stdout }}'
   register: gitops_verification
   changed_when: false
   failed_when: false
   no_log: true
-- name: Require the public GitOps behavior checks to pass
+- name: Require the read-only GitOps observations to pass
   ansible.builtin.assert:
     that: gitops_verification.rc == 0
     fail_msg: '{{ gitops_verification.stderr }}'
-- name: Report only the sanitized public GitOps proof
+- name: Report sanitized GitOps observations
   ansible.builtin.debug:
     msg: '{{ gitops_verification.stdout | from_json }}'
