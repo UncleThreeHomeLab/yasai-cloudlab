@@ -1,3 +1,4 @@
+{{- if not (.PRIVATE_KEY | trim) -}}{{- fail "Required GitHub App private key is missing or empty" -}}{{- end -}}
 {{- $key := .PRIVATE_KEY | trim -}}
 {{- $header := regexFind "^-----BEGIN (RSA )?PRIVATE KEY-----" $key -}}
 {{- $footer := replace "BEGIN" "END" $header -}}

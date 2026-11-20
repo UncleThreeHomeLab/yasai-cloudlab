@@ -1,3 +1,4 @@
+# Vault items: harbor publisher pull/push, github-release (APP_ID/INSTALLATION_ID/PRIVATE_KEY), ci-private-signer/verifier. Source: private catalog bindings; reconciler: ESO read-only; retention: Owner/Retain, declaration removal never deletes vault items.
 {{- include "cloudlab.ci.pool.normalize" . -}}
 {{- if .poolEnabled }}
 {{- with .Values.publishing }}
@@ -129,8 +130,8 @@ spec:
     template:
       engineVersion: v2
       data:
-        app_id: '{{ "{{ .APP_ID }}" }}'
-        installation_id: '{{ "{{ .INSTALLATION_ID }}" }}'
+        app_id: '{{ `{{- $value := index . "APP_ID" -}}{{- if not $value -}}{{- fail "Required GitHub App field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
+        installation_id: '{{ `{{- $value := index . "INSTALLATION_ID" -}}{{- if not $value -}}{{- fail "Required GitHub App field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
         private_key: |-
 {{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: {{ printf "github-release-%s" $releaseScope }}}}]

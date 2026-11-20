@@ -1,3 +1,4 @@
+# Vault item: longhorn-b2 (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_ENDPOINTS/BUCKET/REGION). Source: administrator bootstrap; reconciler: ESO read-only; retention: Owner/Retain, declaration removal never deletes vault items.
 {{- $policy := .Files.Get "policy.json" | fromJson }}
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
