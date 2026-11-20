@@ -5,8 +5,6 @@
 !runner/*.patch
 !runner/source.lock.json
 !runner/health.py
-!runner/tests/
-!runner/tests/*.cs
 !runner/nuget/
 !runner/nuget/*/
 !runner/nuget/*/packages.lock.json
@@ -15,5 +13,3 @@
 !tools/*/
 !tools/*/go.mod
 !tools/*/go.sum
-!testexec/
-!testexec/*.go

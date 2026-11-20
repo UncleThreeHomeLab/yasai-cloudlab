@@ -1185,8 +1185,8 @@
         "dependencies": {
           "Microsoft.Win32.Registry": "[5.0.0, )",
           "Newtonsoft.Json": "[13.0.3, )",
-          "Runner.Sdk": "[1.0.0, )",
-          "Sdk": "[1.0.0, )",
+          "Runner.Sdk": "[2.338.0, )",
+          "Sdk": "[2.338.0, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.11, )",
           "System.Text.Encoding.CodePages": "[10.0.12, )",
           "System.Threading.Channels": "[10.0.10, )"
@@ -1196,7 +1196,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Win32.Registry": "[5.0.0, )",
-          "Sdk": "[1.0.0, )",
+          "Sdk": "[2.338.0, )",
           "System.Text.Encoding.CodePages": "[10.0.12, )",
           "System.Threading.Channels": "[10.0.10, )"
         }
