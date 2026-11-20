@@ -49,7 +49,7 @@ identity:
       - e2850554490049653674349aff4bac84e8ccd0ee
 services:
   enabled: true
-  revision: e5f3924e0db22311fd5a9dcf8d592ab8a5a5726b
+  revision: ccf15a1b637f860cbd47fa8755d9e365402eb8af
 privateSources:
   enabled: true
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
