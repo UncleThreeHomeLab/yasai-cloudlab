@@ -1,3 +1,4 @@
+# Vault item: github-argocd (APP_ID/INSTALLATION_ID/PRIVATE_KEY). Source: private catalog binding; reconciler: ESO read-only; retention: Owner/Retain, declaration removal never deletes vault items.
 {{- $names := list }}
 {{- range .Values.sources }}
 {{- if or (has .name $names) (has ".." (splitList "/" .path)) }}
@@ -68,8 +69,8 @@ spec:
         type: git
         url: {{ .repository | quote }}
         project: {{ $name }}
-        githubAppID: '{{ "{{ .APP_ID }}" }}'
-        githubAppInstallationID: '{{ "{{ .INSTALLATION_ID }}" }}'
+        githubAppID: '{{ `{{- $value := index . "APP_ID" -}}{{- if not $value -}}{{- fail "Required GitHub App field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
+        githubAppInstallationID: '{{ `{{- $value := index . "INSTALLATION_ID" -}}{{- if not $value -}}{{- fail "Required GitHub App field is missing or empty" -}}{{- end -}}{{ $value }}` }}'
         githubAppPrivateKey: |-
 {{ $.Files.Get "github-app-key.tmpl" | indent 10 }}
   dataFrom: [{extract: {key: github-argocd}}]

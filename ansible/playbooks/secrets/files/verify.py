@@ -1,11 +1,9 @@
-"""Check fresh vault authentication and disposable ESO reconciliation without logging secrets."""
+"""Check fresh vault authentication without logging secrets."""
 
-import base64
 import json
 import subprocess
 import sys
 import time
-import uuid
 
 NAMESPACE = 'external-secrets'
 API = 'external-secrets.io/v1'
@@ -67,8 +65,10 @@ def operator_drift():
 
 
 def main(store_name):
-    name = 'cloudlab-verify-' + uuid.uuid4().hex[:12]
-    vault_name = name + '-vault'
+    # Synthetic SecretStore/ExternalSecret probes are retired: production
+    # delivery is observed read-only by verify_delivery.py. This check proves
+    # only fresh vault authentication through a disposable store.
+    vault_name = 'cloudlab-verify-' + store_name
     try:
         store = kubectl('get', 'clustersecretstore', store_name, '-o', 'json')
         wait(lambda: ready('clustersecretstore', store_name))
@@ -77,34 +77,10 @@ def main(store_name):
         provider['onepasswordSDK']['auth']['serviceAccountSecretRef'].pop('namespace', None)
         kubectl('create', '-f', '-', body=resource('SecretStore', vault_name, dict(provider=provider)))
         wait(lambda: ready('secretstore', vault_name))
-
-        # No write permission or manually created 1Password test item is required.
-        fake = resource('SecretStore', name, dict(provider=dict(fake=dict(data=[
-            dict(key='probe', value='first')]))))
-        kubectl('create', '-f', '-', body=fake)
-        secret = resource('ExternalSecret', name, dict(
-            refreshInterval='5s', secretStoreRef=dict(name=name, kind='SecretStore'),
-            target=dict(name=name, creationPolicy='Owner'),
-            data=[dict(secretKey='probe', remoteRef=dict(key='probe'))]))
-        kubectl('create', '-f', '-', body=secret)
-
-        def has_value(expected):
-            value = kubectl('get', 'secret', name, '--ignore-not-found', '-o', 'json')
-            return value is not None and value.get('data', {}).get('probe') == base64.b64encode(expected.encode()).decode()
-
-        wait(lambda: has_value('first'))
-        kubectl('patch', 'secretstore', name, '--type=merge', '-p', json.dumps(dict(
-            spec=dict(provider=dict(fake=dict(data=[dict(key='probe', value='second')]))))))
-        wait(lambda: has_value('second'))
-        kubectl('patch', 'secret', name, '--type=merge', '-p', json.dumps(dict(
-            data=dict(probe=base64.b64encode(b'drift').decode()))))
-        wait(lambda: has_value('second'))
-        print('Fresh CloudLab authentication, Secret creation, refresh, and drift repair passed.')
+        print('Fresh CloudLab authentication passed.')
     finally:
-        # Explicitly remove both owned and source resources even after partial failure.
-        for kind, target in [('externalsecret', name), ('secret', name),
-                             ('secretstore', name), ('secretstore', vault_name)]:
-            kubectl('delete', kind, target, '--ignore-not-found', '--wait=true', '--timeout=60s')
+        # Explicitly remove the disposable store even after partial failure.
+        kubectl('delete', 'secretstore', vault_name, '--ignore-not-found', '--wait=true', '--timeout=60s')
 
 
 if __name__ == '__main__':

@@ -15,6 +15,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 PLAYBOOKS = ROOT / 'ansible/playbooks'
 COMPLETION_RECORD = '/var/lib/cloudlab/setup-completed.json'
+MIGRATION_STATE = '/var/lib/cloudlab/k3s-migration/state.json'
+MIGRATION_RESUME_PHASES = ('new', 'rolled-back')
 RETIRED_MARKERS = ('seed-stop', 'STOP_AFTER_SEED', 'stop_after_seed',
                    'interrupted_fixture', 'interruption_test')
 
@@ -65,15 +67,46 @@ class SetupFlowTests(unittest.TestCase):
         self.assertEqual(len(gate), 1)
         self.assertEqual(gate[0]['hosts'], 'k3s_cluster')
         tasks = list(iter_tasks(gate[0]['tasks'], PLAYBOOKS / 'host'))
-        self.assertEqual(len(tasks), 2)
-        stat = tasks[0]['ansible.builtin.stat']
-        self.assertEqual(stat['path'], COMPLETION_RECORD)
-        fail = tasks[1]['ansible.builtin.fail']
+        # stat completion record, stat migration checkpoint, slurp checkpoint,
+        # refuse on completion record, refuse on unreadable checkpoint,
+        # refuse on migration state. Every read is changed_when false.
+        self.assertEqual(len(tasks), 6)
+        stats = [task['ansible.builtin.stat']['path'] for task in tasks if 'ansible.builtin.stat' in task]
+        self.assertEqual(stats, [COMPLETION_RECORD, MIGRATION_STATE])
+        slurps = [task for task in tasks if 'ansible.builtin.slurp' in task]
+        self.assertEqual(len(slurps), 1)
+        self.assertEqual(slurps[0]['ansible.builtin.slurp']['src'], MIGRATION_STATE)
+        self.assertEqual(slurps[0].get('changed_when'), False)
+        self.assertEqual(slurps[0].get('failed_when'), False)
+        fails = [task for task in tasks if 'ansible.builtin.fail' in task]
+        self.assertEqual(len(fails), 3)
+        for fail in fails:
+            self.assertIn('No mutation performed', fail['ansible.builtin.fail']['msg'])
+        record_refusal = fails[0]
         # Refuse on record existence without parsing it: absent records resume,
         # present-but-unreadable records still block, never proceed.
-        self.assertIn('.stat.exists', str(tasks[1]['when']))
-        self.assertNotIn('from_json', json.dumps(tasks))
-        self.assertIn('No mutation performed', fail['msg'])
+        self.assertIn('.stat.exists', str(record_refusal['when']))
+        self.assertNotIn('from_json', json.dumps(record_refusal))
+
+    def test_setup_refuses_migration_state_and_unreadable_checkpoints(self):
+        gate = plays('host/000-setup-gate.yml')
+        tasks = list(iter_tasks(gate[0]['tasks'], PLAYBOOKS / 'host'))
+        fails = [task for task in tasks if 'ansible.builtin.fail' in task]
+        body = json.dumps(fails[1:])
+        # Present-but-unreadable checkpoint fails closed to refuse.
+        self.assertIn('migration_checkpoint_content.failed', body)
+        # Started or completed migration phases refuse; only fresh or
+        # rolled-back checkpoints resume alongside an absent record.
+        phase_refusal = json.dumps(fails[2])
+        self.assertIn(MIGRATION_STATE, json.dumps(tasks))
+        for phase in MIGRATION_RESUME_PHASES:
+            self.assertIn(phase, phase_refusal)
+        self.assertIn('from_json', phase_refusal)
+        # Absent checkpoint skips the read and both migration refusals close out.
+        slurp = next(task for task in tasks if 'ansible.builtin.slurp' in task)
+        self.assertIn('.stat.exists', str(slurp.get('when')))
+        for fail in fails[1:]:
+            self.assertIn('migration_checkpoint.stat.exists', str(fail['when']))
 
     def test_setup_completion_stamp_writes_the_gated_record(self):
         stamp = plays('host/stamp-setup.yml')

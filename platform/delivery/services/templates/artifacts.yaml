@@ -1,5 +1,6 @@
 {{/* The pinned registry credential lister watches the Kyverno namespace. */}}
 {{/* Credential map: harbor pull items -> cloudlab-policy and app-namespace pull Secrets -> kubelet image pull. */}}
+{{/* Ownership: ESO read-only delivery of harbor pull and cosign items; retention Owner/Retain; declaration removal never deletes vault items. */}}
 {{- $registryCredentials := dict }}
 {{- range .Values.catalog }}
 {{- with .approval.artifact }}
@@ -24,7 +25,7 @@ spec:
       engineVersion: v2
       type: kubernetes.io/dockerconfigjson
       data:
-        .dockerconfigjson: {{ printf "{{ dict \"auths\" (dict %q (dict \"username\" .username \"password\" .password)) | toJson }}" $host | quote }}
+        .dockerconfigjson: {{ printf "{{- $user := .username -}}{{- if not $user -}}{{- fail \"Required registry username is missing or empty\" -}}{{- end -}}{{- $pass := .password -}}{{- if not $pass -}}{{- fail \"Required registry password is missing or empty\" -}}{{- end -}}{{ dict \"auths\" (dict %q (dict \"username\" $user \"password\" $pass)) | toJson }}" $host | quote }}
   dataFrom: [{extract: {key: {{ printf "harbor-%s-pull" $project }}}}]
 {{- end }}
 {{- range .Values.catalog }}
@@ -56,7 +57,7 @@ spec:
       engineVersion: v2
       type: kubernetes.io/dockerconfigjson
       data:
-        .dockerconfigjson: {{ printf "{{ dict \"auths\" (dict %q (dict \"username\" .username \"password\" .password)) | toJson }}" $host | quote }}
+        .dockerconfigjson: {{ printf "{{- $user := .username -}}{{- if not $user -}}{{- fail \"Required registry username is missing or empty\" -}}{{- end -}}{{- $pass := .password -}}{{- if not $pass -}}{{- fail \"Required registry password is missing or empty\" -}}{{- end -}}{{ dict \"auths\" (dict %q (dict \"username\" $user \"password\" $pass)) | toJson }}" $host | quote }}
   dataFrom: [{extract: {key: {{ printf "harbor-%s-pull" .project }}}}]
 {{- if $private }}
 ---
@@ -73,7 +74,7 @@ spec:
     template:
       engineVersion: v2
       data:
-        cosign.pub: '{{ "{{ .public_key }}" }}'
+        cosign.pub: '{{ `{{- $value := index . "public_key" -}}{{- if not $value -}}{{- fail "Required signing key is missing or empty" -}}{{- end -}}{{ $value }}` }}'
   dataFrom: [{extract: {key: ci-private-verifier}}]
 {{- end }}
 ---
