@@ -78,7 +78,7 @@ def payload():
             'image_refs': sorted(expected), 'permissions_enabled': permissions['enabled']}
 
 
-def committed_payload():
+def checkout_payload():
     data = payload()
     paths = ['ansible', 'platform', 'gitops', 'charts', 'apps',
              'verification/integration', 'compose.yaml', '.env.example']
@@ -87,6 +87,11 @@ def committed_payload():
     if result.stdout.strip():
         raise RuntimeError('Commit the reviewed GitOps inputs before live bootstrap')
     data['revision'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+    return data
+
+
+def committed_payload():
+    data = checkout_payload()
     source = yaml.safe_load((PUBLIC / 'values.yaml').read_text())
     if (not re.fullmatch(r'https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git', source['repository']) or
             not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_-]*', source['revision'])):
@@ -101,6 +106,24 @@ def committed_payload():
     return data
 
 
+def verification_payload():
+    import time
+    from playbooks.argocd.files.github_app import FIELDS, ITEM, PUBLIC_READER, PUBLIC_REPOSITORY, public_metadata
+    from playbooks.secrets.files.vault import fields
+
+    data = checkout_payload()
+    if data['repository'] != PUBLIC_REPOSITORY or data['branch'] != 'main':
+        raise RuntimeError('GitOps verification requires the designated public main source')
+    deadline = time.monotonic() + 120
+    with public_metadata(fields(ITEM, FIELDS), deadline=deadline) as fetch:
+        branch = fetch('repos/' + PUBLIC_READER + '/branches/main', deadline)
+    commit = branch.get('commit')
+    if (branch.get('protected') is not True or not isinstance(commit, dict) or
+            commit.get('sha') != data['revision']):
+        raise RuntimeError('GitOps verification requires the exact published protected main revision')
+    return data
+
+
 if __name__ == '__main__':
     try:
         if sys.argv[1:] == ['check']:
@@ -110,6 +133,8 @@ if __name__ == '__main__':
         elif sys.argv[1:] == ['preflight']:
             committed_payload()
             print('Public GitOps source and committed inputs verified.')
+        elif sys.argv[1:] == ['verify']:
+            print(json.dumps(verification_payload()))
         else:
             print(json.dumps(committed_payload()))
     except RuntimeError as error:
