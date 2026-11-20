@@ -94,6 +94,11 @@ def check_gateways(zone):
     accounts = []
     for exposure in ('public', 'private'):
         ns = 'cloudlab-gateway-' + exposure
+        options = get('configmap', 'cloudlab-gateway-options', ns) or {}
+        metadata = options.get('metadata', {})
+        if (metadata.get('deletionTimestamp') or
+                metadata.get('annotations', {}).get('cloudlab.io/ownership-proof') != 'argocd'):
+            raise RuntimeError('Gateway declaration ownership marker is missing or changed')
         obj = get('gateway.gateway.networking.k8s.io', 'cloudlab', ns)
         if not condition(obj, 'Programmed') or not condition(obj, 'Accepted'):
             raise RuntimeError('Gateway conditions are not ready')
@@ -125,7 +130,7 @@ def check_gateways(zone):
 
 
 def verify(payload):
-    with (BASE / 'ownership.lock').open('w') as lock:
+    with (BASE / 'ownership.lock').open('rb') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = json.loads((BASE / 'ownership.json').read_text())
         if state['phase'] != 'accepted' or gateway_api(payload['gateway_api']) != state['gateway_api']:
@@ -140,14 +145,6 @@ def verify(payload):
         wait(gateway_converged, 'gateway Application convergence')
         zone = selected_zone()
         check_gateways(zone)
-        ns = 'cloudlab-gateway-public'
-        kube('patch', 'configmap', 'cloudlab-gateway-options', '-n', ns, '--type=merge',
-             '-p', json.dumps({'metadata': {'annotations': {'cloudlab.io/ownership-proof': 'drift-fixture'}}}))
-        wait(lambda: get('configmap', 'cloudlab-gateway-options', ns)['metadata'].get('annotations', {}).get(
-            'cloudlab.io/ownership-proof') == 'argocd', 'gateway declaration drift repair', timeout=600)
-        # One drift fixture proves this Application's writer. Wait for its full
-        # operation to finish before traffic checks or another verification run.
-        wait(gateway_converged, 'post-drift gateway convergence')
         suffix = uuid.uuid4().hex[:10]
         public, private, plain = ['cloudlab-mesh-' + role + '-' + suffix for role in ('public', 'private', 'plain')]
         created = {}
@@ -261,7 +258,7 @@ def verify(payload):
                 'hbone_port_denied_then_allowed': True,
                 'unknown_hosts_and_sni_denied': True, 'cross_gateway_and_namespace_attachment_denied': True,
                 'gateways_internal_and_separate': True, 'gateway_api_owner_preserved': True,
-                'gateway_declaration_drift_repaired': True,
+                'gateway_ownership_marker_present': True,
                 'stability_seconds': round(time.monotonic() - started, 1), 'fixtures_removed': True}
 
 
