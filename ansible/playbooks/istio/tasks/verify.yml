@@ -6,7 +6,17 @@
 
 - name: Prove ambient identity policy and internal gateway isolation
   ansible.builtin.command:
-    argv: [python3, /var/lib/cloudlab/mesh/verify.py]
+    argv:
+      - python3
+      - -IB
+      - -c
+      - |
+        import sys
+        sys.path.insert(0, '/var/lib/cloudlab/mesh')
+        exec(compile(sys.argv[1], '<mesh verification>', 'exec'),
+             {'__name__': '__main__', '__file__': '<mesh verification>'})
+      - "{{ lookup('file', '/workspace/ansible/playbooks/istio/files/verify.py', rstrip=false) }}"
+    expand_argument_vars: false
     stdin: '{{ mesh_runtime_payload | combine({"smoke_image": smoke_image}) | to_json }}'
   register: mesh_verified
   changed_when: false
