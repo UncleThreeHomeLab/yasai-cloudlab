@@ -605,7 +605,8 @@
         "registryUrls": [
           "https://ghcr.io"
         ],
-        "enabled": true,
+        "description": "ARC controller upgrades use the owning chart's checked packager.",
+        "enabled": false,
         "allowedVersions": ">=0.15.0 <0.16.0",
         "groupName": "CI execution"
       },

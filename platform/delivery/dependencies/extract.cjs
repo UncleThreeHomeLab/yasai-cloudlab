@@ -30,7 +30,7 @@ if (result.status !== 0 || managers?.dockerfile?.depCount !== 1 || managers?.ter
         group: selected.groupName || null, versions: selected.allowedVersions || null};
     }));
     const required = [['argo-cd', 'argocd'], ['playwright', 'identity-browser'],
-      ['ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller', 'CI execution'],
+      ['ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set', 'CI execution'],
       ['ghcr.io/cloudnative-pg/postgresql', 'data images'], ['cert-manager/cmctl', 'certificate renewal tool'],
       ['quay.io/jetstack/cert-manager-controller', 'certificates'], ['keycloak/keycloak', 'identity Keycloak'],
       ['kubernetes-sigs/gateway-api', 'Gateway API'], ['coredns/coredns', 'private DNS'],
@@ -38,6 +38,11 @@ if (result.status !== 0 || managers?.dockerfile?.depCount !== 1 || managers?.ter
       ['ruamel-yaml', 'Python wheel requirements']];
     if (required.some(([name, group]) => !groups.some(row => row.dependency === name && row.enabled && row.group === group))) {
       throw new Error('Required native compatible group did not match its pinned manager rules');
+    }
+    const controller = groups.filter(row => row.dependency ===
+      'ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller');
+    if (controller.length === 0 || controller.some(row => row.enabled || row.group !== 'CI execution')) {
+      throw new Error('ARC controller chart must use owner packaging');
     }
     process.stdout.write(JSON.stringify({passed: true, managers, groups}) + '\n');
   })().catch(() => {process.stderr.write('Pinned native compatible-group qualification failed\n'); process.exitCode = 1;});

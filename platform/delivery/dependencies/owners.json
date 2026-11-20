@@ -386,7 +386,8 @@
       "companions": [
         "platform/delivery/ci/controller/Chart.yaml",
         "platform/delivery/ci/controller/charts/gha-runner-scale-set-controller-0.15.0.tgz",
-        "platform/delivery/ci/controller/values.json"
+        "platform/delivery/ci/controller/values.json",
+        "platform/delivery/ci/controller/vendor_chart.py"
       ],
       "group": "ci",
       "updater": "chart",
