@@ -1,4 +1,5 @@
 {{/* Credential map: keycloak-client-secrets item -> app-namespace ExternalSecret -> OIDC login flow. */}}
+{{/* Ownership: ESO read-only delivery; retention Owner/Retain; declaration removal never deletes vault items. */}}
 {{- range .Values.catalog }}
 {{- $oidc := include "cloudlab.service.identity" . | fromJson }}
 {{- if and $oidc.enabled (hasKey $oidc "secretReference") }}
