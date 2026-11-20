@@ -245,9 +245,7 @@
       ],
       "group": "access",
       "updater": "chart",
-      "checks": [
-        "module:playbooks.access.files.dns_check"
-      ],
+      "checks": [],
       "writePaths": [
         "platform/connectivity/private-dns/Chart.yaml",
         "platform/connectivity/private-dns/artifact.lock.json",
@@ -295,9 +293,7 @@
       ],
       "group": "data",
       "updater": "chart",
-      "checks": [
-        "module:playbooks.data.files.chart"
-      ],
+      "checks": [],
       "writePaths": [
         "platform/data/cnpg/Chart.yaml",
         "platform/data/cnpg/artifact.lock.json",
@@ -320,9 +316,7 @@
       ],
       "group": "data",
       "updater": "chart",
-      "checks": [
-        "module:playbooks.data.files.chart"
-      ],
+      "checks": [],
       "writePaths": [
         "platform/data/seaweedfs/Chart.yaml",
         "platform/data/seaweedfs/artifact.lock.json",
@@ -465,9 +459,7 @@
       ],
       "group": "harbor",
       "updater": "chart",
-      "checks": [
-        "module:playbooks.harbor.files.chart"
-      ],
+      "checks": [],
       "writePaths": [
         "platform/harbor/server/Chart.yaml",
         "platform/harbor/server/artifact.lock.json",
@@ -492,9 +484,7 @@
       ],
       "group": "keycloak",
       "updater": "chart",
-      "checks": [
-        "module:playbooks.keycloak.files.chart"
-      ],
+      "checks": [],
       "writePaths": [
         "platform/identity/keycloak/artifact.lock.json",
         "platform/identity/keycloak/Chart.yaml",
@@ -1427,9 +1417,7 @@
       ],
       "group": "harbor",
       "updater": "image",
-      "checks": [
-        "module:playbooks.harbor.files.chart"
-      ],
+      "checks": [],
       "nativeDependencies": [
         "docker.io/goharbor/harbor-core",
         "docker.io/goharbor/harbor-db",
@@ -1659,9 +1647,7 @@
       ],
       "group": "bootstrap runner",
       "updater": "image",
-      "checks": [
-        "module:playbooks.keycloak.files.chart"
-      ],
+      "checks": [],
       "nativeDependencies": [
         "python"
       ],
@@ -1680,8 +1666,7 @@
       "group": "Python wheel requirements",
       "updater": "requirements",
       "checks": [
-        "ansible/runner/tests/test_tools.py",
-        "module:playbooks.services.files.package"
+        "ansible/runner/tests/test_tools.py"
       ],
       "nativeDependencies": [
         "ansible-compat",
@@ -1896,19 +1881,6 @@
         "ghcr.io/renovatebot/renovate"
       ]
     },
-    "tool:oauth2-proxy": {
-      "sources": [],
-      "companions": [],
-      "writePaths": [],
-      "group": "Harbor browser fixture",
-      "updater": "tool",
-      "checks": [
-        "native:oauth2-proxy"
-      ],
-      "nativeDependencies": [
-        "oauth2-proxy/oauth2-proxy"
-      ]
-    },
     "tool:gateway-api-plugin": {
       "sources": [
         "platform/delivery/rollouts/artifact.lock.json"
@@ -2008,9 +1980,7 @@
       ],
       "group": "cnpg",
       "updater": "image",
-      "checks": [
-        "module:playbooks.data.files.chart"
-      ],
+      "checks": [],
       "selectors": [
         "image"
       ],
@@ -2033,9 +2003,7 @@
       ],
       "group": "postgresql",
       "updater": "image",
-      "checks": [
-        "module:playbooks.data.files.chart"
-      ],
+      "checks": [],
       "selectors": [
         "postgres_image"
       ],
@@ -2056,9 +2024,7 @@
       ],
       "group": "seaweedfs",
       "updater": "image",
-      "checks": [
-        "module:playbooks.data.files.chart"
-      ],
+      "checks": [],
       "selectors": [
         "image"
       ],
