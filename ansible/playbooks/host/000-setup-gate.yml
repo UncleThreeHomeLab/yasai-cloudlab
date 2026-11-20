@@ -11,6 +11,20 @@
       register: setup_completion
       changed_when: false
 
+    - name: Inspect the K3s migration checkpoint without mutation
+      ansible.builtin.stat:
+        path: /var/lib/cloudlab/k3s-migration/state.json
+      register: migration_checkpoint
+      changed_when: false
+
+    - name: Read the K3s migration checkpoint without mutation
+      ansible.builtin.slurp:
+        src: /var/lib/cloudlab/k3s-migration/state.json
+      register: migration_checkpoint_content
+      changed_when: false
+      failed_when: false
+      when: migration_checkpoint.stat.exists
+
     - name: Refuse to re-run setup on a completed server
       ansible.builtin.fail:
         msg: >-
@@ -18,3 +32,19 @@
           run verify to re-check, or a named component operation for repair.
           No mutation performed.
       when: setup_completion.stat.exists
+
+    - name: Refuse setup when the K3s migration checkpoint is unreadable
+      ansible.builtin.fail:
+        msg: >-
+          K3s migration checkpoint is present but unreadable on this server.
+          Re-running setup is refused; run verify to re-check, or a named
+          component operation for repair. No mutation performed.
+      when: migration_checkpoint.stat.exists and (migration_checkpoint_content.failed | default(true) or migration_checkpoint_content.content is not defined)
+
+    - name: Refuse setup on a server with K3s migration state
+      ansible.builtin.fail:
+        msg: >-
+          K3s migration state is present on this server. Re-running setup is
+          refused; run verify to re-check, or a named component operation for
+          repair. No mutation performed.
+      when: migration_checkpoint.stat.exists and not (migration_checkpoint_content.failed | default(true)) and migration_checkpoint_content.content is defined and (migration_checkpoint_content.content | b64decode | from_json).phase not in ['new', 'rolled-back']
