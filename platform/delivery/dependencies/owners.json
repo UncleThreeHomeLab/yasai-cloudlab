@@ -336,7 +336,8 @@
         "platform/delivery/admission/charts/kyverno-3.9.1.tgz",
         "platform/delivery/admission/images.lock.json",
         "platform/delivery/admission/policies/Chart.yaml",
-        "platform/delivery/admission/values.json"
+        "platform/delivery/admission/values.json",
+        "platform/delivery/admission/vendor_chart.py"
       ],
       "group": "admission",
       "updater": "chart",
@@ -347,7 +348,8 @@
         "platform/delivery/admission/charts/kyverno-3.9.1.tgz",
         "platform/delivery/admission/images.lock.json",
         "platform/delivery/admission/policies/Chart.yaml",
-        "platform/delivery/admission/values.json"
+        "platform/delivery/admission/values.json",
+        "platform/delivery/admission/vendor_chart.py"
       ],
       "nativeDependencies": [
         "kyverno"
@@ -361,7 +363,8 @@
         "platform/delivery/argocd/Chart.lock",
         "platform/delivery/argocd/Chart.yaml",
         "platform/delivery/argocd/charts/argo-cd-10.9.6.tgz",
-        "platform/delivery/argocd/values.yaml"
+        "platform/delivery/argocd/values.yaml",
+        "platform/delivery/argocd/vendor_chart.py"
       ],
       "group": "argocd",
       "updater": "chart",
@@ -373,7 +376,8 @@
         "platform/delivery/argocd/Chart.yaml",
         "platform/delivery/argocd/artifact.lock.json",
         "platform/delivery/argocd/charts/argo-cd-10.9.6.tgz",
-        "platform/delivery/argocd/values.yaml"
+        "platform/delivery/argocd/values.yaml",
+        "platform/delivery/argocd/vendor_chart.py"
       ],
       "nativeDependencies": [
         "argo-cd"
@@ -623,7 +627,8 @@
         "platform/secrets/external-secrets/Chart.lock",
         "platform/secrets/external-secrets/Chart.yaml",
         "platform/secrets/external-secrets/charts/external-secrets-2.11.0.tgz",
-        "platform/secrets/external-secrets/values.json"
+        "platform/secrets/external-secrets/values.json",
+        "platform/secrets/external-secrets/vendor_chart.py"
       ],
       "group": "secrets",
       "updater": "chart",
@@ -635,7 +640,8 @@
         "platform/secrets/external-secrets/Chart.yaml",
         "platform/secrets/external-secrets/artifact.lock.json",
         "platform/secrets/external-secrets/charts/external-secrets-2.11.0.tgz",
-        "platform/secrets/external-secrets/values.json"
+        "platform/secrets/external-secrets/values.json",
+        "platform/secrets/external-secrets/vendor_chart.py"
       ],
       "nativeDependencies": [
         "external-secrets"

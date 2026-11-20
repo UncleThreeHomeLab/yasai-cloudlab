@@ -3,7 +3,8 @@
     "version": "10.9.6",
     "app_version": "v3.5.3",
     "url": "https://github.com/argoproj/argo-helm/releases/download/argo-cd-10.9.6/argo-cd-10.9.6.tgz",
-    "sha256": "6eda90bdd18de538511c9b9aca1ca7ba7a1ca5b919f598714d0e91cd7155d119",
+    "upstream_sha256": "6eda90bdd18de538511c9b9aca1ca7ba7a1ca5b919f598714d0e91cd7155d119",
+    "sha256": "bafe9e60a60a21487e9874a537a7817d9a0b37e8b5fa7492011b5da1ff00d744",
     "archive": "charts/argo-cd-10.9.6.tgz"
   },
   "kube_version": "1.36.5",
