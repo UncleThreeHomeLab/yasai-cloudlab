@@ -1,8 +1,9 @@
 """Control-machine Harbor settings reconciler.
 
-Reads the reviewed private registry binding at protected main, compiles it
-with registry.py, and plans the native module every cycle. Plans apply only
-with an explicit merged approval binding {binding, plan}; standing
+The read-only repo-access App reads the binding and optional approval at one
+revision of the designated private main. The executor compiles the binding
+and plans the native module every cycle. Plans apply only with an explicit
+merged approval binding {binding, plan}; standing
 reconciliation never carries one. Invalid or unreachable sources retain
 last-valid state and report blocked; they never delete, rotate, or publish.
 
@@ -17,12 +18,11 @@ Removal lifecycle: an undeclared project or membership is retained and
 reported, never deleted. Any plan containing a delete or replace action is
 refused. Scoped revocation needs a separately reviewed scope.
 
-Robot passwords come from the local vault reader; the provisioning identity
-never enters provider subprocesses. Harbor stays private: provider traffic
+Robot passwords come from the local vault reader. The source token is revoked
+before provider planning. Harbor stays private: provider traffic
 runs through an ephemeral SSH SOCKS tunnel, never with TLS verification off.
 """
 
-import base64
 import hashlib
 import json
 import os
@@ -34,8 +34,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, '/workspace/ansible')
@@ -43,6 +41,9 @@ sys.path.insert(0, '/workspace/ansible')
 from dotenv import dotenv_values
 
 import registry
+from playbooks.argocd.files.github_app import configuration_revision
+from playbooks.argocd.files.github_setup import GitHubHTTPError, repository
+from playbooks.argocd.files.private_sources import decode_contents
 from playbooks.secrets.files.vault import fields
 
 ROOT = Path('/workspace')
@@ -57,8 +58,7 @@ MAX_FILE_BYTES = 65536
 
 def configuration():
     values = dotenv_values(str(ROOT / '.env'), interpolate=False)
-    config = {'private_repository': values.get('PRIVATE_CONFIG_REPOSITORY') or '',
-              'github_token': values.get('GITHUB_PROVISION_TOKEN') or '',
+    config = {'PRIVATE_CONFIG_REPOSITORY': values.get('PRIVATE_CONFIG_REPOSITORY') or '',
               'interval': values.get('HARBOR_INTERVAL') or '300'}
     try:
         config['interval'] = int(config['interval'])
@@ -66,70 +66,43 @@ def configuration():
         raise RuntimeError('HARBOR_INTERVAL must be seconds') from None
     if not 60 <= config['interval'] <= 86400:
         raise RuntimeError('HARBOR_INTERVAL must be between 60 and 86400 seconds')
-    for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'VM_PORT',
-                'OP_SERVICE_ACCOUNT_TOKEN', 'PRIVATE_CONFIG_REPOSITORY',
-                'GITHUB_PROVISION_TOKEN'):
+    for key in ('VM_HOST', 'VM_USER', 'VM_PASSWORD', 'VM_PORT', 'OP_SERVICE_ACCOUNT_TOKEN'):
         if values.get(key):
             os.environ.setdefault(key, values[key])
     os.environ.setdefault('VM_PORT', '22')
     return config
 
 
-def repository_slug(url):
-    match = re.fullmatch(r'https://github[.]com/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)[.]git',
-                         url or '')
-    if not match:
-        raise RuntimeError('Repository binding is not a designated HTTPS repository')
-    return match[1] + '/' + match[2]
-
-
-class GitHub:
-    """Bounded read-only GitHub client; writes are refused."""
-
-    def __init__(self, token=''):
-        self.token = token
-
-    def request(self, path, limit=MAX_FILE_BYTES):
-        if not re.fullmatch(r'[A-Za-z0-9_./?=&-]+', path) or '..' in path:
-            raise ValueError('Invalid GitHub read path')
-        headers = {'Accept': 'application/vnd.github+json'}
-        if self.token:
-            headers['Authorization'] = 'Bearer ' + self.token
-        request = urllib.request.Request('https://api.github.com/' + path, headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read(limit + 1)
-                if len(raw) > limit:
-                    raise RuntimeError('GitHub response exceeds its bound')
-                return json.loads(raw)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return None
-            raise RuntimeError('GitHub read failed: HTTP ' + str(error.code)) from None
-        except (urllib.error.URLError, ValueError):
-            raise RuntimeError('GitHub read unavailable or invalid') from None
-
-    def ref(self, repo, branch='main'):
-        document = self.request('repos/' + repo + '/git/ref/heads/' + branch)
-        if not document or not re.fullmatch('[a-f0-9]{40}', document['object']['sha']):
-            raise RuntimeError('Git revision is unavailable')
-        return document['object']['sha']
-
-    def contents(self, repo, path, ref, limit=MAX_FILE_BYTES):
-        document = self.request('repos/' + repo + '/contents/' + path + '?ref=' + ref)
-        if document is None:
+def source_contents(client, repo, path, revision, *, optional=False):
+    try:
+        document = client.request('GET', 'repos/' + repo + '/contents/' + path + '?ref=' + revision)
+    except GitHubHTTPError as error:
+        if optional and error.status == 404:
             return None
-        if (not isinstance(document, dict) or document.get('type') != 'file'
-                or document.get('encoding') != 'base64'
-                or type(document.get('size')) is not int
-                or not 0 < document['size'] <= limit
-                or not isinstance(document.get('content'), str)):
-            raise RuntimeError('Git declaration requires a bounded regular file')
-        raw = base64.b64decode(document['content'].replace('\r', '').replace('\n', ''),
-                              validate=True)
-        if len(raw) != document['size']:
-            raise RuntimeError('Git declaration size changed during transfer')
-        return raw
+        raise
+    if (not isinstance(document, dict) or document.get('type') != 'file'
+            or document.get('encoding') != 'base64'
+            or type(document.get('size')) is not int
+            or not 0 < document['size'] <= MAX_FILE_BYTES):
+        raise RuntimeError('Git declaration requires a bounded regular file')
+    raw = decode_contents(document)
+    if len(raw) != document['size']:
+        raise RuntimeError('Git declaration size changed during transfer')
+    return raw
+
+
+def source_revision(config):
+    def read(client, revision):
+        client.max_response = MAX_FILE_BYTES
+        binding = source_contents(client, repo, BINDING_PATH, revision)
+        approval = source_contents(client, repo, APPROVAL_PATH, revision, optional=True)
+        return revision, binding, approval
+
+    try:
+        repo = repository(config.get('PRIVATE_CONFIG_REPOSITORY'))
+        return configuration_revision(config, read=read)
+    except Exception:
+        raise RuntimeError('Harbor private Git source unavailable or invalid; settings retained') from None
 
 
 def harbor_inputs():
@@ -318,16 +291,12 @@ def validate_approval(text, binding):
     return hashlib.sha256(binding).hexdigest() == document['binding'], document['plan']
 
 
-def reconcile_harbor(config, github, *, apply_allowed=True):
+def reconcile_harbor(config, *, apply_allowed=True):
     """Compile the reviewed binding; plan always, apply only the merged binding."""
     backend, credentials, encryption = harbor_inputs()
     robots = robot_secrets()
     admin = administrator()
-    repo = repository_slug(config['private_repository'])
-    revision = github.ref(repo)
-    raw = github.contents(repo, BINDING_PATH, revision)
-    if raw is None:
-        raise RuntimeError('Registry binding unavailable; last-valid state retained')
+    revision, raw, approval_raw = source_revision(config)
     WORK.mkdir(parents=True, exist_ok=True)
     binding_path = WORK / 'binding.yaml'
     binding_path.write_bytes(raw)
@@ -364,7 +333,6 @@ def reconcile_harbor(config, github, *, apply_allowed=True):
         if not drifted:
             return {'ready': True, 'changed': False, 'revision': revision,
                     'plan': digest, 'retained': retained}
-        approval_raw = github.contents(repo, APPROVAL_PATH, revision)
         approved = False
         if approval_raw is not None:
             try:
@@ -394,9 +362,9 @@ def report(status):
     print(json.dumps(status, sort_keys=True), flush=True)
 
 
-def once(config, github):
+def once(config):
     try:
-        status = {'harbor': reconcile_harbor(config, github)}
+        status = {'harbor': reconcile_harbor(config)}
         status['ok'] = True
     except RuntimeError as error:
         status = {'ok': False, 'harbor': {'ready': False, 'error': str(error)}}
@@ -404,10 +372,10 @@ def once(config, github):
     return status
 
 
-def verify(config, github):
+def verify(config):
     """Read-only proof that live state matches accepted Git intent; never mutates."""
     try:
-        planned = reconcile_harbor(config, github, apply_allowed=False)
+        planned = reconcile_harbor(config, apply_allowed=False)
         drifted = bool(planned.get('drifted'))
         proof = {'inspected': True, 'verified': not drifted,
                  'revision': planned['revision'], 'plan': planned['plan'],
@@ -435,16 +403,15 @@ def main(argv):
         for name in ('VM_HOST', 'VM_USER', 'VM_PASSWORD'):
             if not os.environ.get(name):
                 raise SystemExit('Missing lab connection input: ' + name)
-        github = GitHub(config['github_token'])
         if argv[0] == 'once':
-            status = once(config, github)
+            status = once(config)
             raise SystemExit(0 if status['ok'] else 1)
         if argv[0] == 'verify':
-            proof = verify(config, github)
+            proof = verify(config)
             raise SystemExit(0 if proof['verified'] else 1)
         while True:
             try:
-                once(config, github)
+                once(config)
             except RuntimeError as error:
                 report({'ok': False, 'error': str(error)})
             except Exception:
