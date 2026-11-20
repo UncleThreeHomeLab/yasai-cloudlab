@@ -12,6 +12,11 @@ the grant. */}}
 {{- if not (hasSuffix "/realms/platform" $config.issuer) }}{{ fail "Approved platform identity issuer is required" }}{{- end }}
 {{- $_ := set .Values "issuer" (replace "/realms/platform" "/realms/applications" $config.issuer) }}
 {{- end }}
+{{- $names := list }}
+{{- range .Values.catalog }}
+{{- if has .approval.name $names }}{{ fail "Service catalog approval names must be unique" }}{{- end }}
+{{- $names = append $names .approval.name }}
+{{- end }}
 {{- range .Values.catalog }}
 {{- $v := .definition }}
 {{- if or (hasKey $v "routeOnly") (hasKey $v "routeBackends") }}{{ fail "Routing controls belong to the administrator catalog renderer" }}{{ end }}
