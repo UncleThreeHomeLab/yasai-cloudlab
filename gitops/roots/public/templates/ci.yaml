@@ -1,4 +1,8 @@
 {{- if (.Values.ci | default dict).enabled }}
+{{- $revision := .Values.ci.revision }}
+{{- if or (not (kindIs "string" $revision)) (not (regexMatch "^[a-f0-9]{40}$" $revision)) }}
+{{- fail "CI charts require a reviewed immutable platform revision" }}
+{{- end }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: cloudlab-ci, namespace: argocd}
@@ -89,7 +93,7 @@ spec:
       project: cloudlab-ci
       sources:
         - repoURL: {{ $.Values.repository | quote }}
-          targetRevision: {{ $.Values.revision | quote }}
+          targetRevision: {{ $revision | quote }}
           path: platform/delivery/ci/{{ $component }}
           helm:
             releaseName: cloudlab-ci-{{ $component }}
@@ -163,7 +167,7 @@ spec:
       project: cloudlab-ci
       sources:
         - repoURL: {{ $.Values.repository | quote }}
-          targetRevision: {{ $.Values.revision | quote }}
+          targetRevision: {{ $revision | quote }}
           path: platform/delivery/ci/{{ if eq $component "controller" }}controller{{ else }}pool{{ end }}
           helm:
             releaseName: 'cloudlab-ci-{{ "{{ .application }}" }}-{{ $component }}'

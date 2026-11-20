@@ -71,6 +71,7 @@ permissions:
   revision: b530c9d7847101a258b5dd1c08a9fae2e98f6675
 ci:
   enabled: true
+  revision: c372cd7fc2304ff0e527ea98eb7f791453675230
   poolEnabled: false
   applicationCapacity: 5
 rollouts:
