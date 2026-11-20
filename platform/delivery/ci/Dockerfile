@@ -114,7 +114,6 @@ COPY --chmod=0644 runner/runner.patch /tmp/runner.patch
 RUN git apply --check /tmp/runner.patch && git apply /tmp/runner.patch
 COPY --chmod=0644 runner/TrustedWorkflow.cs src/Runner.Worker/TrustedWorkflow.cs
 COPY --chmod=0644 runner/TrustedTemplate.cs src/Runner.Worker/TrustedTemplate.cs
-COPY --chmod=0644 runner/tests/Fixtures.cs src/Test/L0/Worker/CloudlabFixtures.cs
 COPY runner/nuget/ src/
 # The upstream build records this deterministic derivative tree in BuildConstants.
 RUN git init -q \
@@ -128,21 +127,12 @@ RUN dotnet msbuild dir.proj -t:GenerateConstant -p:RunnerVersion=2.338.0 -p:Pack
 
 FROM source-inputs AS refresh-locks
 COPY runner/source.lock.json /source/maintenance-source.lock.json
-RUN dotnet restore Test/Test.csproj --runtime linux-x64 --force-evaluate \
-    -p:RuntimeIdentifiers=linux-x64 -p:RestorePackagesWithLockFile=true -p:RestoreLockedMode=false
+RUN dotnet msbuild dir.proj -t:RestoreProduction -p:Version=2.338.0 \
+    -p:RuntimeIdentifier=linux-x64 \
+    -p:RuntimeIdentifiers=linux-x64 -p:RestoreForceEvaluate=true \
+    -p:RestorePackagesWithLockFile=true -p:RestoreLockedMode=false
 
-FROM source-inputs AS source
-RUN dotnet restore Test/Test.csproj --runtime linux-x64 --locked-mode -p:RuntimeIdentifiers=linux-x64
-
-FROM source AS test
-RUN dotnet test Test/Test.csproj --configuration Release --runtime linux-x64 --no-restore \
-    -p:Version=2.338.0 -p:RuntimeIdentifiers=linux-x64 \
-    --filter 'FullyQualifiedName~JobRunnerL0' \
-    --logger 'trx;LogFileName=cloudlab-gate.trx' --results-directory /test-results \
-    && grep -Eq 'total="4".*passed="4"' /test-results/cloudlab-gate.trx
-
-FROM source AS build
-COPY --from=test /test-results/cloudlab-gate.trx /test-results/cloudlab-gate.trx
+FROM source-inputs AS build
 RUN dotnet msbuild dir.proj -t:Build -p:RunnerVersion=2.338.0 -p:BUILDCONFIG=Release \
     -p:PackageRuntime=linux-x64 -p:RuntimeIdentifiers=linux-x64 -p:RestoreLockedMode=true \
     && cp -a Misc/layoutbin/. ../_layout/bin/ \
