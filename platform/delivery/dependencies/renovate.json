@@ -53,7 +53,6 @@
       "docs/**",
       "infra/cloudflare/**",
       "infra/harbor/**",
-      "ansible/playbooks/harbor/tests/provider-fixture/**",
       "apps/releases/**"
     ],
     "postUpgradeTasks": {
@@ -1577,19 +1576,6 @@
           "dockerfile"
         ],
         "matchFileNames": [
-          "ansible/runner/Dockerfile"
-        ],
-        "matchPackageNames": [
-          "python",
-          "docker.io/library/python"
-        ],
-        "allowedVersions": "/^v?3[.]13(?:[.][0-9]+)?-slim-bookworm$/"
-      },
-      {
-        "matchManagers": [
-          "dockerfile"
-        ],
-        "matchFileNames": [
           "platform/delivery/ci/Dockerfile"
         ],
         "matchPackageNames": [
@@ -1768,17 +1754,6 @@
         "pinDigests": true,
         "groupName": "dependency maintenance",
         "allowedVersions": ">=44.181.0 <44.182.0"
-      },
-      {
-        "matchManagers": [
-          "custom.regex"
-        ],
-        "matchPackageNames": [
-          "oauth2-proxy/oauth2-proxy"
-        ],
-        "enabled": true,
-        "groupName": "Harbor browser fixture",
-        "allowedVersions": ">=7.15.0 <7.16.0"
       },
       {
         "matchManagers": [
@@ -2845,18 +2820,6 @@
       {
         "customType": "regex",
         "managerFilePatterns": [
-          "/^ansible/playbooks/harbor/tests/browser-proof\\.lock\\.json$/"
-        ],
-        "matchStrings": [
-          "\"version\"\\s*:\\s*\"(?<currentValue>[0-9.]+)\""
-        ],
-        "datasourceTemplate": "github-releases",
-        "depNameTemplate": "oauth2-proxy/oauth2-proxy",
-        "extractVersionTemplate": "^v(?<version>.*)$"
-      },
-      {
-        "customType": "regex",
-        "managerFilePatterns": [
           "/^platform/delivery/rollouts/artifact\\.lock\\.json$/"
         ],
         "matchStrings": [
@@ -3075,8 +3038,7 @@
     "skipInstalls": true,
     "pip_requirements": {
       "managerFilePatterns": [
-        "/^ansible/runner/requirements\\.txt$/",
-        "/^ansible/playbooks/observability/tests/requirements\\.txt$/"
+        "/^ansible/runner/requirements\\.txt$/"
       ]
     },
     "npm": {
