@@ -13,15 +13,35 @@
 {{- end }}
 {{- if eq $name "web" }}{{ $_ := set $values "rollouts" $definition.rollouts }}{{- end }}
 {{- $_ := set $values "artifactPolicyHash" ($definition.artifactPolicyHash | default "") }}
-{{- $private := dict }}
-{{- range $definition.additionalExposures }}
-{{- if eq .class "private" }}{{ $private = . }}{{- end }}
+{{- $public := $definition.exposure }}
+{{- $additional := $definition.additionalExposures }}
+{{- if or $values.routeOnly (not (kindIs "map" $public)) (not (kindIs "string" $public.class)) (ne $public.class "public")
+          (not (kindIs "slice" $additional)) (ne (len $additional) 1) }}
+{{- fail "Notes requires one approved public route and one private operations route" }}
 {{- end }}
-{{- if not $private }}{{ fail "Notes requires its private operations exposure" }}{{- end }}
-{{- range $key := list "owner" "image" "replicas" "resources" "exposure" "oidc" }}
+{{- $private := first $additional }}
+{{- if or (not (kindIs "map" $private)) (not (kindIs "string" $private.class)) (ne $private.class "private") }}
+{{- fail "Notes requires one approved public route and one private operations route" }}
+{{- end }}
+{{- range list $public $private }}
+{{- if or (ne (len .) 5) (not (kindIs "string" .hostname)) (not (regexMatch "^[a-z0-9.-]+$" .hostname))
+          (not (kindIs "string" .path)) (not (regexMatch "^/[A-Za-z0-9/_-]*$" .path))
+          (not (has .access (list "public" "human" "machine" "tailnet")))
+          (not (has (kindOf .port) (list "float64" "int" "int64"))) (not (regexMatch "^[0-9]+$" (toString .port)))
+          (lt (int .port) 1024) (gt (int .port) 65535) }}
+{{- fail "Notes exposure differs from its approved route shape" }}
+{{- end }}
+{{- end }}
+{{- $public = deepCopy $public }}
+{{- $private = deepCopy $private }}
+{{- range $key := list "owner" "image" "replicas" "resources" "oidc" }}
 {{- $_ := set $values $key (deepCopy (index $definition $key)) }}
 {{- end }}
-{{- $_ := set $values "additionalExposures" (list (deepCopy $private)) }}
+{{- $_ := set $values "exposure" (dict "class" $public.class) }}
+{{- $_ := set $values "exposureFile" (dict "publication" "published" "exposure" $public) }}
+{{- $_ := set $values "privateExposures" (list $private) }}
+{{- $_ := unset $values "additionalExposures" }}
+{{- $_ := set $values "routeNames" (list $values.name (printf "%s-extra-0" $values.name)) }}
 {{- $_ := set $values.environment "OIDC_ISSUER" $.Values.issuer }}
 {{- $_ := set $values.environment "OIDC_AUDIENCE" $definition.oidc.audience }}
 {{- $_ := set $values.environment "OPERATIONS_HOST" $private.hostname }}
@@ -29,8 +49,8 @@
 {{- $_ := set $values.environment "OIDC_CLIENT" $definition.oidc.client }}
 {{- $_ := set $values.environment "OIDC_SCOPES" (join " " (prepend $definition.oidc.scopes "openid")) }}
 {{- else }}
-{{- $_ := set $values.exposure "path" "/api" }}
-{{- $_ := set (first $values.additionalExposures) "path" "/api" }}
+{{- $_ := set $public "path" "/api" }}
+{{- $_ := set $private "path" "/api" }}
 {{- $_ := set $values "data" $definition.data }}
 {{- $_ := set $values.environment "PGDATABASE" $definition.data.database.name }}
 {{- $_ := set $values.environment "PGHOST" "cloudlab-postgres-rw.cloudlab-data.svc" }}
