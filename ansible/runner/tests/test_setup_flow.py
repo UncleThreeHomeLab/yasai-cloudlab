@@ -1,7 +1,8 @@
 """Pin the one-time setup gate and read-only verification contracts statically.
 
 Ansible runs only against live servers, so these tests assert the structural
-shape instead: setup refuses completed servers before any install stage,
+shape instead: setup refuses servers with completion or migration records
+before any install stage,
 repeatable verification reports no changes and reaches no ownership, drift,
 or deletion work, monthly proof never falls through to setup, and the retired
 seed-stop injection paths stay gone.
@@ -15,6 +16,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 PLAYBOOKS = ROOT / 'ansible/playbooks'
 COMPLETION_RECORD = '/var/lib/cloudlab/setup-completed.json'
+MIGRATION_RECORD = '/var/lib/cloudlab/k3s-migration/state.json'
 RETIRED_MARKERS = ('seed-stop', 'STOP_AFTER_SEED', 'stop_after_seed',
                    'interrupted_fixture', 'interruption_test')
 
@@ -58,21 +60,26 @@ def reachable_tasks(entry):
 
 
 class SetupFlowTests(unittest.TestCase):
-    def test_setup_refuses_completed_servers_before_any_install_stage(self):
+    def test_setup_checks_completion_and_migration_before_any_install_stage(self):
         setup = plays('setup.yml')
         self.assertEqual(setup[0]['ansible.builtin.import_playbook'], 'host/000-setup-gate.yml')
         gate = plays('host/000-setup-gate.yml')
         self.assertEqual(len(gate), 1)
         self.assertEqual(gate[0]['hosts'], 'k3s_cluster')
+        self.assertFalse(gate[0]['gather_facts'])
+        self.assertTrue(gate[0]['any_errors_fatal'])
         tasks = list(iter_tasks(gate[0]['tasks'], PLAYBOOKS / 'host'))
-        self.assertEqual(len(tasks), 2)
-        stat = tasks[0]['ansible.builtin.stat']
-        self.assertEqual(stat['path'], COMPLETION_RECORD)
-        fail = tasks[1]['ansible.builtin.fail']
-        # Refuse on record existence without parsing it: absent records resume,
-        # present-but-unreadable records still block, never proceed.
-        self.assertIn('.stat.exists', str(tasks[1]['when']))
-        self.assertNotIn('from_json', json.dumps(tasks))
+        self.assertEqual(len(tasks), 3)
+        for task, path in zip(tasks[:2], (COMPLETION_RECORD, MIGRATION_RECORD)):
+            stat = task['ansible.builtin.stat']
+            self.assertEqual(stat['path'], path)
+            for option in ('follow', 'get_checksum', 'get_mime', 'get_attributes'):
+                self.assertIs(stat[option], False)
+            self.assertIs(task['changed_when'], False)
+        fail = tasks[2]['ansible.builtin.fail']
+        self.assertEqual(tasks[2]['when'], ' or '.join(
+            f"{task['register']}.stat.exists" for task in tasks[:2]
+        ))
         self.assertIn('No mutation performed', fail['msg'])
 
     def test_setup_completion_stamp_writes_the_gated_record(self):
