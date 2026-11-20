@@ -47,4 +47,8 @@
           K3s migration state is present on this server. Re-running setup is
           refused; run verify to re-check, or a named component operation for
           repair. No mutation performed.
-      when: migration_checkpoint.stat.exists and not (migration_checkpoint_content.failed | default(true)) and migration_checkpoint_content.content is defined and (migration_checkpoint_content.content | b64decode | from_json).phase not in ['new', 'rolled-back']
+      when:
+        - migration_checkpoint.stat.exists
+        - not (migration_checkpoint_content.failed | default(true))
+        - migration_checkpoint_content.content is defined
+        - (migration_checkpoint_content.content | b64decode | from_json).phase not in ['new', 'rolled-back']
