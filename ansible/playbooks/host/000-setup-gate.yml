@@ -1,5 +1,5 @@
 ---
-- name: Refuse setup on an already completed server
+- name: Refuse setup on completed servers or servers with K3s migration state
   hosts: k3s_cluster
   become: true
   gather_facts: false
@@ -8,13 +8,27 @@
     - name: Inspect the setup completion record
       ansible.builtin.stat:
         path: /var/lib/cloudlab/setup-completed.json
+        follow: false
+        get_checksum: false
+        get_mime: false
+        get_attributes: false
       register: setup_completion
       changed_when: false
 
-    - name: Refuse to re-run setup on a completed server
+    - name: Inspect the K3s migration record
+      ansible.builtin.stat:
+        path: /var/lib/cloudlab/k3s-migration/state.json
+        follow: false
+        get_checksum: false
+        get_mime: false
+        get_attributes: false
+      register: k3s_migration_record
+      changed_when: false
+
+    - name: Refuse setup when a completion or migration record exists
       ansible.builtin.fail:
         msg: >-
-          Setup already completed on this server. Re-running setup is refused;
-          run verify to re-check, or a named component operation for repair.
+          This server has a setup completion record or K3s migration state.
+          Run verify to re-check, or use the named component operation for repair.
           No mutation performed.
-      when: setup_completion.stat.exists
+      when: setup_completion.stat.exists or k3s_migration_record.stat.exists
