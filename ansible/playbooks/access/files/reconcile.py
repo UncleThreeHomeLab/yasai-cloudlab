@@ -693,7 +693,11 @@ def load_pending():
 
 def save_pending(public, private):
     """Persist still-unverified names; verified names are dropped, never re-added."""
-    pending = {'public': sorted(set(public)), 'private': sorted(set(private))}
+    pending = {'public': list(public), 'private': list(private)}
+    if any(not isinstance(name, str) or not HOSTNAME_SHAPE.fullmatch(name)
+           for names in pending.values() for name in names):
+        raise RuntimeError('Retirement journal violates its contract; retained generation kept')
+    pending = {key: sorted(set(names)) for key, names in pending.items()}
     if sum(len(names) for names in pending.values()) > MAX_PENDING_NAMES:
         raise RuntimeError('Retirement journal exceeds its bound; retained generation kept')
     text = json.dumps(pending, sort_keys=True)
@@ -996,16 +1000,16 @@ def once(config, github):
         pass  # Journal violation already recorded above; nothing further is provable.
     elif (retired_public or withdrawn_private) and cluster:
         try:
+            requested = set(retired_public) | withdrawn_private
+            if set(retired_public) & withdrawn_private:
+                raise RuntimeError('Retirement proof failed; retained generation kept')
+            save_pending(retired_public, sorted(withdrawn_private))
             ensure_resolver_scripts()
             base = credentials = None
             if retired_public:
                 base, _, credentials, _ = cloudflare_inputs()
                 base = {'account_id': base['account_id'], 'zone_id': base['zone_id'],
                         'tunnel_id': base['tunnel_id']}
-            requested = set(retired_public) | withdrawn_private
-            if set(retired_public) & withdrawn_private:
-                raise RuntimeError('Retirement proof failed; retained generation kept')
-            save_pending(retired_public, sorted(withdrawn_private))
             retirement = verify_retirement(base, credentials, retired_public,
                                            withdrawn_private, discover_cluster())
             rows = retirement.get('hostnames') if isinstance(retirement, dict) else None
