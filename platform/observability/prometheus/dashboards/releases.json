@@ -310,7 +310,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\",backend=~\"$rollout$\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\"})",
+          "expr": "100 * sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\",backend=~\"$rollout$\",backend!~\".*-canary$\"}) / sum(cloudlab_httproute_backend_weight{namespace=~\"$namespace\",route=~\"$rollout\"})",
           "legendFormat": "Stable",
           "instant": true,
           "range": false
