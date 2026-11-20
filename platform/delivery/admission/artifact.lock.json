@@ -3,5 +3,6 @@
   "version": "3.9.1",
   "app_version": "v1.19.1",
   "archive": "charts/kyverno-3.9.1.tgz",
-  "sha256": "7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752"
+  "upstream_sha256": "7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752",
+  "sha256": "be5234df2fcd80270e78e709c9b7f446e8eb1ef88b9706607ba2a579c1861725"
 }
