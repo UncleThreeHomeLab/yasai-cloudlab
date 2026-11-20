@@ -54,6 +54,12 @@ APPROVAL_PATH = 'platform/registry/approval.yaml'
 APPROVAL_SCHEMA = json.loads(
     (Path(__file__).resolve().parent / 'approval.schema.json').read_text())
 MAX_FILE_BYTES = 65536
+MAX_PLAN_DIAGNOSTIC_BYTES = 1024 * 1024
+HARBOR_PLAN_RESOURCES = {
+    'harbor_project.project', 'harbor_group.group', 'harbor_project_member_group.member',
+    'harbor_robot_account.robot', 'harbor_retention_policy.retention',
+    'harbor_immutable_tag_rule.release',
+}
 
 
 def configuration():
@@ -234,6 +240,65 @@ def tofu(directory, environment, *args, timeout=600):
     return result.stdout
 
 
+def plan_failure_category(output):
+    """Read the OpenTofu JSON UI without passing native diagnostics to receipts."""
+    if len(output) > MAX_PLAN_DIAGNOSTIC_BYTES:
+        return 'unknown'
+
+    def reject_constant(_value):
+        raise ValueError
+
+    def unique_object(pairs):
+        value = dict(pairs)
+        if len(value) != len(pairs):
+            raise ValueError
+        return value
+
+    def parse(line):
+        return json.loads(line.decode('utf-8'), parse_constant=reject_constant,
+                          object_pairs_hook=unique_object)
+
+    events = iter(output.splitlines())
+    categories = set()
+    try:
+        version = parse(next(events, b''))
+        if (not isinstance(version, dict) or version.get('type') != 'version'
+                or version.get('@module') != 'tofu.ui' or not isinstance(version.get('ui'), str)
+                or not re.fullmatch(r'1\.[0-9]+', version['ui'])):
+            return 'unknown'
+        for line in events:
+            event = parse(line)
+            if not isinstance(event, dict) or not isinstance(event.get('type'), str):
+                return 'unknown'
+            if event['type'] != 'diagnostic':
+                continue
+            diagnostic = event.get('diagnostic')
+            if (not isinstance(diagnostic, dict) or diagnostic.get('severity') not in ('error', 'warning')
+                    or not isinstance(diagnostic.get('summary'), str) or not diagnostic['summary']):
+                return 'unknown'
+            if diagnostic['severity'] == 'warning':
+                continue
+
+            summary = diagnostic['summary']
+            address = diagnostic.get('address', '')
+            if address == '' and summary in ('Error acquiring the state lock',
+                                             'Error releasing the state lock'):
+                categories.add('state_lock')
+            elif address == '' and summary.startswith('error loading state:'):
+                categories.add('state_read')
+            elif isinstance(address, str):
+                match = re.fullmatch(r'([a-z_]+\.[a-z_]+)(?:\[(?:[0-9]+|"(?:[^"\\\r\n]|\\.)*")\])?',
+                                     address)
+                if not match or match[1] not in HARBOR_PLAN_RESOURCES:
+                    return 'unknown'
+                categories.add('harbor_resource')
+            else:
+                return 'unknown'
+    except (ValueError, RecursionError):
+        return 'unknown'
+    return categories.pop() if len(categories) == 1 else 'unknown'
+
+
 def plan_owned_scope(document):
     """Only quota and membership updates may change; every delete is refused."""
     for resource in document.get('resource_changes', []):
@@ -320,12 +385,12 @@ def reconcile_harbor(config, *, apply_allowed=True):
         environment = tofu_environment(backend, credentials, encryption['passphrase'],
                                        admin, backend['harbor_host'], robots, proxy)
         tofu(directory, environment, 'init', '-input=false', '-reconfigure')
-        planned = subprocess.run(['tofu', 'plan', '-input=false', '-detailed-exitcode',
+        planned = subprocess.run(['tofu', 'plan', '-json', '-input=false', '-detailed-exitcode',
                                   '-out=plan', '-var-file=desired.tfvars.json'],
-                                 cwd=directory, env=environment, capture_output=True,
-                                 text=True, timeout=600)
+                                 cwd=directory, env=environment, capture_output=True, timeout=600)
         if planned.returncode not in (0, 2):
-            raise RuntimeError('Native Harbor plan failed; shared state retained')
+            category = plan_failure_category(planned.stdout)
+            raise RuntimeError('Native Harbor plan failed (%s); shared state retained' % category)
         document = json.loads(tofu(directory, environment, 'show', '-json', 'plan'))
         digest = plan_digest(document)
         plan_owned_scope(document)
