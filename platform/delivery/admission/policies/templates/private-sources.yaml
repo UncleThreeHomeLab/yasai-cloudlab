@@ -42,6 +42,8 @@ spec:
   validations:
     - expression: >-
         !variables.selected ||
+        (object.metadata.name.startsWith('cloudlab-configmap-source-') &&
+          (object.kind == 'Namespace' || (has(object.metadata.namespace) && object.metadata.namespace == 'argocd'))) ||
         (object.metadata.name.startsWith('cloudlab-private-') &&
           object.metadata.name != 'cloudlab-private-sources' &&
           object.metadata.name != 'cloudlab-private-sources-source' &&

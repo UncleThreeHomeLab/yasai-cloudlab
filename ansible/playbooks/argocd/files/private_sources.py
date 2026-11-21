@@ -327,7 +327,7 @@ def accepted_catalog_revision(client, repository, snapshot, commitment):
         raise ValueError('Private source acceptance is invalid') from None
 
 
-def verification_approval(public):
+def verification_approval(public, private_repository):
     """Capture the protected public Root chart used for private verification."""
     import time
     import yaml
@@ -344,18 +344,58 @@ def verification_approval(public):
             raise ValueError('Private source approval is invalid')
         files = source_snapshot.chart_files({'repository': public['repository'], 'revision': revision,
             'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
-    approved = yaml.safe_load(files['values.yaml'])
-    if (not isinstance(approved, dict) or approved.get('repository') != public.get('repository')
-            or approved.get('revision') != 'main' or approved.get('privateSources') != public.get('privateSources')):
-        raise ValueError('Private source approval is invalid')
-    return approved, files
+        approved = yaml.safe_load(files['values.yaml'])
+        if (not isinstance(approved, dict) or approved.get('repository') != public.get('repository')
+                or approved.get('revision') != 'main' or approved.get('privateSources') != public.get('privateSources')):
+            raise ValueError('Private source approval is invalid')
+        pin = approved.get('privateSources', {}).get('revision')
+        if not isinstance(pin, str) or not re.fullmatch('[a-f0-9]{40}', pin):
+            raise ValueError('Private source approval is invalid')
+        parent = source_spec(approved, private_repository, '0' * 40, files=files)
+        sources = parent.get('template', {}).get('spec', {}).get('sources')
+        if (not isinstance(sources, list) or len(sources) != 2
+                or sources[0] != {'repoURL': public['repository'], 'targetRevision': pin,
+                    'path': 'platform/delivery/private-sources',
+                    'helm': {'valueFiles': ['$values/platform/sources.yaml']}}):
+            raise ValueError('Private source approval is invalid')
+        catalog_files = source_snapshot.chart_files({'repository': public['repository'], 'revision': pin,
+            'path': 'platform/delivery/private-sources'}, fetch=fetch, deadline=deadline)
+    return approved, files, catalog_files
+
+
+def verification_registry(client, values, public, revision, files):
+    """Read and render only the accepted catalog with its authenticated chart."""
+    import yaml
+    from playbooks.argocd.files.github_setup import repository as repository_name
+    try:
+        if (json.loads(values.get('PRIVATE_GITOPS_SOURCES') or '[]') != [] or values.get('PRIVATE_GITOPS_REMOVE')
+                or not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision)):
+            raise ValueError()
+        document = client.request('GET', 'repos/' + repository_name(values['PRIVATE_CONFIG_REPOSITORY']) +
+            '/contents/platform/sources.yaml?ref=' + revision)
+        if (not isinstance(document, dict) or document.get('type') != 'file'
+                or document.get('encoding') != 'base64' or type(document.get('size')) is not int
+                or not 0 <= document['size'] <= 1048576):
+            raise ValueError()
+        raw = decode_contents(document)
+        if len(raw) != document['size']:
+            raise ValueError()
+        value = yaml.load(raw, Loader=strict_loader('Private registry input is invalid'))
+        if (not isinstance(value, dict) or set(value) != {'sources'} or not isinstance(value['sources'], list)
+                or len(value['sources']) > 20 or any(not isinstance(row, dict)
+                    or not {'name', 'repository', 'revision', 'path'} <= set(row)
+                    or set(row) - {'name', 'repository', 'revision', 'path', 'retirement'}
+                    or any(not isinstance(item, str) for item in row.values()) for row in value['sources'])):
+            raise ValueError()
+        objects = render_objects(files, [value], release='private-sources')
+        return value, objects
+    except Exception:
+        raise ValueError('Private verification registry is invalid') from None
 
 
 def verification_payload(values, public):
     """Read one authenticated snapshot and render its complete immutable catalog."""
     from playbooks.argocd.files.github_app import configuration_revision
-    import subprocess
-    import yaml
     from urllib.parse import quote
     from playbooks.argocd.files.github_setup import repository as repository_name
     repository = values.get('PRIVATE_CONFIG_REPOSITORY')
@@ -363,14 +403,13 @@ def verification_payload(values, public):
         raise ValueError('Private verification requires its designated repository')
     private_inputs = {}
     enabled = registry_enabled(public)
-    approved, files = verification_approval(public) if enabled else (public, None)
+    approved, files, catalog_files = verification_approval(public, repository) if enabled else (public, None, None)
     def read(client, revision):
         if consumer_contract(public, 'permissions')['enabled']:
             private_inputs['permissions'] = permissions_input(client, repository, revision)
         enabled = registry_enabled(public)
         catalog_revision = accepted_catalog_revision(client, repository, revision, approved['privateSources'].get('commitment')) if enabled else None
-        value = registry(client, values, public, catalog_revision) if enabled else None
-        objects = []
+        value, objects = verification_registry(client, values, public, catalog_revision, catalog_files) if enabled else (None, [])
         symbolic_revisions = {}
         if value is not None:
             refs = {row['revision'] for row in value['sources'] if row['repository'] == repository
@@ -384,12 +423,6 @@ def verification_payload(values, public):
                         or not re.fullmatch('[a-f0-9]{40}', document['sha'])):
                     raise ValueError('Private source symbolic revision resolved to an invalid commit')
                 symbolic_revisions[ref] = document['sha']
-            chart = Path(__file__).resolve().parents[4] / 'platform/delivery/private-sources'
-            result = subprocess.run(['helm', 'template', 'private-sources', str(chart), '-n', 'argocd', '-f', '-'],
-                input=json.dumps(value), capture_output=True, text=True, timeout=60)
-            if result.returncode:
-                raise ValueError('Private verification declarations cannot be rendered')
-            objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj]
         result = {'configuration_repository': repository, 'configuration_revision': revision,
                 'catalog_enabled': registry_enabled(public), 'sources': value['sources'] if value else [],
                 'objects': objects, 'public_repository': public['repository'],

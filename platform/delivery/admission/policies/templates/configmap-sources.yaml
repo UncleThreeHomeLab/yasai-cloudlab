@@ -1,0 +1,262 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-configmap-source-registration
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [namespaces]
+      - apiGroups: [argoproj.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [applications, appprojects]
+      - apiGroups: [external-secrets.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [externalsecrets]
+  matchConditions:
+    - name: reserved-registrations
+      expression: >-
+        request.name.startsWith('cloudlab-configmap-source-') &&
+        (request.kind.kind == 'Namespace' || request.namespace == 'argocd')
+  variables:
+    - name: controller
+      expression: "request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller'"
+    - name: tracking
+      expression: >-
+        'cloudlab-private-sources:' + (request.kind.kind == 'Namespace' ? '/Namespace:argocd/' :
+          request.kind.kind == 'ExternalSecret' ? 'external-secrets.io/ExternalSecret:argocd/' :
+          'argoproj.io/' + request.kind.kind + ':argocd/') + request.name
+    - name: current
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: metadata
+      expression: "dyn(variables.current.metadata)"
+    - name: owned
+      expression: >-
+        has(variables.metadata.labels) && 'cloudlab.io/owner' in variables.metadata.labels &&
+        variables.metadata.labels['cloudlab.io/owner'] == 'private-gitops' &&
+        has(variables.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in variables.metadata.annotations &&
+        variables.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking
+    - name: oldOwned
+      expression: >-
+        oldObject != null && has(oldObject.metadata.labels) && 'cloudlab.io/owner' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['cloudlab.io/owner'] == 'private-gitops' &&
+        has(oldObject.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations &&
+        oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking
+    - name: garbageCollector
+      expression: >-
+        request.kind.kind == 'Application' && request.operation == 'UPDATE' &&
+        request.userInfo.username in ['system:serviceaccount:kube-system:generic-garbage-collector', 'system:kube-controller-manager'] &&
+        oldObject != null && has(oldObject.metadata.deletionTimestamp) && oldObject.metadata.deletionTimestamp != null &&
+        has(oldObject.metadata.finalizers) && 'foregroundDeletion' in oldObject.metadata.finalizers &&
+        (has(object.metadata.finalizers) ? object.metadata.finalizers : []) == oldObject.metadata.finalizers.filter(f, f != 'foregroundDeletion') &&
+        dyn(object).all(k, k == 'metadata' || (k in dyn(oldObject) && dyn(object)[k] == dyn(oldObject)[k])) &&
+        dyn(oldObject).all(k, k == 'metadata' || (k in dyn(object) && dyn(oldObject)[k] == dyn(object)[k])) &&
+        dyn(object.metadata).all(k, k in ['finalizers', 'managedFields', 'resourceVersion'] ||
+          (k in dyn(oldObject.metadata) && dyn(object.metadata)[k] == dyn(oldObject.metadata)[k])) &&
+        dyn(oldObject.metadata).all(k, k in ['finalizers', 'managedFields', 'resourceVersion'] ||
+          (k in dyn(object.metadata) && dyn(oldObject.metadata)[k] == dyn(object.metadata)[k]))
+  validations:
+    - expression: >-
+        (variables.controller || variables.garbageCollector) && variables.owned && (request.operation == 'CREATE' || variables.oldOwned) &&
+        request.name.matches('^cloudlab-configmap-source-([a-z][a-z0-9-]{0,28}[a-z0-9]|[a-z])$')
+      message: Reserved registrations require the native registry controller and exact existing ownership.
+    - expression: >-
+        request.kind.kind == 'Application' ||
+        (request.operation != 'DELETE' && has(variables.metadata.annotations) &&
+         'argocd.argoproj.io/sync-options' in variables.metadata.annotations &&
+         variables.metadata.annotations['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false' &&
+         'argocd.argoproj.io/compare-options' in variables.metadata.annotations &&
+         variables.metadata.annotations['argocd.argoproj.io/compare-options'] == 'IgnoreExtraneous' &&
+         (!has(variables.metadata.ownerReferences) || size(variables.metadata.ownerReferences) == 0))
+      message: Reserved supporting resources are retained and cannot have dependent cleanup owners.
+    - expression: >-
+        request.kind.kind != 'AppProject' || request.operation == 'DELETE' ||
+        (dyn(object.spec).all(k, k in ['sourceRepos', 'destinations', 'clusterResourceWhitelist', 'namespaceResourceWhitelist']) &&
+         size(object.spec.sourceRepos) == 1 && object.spec.sourceRepos[0].matches('^https://github[.]com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git$') &&
+         size(object.spec.destinations) == 1 && object.spec.destinations[0].server == 'https://kubernetes.default.svc' &&
+         object.spec.destinations[0].namespace == request.name && dyn(object.spec.destinations[0]).all(k, k in ['server', 'namespace']) &&
+         (!has(object.spec.clusterResourceWhitelist) || size(object.spec.clusterResourceWhitelist) == 0) &&
+         size(object.spec.namespaceResourceWhitelist) == 1 && object.spec.namespaceResourceWhitelist[0].group == '' &&
+         object.spec.namespaceResourceWhitelist[0].kind == 'ConfigMap' &&
+         (!has(object.spec.sourceNamespaces) || size(object.spec.sourceNamespaces) == 0) &&
+         (request.operation == 'CREATE' || object.spec == oldObject.spec))
+      message: Reserved projects keep one immutable repository and allow ConfigMaps only in their own namespace.
+    - expression: >-
+        request.kind.kind != 'ExternalSecret' || request.operation == 'DELETE' ||
+        (object.spec.secretStoreRef.name == 'cloudlab' && object.spec.secretStoreRef.kind == 'ClusterSecretStore' &&
+         object.spec.target.name == request.name && object.spec.target.creationPolicy == 'Owner' &&
+         object.spec.target.deletionPolicy == 'Retain')
+      message: Reserved credentials use the retained catalog ExternalSecret target.
+    - expression: >-
+        request.kind.kind != 'Application' ||
+        (request.operation == 'DELETE' ? (variables.oldOwned && has(oldObject.metadata.finalizers) &&
+           oldObject.metadata.finalizers == ['resources-finalizer.argocd.argoproj.io']) :
+         (object.spec.project == request.name && object.spec.destination.server == 'https://kubernetes.default.svc' &&
+          object.spec.destination.namespace == request.name && has(object.spec.source) &&
+          dyn(object.spec).all(k, k in ['project', 'source', 'sources', 'destination', 'syncPolicy']) &&
+          dyn(object.spec.destination).all(k, k in ['server', 'namespace']) &&
+          (!has(object.spec.sources) || size(object.spec.sources) == 0) &&
+          object.spec.source.repoURL.matches('^https://github[.]com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git$') &&
+          object.spec.source.targetRevision.matches('^[a-f0-9]{40}$') &&
+          object.spec.source.path.matches('^[A-Za-z0-9][A-Za-z0-9/_.-]*$') &&
+          !object.spec.source.path.matches('(^|/)[.][.](/|$)') &&
+          dyn(object.spec.source).all(k, k in ['repoURL', 'targetRevision', 'path']) &&
+          dyn(object.spec.syncPolicy).all(k, k in ['automated', 'syncOptions']) &&
+          has(object.spec.syncPolicy.automated) && dyn(object.spec.syncPolicy.automated).all(k, k in ['enabled', 'prune', 'selfHeal', 'allowEmpty']) && object.spec.syncPolicy.automated.enabled &&
+          object.spec.syncPolicy.automated.prune && object.spec.syncPolicy.automated.selfHeal &&
+          object.spec.syncPolicy.automated.allowEmpty &&
+          object.spec.syncPolicy.syncOptions == ['FailOnSharedResource=true', 'ClientSideApplyMigration=false'] &&
+          (request.operation == 'CREATE' ?
+           (has(object.metadata.finalizers) && object.metadata.finalizers == ['resources-finalizer.argocd.argoproj.io']) :
+           (object.spec == oldObject.spec &&
+            (variables.garbageCollector || object.metadata.finalizers == oldObject.metadata.finalizers ||
+             (has(oldObject.metadata.deletionTimestamp) && oldObject.metadata.deletionTimestamp != null &&
+              variables.controller && has(oldObject.metadata.finalizers) &&
+              'resources-finalizer.argocd.argoproj.io' in oldObject.metadata.finalizers &&
+              (has(object.metadata.finalizers) ? object.metadata.finalizers : []) ==
+                oldObject.metadata.finalizers.filter(f, f != 'resources-finalizer.argocd.argoproj.io')))))))
+      message: Reserved Applications keep their immutable source, destination and foreground cleanup boundary.
+    - expression: >-
+        request.kind.kind != 'Application' || request.operation == 'DELETE' ||
+        !has(object.operation) || object.operation == null ||
+        (dyn(object.operation).all(k, k in ['sync', 'initiatedBy', 'info', 'retry']) &&
+         has(object.operation.sync) && dyn(object.operation.sync).all(k, k in ['revision', 'revisions', 'prune', 'dryRun', 'syncStrategy', 'resources', 'source', 'sources', 'syncOptions', 'autoHealAttemptsCount']) &&
+         !has(object.operation.sync.manifests) &&
+         (!has(object.operation.sync.sources) || size(object.operation.sync.sources) == 0) &&
+         (!has(object.operation.sync.revisions) || size(object.operation.sync.revisions) == 0) &&
+         (!has(object.operation.sync.source) || object.operation.sync.source == object.spec.source) &&
+         (!has(object.operation.sync.revision) || object.operation.sync.revision == object.spec.source.targetRevision) &&
+         (!has(object.operation.sync.syncOptions) || object.operation.sync.syncOptions == object.spec.syncPolicy.syncOptions) &&
+         (!has(object.operation.sync.syncStrategy) ||
+          ((!has(object.operation.sync.syncStrategy.apply) || !has(object.operation.sync.syncStrategy.apply.force) || !object.operation.sync.syncStrategy.apply.force) &&
+           (!has(object.operation.sync.syncStrategy.hook) || !has(object.operation.sync.syncStrategy.hook.force) || !object.operation.sync.syncStrategy.hook.force))))
+      message: Reserved Application operations cannot override their pinned source or force replacement.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-configmap-source-content
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [configmaps]
+  matchConditions:
+    - name: reserved-namespace
+      expression: "request.namespace.startsWith('cloudlab-configmap-source-')"
+  variables:
+    - name: current
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: tracking
+      expression: "request.namespace + ':/ConfigMap:' + request.namespace + '/' + request.name"
+    - name: owned
+      expression: >-
+        has(variables.current.metadata.annotations) &&
+        'argocd.argoproj.io/tracking-id' in variables.current.metadata.annotations &&
+        variables.current.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking
+    - name: oldOwned
+      expression: >-
+        oldObject != null && has(oldObject.metadata.annotations) &&
+        'argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations &&
+        oldObject.metadata.annotations['argocd.argoproj.io/tracking-id'] == variables.tracking
+    - name: garbageCollector
+      expression: >-
+        request.operation == 'UPDATE' &&
+        request.userInfo.username in ['system:serviceaccount:kube-system:generic-garbage-collector', 'system:kube-controller-manager'] &&
+        oldObject != null && has(oldObject.metadata.deletionTimestamp) && oldObject.metadata.deletionTimestamp != null &&
+        has(oldObject.metadata.finalizers) && 'foregroundDeletion' in oldObject.metadata.finalizers &&
+        (has(object.metadata.finalizers) ? object.metadata.finalizers : []) == oldObject.metadata.finalizers.filter(f, f != 'foregroundDeletion') &&
+        dyn(object).all(k, k == 'metadata' || (k in dyn(oldObject) && dyn(object)[k] == dyn(oldObject)[k])) &&
+        dyn(oldObject).all(k, k == 'metadata' || (k in dyn(object) && dyn(oldObject)[k] == dyn(object)[k])) &&
+        dyn(object.metadata).all(k, k in ['finalizers', 'managedFields', 'resourceVersion'] ||
+          (k in dyn(oldObject.metadata) && dyn(object.metadata)[k] == dyn(oldObject.metadata)[k])) &&
+        dyn(oldObject.metadata).all(k, k in ['finalizers', 'managedFields', 'resourceVersion'] ||
+          (k in dyn(object.metadata) && dyn(oldObject.metadata)[k] == dyn(object.metadata)[k]))
+  validations:
+    - expression: >-
+        request.name == 'kube-root-ca.crt' ?
+          (request.operation != 'DELETE' && (!has(variables.current.metadata.annotations) ||
+            !('argocd.argoproj.io/tracking-id' in variables.current.metadata.annotations)) &&
+           (oldObject == null || !has(oldObject.metadata.annotations) ||
+            !('argocd.argoproj.io/tracking-id' in oldObject.metadata.annotations))) :
+          ((request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller' || variables.garbageCollector) &&
+           variables.owned && (request.operation == 'CREATE' || variables.oldOwned) &&
+           (request.operation == 'DELETE' || variables.garbageCollector ||
+            ((!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) &&
+             (!has(object.metadata.ownerReferences) || size(object.metadata.ownerReferences) == 0))))
+      message: Reserved ConfigMaps require exact native tracking and cannot adopt or delete foreign objects.
+    - expression: >-
+        request.operation == 'DELETE' || !has(object.metadata.annotations) ||
+        (!('argocd.argoproj.io/sync-options' in object.metadata.annotations) &&
+         !('argocd.argoproj.io/hook' in object.metadata.annotations))
+      message: Reserved ConfigMaps cannot override synchronization or become hooks.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cloudlab-configmap-source-credentials
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    admission: {enabled: true}
+    background: {enabled: false}
+  autogen:
+    validatingAdmissionPolicy: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [secrets]
+  matchConditions:
+    - name: reserved-target
+      expression: "request.namespace == 'argocd' && request.name.startsWith('cloudlab-configmap-source-')"
+  variables:
+    - name: current
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: owner
+      expression: >-
+        has(variables.current.metadata.ownerReferences) && size(variables.current.metadata.ownerReferences) == 1 &&
+        variables.current.metadata.ownerReferences.exists(n,
+          n.apiVersion == 'external-secrets.io/v1' && n.kind == 'ExternalSecret' && n.name == request.name &&
+          has(n.uid) && n.uid != '' && has(n.controller) && n.controller)
+  validations:
+    - expression: >-
+        request.operation != 'DELETE' &&
+        request.userInfo.username == 'system:serviceaccount:external-secrets:external-secrets' &&
+        variables.owner && has(object.metadata.labels) &&
+        'cloudlab.io/owner' in object.metadata.labels && object.metadata.labels['cloudlab.io/owner'] == 'private-gitops' &&
+        'argocd.argoproj.io/secret-type' in object.metadata.labels && object.metadata.labels['argocd.argoproj.io/secret-type'] == 'repository' &&
+        (request.operation == 'CREATE' ||
+         (oldObject != null && has(oldObject.metadata.ownerReferences) &&
+          oldObject.metadata.ownerReferences == object.metadata.ownerReferences &&
+          has(oldObject.metadata.labels) && 'cloudlab.io/owner' in oldObject.metadata.labels &&
+          oldObject.metadata.labels['cloudlab.io/owner'] == 'private-gitops'))
+      message: Retained repository Secrets require their existing exact ExternalSecret owner; adoption and deletion are refused.
