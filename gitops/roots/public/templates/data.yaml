@@ -144,7 +144,7 @@ metadata:
   name: cloudlab-data-configuration
   namespace: {{ .Values.namespace }}
   labels: {cloudlab.io/owner: data-platform}
-  annotations: {argocd.argoproj.io/skip-reconcile: 'false'}
+  annotations: {argocd.argoproj.io/skip-reconcile: 'false', argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'}
 spec:
   project: cloudlab-data-configuration
   source: null
