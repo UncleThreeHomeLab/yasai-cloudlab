@@ -669,58 +669,6 @@ def prepare_primary(directory, credentials_directory, bootstrap_directory, admin
         path.chmod(0o600)
 
 
-def proof_user(state, current, values, nonce):
-    """Create only the privately declared disposable viewer; never reset people."""
-    if (not isinstance(nonce, str) or not re.fullmatch('[a-f0-9]{32}', nonce) or
-            not isinstance(values, dict) or state.get('realm') not in REALMS or
-            set(values) != {'username', 'password', 'email', 'ownership_id'} or
-            values['username'] != 'proof-' + nonce or values['ownership_id'] != nonce or
-            not isinstance(values['password'], str) or len(values['password']) < 48 or
-            not isinstance(values['email'], str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', values['email'])):
-        raise ValueError('Disposable enrollment requires exact vault ownership and private identity')
-    members = [row for row in state.get('users', []) if row.get('username') == values['username']]
-    if (len(members) != 1 or members[0].get('enabled') is False or
-            '/viewer' not in members[0].get('groups', []) or
-            any(group in members[0].get('groups', []) for group in ('/platform-admin', '/developer')) or
-            members[0].get('email') != values['email'] or members[0].get('emailVerified') is not True):
-        raise ValueError('Disposable enrollment requires an active private verified viewer membership')
-    if (not isinstance(current, list) or len(current) > 1 or any(
-            row.get('username') != values['username'] or
-            row.get('attributes', {}).get('cloudlab-primary-owner') != [nonce]
-            for row in current)):
-        raise ValueError('Disposable enrollment cannot adopt an unrelated account')
-    if current:
-        return {'realm': state['realm'], 'users': []}
-    user = copy.deepcopy(members[0])
-    user.update(enabled=True, firstName='Fixture', lastName='Viewer', requiredActions=['webauthn-register'],
-                attributes={'cloudlab-primary-owner': [nonce]},
-                credentials=[{'type': 'password', 'value': values['password'], 'temporary': False}])
-    return {'realm': state['realm'], 'users': [user]}
-
-
-def prepare_proof_user(directory, nonce, admin_host, realm='platform'):
-    """Read-only validation; the serialized CLI performs the sole user write."""
-    from urllib.parse import urlencode
-    if realm not in REALMS: raise ValueError('Disposable enrollment requires a managed realm')
-    values = {key: Path('/proof-credentials', key).read_text()
-              for key in ('username', 'password', 'email', 'ownership_id')}
-    origin = exact_url('https://' + admin_host + '/')[:-1]
-    token = private_request(origin + '/realms/' + realm + '/protocol/openid-connect/token', form={
-        'grant_type': 'client_credentials', 'client_id': 'realm-writer',
-        'client_secret': Path('/credentials/' + realm + '_client_secret').read_text()})['access_token']
-    source = load_merged_source('/private')
-    revoked = json.loads(Path('/private/revocations').read_text())
-    credentials = json.loads(Path('/private/client_secrets').read_text())
-    state = compile_state(realm, 'validation.invalid', source, credentials, revoked)
-    current = private_request(origin + '/admin/realms/' + realm + '/users?' + urlencode({
-        'username': 'proof-' + nonce, 'exact': 'true', 'max': 2}), token=token)
-    document = proof_user(state, current, values, nonce)
-    target = Path(directory, 'proof.json')
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(document, sort_keys=True))
-    target.chmod(0o600)
-
-
 def prepare_application_owner(directory, nonce, admin_host):
     """Creation-only enrollment through the existing applications realm writer."""
     from urllib.parse import urlencode
