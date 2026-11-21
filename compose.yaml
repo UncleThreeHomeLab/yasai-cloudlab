@@ -173,15 +173,10 @@ services:
         source: .
         target: /workspace
         read_only: true
-      - type: bind
-        source: ${PRIVATE_CONFIG_DIR:-../cloudlab-config}
-        target: /private-config
-        read_only: true
       - type: volume
         source: reconciler_state
         target: /reconciler-state
     environment:
-      PRIVATE_CONFIG_DIR: /private-config
       CLOUDLAB_STATE_DIR: /reconciler-state
     command: [--interval, '600']
 

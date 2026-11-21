@@ -789,8 +789,8 @@ destructive migrations require a separate explicit data scope.
    identity and data binding; per-service `secrets.yaml` files do not exist and are
    never created beside a workload. After merging the catalog PR, the control-machine
    credential reconciler creates missing approved items with empty required fields;
-   keep its private checkout at reviewed main and the same active catalog path as
-   public `services.catalogPath`. Run it as a daemon with
+   it reads the authenticated private main snapshot selected by public
+   `services.catalogPath`. Run it as a daemon with
    `docker compose --profile credentials up -d credential-reconciler` and inspect
    its persisted per-cycle report for created, pending and awaiting-administrator
    items. Ordinary secrets need an `approval.secretBindings` entry binding the
