@@ -42,8 +42,8 @@ initContainers:
     args:
       - >-
         import sys; from pathlib import Path; sys.path.insert(0,'/code');
-        from lease import acquire, acquire_sync; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory, prepare_proof_user, prepare_application_owner;
-        {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
+        from lease import acquire, acquire_sync; from configuration import prepare, prepare_master, prepare_primary, prepare_removal, removal_inventory, prepare_application_owner;
+        {{- if and .Values.operation (eq .Values.operation.action "initialize-owner") }}
         {{- /* Read identity ownership only after acquiring the same writer Lease. */}}
         {{- else if .Values.operation }}
         prepare_removal('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, '/private');
@@ -65,12 +65,8 @@ initContainers:
         from preview_clients import attempt as preview_clients;
         Path('/imports/skip').exists() or preview_clients({{ .Values.adminHost | quote }});
         {{- end }}
-        {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
-        {{- if eq .Values.operation.action "initialize-owner" }}
+        {{- if and .Values.operation (eq .Values.operation.action "initialize-owner") }}
         prepare_application_owner('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }})
-        {{- else }}
-        prepare_proof_user('/imports', {{ .Values.operation.nonce | quote }}, {{ .Values.adminHost | quote }}, realm={{ .Values.operation.realm | quote }})
-        {{- end }}
         {{- else if .Values.operation }}
         removal_inventory('/imports', {{ .Values.operation.realm | quote }}, {{ .Values.operation.client | quote }}, {{ .Values.adminHost | quote }})
         {{- end }}
@@ -85,7 +81,7 @@ initContainers:
       - {name: kubernetes-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
       - {name: code, mountPath: /code, readOnly: true}
       - {name: imports, mountPath: /imports}
-      {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
+      {{- if and .Values.operation (eq .Values.operation.action "initialize-owner") }}
       - {name: proof-credentials, mountPath: /proof-credentials, readOnly: true}
       {{- end }}
       - {name: credentials, mountPath: /credentials, readOnly: true}
@@ -106,7 +102,7 @@ containers:
     args:
       - |
         if test -f /imports/skip; then echo 'Serialized operation skipped; no realm changes'; exit 0; fi
-        {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
+        {{- if and .Values.operation (eq .Values.operation.action "initialize-owner") }}
         export KEYCLOAK_LOGINREALM={{ .Values.operation.realm | quote }} KEYCLOAK_CLIENTID=realm-writer
         export KEYCLOAK_CLIENTSECRET="$(cat /credentials/${KEYCLOAK_LOGINREALM}_client_secret)"
         export IMPORT_FILES_LOCATIONS=/imports/proof.json
@@ -183,8 +179,8 @@ volumes:
   - {name: imports, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
   - {name: temporary, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
   - {name: credentials, secret: {secretName: keycloak-realm-writers, defaultMode: 0440}}
-  {{- if and .Values.operation (has .Values.operation.action (list "initialize-proof" "initialize-owner")) }}
-  - {name: proof-credentials, secret: {secretName: {{ ternary "keycloak-applications-owner" "keycloak-proof" (eq .Values.operation.action "initialize-owner") }}, defaultMode: 0440}}
+  {{- if and .Values.operation (eq .Values.operation.action "initialize-owner") }}
+  - {name: proof-credentials, secret: {secretName: keycloak-applications-owner, defaultMode: 0440}}
   {{- end }}
   {{- if .Values.bootstrapMode }}
   - {name: bootstrap, secret: {secretName: keycloak-bootstrap-admin, defaultMode: 0440}}
