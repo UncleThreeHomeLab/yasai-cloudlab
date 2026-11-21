@@ -293,6 +293,64 @@ def policy_specs(names):
             if row and row['kind'] == 'ValidatingPolicy' and row['metadata']['name'] in names}
 
 
+def accepted_catalog_revision(client, repository, snapshot, commitment):
+    """Authenticate a receipt without exposing its private contents."""
+    import hashlib
+    import hmac
+    import yaml
+    from playbooks.argocd.files.github_setup import repository as repository_name
+    try:
+        if (not isinstance(snapshot, str) or not re.fullmatch('[a-f0-9]{40}', snapshot)
+                or not isinstance(commitment, str) or not re.fullmatch('[a-f0-9]{64}', commitment)):
+            raise ValueError()
+        document = client.request('GET', 'repos/' + repository_name(repository) +
+            '/contents/platform/acceptance/private-sources.yaml?ref=' + snapshot)
+        if (not isinstance(document, dict) or document.get('type') != 'file'
+                or document.get('encoding') != 'base64' or type(document.get('size')) is not int
+                or not 0 < document['size'] <= 1048576):
+            raise ValueError()
+        raw = decode_contents(document)
+        if len(raw) != document['size']:
+            raise ValueError()
+        receipt = yaml.load(raw, Loader=strict_loader('Private source acceptance is invalid'))
+        if (not isinstance(receipt, dict) or set(receipt) != {'version', 'revision', 'nonce'}
+                or any(type(value) is not str for value in receipt.values())
+                or receipt['version'] != 'v1' or not re.fullmatch('[a-f0-9]{40}', receipt['revision'])
+                or not re.fullmatch('[a-f0-9]{64}', receipt['nonce'])):
+            raise ValueError()
+        canonical = ('cloudlab-private-source-acceptance-v1\n' + repository +
+            '\nprivate-sources\nplatform/sources.yaml\n' + receipt['revision'] + '\n' + receipt['nonce'] + '\n').encode('utf-8')
+        if not hmac.compare_digest(hashlib.sha256(canonical).hexdigest(), commitment):
+            raise ValueError()
+        return receipt['revision']
+    except Exception:
+        raise ValueError('Private source acceptance is invalid') from None
+
+
+def verification_approval(public):
+    """Capture the protected public Root chart used for private verification."""
+    import time
+    import yaml
+    from playbooks.argocd.files import source_snapshot
+    from playbooks.argocd.files.github_app import PUBLIC_READER, public_metadata
+    from playbooks.secrets.files.vault import fields
+    if public.get('repository') != 'https://github.com/' + PUBLIC_READER + '.git':
+        raise ValueError('Private source approval is invalid')
+    deadline = time.monotonic() + 150
+    with public_metadata(fields('github-argocd', ('APP_ID', 'INSTALLATION_ID', 'PRIVATE_KEY')), deadline=deadline) as fetch:
+        branch = fetch('repos/' + PUBLIC_READER + '/branches/main', deadline)
+        revision = branch.get('commit', {}).get('sha') if isinstance(branch, dict) else None
+        if not isinstance(branch, dict) or branch.get('protected') is not True or not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{40}', revision):
+            raise ValueError('Private source approval is invalid')
+        files = source_snapshot.chart_files({'repository': public['repository'], 'revision': revision,
+            'path': 'gitops/roots/public'}, fetch=fetch, deadline=deadline)
+    approved = yaml.safe_load(files['values.yaml'])
+    if (not isinstance(approved, dict) or approved.get('repository') != public.get('repository')
+            or approved.get('revision') != 'main' or approved.get('privateSources') != public.get('privateSources')):
+        raise ValueError('Private source approval is invalid')
+    return approved, files
+
+
 def verification_payload(values, public):
     """Read one authenticated snapshot and render its complete immutable catalog."""
     from playbooks.argocd.files.github_app import configuration_revision
@@ -304,11 +362,14 @@ def verification_payload(values, public):
     if not repository:
         raise ValueError('Private verification requires its designated repository')
     private_inputs = {}
+    enabled = registry_enabled(public)
+    approved, files = verification_approval(public) if enabled else (public, None)
     def read(client, revision):
         if consumer_contract(public, 'permissions')['enabled']:
             private_inputs['permissions'] = permissions_input(client, repository, revision)
         enabled = registry_enabled(public)
-        value = registry(client, values, public, revision) if enabled else None
+        catalog_revision = accepted_catalog_revision(client, repository, revision, approved['privateSources'].get('commitment')) if enabled else None
+        value = registry(client, values, public, catalog_revision) if enabled else None
         objects = []
         symbolic_revisions = {}
         if value is not None:
@@ -333,9 +394,10 @@ def verification_payload(values, public):
                 'catalog_enabled': registry_enabled(public), 'sources': value['sources'] if value else [],
                 'objects': objects, 'public_repository': public['repository'],
                 'symbolic_revisions': symbolic_revisions,
-                'platform_revision': public.get('privateSources', {}).get('revision')}
+                'platform_revision': public.get('privateSources', {}).get('revision'),
+                'catalog_revision': catalog_revision}
         if enabled:
-            result.update(applicationSet=source_spec(public, repository, revision))
+            result.update(applicationSet=source_spec(approved, repository, revision, files=files))
         return result
     result = configuration_revision(values, read=read)
     for consumer in CONSUMERS:

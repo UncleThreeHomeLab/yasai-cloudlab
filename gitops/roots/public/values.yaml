@@ -53,6 +53,7 @@ services:
   revision: ccf15a1b637f860cbd47fa8755d9e365402eb8af
 privateSources:
   enabled: true
+  commitment: 6cbb135d601f8d4fd0eb2938b9db77e735b3469bec3c905e8b150bd7c5d7de30
   revision: 34466afba36854d1d6cec36c314f61ed7e447de7
 observability:
   enabled: true

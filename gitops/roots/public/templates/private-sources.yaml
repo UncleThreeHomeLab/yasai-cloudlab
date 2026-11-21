@@ -2,6 +2,10 @@
 {{- fail "privateSources.enabled must be a YAML boolean" }}
 {{- end }}
 {{- if and .Values.privateSources.enabled (hasKey .Values.identity "argo") }}
+{{- $commitment := .Values.privateSources.commitment | default "" }}
+{{- if or (not (regexMatch "^[a-f0-9]{64}$" $commitment)) (not (regexMatch "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[.]git$" (.Values.identity.argo.valuesRepository | default ""))) }}
+{{- fail "Private source acceptance configuration is invalid" }}
+{{- end }}
 {{- if or (not (eq .Values.admission.enabled true)) (not (eq .Values.externalSecrets.enabled true)) (not (eq .Values.externalSecrets.reconcile true)) (not (regexMatch "^[a-f0-9]{40}$" (.Values.privateSources.revision | default ""))) }}
 {{- fail "Private source catalog requires admission, External Secrets and its reviewed immutable platform revision" }}
 {{- end }}
@@ -59,8 +63,19 @@ spec:
   goTemplate: true
   goTemplateOptions: ['missingkey=error']
   generators:
-    - list:
-        elements: [{consumer: private-sources}]
+    - merge:
+        mergeKeys: [values]
+        generators:
+          - list:
+              elements:
+                - values: {consumer: private-sources}
+                  version: missing
+          - git:
+              repoURL: {{ .Values.identity.argo.valuesRepository | quote }}
+              revision: main
+              files:
+                - path: platform/acceptance/private-sources.yaml
+              values: {consumer: private-sources}
   syncPolicy: {applicationsSync: create-update, preserveResourcesOnDeletion: true}
   template:
     metadata:
@@ -71,10 +86,14 @@ spec:
         argocd.argoproj.io/sync-options: 'Prune=false,Delete=false'
         argocd.argoproj.io/tracking-id: cloudlab-public-root:argoproj.io/Application:argocd/cloudlab-private-sources
     spec:
+{{- $destination := dict "server" "https://kubernetes.default.svc" "namespace" "argocd" }}
+{{- $guard := printf `{{- $version := get . "version" -}}{{- $revision := get . "revision" -}}{{- $nonce := get . "nonce" -}}{{- $valid := false -}}{{- if and (kindIs "string" $version) (kindIs "string" $revision) (kindIs "string" $nonce) -}}{{- if and (eq $version "v1") (regexMatch "^[a-f0-9]{40}$" $revision) (regexMatch "^[a-f0-9]{64}$" $nonce) -}}{{- if eq (sha256sum (printf "cloudlab-private-source-acceptance-v1\n%%s\nprivate-sources\nplatform/sources.yaml\n%%s\n%%s\n" %q $revision $nonce)) %q -}}{{- $valid = true -}}{{- end -}}{{- end -}}{{- end -}}` .Values.identity.argo.valuesRepository $commitment }}
+{{- $valuesRevision := printf `%s{{- if $valid -}}{{ $revision }}{{- else -}}0000000000000000000000000000000000000000{{- end -}}` $guard }}
+{{- $_ := set $destination "name" (printf `%s{{- if $valid -}}{{- else -}}private-source-acceptance-invalid{{- end -}}` $guard) }}
 {{- $spec := dict "project" "cloudlab-private-sources" "sources" (list
   (dict "repoURL" .Values.repository "targetRevision" .Values.privateSources.revision "path" "platform/delivery/private-sources" "helm" (dict "valueFiles" (list "$values/platform/sources.yaml")))
-  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" "main" "ref" "values"))
-  "destination" (dict "server" "https://kubernetes.default.svc" "namespace" "argocd")
+  (dict "repoURL" .Values.identity.argo.valuesRepository "targetRevision" $valuesRevision "ref" "values"))
+  "destination" $destination
   "syncPolicy" (dict "automated" (dict "enabled" true "prune" true "selfHeal" true "allowEmpty" true)
     "syncOptions" (list "FailOnSharedResource=true" "ClientSideApplyMigration=false" "PruneLast=true")) }}
 {{ toYaml $spec | indent 6 }}

@@ -455,7 +455,8 @@ def run(payload):
         if telemetry is not None and telemetry['paused'] and name == 'cloudlab-observability-gitops':
             credential_owner(app, repository, secrets, externals)
             continue
-        wait(lambda: configuration_healthy(name, repository, revision, symbolic_revisions), 'configuration convergence')
+        source_revision = payload.get('catalog_revision') if name == APP and 'catalog_revision' in payload else revision
+        wait(lambda: configuration_healthy(name, repository, source_revision, symbolic_revisions), 'configuration convergence')
         credential_owner(app, repository, secrets, externals)
     if permission_spec is not None:
         credential_owner({'spec': {'project': 'cloudlab-permissions'}}, repository, secrets, externals)
@@ -465,9 +466,26 @@ def run(payload):
                     'private_repository': repository}
         evidence.update({key: payload.get(key) for key in ('applicationSet',)})
         prepared_contract(evidence, get)
+        if 'catalog_revision' in payload:
+            catalog_revision = payload['catalog_revision']
+            if not isinstance(catalog_revision, str) or not re.fullmatch('[a-f0-9]{40}', catalog_revision):
+                raise RuntimeError('Private catalog acceptance is invalid')
+            expected = copy.deepcopy(evidence['applicationSet']['template']['spec'])
+            expected['sources'][1]['targetRevision'] = catalog_revision
+            expected['destination'].pop('name', None)
+            source_matches = catalog.get('spec', {}).get('sources') == expected['sources']
+        else:
+            binding = binding_receipt()
+            activation = binding.get('privateActivation', {}) if isinstance(binding, dict) else {}
+            generators = evidence.get('applicationSet', {}).get('generators')
+            if (binding.get('phase') in (None, 'accepted') or not isinstance(activation, dict)
+                    or activation.get('applicationSet') != evidence.get('applicationSet')
+                    or generators != [{'list': {'elements': [{'consumer': 'private-sources'}]}}]):
+                raise RuntimeError('Private catalog acceptance is invalid')
+            source_matches = sources_match(catalog, evidence)
         if (catalog.get('metadata', {}).get('labels', {}).get('cloudlab.io/owner') != OWNER
                 or catalog.get('metadata', {}).get('annotations', {}).get('argocd.argoproj.io/tracking-id') != TRACKING
-                or catalog.get('metadata', {}).get('finalizers') or not sources_match(catalog, evidence)
+                or catalog.get('metadata', {}).get('finalizers') or not source_matches
                 or not catalog_owner(catalog, evidence, get) or catalog.get('metadata', {}).get('deletionTimestamp')
                 or catalog.get('spec', {}).get('project') != APP
                 or catalog.get('spec', {}).get('destination') != {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'}
@@ -506,7 +524,9 @@ def run(payload):
         if (controllers() != baseline
                 or permission_spec is not None and not permissions_healthy(permissions, repository, permission_spec)
                 or telemetry is not None and not observability_healthy(repository, observability, telemetry, get)
-                or not all(configuration_healthy(app['metadata']['name'], repository, revision, symbolic_revisions) for app in consumers
+                or not all(configuration_healthy(app['metadata']['name'], repository,
+                    payload.get('catalog_revision') if app['metadata']['name'] == APP and 'catalog_revision' in payload else revision,
+                    symbolic_revisions) for app in consumers
                            if not (telemetry is not None and telemetry['paused'] and app['metadata']['name'] == 'cloudlab-observability-gitops'))
                 or not all(child_healthy(entry) for entry in payload['sources'])):
             raise RuntimeError('Controllers or private convergence changed during stability observation')
