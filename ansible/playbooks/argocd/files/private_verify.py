@@ -419,6 +419,36 @@ def observability_healthy(repository, evidence, declaration, read):
     return True
 
 
+def catalog_children(sources, objects):
+    """Bind each approved registry row to exactly one rendered Application."""
+    if not isinstance(sources, list) or not isinstance(objects, list):
+        raise RuntimeError('Private catalog declarations are invalid')
+    applications = [obj for obj in objects if isinstance(obj, dict) and obj.get('kind') == 'Application']
+    children = []
+    names = set()
+    for entry in sources:
+        if not isinstance(entry, dict) or not {'name', 'repository', 'path', 'revision'} <= set(entry):
+            raise RuntimeError('Private catalog declarations are invalid')
+        mode = entry.get('retirement')
+        if mode not in (None, 'configmap-only'):
+            raise RuntimeError('Private catalog declarations are invalid')
+        name = ('cloudlab-configmap-source-' if mode == 'configmap-only' else 'cloudlab-private-') + entry['name']
+        matches = [app for app in applications if app.get('metadata', {}).get('name') == name]
+        finalizers = ['resources-finalizer.argocd.argoproj.io'] if mode == 'configmap-only' else []
+        if (name in names or len(matches) != 1 or matches[0].get('apiVersion') != 'argoproj.io/v1alpha1'
+                or matches[0].get('metadata', {}).get('namespace') != 'argocd'
+                or (matches[0].get('metadata', {}).get('finalizers') or []) != finalizers
+                or matches[0].get('spec', {}).get('project') != name
+                or matches[0].get('spec', {}).get('source') != {'repoURL': entry['repository'],
+                    'path': entry['path'], 'targetRevision': entry['revision']}):
+            raise RuntimeError('Private catalog declarations are invalid')
+        names.add(name)
+        children.append((entry, matches[0]))
+    if len(applications) != len(children):
+        raise RuntimeError('Private catalog declarations are invalid')
+    return children
+
+
 def run(payload):
     repository = payload.get('configuration_repository')
     if not repository:
@@ -460,6 +490,8 @@ def run(payload):
         credential_owner(app, repository, secrets, externals)
     if permission_spec is not None:
         credential_owner({'spec': {'project': 'cloudlab-permissions'}}, repository, secrets, externals)
+    children = (catalog_children(payload['sources'], payload['objects']) if payload.get('catalog_enabled') else
+        [(entry, {'metadata': {'name': 'cloudlab-private-' + entry['name']}}) for entry in payload['sources']])
     if payload.get('catalog_enabled'):
         catalog = get('application.argoproj.io', APP) or {}
         evidence = {'repository': payload['public_repository'], 'revision': payload['platform_revision'],
@@ -504,15 +536,18 @@ def run(payload):
             expected_tracking = APP + ':' + group + '/' + kind + ':argocd/' + name
             if (actual['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id') != expected_tracking
                     or actual['metadata'].get('deletionTimestamp') or actual['metadata'].get('ownerReferences')
-                    or (kind == 'Application' and actual['metadata'].get('finalizers'))
+                    or (kind == 'Application' and (actual['metadata'].get('finalizers') or []) !=
+                        (desired['metadata'].get('finalizers') or []))
                     or not contains(actual, desired)):
                 raise RuntimeError('Private registration differs from its native declaration')
-    def child_healthy(entry):
-        name = 'cloudlab-private-' + entry['name']
+    def child_healthy(child):
+        entry, desired = child
+        name = desired['metadata']['name']
         return configuration_healthy(name, repository, revision, symbolic_revisions) if entry['repository'] == repository else healthy(name)
-    for entry in payload['sources']:
-        name = 'cloudlab-private-' + entry['name']
-        wait(lambda: child_healthy(entry), 'convergence')
+    for child in children:
+        entry, desired = child
+        name = desired['metadata']['name']
+        wait(lambda: child_healthy(child), 'convergence')
         credential_owner(get('application.argoproj.io', name), entry['repository'], secrets, externals)
     def controllers():
         argo = json.loads(kube('get', 'deployments,daemonsets,statefulsets,jobs,pods', '-n', 'argocd', '-o', 'json'))
@@ -528,7 +563,7 @@ def run(payload):
                     payload.get('catalog_revision') if app['metadata']['name'] == APP and 'catalog_revision' in payload else revision,
                     symbolic_revisions) for app in consumers
                            if not (telemetry is not None and telemetry['paused'] and app['metadata']['name'] == 'cloudlab-observability-gitops'))
-                or not all(child_healthy(entry) for entry in payload['sources'])):
+                or not all(child_healthy(child) for child in children)):
             raise RuntimeError('Controllers or private convergence changed during stability observation')
     return {'private_roots_converged': len(payload['sources']), 'private_configuration_consumers': len(consumers),
             'private_access_verified': True, 'eso_credentials_verified': True,

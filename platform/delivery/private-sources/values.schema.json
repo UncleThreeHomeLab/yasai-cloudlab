@@ -15,8 +15,10 @@
           "name": {"type": "string", "pattern": "^([a-z][a-z0-9-]{0,28}[a-z0-9]|[a-z])$", "not": {"enum": ["sources", "sources-source"]}},
           "repository": {"type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*[.]git$"},
           "revision": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.-]*$"},
-          "path": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.-]*$"}
-        }
+          "path": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.-]*$"},
+          "retirement": {"type": "string", "enum": ["configmap-only"]}
+        },
+        "allOf": [{"if": {"required": ["retirement"]}, "then": {"properties": {"revision": {"pattern": "^[a-f0-9]{40}$"}}}}]
       }
     }
   }

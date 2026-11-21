@@ -8,6 +8,10 @@
 {{- end }}
 {{- range .Values.sources }}
 {{- $name := printf "cloudlab-private-%s" .name }}
+{{- $retire := eq (.retirement | default "") "configmap-only" }}
+{{- if $retire }}
+{{- $name = printf "cloudlab-configmap-source-%s" .name }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -28,12 +32,22 @@ metadata:
   name: {{ $name }}
   namespace: argocd
   labels: {cloudlab.io/owner: private-gitops}
+  {{- if $retire }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+  {{- else }}
   annotations: {argocd.argoproj.io/sync-wave: '-2'}
+  {{- end }}
 spec:
   sourceRepos: [{{ .repository | quote }}]
   destinations: [{server: 'https://kubernetes.default.svc', namespace: {{ $name }}}]
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
+    {{- if $retire }}
+    - {group: '', kind: ConfigMap}
+    {{- else }}
     {{- range $kind := list "ConfigMap" "Service" "ServiceAccount" "PersistentVolumeClaim" }}
     - {group: '', kind: {{ $kind }}}
     {{- end }}
@@ -45,6 +59,7 @@ spec:
     {{- end }}
     - {group: networking.k8s.io, kind: NetworkPolicy}
     - {group: policy, kind: PodDisruptionBudget}
+    {{- end }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -52,7 +67,14 @@ metadata:
   name: {{ $name }}
   namespace: argocd
   labels: {cloudlab.io/owner: private-gitops}
+  {{- if $retire }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+  {{- else }}
   annotations: {argocd.argoproj.io/sync-wave: '-1'}
+  {{- end }}
 spec:
   refreshInterval: 24h
   secretStoreRef: {name: cloudlab, kind: ClusterSecretStore}
@@ -81,11 +103,14 @@ metadata:
   name: {{ $name }}
   namespace: argocd
   labels: {cloudlab.io/owner: private-gitops}
+  {{- if $retire }}
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+  {{- end }}
 spec:
   project: {{ $name }}
   source: {repoURL: {{ .repository | quote }}, targetRevision: {{ .revision | quote }}, path: {{ .path | quote }}}
   destination: {server: 'https://kubernetes.default.svc', namespace: {{ $name }}}
   syncPolicy:
-    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    automated: {enabled: true, prune: {{ $retire }}, selfHeal: true, allowEmpty: {{ $retire }}}
     syncOptions: [FailOnSharedResource=true, ClientSideApplyMigration=false]
 {{- end }}
