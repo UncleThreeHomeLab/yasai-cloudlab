@@ -1,3 +1,6 @@
+{{- if and .Values.enabled (ne .Values.nativeLifecycle.enabled true) }}
+{{- fail "enabled observability requires nativeLifecycle.enabled=true" }}
+{{- end }}
 {{- if .Values.enabled }}
 {{- $policy := .Files.Get "policy.json" | fromJson }}
 apiVersion: v1
@@ -9,7 +12,4 @@ data:
   config.alloy: |
 {{ .Files.Get "config.alloy" | indent 4 }}
 {{ include "observability.serviceLogs" . | indent 4 }}
-{{- if not .Values.nativeLifecycle.enabled }}
-{{ include "observability.baselineMonitors" . }}
-{{- end }}
 {{- end }}

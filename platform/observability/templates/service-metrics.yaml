@@ -1,3 +1,0 @@
-{{- if not .Values.nativeLifecycle.enabled }}
-{{ include "observability.serviceMetrics" . }}
-{{- end }}
