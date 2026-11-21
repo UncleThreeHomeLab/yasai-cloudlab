@@ -64,7 +64,7 @@ def main():
     if action == 'syntax':
         for path in sorted(Path('/workspace/ansible/playbooks').glob('**/*.yml')):
             if path.parent == Path('/workspace/ansible/playbooks') or path.parent.parent == Path('/workspace/ansible/playbooks'):
-                if path.name not in {'vars.yml', 'argument_specs.yml', 'retired-tooling.yml'}:
+                if path.name not in {'vars.yml', 'argument_specs.yml'}:
                     playbook(str(path), syntax=True)
         return
 
