@@ -8,14 +8,9 @@ import urllib.error
 import urllib.request
 from urllib.parse import quote
 
-try:
-    from playbooks.previews.files.contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, stored_approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
-    from playbooks.keycloak.files.configuration import client as compile_client
-except ImportError:
-    from preview_contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
-        approval, stored_approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
-    from configuration import client as compile_client
+from preview_contract import (OWNER, APPROVALS, STATE, IDENTITY_STATE,
+    approval, stored_approval, obsolete, runtime_catalog, requested_catalog, canonical, digest, client, names, MAX_ACTIVE, ORIGIN_VERSION)
+from configuration import client as compile_client
 
 IDENTITY_OWNER = 'cloudlab-preview-identity'
 GRACE = 600
