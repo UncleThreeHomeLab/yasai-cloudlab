@@ -79,7 +79,12 @@
     "privateSources": {
       "type": "object",
       "required": [],
-      "properties": {}
+      "properties": {
+        "commitment": {
+          "type": "string",
+          "pattern": "^([a-f0-9]{64})?$"
+        }
+      }
     },
     "observability": {
       "type": "object",

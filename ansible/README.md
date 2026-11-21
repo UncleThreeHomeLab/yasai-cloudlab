@@ -43,17 +43,15 @@ metadata reads use a disposable token restricted to the public repository.
 First-binding reads remain anonymous under their durable operation; failed
 acquisition or unconfirmed revocation blocks changes.
 
-Private source advancement is generic across consumers (`private-sources`,
-`services`, `observability`, `permissions`): publish an acceptance receipt at
-`platform/acceptance/<consumer>.yaml` on a private branch, compute its matching
-public commitment with
-`docker compose run --rm --entrypoint python lab playbooks/argocd/files/private_sources.py commit <consumer> <private-repository> <revision> <nonce>`,
-merge the receipt, then merge the commitment (and any enablement or pin) into
-`gitops/roots/public/values.yaml`. The identity binding accepts only a
-Git-accepted receipt revision; host input alone never retargets it. Qualify a
-new consumer with the isolated controller fixture
-(`verification/integration/private_source_acceptance.py`) before transferring a
-live owner, and verify live convergence with the private verification payload.
+Private source registry advancement uses `platform/acceptance/private-sources.yaml`
+in the private repository. Its only fields are string `version: v1`, `revision`
+(40 lowercase hexadecimal characters), and `nonce` (64 lowercase hexadecimal
+characters). Compute SHA-256 in memory over six UTF-8 lines, each ending in LF:
+`cloudlab-private-source-acceptance-v1`, the exact configured repository URL,
+`private-sources`, `platform/sources.yaml`, the revision, and the nonce. Publish
+only the opaque digest as `privateSources.commitment` in
+`gitops/roots/public/values.yaml` through protected review. Advance or roll back
+by reviewing the corresponding receipt and commitment together.
 
 [Certificates](playbooks/certificates/), [Istio](playbooks/istio/) and
 [access](playbooks/access/) order staging issuance, gateways and private resolvers.
