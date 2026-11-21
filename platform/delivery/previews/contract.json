@@ -11,7 +11,7 @@
   "expiryCheckIntervalSeconds": 60,
   "identityGraceSeconds": 600,
   "tombstoneCapacity": 256,
-  "privateValues": "previews/catalog.json",
+  "privateValues": "previews/catalog.yaml",
   "approvalRequests": "Reviewed private YAML approvals (approval.schema.json) merge into catalog approvals through the preview-discovery automation (D46), which derives the deterministic instance, source path, source digest and namespace ownership and opens the catalog PR for the owner to merge. Removing a request alone leaves its explicit catalog approval. To withdraw an instance, remove both the request and matching catalog approval; retain ownership through verified retirement. Changing any approved field enrolls a new instance; retired instances never reactivate. Legacy explicit approvals with retained ownership stay accepted during migration.",
   "privateDiscoveryCredential": {
     "localAppItem": "github-release-private",
