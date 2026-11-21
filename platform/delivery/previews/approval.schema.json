@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cloudlab.invalid/platform/delivery/previews/approval.schema.json",
   "title": "Private preview approval request",
-  "description": "Reviewed private approval input, for example previews/prices-pr-42.yaml in private GitOps. The preview controller validates each request, derives its immutable instance, source path, source digest and namespace ownership, and enrolls the exact revision. A changed PR revision is never reapproved automatically: it needs a new request. Removing a request retires its instance through the same guarded disposable cleanup. The source definition file previews/definition.json at the approved revision must byte-match the canonical JSON of definition.",
+  "description": "Reviewed private approval input, for example previews/prices-pr-42.yaml in private GitOps. The preview controller validates each request, derives its immutable instance, source path, source digest and namespace ownership, and enrolls the exact revision. A changed PR revision is never reapproved automatically: it needs a new request. Removing a request alone leaves its explicit catalog approval. To withdraw an instance, remove both the request and matching catalog approval; retain ownership through verified retirement. The source definition file previews/definition.json at the approved revision must byte-match the canonical JSON of definition.",
   "type": "object",
   "additionalProperties": false,
   "required": ["service", "repository", "repositoryId", "pullRequest", "sourceRevision", "image", "platformRevision", "profile", "definition", "createdAt", "expiresAt"],
