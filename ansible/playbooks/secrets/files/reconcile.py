@@ -1,32 +1,15 @@
-"""Create missing approved credential placeholders from accepted private Git declarations.
+"""Provision missing credential placeholders from authenticated Git snapshots.
 
-Trusted executor for credential provisioning. Control machine only: reads the
-administrator's private-config checkout (reviewed main, clean tree) or one
-explicit catalog file inside a reviewed clean checkout, derives missing-item
-requests from approved catalog
-bindings, and creates them with EMPTY required fields through the shared
-provisioner. The user fills values in 1Password; ESO resumes delivery on its
-refresh interval. Never fills, overwrites, rotates, or deletes values. ESO
-remains the sole read-only synchronizer; this token never leaves the machine.
-
-Sources of truth: the active private catalog (services/catalog.json by default,
-or the reviewed services.catalogPath selection) carries secret, identity, and
-data bindings; services/<name>/protection.yaml files carry backup protection
-bindings. The shared OIDC identity item is created with empty declared keys
-when missing and never rewritten once it exists, so every stored value,
-including sibling keys, is preserved; the user completes empty keys in
-1Password. Shared protection destinations stay administrator-owned and are
-reported for administrator completion, never created. Per-service secrets.yaml
-files do not exist: catalog supersession stands and every binding lives in the
-accepted catalog, never beside a workload.
+The read-only App authenticates public service intent and the private revision.
+Provisioning creates empty fields only and never changes existing values.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import time
 
@@ -79,34 +62,10 @@ def load_profiles():
     return {key: value['fields'] for key, value in profiles.items() if key != '_note'}
 
 
-def load_document(path):
-    try:
-        text = Path(path).read_text()
-    except OSError:
-        fail('Cannot read ' + str(path))
-    try:
-        if str(path).endswith('.json'):
-            return json.loads(text)
-        return yaml.safe_load(text)
-    except (ValueError, yaml.YAMLError):
-        fail('Invalid YAML or JSON in ' + str(path))
-
-
 def title(value, what):
     if not isinstance(value, str) or not TITLE_PATTERN.fullmatch(value):
         fail('Invalid vault item title for ' + what)
     return value
-
-
-def run_git(directory, *arguments, timeout=120):
-    try:
-        result = subprocess.run(['git', '-C', str(directory), *arguments],
-                                capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired):
-        fail('Private checkout git command did not complete')
-    if result.returncode:
-        fail('Private checkout is not a clean git repository at a reviewed commit')
-    return result.stdout
 
 
 def acquire_lock(state_directory):
@@ -403,9 +362,8 @@ def check_oidc(token, checks, inventory):
     return report
 
 
-def collect_protection(path, catalog_data):
+def collect_protection(path, document, catalog_data):
     """Validates one services/<name>/protection.yaml and reports coverage."""
-    document = load_document(path)
     service = path.parent.name
     if (not isinstance(document, dict) or document.get('service') != service or
             not isinstance(document.get('protection'), dict)):
@@ -440,21 +398,15 @@ def collect_protection(path, catalog_data):
             'resources': rows, 'destination': destination}
 
 
-def check_protection(private_directory, catalog_data, inventory):
-    titles = {item.get('title') for item in inventory} if inventory is not None else None
-    report = []
-    for path in sorted(Path(private_directory).glob('services/*/protection.yaml')) + \
-            sorted(Path(private_directory).glob('services/*/protection.yml')):
-        row = collect_protection(path, catalog_data)
-        if titles is None:
-            row['destinationStatus'] = 'unknown'
-        elif row['destination'] in titles:
+def check_protection(rows, inventory):
+    titles = {item.get('title') for item in inventory}
+    for row in rows:
+        if row['destination'] in titles:
             row['destinationStatus'] = 'ready'
         else:
             row['destinationStatus'] = 'awaiting-administrator'
             row['destinationDetail'] = 'shared destination credentials need administrator bootstrap'
-        report.append(row)
-    return report
+    return rows
 
 
 def catalog_requests(document):
@@ -481,49 +433,113 @@ def catalog_requests(document):
     return requests
 
 
+def accepted_source(workspace):
+    """Capture one complete immutable private snapshot under authenticated public intent."""
+    from playbooks.argocd.files import github_app, private_sources, service_activation
+    from playbooks.argocd.files.github_setup import repository
+
+    if dotenv_values is None:
+        raise RuntimeError('Source credentials are unavailable')
+    values = dotenv_values(str(Path(workspace) / '.env'), interpolate=False)
+    read_token = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN') or values.get('OP_SERVICE_ACCOUNT_TOKEN')
+    if not read_token:
+        raise RuntimeError('Missing read-only source credentials')
+    previous = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
+    os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = read_token
+    try:
+        public = yaml.load((Path(workspace) / 'gitops/roots/public/values.yaml').read_bytes(),
+                           Loader=private_sources.strict_loader('Public service input is invalid'))
+        repo_url = values.get('PRIVATE_CONFIG_REPOSITORY')
+        repo = repository(repo_url)
+        contract = private_sources.consumer_contract(public, 'services')
+        if not contract['enabled']:
+            raise ValueError('Service owner is disabled')
+        paths = service_activation.consumer_paths(public.get('services', {}).get('catalogPath'))
+
+        def read(client, revision):
+            evidence = private_sources.consumer_payload(values, public, repo_url, revision, 'services')
+            if not evidence or evidence['sourceRevision'] != revision or evidence['contract'] != contract:
+                raise ValueError('Service owner approval differs')
+            for settings in (values, os.environ):
+                if 'CLOUDLAB_CATALOG_PATH' in settings and settings['CLOUDLAB_CATALOG_PATH'] != paths[0]:
+                    raise ValueError('Legacy catalog setting differs from authenticated intent')
+            tree = client.request('GET', 'repos/' + repo + '/git/trees/' + revision + '?recursive=1')
+            if (not isinstance(tree, dict) or tree.get('truncated') is not False or
+                    not isinstance(tree.get('tree'), list)):
+                raise ValueError('Private source tree is incomplete')
+            entries = {}
+            for entry in tree['tree']:
+                if not isinstance(entry, dict) or not isinstance(entry.get('path'), str):
+                    raise ValueError('Private source tree is invalid')
+                name = entry['path']
+                if name in entries:
+                    raise ValueError('Private source tree contains duplicate paths')
+                entries[name] = entry
+            protection = sorted(name for name in entries if re.fullmatch(
+                r'services/[^/]+/protection[.](?:yaml|yml)', name))
+            services = [name.split('/')[1] for name in protection]
+            if (any(not NAME_PATTERN.fullmatch(name) for name in services) or
+                    len(set(services)) != len(services)):
+                raise ValueError('Private protection paths are invalid or duplicated')
+            if len(protection) > 100 or len(tree['tree']) > 10000:
+                raise ValueError('Private source tree exceeds its limit')
+            documents = {}
+            for name in paths + protection:
+                entry = entries.get(name)
+                if (not isinstance(entry, dict) or entry.get('type') != 'blob' or
+                        entry.get('mode') not in ('100644', '100755') or
+                        type(entry.get('size')) is not int or not 0 < entry['size'] <= 1048576 or
+                        not re.fullmatch(r'[a-f0-9]{40}', entry.get('sha', ''))):
+                    raise ValueError('Private source requires bounded regular files')
+                obj = client.request('GET', 'repos/' + repo + '/contents/' + name + '?ref=' + revision)
+                if (not isinstance(obj, dict) or obj.get('type') != 'file' or
+                        obj.get('encoding') != 'base64' or obj.get('sha') != entry['sha'] or
+                        obj.get('size') != entry['size']):
+                    raise ValueError('Private source file differs from its snapshot')
+                raw = private_sources.decode_contents(obj)
+                digest = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+                if len(raw) != entry['size'] or digest != entry['sha']:
+                    raise ValueError('Private source file size differs')
+                documents[name] = yaml.load(raw, Loader=private_sources.strict_loader('Private source input is invalid'))
+            for name in paths[1:]:
+                if not isinstance(documents[name], dict) or {'catalog', 'dataApprovals'} & documents[name].keys():
+                    raise ValueError('Private service values conflict with the catalog')
+            activation = {'required': True, 'repository': public['repository'],
+                'revision': public.get('services', {}).get('revision'),
+                'private_repository': repo_url, 'private_revision': revision,
+                'telemetry': public.get('observability', {}).get('enabled', False),
+                'catalog': documents[paths[0]], 'catalogPath': paths[0],
+                'applicationSet': evidence['applicationSet']}
+            service_activation.validate(activation, {'valuesRepository': repo_url,
+                'valuesRevision': revision}, allow_missing_namespace_guard=True)
+            return revision, evidence['publicRevision'], paths[0], documents, protection
+        return github_app.configuration_revision(values, read=read)
+    except Exception:
+        raise RuntimeError('Authenticated service source unavailable or invalid; private diagnostics withheld') from None
+    finally:
+        if previous is None:
+            os.environ.pop('OP_SERVICE_ACCOUNT_TOKEN', None)
+        else:
+            os.environ['OP_SERVICE_ACCOUNT_TOKEN'] = previous
+
+
 def cycle(arguments, profiles):
-    if arguments.catalog_file:
-        catalog_path = Path(arguments.catalog_file)
-        try:
-            revision = run_git(catalog_path.parent, 'rev-parse', 'HEAD').strip()
-            dirty = run_git(catalog_path.parent, 'status', '--porcelain').strip()
-        except ValueError:
-            fail('Catalog file checkout must be a git checkout at a reviewed commit')
-        if dirty or not re.fullmatch(r'[a-f0-9]{40}', revision):
-            fail('Catalog file checkout must be clean at a reviewed commit')
-        document = load_document(catalog_path)
-        source = {'selected': catalog_path.name, 'revision': revision}
-    else:
-        private = Path(arguments.private_dir)
-        if not CATALOG_PATH_PATTERN.fullmatch(arguments.catalog_path):
-            fail('Service catalog path must be a bounded catalog file directly under services')
-        if arguments.fetch:
-            run_git(private, 'fetch', 'origin')
-        try:
-            revision = run_git(private, 'rev-parse', 'HEAD').strip()
-            dirty = run_git(private, 'status', '--porcelain').strip()
-        except ValueError:
-            fail('Private checkout must be a git repository at a reviewed commit')
-        if dirty or not re.fullmatch(r'[a-f0-9]{40}', revision):
-            fail('Private checkout must be clean at a reviewed commit')
-        catalog_path = private / arguments.catalog_path
-        document = load_document(catalog_path)
-        source = {'selected': arguments.catalog_path, 'revision': revision}
+    revision, public_revision, selected, documents, paths = accepted_source(arguments.workspace)
+    document = documents[selected]
     definitions, oidc_checks = collect_catalog(profiles, document)
+    requests = catalog_requests(document)
+    protection = [collect_protection(Path(path), documents[path], requests) for path in paths]
     token = token_from(arguments.workspace)
     inventory = provision.inventory_items(token)
     provisioned = provision.ensure_items(token, definitions, placeholders=True) \
         if definitions else {'created': [], 'preserved': [], 'pending': {}}
     oidc = check_oidc(token, oidc_checks, inventory)
-    protection = []
-    if not arguments.catalog_file or Path(arguments.private_dir).is_dir():
-        protection = check_protection(arguments.private_dir, catalog_requests(document),
-                                      inventory)
+    protection = check_protection(protection, inventory)
     awaiting = sorted({row['destination'] for row in protection
                        if row['destinationStatus'] == 'awaiting-administrator'})
-    return {'source': source, 'created': provisioned['created'],
-            'preserved': provisioned['preserved'], 'pending': provisioned['pending'],
-            'oidc': oidc, 'protection': protection,
+    return {'source': {'selected': selected, 'revision': revision, 'publicRevision': public_revision},
+            'created': provisioned['created'], 'preserved': provisioned['preserved'],
+            'pending': provisioned['pending'], 'oidc': oidc, 'protection': protection,
             'awaitingAdministrator': awaiting}
 
 
@@ -549,13 +565,9 @@ def persist_report(state_dir, payload):
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(description='Create missing approved credential placeholders.')
-    parser.add_argument('--private-dir', default=os.environ.get('PRIVATE_CONFIG_DIR', '/private-config'))
-    parser.add_argument('--catalog-path', default=os.environ.get('CLOUDLAB_CATALOG_PATH', 'services/catalog.json'))
-    parser.add_argument('--catalog-file', default=None)
     parser.add_argument('--workspace', default='/workspace')
     parser.add_argument('--state-dir', default=os.environ.get('CLOUDLAB_STATE_DIR', '/reconciler-state'))
     parser.add_argument('--interval', type=int, default=0)
-    parser.add_argument('--fetch', action='store_true')
     arguments = parser.parse_args(argv)
     if arguments.interval < 0:
         parser.error('interval must be zero or positive')
